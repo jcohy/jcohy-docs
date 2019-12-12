@@ -1,238 +1,110 @@
 [[aop]]
-= Aspect Oriented Programming with Spring
+= 使用Spring面向切面编程
 
-Aspect-oriented Programming (AOP) complements Object-oriented Programming (OOP) by
-providing another way of thinking about program structure. The key unit of modularity
-in OOP is the class, whereas in AOP the unit of modularity is the aspect. Aspects
-enable the modularization of concerns (such as transaction management) that cut across
-multiple types and objects. (Such concerns are often termed "`crosscutting`" concerns
-in AOP literature.)
+面向切面编程(Aspect-oriented Programming 简称AOPAOP) ,是相对面向对象编程(Object-oriented Programming 简称OOP)的框架,作为OOP的一种功能补充. OOP主要的模块单元是类(class)。而AOP则是切面（aspect）。切面会将诸如事务管理这样跨越多个类型和对象的关注点模块化（在AOP的语义中，这类关注点被称为横切关注点（crosscutting））。
 
-One of the key components of Spring is the AOP framework. While the Spring IoC
-container does not depend on AOP (meaning you do not need to use AOP if you don't want
-to), AOP complements Spring IoC to provide a very capable middleware solution.
+AOP是Spring框架重要的组件，虽然Spring IoC容器没有依赖AOP，因此Spring不会强迫开发者使用AOP。但AOP提供了非常棒的功能，用做对Spring IoC的补充。
 
-.Spring AOP with AspectJ pointcuts
+.Spring AOP 具有 AspectJ 切点
 ****
-Spring provides simple and powerful ways of writing custom aspects by using either a
-<<aop-schema, schema-based approach>> or the <<aop-ataspectj, @AspectJ annotation style>>.
-Both of these styles offer fully typed advice and use of the AspectJ pointcut language
-while still using Spring AOP for weaving.
+Spring引入了一种更简单、更强大的方式用来自定义切面，开发者可以选择使用基于模式 <<aop-schema, schema-based approach>> 的方式或使用<<aop-ataspectj, @AspectJ >>注解风格方式来定义。
+这两种方式都完全支持通知（Advice）类型和AspectJ的切点语义，虽然实际上仍然是使用Spring AOP织入（weaving）的。
 
-This chapter discusses the schema- and @AspectJ-based AOP support.
-The lower-level AOP support is discussed in <<aop-api, the following chapter>>.
+本章主要讨论Spring 框架对基于模式和基于@AspectJ的AOP支持。<<aop-api, 下一章>>，将讨论底层的AOP支持.
 ****
 
-AOP is used in the Spring Framework to:
+AOP在Spring Framework中用于:
 
-* Provide declarative enterprise services. The most important such service is
-  <<data-access.adoc#transaction-declarative, declarative transaction management>>.
-* Let users implement custom aspects, complementing their use of OOP with AOP.
+* 提供声明式企业服务，特别是用于替代EJB的声明式服务。最重要的服务是<<data-access.adoc#transaction-declarative, 声明式事务管理>>，这个服务建立在Spring的抽象事务管理之上。
+* 允许开发者实现自定义切面，使用AOP来完善OOP的功能。
 
-NOTE: If you are interested only in generic declarative services or other pre-packaged
-declarative middleware services such as pooling, you do not need to work directly with
-Spring AOP, and can skip most of this chapter.
-
-
-
+NOTE: 如果只打算使用通用的声明式服务或者已有的声明式中间件服务，例如缓冲池（pooling）那么可以不直接使用AOP，也可以忽略本章大部分内容。
 
 [[aop-introduction-defn]]
-== AOP Concepts
+== AOP 概念
 
-Let us begin by defining some central AOP concepts and terminology. These terms are not
-Spring-specific. Unfortunately, AOP terminology is not particularly intuitive.
-However, it would be even more confusing if Spring used its own terminology.
+让我们从定义一些核心AOP概念和术语开始。 这些术语不是特定于Spring的。 不幸的是，AOP术语不是特别直观。 但是，如果Spring使用自己的术语，那将更加令人困惑。
 
-* Aspect: A modularization of a concern that cuts across multiple classes.
-  Transaction management is a good example of a crosscutting concern in enterprise Java
-  applications. In Spring AOP, aspects are implemented by using regular classes
-  (the <<aop-schema, schema-based approach>>) or regular classes annotated with the
-  `@Aspect` annotation (the <<aop-ataspectj, @AspectJ style>>).
-* Join point: A point during the execution of a program, such as the execution of a
-  method or the handling of an exception. In Spring AOP, a join point always
-  represents a method execution.
-* Advice: Action taken by an aspect at a particular join point. Different types of
-  advice include "`around`", "`before`" and "`after`" advice. (Advice types are discussed
-  later.) Many AOP frameworks, including Spring, model an advice as an interceptor and
-  maintain a chain of interceptors around the join point.
-* Pointcut: A predicate that matches join points. Advice is associated with a
-  pointcut expression and runs at any join point matched by the pointcut (for example,
-  the execution of a method with a certain name). The concept of join points as matched
-  by pointcut expressions is central to AOP, and Spring uses the AspectJ pointcut
-  expression language by default.
-* Introduction: Declaring additional methods or fields on behalf of a type. Spring
-  AOP lets you introduce new interfaces (and a corresponding implementation) to any
-  advised object. For example, you could use an introduction to make a bean implement an
-  `IsModified` interface, to simplify caching. (An introduction is known as an
-  inter-type declaration in the AspectJ community.)
-* Target object: An object being advised by one or more aspects. Also referred to as
-  the "`advised object`". Since Spring AOP is implemented by using runtime proxies, this
-  object is always a proxied object.
-* AOP proxy: An object created by the AOP framework in order to implement the aspect
-  contracts (advise method executions and so on). In the Spring Framework, an AOP proxy
-  is a JDK dynamic proxy or a CGLIB proxy.
-* Weaving: linking aspects with other application types or objects to create an
-  advised object. This can be done at compile time (using the AspectJ compiler, for
-  example), load time, or at runtime. Spring AOP, like other pure Java AOP frameworks,
-  performs weaving at runtime.
+* Aspect(切面): 指关注点模块化，这个关注点可能会横切多个对象。事务管理是企业级Java应用中有关横切关注点的例子。 在Spring AOP中，切面可以使用通用类 <<aop-schema, 基于schema的方式>>的方式或者在普通类中以<<aop-ataspectj, `@AspectJ`>>注解来实现。
+* Join point(连接点):在程序执行过程中某个特定的点，例如某个方法调用的时间点或者处理异常的时间点。在Spring AOP中，一个连接点总是代表一个方法的执行。
+* Advice(通知): 在切面的某个特定的连接点上执行的动作。通知有多种类型，包括 "`around`", "`before`" 和 "`after`" 等等。通知的类型将在后面的章节进行讨论。 许多AOP框架，包括Spring在内，都是以拦截器做通知模型的，并维护着一个以连接点为中心的拦截器链。
+* Pointcut(切点): 匹配连接点的断言。通知和切点表达式相关联，并在满足这个切点的连接点上运行（例如，当执行某个特定名称的方法时）。切点表达式如何和连接点匹配是AOP的核心：Spring默认使用AspectJ切点语义。
+* Introduction(引入): 声明额外的方法或者某个类型的字段。Spring允许引入新的接口（以及一个对应的实现）到任何被通知的对象上。例如，可以使用引入来使bean实现 `IsModified` 接口， 以便简化缓存机制（在AspectJ社区，引入也被称为内部类型声明（inter））。
+* Target object(目标对象): 被一个或者多个切面所通知的对象。也被称作被通知（advised）对象。既然Spring AOP是通过运行时代理实现的，那么这个对象永远是一个被代理（proxied）的对象。
+* AOP proxy(AOP代理): AOP框架创建的对象，用来实现切面契约（aspect contract）（包括通知方法执行等功能）。在Spring中，AOP代理可以是JDK动态代理或CGLIB代理。
+* Weaving(织入): 把切面连接到其它的应用程序类型或者对象上，并创建一个被被通知的对象的过程。这个过程可以在编译时（例如使用AspectJ编译器）、类加载时或运行时中完成。 Spring和其他纯Java AOP框架一样，是在运行时完成织入的。
 
-Spring AOP includes the following types of advice:
+Spring AOP包含以下类型的通知:
 
-* Before advice: Advice that runs before a join point but that does not have
-  the ability to prevent execution flow proceeding to the join point (unless it throws
-  an exception).
-* After returning advice: Advice to be run after a join point completes
-  normally (for example, if a method returns without throwing an exception).
-* After throwing advice: Advice to be executed if a method exits by throwing an
-  exception.
-* After (finally) advice: Advice to be executed regardless of the means by which a
-  join point exits (normal or exceptional return).
-* Around advice: Advice that surrounds a join point such as a method invocation.
-  This is the most powerful kind of advice. Around advice can perform custom behavior
-  before and after the method invocation. It is also responsible for choosing whether to
-  proceed to the join point or to shortcut the advised method execution by returning its
-  own return value or throwing an exception.
+* Before advice(前置通知): 在连接点之前运行但无法阻止执行流程进入连接点的通知（除非它引发异常）。
+* After returning advice(后置返回通知): 在连接点正常完成后执行的通知（例如，当方法没有抛出任何异常并正常返回时）。
+* After throwing advice(后置异常通知): 在方法抛出异常退出时执行的通知。
+* After (finally) advice(后置通知（总会执行）):  当连接点退出的时候执行的通知（无论是正常返回还是异常退出）。
+* Around advice(环绕通知): 环绕连接点的通知，例如方法调用。这是最强大的一种通知类型，。环绕通知可以在方法调用前后完成自定义的行为。它可以选择是否继续执行连接点或直接返回自定义的返回值又或抛出异常将执行结束。
 
-Around advice is the most general kind of advice. Since Spring AOP, like AspectJ,
-provides a full range of advice types, we recommend that you use the least powerful
-advice type that can implement the required behavior. For example, if you need only to
-update a cache with the return value of a method, you are better off implementing an
-after returning advice than an around advice, although an around advice can accomplish
-the same thing. Using the most specific advice type provides a simpler programming model
-with less potential for errors. For example, you do not need to invoke the `proceed()`
-method on the `JoinPoint` used for around advice, and, hence, you cannot fail to invoke it.
+环绕通知是最常用的一种通知类型。与AspectJ一样，在选择Spring提供的通知类型时，团队推荐开发者尽量使用简单的通知类型来实现需要的功能。例如， 如果只是需要使用方法的返回值来作缓存更新，虽然使用环绕通知也能完成同样的事情，但是仍然推荐使用后置返回通知来代替。
+使用最合适的通知类型可以让编程模型变得简单， 还能避免很多潜在的错误。例如，开发者无需调用于环绕通知（用 `JoinPoint`）的 `proceed()` 方法，也就不会产生调用的问题。
 
-All advice parameters are statically typed so that you work with advice parameters of
-the appropriate type (e.g. the type of the return value from a method execution) rather
-than `Object` arrays.
+所有通知参数都是静态类型的，因此您可以使用相应类型的通知参数（例如，方法执行的返回值的类型）而不是 `Object` 数组。
 
-The concept of join points matched by pointcuts is the key to AOP, which distinguishes
-it from older technologies offering only interception. Pointcuts enable advice to be
-targeted independently of the object-oriented hierarchy. For example, you can apply an
-around advice providing declarative transaction management to a set of methods that span
-multiple objects (such as all business operations in the service layer).
-
-
-
+切点和连接点匹配是AOP的关键概念，这个概念让AOP不同于其它仅仅提供拦截功能的旧技术。切入点使得通知可以独立于面向对象的层次结构进行定向。 例如，您可以将一个提供声明式事务管理的通知应用于跨多个对象（例如服务层中的所有业务操作）的一组方法。
 
 [[aop-introduction-spring-defn]]
-== Spring AOP Capabilities and Goals
+== Spring AOP的功能和目标
 
-Spring AOP is implemented in pure Java. There is no need for a special compilation
-process. Spring AOP does not need to control the class loader hierarchy and is thus
-suitable for use in a servlet container or application server.
+Spring AOP是用纯Java实现的。 不需要特殊的编译过程。 Spring AOP不需要控制类加载器层次结构，因此适合在servlet容器或应用程序服务器中使用。
 
-Spring AOP currently supports only method execution join points (advising the execution
-of methods on Spring beans). Field interception is not implemented, although support for
-field interception could be added without breaking the core Spring AOP APIs. If you need
-to advise field access and update join points, consider a language such as AspectJ.
+Spring目前仅支持方法调用的方式作为连接点（在Spring bean上通知方法的执行）。虽然可以在不影响到Spring AOP核心API的情况下加入对成员变量拦截器支持， 但Spring并没有实现成员变量拦截器。如果需要通知对成员变量的访问和更新连接点，可以考虑其它语言，例如AspectJ。
 
-Spring AOP's approach to AOP differs from that of most other AOP frameworks. The aim is
-not to provide the most complete AOP implementation (although Spring AOP is quite
-capable). Rather, the aim is to provide a close integration between AOP implementation and
-Spring IoC, to help solve common problems in enterprise applications.
+Spring实现AOP的方法与其他的框架不同，Spring并不是要尝试提供最完整的AOP实现（尽管Spring AOP有这个能力），相反地，它其实侧重于提供一种AOP与Spring IoC容器的整合的实现，用于帮助解决在企业级开发中的常见问题。
 
-Thus, for example, the Spring Framework's AOP functionality is normally used in
-conjunction with the Spring IoC container. Aspects are configured by using normal bean
-definition syntax (although this allows powerful "`auto-proxying`" capabilities). This is a
-crucial difference from other AOP implementations. You cannot do some things
-easily or efficiently with Spring AOP, such as advise very fine-grained objects (typically,
-domain objects). AspectJ is the best choice in such cases. However, our
-experience is that Spring AOP provides an excellent solution to most problems in
-enterprise Java applications that are amenable to AOP.
+因此，例如，Spring Framework的AOP功能通常与Spring IoC容器一起使用。通过使用普通bean定义语法来配置切面（尽管Spring提供了强大的“自动代理”功能）。 这是与其他AOP实现的重要区别。 使用Spring AOP无法轻松或高效地完成某些操作，例如建议非常细粒度的对象（通常是域对象）。 在这种情况下，AspectJ是最佳选择。 但是，我们的经验是，Spring AOP为适合AOP的企业Java应用程序中的大多数问题提供了出色的解决方案。
 
-Spring AOP never strives to compete with AspectJ to provide a comprehensive AOP
-solution. We believe that both proxy-based frameworks such as Spring AOP and full-blown
-frameworks such as AspectJ are valuable and that they are complementary, rather than in
-competition. Spring seamlessly integrates Spring AOP and IoC with AspectJ, to enable
-all uses of AOP within a consistent Spring-based application
-architecture. This integration does not affect the Spring AOP API or the AOP Alliance
-API. Spring AOP remains backward-compatible. See <<aop-api, the following chapter>>
-for a discussion of the Spring AOP APIs.
+Spring AOP从来没有打算通过提供一种全面的AOP解决方案用于取代AspectJ，我们相信，基于代理的框架（如Spring AOP）和完整的框架（如AspectJ）都很有价值，而且它们是互补的，而不是竞争。 Spring将Spring AOP和IoC与AspectJ无缝集成，使得所有的AOP功能完全融入基于Spring的应用体系。这样的集成不会影响Spring AOP API或者AOP Alliance API。
+Spring AOP仍然向后兼容。 有关Spring AOP API的讨论，请参阅 <<aop-api, 以下章节>>。
 
 [NOTE]
 ====
-One of the central tenets of the Spring Framework is that of non-invasiveness. This
-is the idea that you should not be forced to introduce framework-specific classes and
-interfaces into your business or domain model. However, in some places, the Spring Framework
-does give you the option to introduce Spring Framework-specific dependencies into your
-codebase. The rationale in giving you such options is because, in certain scenarios, it
-might be just plain easier to read or code some specific piece of functionality in such
-a way. However, the Spring Framework (almost) always offers you the choice: You have the
-freedom to make an informed decision as to which option best suits your particular use
-case or scenario.
+Spring框架的一个核心原则是非侵入性。这意味着开发者无需在自身的业务/域模型上被迫引入框架特定的类和接口。然而，有些时候，Spring框架可以让开发者选择引入Spring框架特定的依赖关系到业务代码。 给予这种选择的理由是因为在某些情况下它可能是更易读或易于编写某些特定功能。Spring框架（几乎）总能给出这样的选择，开发者可以自由地做出明智的决定，选择最适合的特定用例或场景。
 
-One such choice that is relevant to this chapter is that of which AOP framework (and
-which AOP style) to choose. You have the choice of AspectJ, Spring AOP, or both. You
-also have the choice of either the @AspectJ annotation-style approach or the Spring XML
-configuration-style approach. The fact that this chapter chooses to introduce the
-@AspectJ-style approach first should not be taken as an indication that the Spring team
-favors the @AspectJ annotation-style approach over the Spring XML configuration-style.
+与本章相关的一个选择是选择哪种AOP框架（以及哪种AOP样式）。您可以选择AspectJ，Spring AOP或两者。也可以选择@AspectJ注解式的方法或Spring的XML配置方式。 事实上，本章以介绍@AspectJ方式为先不应该被视为Spring团队倾向于@AspectJ的方式胜过Spring的XML配置方式。
 
-See <<aop-choosing>> for a more complete discussion of the "`whys and wherefores`" of
-each style.
+请参阅<<aop-choosing,选择要使用的AOP声明样式>>，以更全面地讨论每种样式的“为什么和如何进行”。
 ====
 
 
 
 
 [[aop-introduction-proxies]]
-== AOP Proxies
+== AOP 代理
 
-Spring AOP defaults to using standard JDK dynamic proxies for AOP proxies. This
-enables any interface (or set of interfaces) to be proxied.
+Spring默认使用标准的JDK动态代理来作为AOP的代理。这样任何接口（或者接口的set）都可以被代理。
 
-Spring AOP can also use CGLIB proxies. This is necessary to proxy classes rather than
-interfaces. By default, CGLIB is used if a business object does not implement an
-interface. As it is good practice to program to interfaces rather than classes, business
-classes normally implement one or more business interfaces. It is possible to
-<<aop-proxying, force the use of CGLIB>>, in those (hopefully rare) cases where you
-need to advise a method that is not declared on an interface or where you need to
-pass a proxied object to a method as a concrete type.
+Spring也支持使用CGLIB代理。对于需要代理类而不是代理接口的时候CGLIB代理是很有必要的。如果业务对象并没有实现接口，默认就会使用CGLIB代理 。此外，面向接口编程也是最佳实践，业务对象通常都会实现一个或多个接口。
+此外，还可以<<aop-proxying, 强制的使用CGLIB代理>>， 在那些（希望是罕见的）需要通知没有在接口中声明的方法时，或者当需要传递一个代理对象作为一种具体类型到方法的情况下。
 
-It is important to grasp the fact that Spring AOP is proxy-based. See
-<<aop-understanding-aop-proxies>> for a thorough examination of exactly what this
-implementation detail actually means.
-
-
-
+掌握Spring AOP是基于代理的这一事实非常重要。 请参阅 <<aop-understanding-aop-proxies,AOP代理>>，以全面了解此实现细节的实际含义。.
 
 [[aop-ataspectj]]
-== @AspectJ support
+== @AspectJ 注解支持
 
-@AspectJ refers to a style of declaring aspects as regular Java classes annotated with
-annotations. The @AspectJ style was introduced by the
-https://www.eclipse.org/aspectj[AspectJ project] as part of the AspectJ 5 release. Spring
-interprets the same annotations as AspectJ 5, using a library supplied by AspectJ
-for pointcut parsing and matching. The AOP runtime is still pure Spring AOP, though, and
-there is no dependency on the AspectJ compiler or weaver.
+@AspectJ 会将切面声明为常规Java类的注解类型。 https://www.eclipse.org/aspectj[AspectJ project] 引入了@AspectJ风格，并作为AspectJ 5发行版的一部分。Spring使用的注解类似于AspectJ 5， 使用AspectJ提供的库用来解析和匹配切点。AOP运行时仍然是纯粹的Spring AOP，并不依赖AspectJ编译器或编织器。
 
-NOTE: Using the AspectJ compiler and weaver enables use of the full AspectJ language and
-is discussed in <<aop-using-aspectj>>.
-
-
+NOTE: 使用AspectJ编译器和织入并允许使用全部基于AspectJ语言，并在<<aop-using-aspectj>>进行了讨论。
 
 [[aop-aspectj-support]]
-=== Enabling @AspectJ Support
+=== 启用 @AspectJ 支持
 
-To use @AspectJ aspects in a Spring configuration, you need to enable Spring support for
-configuring Spring AOP based on @AspectJ aspects and auto-proxying beans based on
-whether or not they are advised by those aspects. By auto-proxying, we mean that, if Spring
-determines that a bean is advised by one or more aspects, it automatically generates
-a proxy for that bean to intercept method invocations and ensures that advice is executed
-as needed.
+要在Spring配置中使用@AspectJ切面，需要启用Spring支持，用于根据@AspectJ切面配置Spring AOP，并根据这些切面自动代理bean（事先判断是否在通知的范围内）。 通过自动代理的意思是：如果Spring确定一个bean是由一个或多个切面处理的，将据此为bean自动生成代理bean，并以拦截方法调用并确保需要执行的通知。
 
-The @AspectJ support can be enabled with XML- or Java-style configuration. In either
-case, you also need to ensure that AspectJ's `aspectjweaver.jar` library is on the
-classpath of your application (version 1.8 or later). This library is available in the
-`lib` directory of an AspectJ distribution or from the Maven Central repository.
+可以使用XML或Java配置的方式启用@AspectJ支持。不管哪一种方式，您还需要确保AspectJ的 `aspectjweaver.jar` 库位于应用程序的类路径中（版本1.8或更高版本）。此库可在AspectJ分发的 `lib` 目录中或Maven Central存储库中找到。
 
 
 [[aop-enable-aspectj-java]]
-==== Enabling @AspectJ Support with Java Configuration
+==== 使用Java配置启用@AspectJ支持
 
-To enable @AspectJ support with Java `@Configuration`, add the `@EnableAspectJAutoProxy`
-annotation, as the following example shows:
+要使用Java `@Configuration` 启用 `@AspectJ` 支持，请添加 `@EnableAspectJAutoProxy` 注解，如以下示例所示：
+
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
@@ -251,33 +123,23 @@ annotation, as the following example shows:
 ----
 
 [[aop-enable-aspectj-xml]]
-==== Enabling @AspectJ Support with XML Configuration
+==== 使用XML配置启用@AspectJ支持
 
-To enable @AspectJ support with XML-based configuration, use the `aop:aspectj-autoproxy`
-element, as the following example shows:
+要使用基于XML的配置启用@AspectJ支持，请使用 `aop:aspectj-autoproxy` 元素，如以下示例所示：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<aop:aspectj-autoproxy/>
 ----
 
-This assumes that you use schema support as described in
-<<core.adoc#xsd-schemas, XML Schema-based configuration>>.
-See <<core.adoc#xsd-schemas-aop, the AOP schema>> for how to
-import the tags in the `aop` namespace.
-
-
+这假设您使用<<core.adoc#xsd-schemas, 基于 XML Schema 配置>>中描述的schema支持。 有关如何在 `aop` 命名空间中导入标签，请参阅 <<core.adoc#xsd-schemas-aop,  AOP schema>>。
 
 [[aop-at-aspectj]]
-=== Declaring an Aspect
+=== 声明切面
 
-With @AspectJ support enabled, any bean defined in your application context with a
-class that is an @AspectJ aspect (has the `@Aspect` annotation) is automatically
-detected by Spring and used to configure Spring AOP. The next two examples show the
-minimal definition required for a not-very-useful aspect.
+启用了 `@AspectJ` 支持后，在应用程序上下文中定义的任意bean（有 `@Aspect` 注解）的类都将被Spring自动检测，并用于配置Spring AOP。 接下来的两个示例显示了非常有用的方面所需的最小定义。
 
-The first of the two example shows a regular bean definition in the application
-context that points to a bean class that has the `@Aspect` annotation:
+这两个示例中的第一个示例在应用程序上下文中显示了一个常规bean定义，该定义指向具有 `@Aspect` 注解的bean类：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -286,8 +148,7 @@ context that points to a bean class that has the `@Aspect` annotation:
 	</bean>
 ----
 
-The second of the two examples shows the `NotVeryUsefulAspect` class definition,
-which is annotated with the `org.aspectj.lang.annotation.Aspect` annotation;
+这两个示例中的第二个显示了 `NotVeryUsefulAspect` 类定义，该定义使用 `org.aspectj.lang.annotation.Aspect` 注解进行注解:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -311,41 +172,21 @@ which is annotated with the `org.aspectj.lang.annotation.Aspect` annotation;
 	class NotVeryUsefulAspect
 ----
 
-Aspects (classes annotated with `@Aspect`) can have methods and fields, the same as any
-other class. They can also contain pointcut, advice, and introduction (inter-type)
-declarations.
+切面（使用 `@Aspect` 的类）可以拥有方法和属性，与其他类并无不同。也可以包括切点、通知和内置类型（即引入）声明。
 
-.Autodetecting aspects through component scanning
-NOTE: You can register aspect classes as regular beans in your Spring XML configuration or
-autodetect them through classpath scanning -- the same as any other Spring-managed bean.
-However, note that the `@Aspect` annotation is not sufficient for autodetection in
-the classpath. For that purpose, you need to add a separate `@Component` annotation
-(or, alternatively, a custom stereotype annotation that qualifies, as per the rules of
-Spring's component scanner).
+.通过组件扫描自动检测切面
+NOTE: 您可以在Spring XML配置中将切面类注册为常规bean，或者通过类路径扫描自动检测它们 - 与任何其他Spring管理的bean相同。然而注意到 `@Aspect` 注解对于类的自动探测是不够的， 为此，需要单独添加 `@Component` ，注解（或自定义注解声明，用作Spring组件扫描器的规则之一）。
 
-.Advising aspects with other aspects?
-NOTE: In Spring AOP, aspects themselves cannot be the targets of advice
-from other aspects. The `@Aspect` annotation on a class marks it as an aspect and,
-hence, excludes it from auto-proxying.
-
-
+.是否可以作为其他切面的切面通知?
+NOTE: 在Spring AOP中，不可能将切面本身被作为其他切面的目标。类上的 `@Aspect` 注解表明他是一个切面并且排除在自动代理的范围之外。
 
 [[aop-pointcuts]]
-=== Declaring a Pointcut
+=== 声明切点
 
-Pointcuts determine join points of interest and thus enable us to control
-when advice executes. Spring AOP only supports method execution join points for Spring
-beans, so you can think of a pointcut as matching the execution of methods on Spring
-beans. A pointcut declaration has two parts: a signature comprising a name and any
-parameters and a pointcut expression that determines exactly which method
-executions we are interested in. In the @AspectJ annotation-style of AOP, a pointcut
-signature is provided by a regular method definition, and the pointcut expression is
-indicated by using the `@Pointcut` annotation (the method serving as the pointcut signature
-must have a `void` return type).
+切点决定了匹配的连接点，从而使我们能够控制通知何时执行。Spring AOP只支持使用Spring bean的方法执行连接点，所以可以将切点看出是匹配Spring bean上方法的执行。 切点的声明包含两个部分：包含名称和任意参数的签名，以及明确需要匹配的方式执行的切点表达式。
+在@AspectJ注解方式的AOP中，一个切点的签名由常规方法定义来提供， 并且切点表达式使用 `@Pointcut` 注解指定（方法作为切点签名必须有类型为 `void` 的返回）。
 
-An example may help make this distinction between a pointcut signature and a pointcut
-expression clear. The following example defines a pointcut named `anyOldTransfer` that
-matches the execution of any method named `transfer`:
+使用例子有助于更好地区分切点签名和切点表达式之间的关系。以下示例定义名为 `anyOldTransfer` 的切点，该切点与名为 `transfer` 的任何方法的执行相匹配：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -360,86 +201,46 @@ matches the execution of any method named `transfer`:
 	private fun anyOldTransfer() {} // the pointcut signature
 ----
 
-The pointcut expression that forms the value of the `@Pointcut` annotation is a regular
-AspectJ 5 pointcut expression. For a full discussion of AspectJ's pointcut language, see
-the https://www.eclipse.org/aspectj/doc/released/progguide/index.html[AspectJ
-Programming Guide] (and, for extensions, the
-https://www.eclipse.org/aspectj/doc/released/adk15notebook/index.html[AspectJ 5
-Developer's Notebook]) or one of the books on AspectJ (such as _Eclipse AspectJ_, by Colyer
-et. al., or _AspectJ in Action_, by Ramnivas Laddad).
-
+切点表达式由 `@Pointcut` 注解的值是常规的AspectJ 5切点表达式。关于AspectJ切点语言的描述，见 https://www.eclipse.org/aspectj/doc/released/progguide/index.html[AspectJ
+Programming Guide] （作为扩展， 请参考https://www.eclipse.org/aspectj/doc/released/adk15notebook/index.html[AspectJ 5
+Developer's Notebook]）或者Colyer著的关于AspectJ的书籍。 例如， _Eclipse AspectJ_，或者参看Ramnivas Laddad的 _AspectJ in Action_。
 
 [[aop-pointcuts-designators]]
-==== Supported Pointcut Designators
+==== 支持切点标识符
 
-Spring AOP supports the following AspectJ pointcut designators (PCD) for use in pointcut
-expressions:
+Spring AOP支持使用以下AspectJ切点标识符(PCD),用于切点表达式：
 
-* `execution`: For matching method execution join points. This is the primary
-  pointcut designator to use when working with Spring AOP.
-* `within`: Limits matching to join points within certain types (the execution
-  of a method declared within a matching type when using Spring AOP).
-* `this`: Limits matching to join points (the execution of methods when using Spring
-  AOP) where the bean reference (Spring AOP proxy) is an instance of the given type.
-* `target`: Limits matching to join points (the execution of methods when using
-  Spring AOP) where the target object (application object being proxied) is an instance
-  of the given type.
-* `args`: Limits matching to join points (the execution of methods when using Spring
-  AOP) where the arguments are instances of the given types.
-* `@target`: Limits matching to join points (the execution of methods when using
-  Spring AOP) where the class of the executing object has an annotation of the given type.
-* `@args`: Limits matching to join points (the execution of methods when using Spring
-  AOP) where the runtime type of the actual arguments passed have annotations of the
-  given types.
-* `@within`: Limits matching to join points within types that have the given
-  annotation (the execution of methods declared in types with the given annotation when
-  using Spring AOP).
-* `@annotation`: Limits matching to join points where the subject of the join point
-  (the method being executed in Spring AOP) has the given annotation.
+* `execution`: 用于匹配方法执行连接点。 这是使用Spring AOP时使用的主要切点标识符。
+* `within`: 限制匹配特定类型中的连接点（在使用Spring AOP时，只需执行在匹配类型中声明的方法）。
+* `this`: 在bean引用（Spring AOP代理）是给定类型的实例的情况下，限制匹配连接点（使用Spring AOP时方法的执行）。
+* `target`: 限制匹配到连接点（使用Spring AOP时方法的执行），其中目标对象（正在代理的应用程序对象）是给定类型的实例。
+* `args`: 限制与连接点的匹配（使用Spring AOP时方法的执行），其中变量是给定类型的实例。
+* `@target`: 限制与连接点的匹配（使用Spring AOP时方法的执行），其中执行对象的类具有给定类型的注解。
+* `@args`: 限制匹配连接点（使用Spring AOP时方法的执行），其中传递的实际参数的运行时类型具有给定类型的注解。
+* `@within`: 限制与具有给定注解的类型中的连接点匹配（使用Spring AOP时在具有给定注解的类型中声明的方法的执行）。
+* `@annotation`: 限制匹配连接点（在Spring AOP中执行的方法具有给定的注解）。
 
-.Other pointcut types
+.其他切点类型
 ****
-The full AspectJ pointcut language supports additional pointcut designators that are not
-supported in Spring: `call`, `get`, `set`, `preinitialization`,
-`staticinitialization`, `initialization`, `handler`, `adviceexecution`, `withincode`, `cflow`,
-`cflowbelow`, `if`, `@this`, and `@withincode`. Use of these pointcut designators in pointcut
-expressions interpreted by Spring AOP results in an `IllegalArgumentException` being
-thrown.
+Spring并没有完全地支持AspectJ切点语言声明的切点标识符，包括 `call`, `get`, `set`, `preinitialization`,
+`staticinitialization`, `initialization`, `handler`, `adviceexecution`, `withincode`, `cflow`,`cflowbelow`, `if`, `@this`, 和 `@withincode`。在由Spring AOP解释的切点表达式中，使用这些切点标识符将导致 `IllegalArgumentException` 异常。
 
-The set of pointcut designators supported by Spring AOP may be extended in future
-releases to support more of the AspectJ pointcut designators.
+Spring AOP支持的切点标识符可以在将来的版本中扩展，以支持更多的AspectJ切点标识符。
 ****
 
-Because Spring AOP limits matching to only method execution join points, the preceding discussion
-of the pointcut designators gives a narrower definition than you can find in the
-AspectJ programming guide. In addition, AspectJ itself has type-based semantics and, at
-an execution join point, both `this` and `target` refer to the same object: the
-object executing the method. Spring AOP is a proxy-based system and differentiates
-between the proxy object itself (which is bound to `this`) and the target object behind the
-proxy (which is bound to `target`).
+因为Spring AOP限制了只匹配方法的连接点执行，所以上面的切点标识符的讨论比在AspectJ编程指南中找到的定义要窄。另外，AspectJ本身具有基于类型的语义，
+并且在执行连接点上，`this` 和 `target` 都指向同一个对象-即执行方法的对象。Spring AOP是一个基于代理的系统，区分代理对象本身（绑定到 `this`）和代理（绑定到 `target`）后的目标对象。
 
 [NOTE]
 ====
-Due to the proxy-based nature of Spring's AOP framework, calls within the target object
-are, by definition, not intercepted. For JDK proxies, only public interface method
-calls on the proxy can be intercepted. With CGLIB, public and protected method calls on
-the proxy are intercepted (and even package-visible methods, if necessary). However,
-common interactions through proxies should always be designed through public signatures.
+由于Spring AOP框架是基于代理的特性，定义的protected方法将不会被处理，不管是JDK的代理（做不到）还是CGLIB代理（有技术可以实现但是不建议）。 因此，任何给定的切点将只能与public方法匹配。
 
-Note that pointcut definitions are generally matched against any intercepted method.
-If a pointcut is strictly meant to be public-only, even in a CGLIB proxy scenario with
-potential non-public interactions through proxies, it needs to be defined accordingly.
+请注意，切点定义通常与任何截获的方法匹配。 如果切点严格意义上是公开的，即使在通过代理进行潜在非公共交互的CGLIB代理方案中，也需要相应地定义切点。
 
-If your interception needs include method calls or even constructors within the target
-class, consider the use of Spring-driven <<aop-aj-ltw, native AspectJ weaving>> instead
-of Spring's proxy-based AOP framework. This constitutes a different mode of AOP usage
-with different characteristics, so be sure to make yourself familiar with weaving
-before making a decision.
+如果需要拦截包括protected和private方法甚至是构造函数，请考虑使用基于Spring驱动的<<aop-aj-ltw, 本地AspectJ织入>>而不是Spring的基于代理的AOP框架。 这构成了不同特性的AOP使用模式，所以在做出决定之前一定要先熟悉一下编织。
 ====
 
-Spring AOP also supports an additional PCD named `bean`. This PCD lets you limit
-the matching of join points to a particular named Spring bean or to a set of named
-Spring beans (when using wildcards). The `bean` PCD has the following form:
+Spring AOP支持更多的PCD命名 `bean`。PCD允许将连接点的匹配限制为特定的Spring `bean` 或一系列Spring `bean`。 bean PCD具有以下形式：:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -452,31 +253,20 @@ Spring beans (when using wildcards). The `bean` PCD has the following form:
 	bean(idOrNameOfBean)
 ----
 
-The `idOrNameOfBean` token can be the name of any Spring bean. Limited wildcard
-support that uses the `*` character is provided, so, if you establish some naming
-conventions for your Spring beans, you can write a `bean` PCD expression
-to select them. As is the case with other pointcut designators, the `bean` PCD can
-be used with the `&&` (and), `||` (or), and `!` (negation) operators, too.
+`idOrNameOfBean` 标识可以是任意符合Spring bean的名字， 提供了使用 `*` 字符的有限通配符支持，因此，如果为Spring `bean` 建立了一些命名约定，则可以编写bean PCD表达式来选择它们。 与其他切点标识符的情况一样，PCD bean可以是 `&&` (and), `||` (or), and `!`(negation)。
 
 [NOTE]
 ====
-The `bean` PCD is supported only in Spring AOP and not in
-native AspectJ weaving. It is a Spring-specific extension to the standard PCDs that
-AspectJ defines and is, therefore, not available for aspects declared in the `@Aspect` model.
+`bean`PCD仅在Spring AOP中受支持，而在本机AspectJ编织中不受支持。 它是AspectJ定义的标准PCD的Spring特定扩展，因此不适用于 `@Aspect` 模型中声明的切面。
 
-The `bean` PCD operates at the instance level (building on the Spring bean name
-concept) rather than at the type level only (to which weaving-based AOP is limited).
-Instance-based pointcut designators are a special capability of Spring's
-proxy-based AOP framework and its close integration with the Spring bean factory, where
-it is natural and straightforward to identify specific beans by name.
+`bean` PCD 运行在实例级别上（基于Spring bean名称概念构建），而不是仅在类型级别（这是基于编织的AOP所限制的）。 基于实例的切点标识符是Spring基于代理的AOP框架的特殊功能，它与Spring bean工厂紧密集成，通过名称识别特定的bean是自然而直接的。
 ====
 
 
 [[aop-pointcuts-combining]]
-==== Combining Pointcut Expressions
+==== 合并切点表达式
 
-You can combine pointcut expressions by using `&&,` `||` and `!`. You can also refer to
-pointcut expressions by name. The following example shows three pointcut expressions:
+您可以使用 `&&,` `||` 和 `!` 等符号进行合并操作。也可以通过名字来指向切点表达式。 以下示例显示了三个切入点表达式：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -490,11 +280,9 @@ pointcut expressions by name. The following example shows three pointcut express
 	@Pointcut("anyPublicOperation() && inTrading()")
 	private void tradingOperation() {} // <3>
 ----
-<1> `anyPublicOperation` matches if a method execution join point represents the execution
-of any public method.
-<2> `inTrading` matches if a method execution is in the trading module.
-<3> `tradingOperation` matches if a method execution represents any public method in the
-trading module.
+<1> `anyPublicOperation` 如果方法执行连接点表示任何公共方法的执行，则匹配
+<2> `inTrading` 如果方法执行在 trading 中，则匹配.
+<3> `tradingOperation` 如果方法执行表示trading中的任何公共方法，则匹配。
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -508,26 +296,17 @@ trading module.
 	@Pointcut("anyPublicOperation() && inTrading()")
 	private fun tradingOperation() {} // <3>
 ----
-<1> `anyPublicOperation` matches if a method execution join point represents the execution
-of any public method.
-<2> `inTrading` matches if a method execution is in the trading module.
-<3> `tradingOperation` matches if a method execution represents any public method in the
-trading module.
+<1> `anyPublicOperation` 如果方法执行连接点表示任何公共方法的执行，则匹配
+<2> `inTrading` 如果方法执行在 trading 中，则匹配.
+<3> `tradingOperation` 如果方法执行表示trading中的任何公共方法，则匹配。
 
-It is a best practice to build more complex pointcut expressions out of smaller named
-components, as shown earlier. When referring to pointcuts by name, normal Java visibility
-rules apply (you can see private pointcuts in the same type, protected pointcuts in the
-hierarchy, public pointcuts anywhere, and so on). Visibility does not affect pointcut
-matching.
+如上所示，用更小的命名组件构建更复杂的切入点表达式是最佳实践。当按名称引用切点时，将应用普通的Java可见性规则（可以看到相同类型的私有切点，层次结构中受保护的切点，任何位置的公共切点等）。可见性并不影响切点匹配。
 
 
 [[aop-common-pointcuts]]
-==== Sharing Common Pointcut Definitions
+==== 共享通用的切点定义
 
-When working with enterprise applications, developers often want to refer to modules of the
-application and particular sets of operations from within several aspects. We recommend
-defining a "`SystemArchitecture`" aspect that captures common pointcut expressions for
-this purpose. Such an aspect typically resembles the following example:
+在处理企业应用程序时，通常需要从几个切面来引用应用程序的模块和特定的操作集。建议定义一个“SystemArchitecture” 切面，以此为目的捕获通用的切点表达式。这样的切面通常类似于以下示例：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -661,9 +440,7 @@ this purpose. Such an aspect typically resembles the following example:
 	}
 ----
 
-You can refer to the pointcuts defined in such an aspect anywhere you need a
-pointcut expression. For example, to make the service layer transactional, you could
-write the following:
+像这样定义的切点可以用在任何需要切点表达式的地方， 例如，要使服务层具有事务性，您可以编写以下内容：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -680,15 +457,13 @@ write the following:
 	</tx:advice>
 ----
 
-The `<aop:config>` and `<aop:advisor>` elements are discussed in <<aop-schema>>. The
-transaction elements are discussed in <<data-access.adoc#transaction, Transaction Management>>.
+`<aop:config>` 和 `<aop:advisor>` 元素在 <<aop-schema,基于Schema>>的AOP 支持中进行了讨论。  <<data-access.adoc#transaction,  事务管理>>中讨论了事务元素。
 
 
 [[aop-pointcuts-examples]]
 ==== Examples
 
-Spring AOP users are likely to use the `execution` pointcut designator the most often.
-The format of an execution expression follows:
+Spring AOP用户可能最常使用 `execution` 切点标识符 ，执行表达式的格式为：
 
 [literal,subs="verbatim,quotes"]
 ----
@@ -696,166 +471,134 @@ The format of an execution expression follows:
 				throws-pattern?)
 ----
 
-All parts except the returning type pattern (`ret-type-pattern` in the preceding snippet),
-the name pattern, and the parameters pattern are optional. The returning type pattern determines
-what the return type of the method must be in order for a join point to be matched.
-`{asterisk}` is most frequently used as the returning type pattern. It matches any return
-type. A fully-qualified type name matches only when the method returns the given
-type. The name pattern matches the method name. You can use the `{asterisk}` wildcard as all or
-part of a name pattern. If you specify a declaring type pattern,
-include a trailing `.` to join it to the name pattern component.
-The parameters pattern is slightly more complex: `()` matches a
-method that takes no parameters, whereas `(..)` matches any number (zero or more) of parameters.
-The `({asterisk})` pattern matches a method that takes one parameter of any type.
-`(*,String)` matches a method that takes two parameters. The first can be of any type, while the
-second must be a `String`. Consult the
-https://www.eclipse.org/aspectj/doc/released/progguide/semantics-pointcuts.html[Language
-Semantics] section of the AspectJ Programming Guide for more information.
+除返回类型模式（上面片段中的 `ret-type-pattern` ）以外的所有部件、名称模式和参数模式都是可选的。返回类型模式确定要匹配的连接点的方法的返回类型必须是什么。 通常，可以使用 `{asterisk}` 作为返回类型模式，它匹配任何返回类型。只有当方法返回给定类型时，完全限定的类型名称才会匹配。名称模式与方法名称匹配，可以将 `{asterisk}` 通配符用作名称模式的全部或部分。 如果指定声明类型模式，则需要有后缀 .将其加入到名称模式组件中。
+参数模式稍微复杂一点。`()` 匹配没有参数的方法。 `(..)` 匹配任意个数的参数（0个或多个）。 ( `{asterisk}` )匹配任何类型的单个参数。`(*,String)` 匹配有两个参数而且第一个参数是任意类型，第二个必须是 `String` 的方法。有关更多信息，请参阅AspectJ编程指南的https://www.eclipse.org/aspectj/doc/released/progguide/semantics-pointcuts.html[Language
+Semantics]部分。
 
-The following examples show some common pointcut expressions:
+以下示例显示了一些常见的切点表达式：
 
-* The execution of any public method:
+* 匹配任意公共方法的执行:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	execution(public * *(..))
 ----
 
-* The execution of any method with a name that begins with `set`:
+* 匹配任意以 `set` 开始的方法:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	execution(* set*(..))
 ----
 
-* The execution of any method defined by the `AccountService` interface:
+* 匹配定义了 `AccountService` 接口的任意方法:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	execution(* com.xyz.service.AccountService.*(..))
 ----
 
-* The execution of any method defined in the `service` package:
+* 匹配定义在 `service` 包中的任意方法:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	execution(* com.xyz.service.*.*(..))
 ----
 
-* The execution of any method defined in the service package or one of its sub-packages:
+* 匹配定义在service包和其子包中的任意方法:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	execution(* com.xyz.service..*.*(..))
 ----
 
-* Any join point (method execution only in Spring AOP) within the service package:
+* 匹配在service包中的任意连接点（只在Spring AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	within(com.xyz.service.*)
 ----
 
-* Any join point (method execution only in Spring AOP) within the service package or one of its
-sub-packages:
+* 匹配在service包及其子包中的任意连接点（只在Spring AOP中的方法执行）
 +
 [literal,subs="verbatim,quotes"]
 ----
 	within(com.xyz.service..*)
 ----
 
-* Any join point (method execution only in Spring AOP) where the proxy implements the
-`AccountService` interface:
+* 匹配代理实现了 `AccountService` 接口的任意连接点（只在Spring AOP中的方法执行）：
 +
 [literal,subs="verbatim,quotes"]
 ----
 	this(com.xyz.service.AccountService)
 ----
 +
-NOTE: 'this' is more commonly used in a binding form. See the section on <<aop-advice>>
-for how to make the proxy object available in the advice body.
+NOTE: 'this' 常常以捆绑的形式出现.  见后续的章节讨论如何在<<aop-advice,声明通知>>中使用代理对象。
 
-* Any join point (method execution only in Spring AOP) where the target object
-implements the `AccountService` interface:
+* 匹配当目标对象实现了 `AccountService` 接口的任意连接点（只在Spring AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	target(com.xyz.service.AccountService)
 ----
 +
-NOTE: 'target' is more commonly used in a binding form. See the <<aop-advice>> section
-for how to make the target object available in the advice body.
+NOTE: 'target' 常常以捆绑的形式出现. 见后续的章节讨论如何在<<aop-advice,声明通知>>中使用目标对象。
 
-* Any join point (method execution only in Spring AOP) that takes a single parameter
-and where the argument passed at runtime is `Serializable`:
+* 匹配使用了单一的参数，并且参数在运行时被传递时可以 `Serializable` 的任意连接点（只在Spring的AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	args(java.io.Serializable)
 ----
 +
-NOTE: 'args' is more commonly used in a binding form. See the <<aop-advice>> section
-for how to make the method arguments available in the advice body.
+NOTE: 'args' 常常以捆绑的形式出现.见后续的章节讨论如何在<<aop-advice,声明通知>>中使用方法参数。
 +
-Note that the pointcut given in this example is different from `execution(*
-*(java.io.Serializable))`. The args version matches if the argument passed at runtime is
-`Serializable`, and the execution version matches if the method signature declares a single
-parameter of type `Serializable`.
+注意在这个例子中给定的切点不同于 `execution(* *(java.io.Serializable))`. 如果在运行时传递的参数是可序列化的，则与 `execution` 匹配，如果方法签名声明单个参数类型可序列化，则与args匹配。
 
-* Any join point (method execution only in Spring AOP) where the target object has a
-`@Transactional` annotation:
+* 匹配当目标对象有 `@Transactional` 注解时的任意连接点（只在Spring AOP中的方法执行）。
 +
 [literal,subs="verbatim,quotes"]
 ----
 	@target(org.springframework.transaction.annotation.Transactional)
 ----
 +
-NOTE: You can also use '@target' in a binding form. See the <<aop-advice>> section for
-how to make the annotation object available in the advice body.
+NOTE: '@target' 也可以以捆绑的形式使用.见后续的章节讨论如何在<<aop-advice,声明通知>>中使用注解对象。
 
-* Any join point (method execution only in Spring AOP) where the declared type of the
-target object has an `@Transactional` annotation:
+* 匹配当目标对象的定义类型有 `@Transactional` 注解时的任意连接点（只在Spring的AOP中的方法执行）
 +
 [literal,subs="verbatim,quotes"]
 ----
 	@within(org.springframework.transaction.annotation.Transactional)
 ----
 +
-NOTE: You can also use '@within' in a binding form. See the <<aop-advice>> section for
-how to make the annotation object available in the advice body.
+NOTE: `'@within'` 也可以以捆绑的形式使用.见后续的章节讨论如何在<<aop-advice,声明通知>>中使用注解对象。
 
-* Any join point (method execution only in Spring AOP) where the executing method has an
-`@Transactional` annotation:
+* 匹配当执行的方法有 `@Transactional` 注解的任意连接点（只在Spring AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	@annotation(org.springframework.transaction.annotation.Transactional)
 ----
 +
-NOTE: You can also use '@annotation' in a binding form. See the <<aop-advice>> section
-for how to make the annotation object available in the advice body.
+NOTE: '@annotation' 也可以以捆绑的形式使用.见后续的章节讨论如何在<<aop-advice,声明通知>>中使用注解对象。
 
-* Any join point (method execution only in Spring AOP) which takes a single parameter,
-and where the runtime type of the argument passed has the `@Classified` annotation:
+* 匹配有单一的参数并且在运行时传入的参数类型有 `@Classified` 注解的任意连接点（只在Spring AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	@args(com.xyz.security.Classified)
 ----
 +
-NOTE: You can also use '@args' in a binding form. See the <<aop-advice>> section
-how to make the annotation object(s) available in the advice body.
+NOTE: '@args' 也可以以捆绑的形式使用.见后续的章节讨论如何在<<aop-advice,声明通知>>中使用注解对象。
 
-* Any join point (method execution only in Spring AOP) on a Spring bean named
-`tradeService`:
+* 匹配在名为 `tradeService` 的Spring bean上的任意连接点（只在Spring AOP中的方法执行）:
 +
 [literal,subs="verbatim,quotes"]
 ----
 	bean(tradeService)
 ----
 
-* Any join point (method execution only in Spring AOP) on Spring beans having names that
-match the wildcard expression `*Service`:
+* 匹配以 `*Service` 结尾的Spring bean上的任意连接点（只在Spring AOP中方法执行） :
 +
 [literal,subs="verbatim,quotes"]
 ----
@@ -864,55 +607,32 @@ match the wildcard expression `*Service`:
 
 
 [[writing-good-pointcuts]]
-==== Writing Good Pointcuts
+==== 编写好的切点
 
-During compilation, AspectJ processes pointcuts in order to optimize matching
-performance. Examining code and determining if each join point matches (statically or
-dynamically) a given pointcut is a costly process. (A dynamic match means the match
-cannot be fully determined from static analysis and that a test is placed in the code to
-determine if there is an actual match when the code is running). On first encountering a
-pointcut declaration, AspectJ rewrites it into an optimal form for the matching
-process. What does this mean? Basically, pointcuts are rewritten in DNF (Disjunctive
-Normal Form) and the components of the pointcut are sorted such that those components
-that are cheaper to evaluate are checked first. This means you do not have to worry
-about understanding the performance of various pointcut designators and may supply them
-in any order in a pointcut declaration.
+在编译过程中，AspectJ会尝试和优化匹配性能来处理切点。检查代码并确定每个连接点是否匹配（静态或动态）给定切点是一个代价高昂的过程。（动态匹配意味着无法从静态分析中完全确定匹配， 并且将在代码中放置测试，以确定在运行代码时是否存在实际匹配）。在第一次遇到切点声明时，AspectJ会将它重写为匹配过程的最佳形式。这是什么意思？基本上，切点是在DNF（析取范式）中重写的 ，切点的组成部分会被排序，以便先检查那些比较明确的组件。这意味着开发者不必担心各种切点标识符的性能，并且可以在切点声明中以任何顺序编写。
 
-However, AspectJ can work only with what it is told. For optimal performance of
-matching, you should think about what they are trying to achieve and narrow the search
-space for matches as much as possible in the definition. The existing designators
-naturally fall into one of three groups: kinded, scoping, and contextual:
+但是，AspectJ只能与被它指定的内容协同工作，并且为了获得最佳的匹配性能，开发者应该考虑它们试图实现的目标，并在定义中尽可能缩小匹配的搜索空间。 现有的标识符会自动选择下面三个中的一个 kinded, scoping, 和 contextual:
 
-* Kinded designators select a particular kind of join point:
-`execution`, `get`, `set`, `call`, and `handler`.
-* Scoping designators select a group of join points of interest
-(probably of many kinds): `within` and `withincode`
-* Contextual designators match (and optionally bind) based on context:
-`this`, `target`, and `@annotation`
+* Kinded选择特定类型的连接点的标识符:
+`execution`, `get`, `set`, `call`, 和 `handler`.
+* Scoping选择一组连接点的匹配 （可能是许多种类）: `within` 和 `withincode`
+* Contextual基于上下文匹配 （或可选绑定）的标识符:
+`this`, `target`, 和 `@annotation`
 
-A well written pointcut should include at least the first two types (kinded and
-scoping). You can include the contextual designators to match based on
-join point context or bind that context for use in the advice. Supplying only a
-kinded designator or only a contextual designator works but could affect weaving
-performance (time and memory used), due to extra processing and analysis. Scoping
-designators are very fast to match, and using them usage means AspectJ can very quickly
-dismiss groups of join points that should not be further processed. A good
-pointcut should always include one if possible.
+一个写得很好的切入点应该至少包括前两种类型（kinded和scoping）。同时contextual标识符或许会被包括如果希望匹配基于连接点上下文或绑定在通知中使用的上下文。 只是提供kinded标识符或只提供contextual标识符器也能够工作，但是可能影响处理性能（时间和内存的使用），浪费了额外的处理和分析时间或空间。scoping标识符可以快速匹配并且使用AspectJ可以快速排除不会被处理的连接点组， 这也说明编写好的切点表达式是很重要的（因为没有明确指定时，它就会Loop Lookup循环匹配）。
 
 
 
 [[aop-advice]]
-=== Declaring Advice
+=== 声明通知
 
-Advice is associated with a pointcut expression and runs before, after, or around
-method executions matched by the pointcut. The pointcut expression may be either a
-simple reference to a named pointcut or a pointcut expression declared in place.
+通知是与切点表达式相关联的概念，可以在切点匹配的方法之前、之后或之间执行。切点表达式可以是对命名切点的简单引用，也可以是即时声明的切点表达式。
 
 
 [[aop-advice-before]]
-==== Before Advice
+==== 前置通知
 
-You can declare before advice in an aspect by using the `@Before` annotation:
+您可以使用 `@Before` 注解在切面中的通知之前声明：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -947,8 +667,7 @@ You can declare before advice in an aspect by using the `@Before` annotation:
 	}
 ----
 
-If we use an in-place pointcut expression, we could rewrite the preceding example as the
-following example:
+如果使用内置切点表达式，我们可以重写前面的示例，如下例所示：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -985,10 +704,9 @@ following example:
 
 
 [[aop-advice-after-returning]]
-==== After Returning Advice
+==== 后置返回通知
 
-After returning advice runs when a matched method execution returns normally. You can
-declare it by using the `@AfterReturning` annotation:
+要想用后置返回通知可以在切面上添加 `@AfterReturning` 注解:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1022,13 +740,9 @@ declare it by using the `@AfterReturning` annotation:
 
 ----
 
-NOTE: You can have multiple advice declarations (and other members
-as well), all inside the same aspect. We show only a single advice declaration in
-these examples to focus the effect of each one.
+NOTE: 在同一切面中当然可以声明多个通知。在此只是为了迎合讨论的主题而只涉及单个通知。
 
-Sometimes, you need access in the advice body to the actual value that was returned. You
-can use the form of `@AfterReturning` that binds the return value to get that access, as
-the following example shows:
+有些时候需要在通知中获取实际的返回值。可以使用 `@AfterReturning` ，并指定 `returning` 字段如下:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1065,22 +779,15 @@ the following example shows:
 	}
 ----
 
-The name used in the `returning` attribute must correspond to the name of a parameter in
-the advice method. When a method execution returns, the return value is passed to
-the advice method as the corresponding argument value. A `returning` clause also
-restricts matching to only those method executions that return a value of the specified
-type (in this case, `Object`, which matches any return value).
+在 `returning` 属性中使用的名字必须和通知方法中的参数名相关，方法执行返回时，返回值作为相应的参数值传递给advice方法。`returning` 子句还限制只匹配那些返回指定类型的值的方法执行（在本例中为 `Object`，它匹配任何返回值对象）。
 
-Please note that it is not possible to return a totally different reference when
-using after returning advice.
+请注意，当使用after-returning的通知时。不能返回不同的引用。
 
 
 [[aop-advice-after-throwing]]
-==== After Throwing Advice
+==== 后置异常通知
 
-After throwing advice runs when a matched method execution exits by throwing an
-exception. You can declare it by using the `@AfterThrowing` annotation, as the following
-example shows:
+当方法执行并抛出异常时后置异常通知会被执行，需要使用 `@AfterThrowing` 注解来定义。如以下示例所示：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1115,11 +822,7 @@ example shows:
 	}
 ----
 
-Often, you want the advice to run only when exceptions of a given type are thrown, and
-you also often need access to the thrown exception in the advice body. You can use the
-`throwing` attribute to both restrict matching (if desired -- use `Throwable` as the
-exception type otherwise) and bind the thrown exception to an advice parameter. The
-following example shows how to do so:
+开发者常常希望当给定类型的异常被抛出时执行通知，并且也需要在通知中访问抛出的异常。使用 `throwing` 属性来限制匹配（如果需要，使用 `Throwable` 作为异常类型），并将引发的异常绑定到通知参数。以下示例显示了如何执行此操作：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1156,20 +859,13 @@ following example shows how to do so:
 	}
 ----
 
-The name used in the `throwing` attribute must correspond to the name of a parameter in
-the advice method. When a method execution exits by throwing an exception, the exception
-is passed to the advice method as the corresponding argument value. A `throwing`
-clause also restricts matching to only those method executions that throw an exception
-of the specified type ( `DataAccessException`, in this case).
+`throwing` 属性中使用的名字必须和通知方法中的参数名相关。当方法执行并抛出异常时，异常将会传递给通知方法作为相关的参数值。 抛出子句还限制与只引发指定类型的异常（在本例中为 `DataAccessException`）的方法执行的匹配。
 
 
 [[aop-advice-after-finally]]
-==== After (Finally) Advice
+==== 后置通知(总会执行)
 
-After (finally) advice runs when a matched method execution exits. It is declared by
-using the `@After` annotation. After advice must be prepared to handle both normal and
-exception return conditions. It is typically used for releasing resources and similar purposes.
-The following example shows how to use after finally advice:
+当匹配方法执行之后后置通知（总会执行）会被执行。这种情况使用 `@After` 注解来定义。后置通知必须被准备来处理正常或异常的返回条件。通常用于释放资源等等:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1206,37 +902,18 @@ The following example shows how to use after finally advice:
 
 
 [[aop-ataspectj-around-advice]]
-==== Around Advice
+==== 环绕通知
 
-The last kind of advice is around advice. Around advice runs "`around`" a matched method's
-execution. It has the opportunity to do work both before and after the method executes
-and to determine when, how, and even if the method actually gets to execute at all.
-Around advice is often used if you need to share state before and after a method
-execution in a thread-safe manner (starting and stopping a timer, for example). Always
-use the least powerful form of advice that meets your requirements (that is, do not use
-around advice if before advice would do).
+最后一种通知是环绕通知，环绕通知围绕方法执行。可以在方法执行之前和执行之后执行，并且定义何时做什么，甚至是否真正得到执行。如果需要在方法执行之前和之后以线程安全的方式 （例如启动和停止计时器） 共享状态， 则通常会使用环绕通知。总是建议使用最适合要求的通知（即可以用前置通知解决的就不要用环绕通知了）。
 
-Around advice is declared by using the `@Around` annotation. The first parameter of the
-advice method must be of type `ProceedingJoinPoint`. Within the body of the advice,
-calling `proceed()` on the `ProceedingJoinPoint` causes the underlying method to
-execute. The `proceed` method can also pass in an `Object[]`. The values
-in the array are used as the arguments to the method execution when it proceeds.
+使用 `@Around` 注解来定义环绕通知，第一个参数必须是 `ProceedingJoinPoint` 类型的。在通知中调用 `ProceedingJoinPoint` 中的 `proceed()` 方法来引用执行的方法。`proceed` 方法也可以被调用传递数组对象- 数组的值将会被当作参数在方法执行时被使用。
+`proceed` 方法也可以传入 `Object[]`。 数组中的值在进行时用作方法执行的参数。
 
-NOTE: The behavior of `proceed` when called with an `Object[]` is a little different than the
-behavior of `proceed` for around advice compiled by the AspectJ compiler. For around
-advice written using the traditional AspectJ language, the number of arguments passed to
-`proceed` must match the number of arguments passed to the around advice (not the number
-of arguments taken by the underlying join point), and the value passed to proceed in a
-given argument position supplants the original value at the join point for the entity
-the value was bound to (do not worry if this does not make sense right now). The approach
-taken by Spring is simpler and a better match to its proxy-based, execution-only
-semantics. You only need to be aware of this difference if you compile @AspectJ
-aspects written for Spring and use `proceed` with arguments with the AspectJ compiler
-and weaver. There is a way to write such aspects that is 100% compatible across both
-Spring AOP and AspectJ, and this is discussed in the
-<<aop-ataspectj-advice-params, following section on advice parameters>>.
 
-The following example shows how to use around advice:
+NOTE: 在使用 `Object[]` 调用时 `proceed` 的行为与在AspectJ编译器编译的环绕通知进行的行为略有不同。对于使用传统AspectJ语言编写的通知， 传递给 `proceed` 的参数数必须与传递给环绕通知的参数数量（不是被连接点处理的参数的数目）匹配，并且传递的值将 `proceed` 在给定的参数位置取代该值绑定到的实体的连接点的原始值（如果现在无法理解 ，请不要担心）。
+Spring处理的方式是简单的并且基于代理的，会生成更好的匹配语义。现在只需意识到这两种是有这么一点的不同的即可。有一种方法可以编写出100%兼容Spring AOP和AspectJ的匹配， 在后续的章节中将会讨论<<aop-ataspectj-advice-params, 通知的参数>>。
+
+以下示例显示如何使用around通知：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1279,50 +956,31 @@ The following example shows how to use around advice:
 	}
 ----
 
-The value returned by the around advice is the return value seen by the caller of
-the method. For example, a simple caching aspect could return a value from a cache if it
-has one and invoke `proceed()` if it does not. Note that `proceed` may be invoked once,
-many times, or not at all within the body of the around advice. All of these are
-legal.
+环绕通知返回的值将会被调用的方法看到，例如，一个简单的缓存切面可以从缓存中返回一个值（如果有的话），如果没有则调用 `proceed()`。 请注意，可以在around通知的主体内调用一次，多次或根本不调用。 所有这些都是合法的。
 
 
 [[aop-ataspectj-advice-params]]
-==== Advice Parameters
+==== 通知的参数
 
-Spring offers fully typed advice, meaning that you declare the parameters you need
-in the advice signature (as we saw earlier for the returning and throwing examples) rather
-than work with `Object[]` arrays all the time. We see how to make argument and other
-contextual values available to the advice body later in this section. First, we take a look at
-how to write generic advice that can find out about the method the advice is currently
-advising.
+Spring提供了全部类型的通知，这意味着需在通知签名中声明所需的参数（正如上面返回和异常的示例），而不是一直使用 `Object[]` 数组。接着将会看到怎么声明参数以及上下文的值是如何在通知实体中被使用的。 首先，来看看如何编写一般的通知，找出编写通知的法子。
 
 [[aop-ataspectj-advice-params-the-joinpoint]]
-===== Access to the Current `JoinPoint`
+===== 访问当前的 `JoinPoint`
 
-Any advice method may declare, as its first parameter, a parameter of type
-`org.aspectj.lang.JoinPoint` (note that around advice is required to declare
-a first parameter of type `ProceedingJoinPoint`, which is a subclass of `JoinPoint`. The
-`JoinPoint` interface provides a number of useful methods:
+任何通知方法都可以声明一个类型为 `org.aspectj.lang.JoinPoint` 的参数作为其第一个参数（注意，需要使用 环绕通知来声明一个类型为 `ProceedingJoinPoint` 的第一个参数， 它是 `JoinPoint` 的一个子类。`JoinPoint` 接口提供很多有用的方法：:
 
-* `getArgs()`: Returns the method arguments.
-* `getThis()`: Returns the proxy object.
-* `getTarget()`: Returns the target object.
-* `getSignature()`: Returns a description of the method that is being advised.
-* `toString()`: Prints a useful description of the method being advised.
+* `getArgs()`: 返回方法参数.
+* `getThis()`: 返回代理对象.
+* `getTarget()`: 返回目标对象.
+* `getSignature()`: 返回正在通知的方法的描述.
+* `toString()`: 打印方法被通知的有用描述.
 
 See the https://www.eclipse.org/aspectj/doc/released/runtime-api/org/aspectj/lang/JoinPoint.html[javadoc] for more detail.
 
 [[aop-ataspectj-advice-params-passing]]
-===== Passing Parameters to Advice
+===== 传递参数给通知
 
-We have already seen how to bind the returned value or exception value (using after
-returning and after throwing advice). To make argument values available to the advice
-body, you can use the binding form of `args`. If you use a parameter name in place of a
-type name in an args expression, the value of the corresponding argument is
-passed as the parameter value when the advice is invoked. An example should make this
-clearer. Suppose you want to advise the execution of DAO operations that take an `Account`
-object as the first parameter, and you need access to the account in the advice body.
-You could write the following:
+我们已经看到了如何绑定返回的值或异常值（在返回之后和抛出通知之后使用）。为了在通知代码段中使用参数值，可以使用绑定 `args` 的形式。如果在参数表达式中使用参数名代替类型名称， 则在调用通知时，要将相关的参数值当作参数传递。例如，假如在dao操作时将 `Account` 对象作为第一个参数传递给通知，并且需要在通知代码段内访问 `Account`，可以这样写:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1341,15 +999,9 @@ You could write the following:
 	}
 ----
 
-The `args(account,..)` part of the pointcut expression serves two purposes. First, it
-restricts matching to only those method executions where the method takes at least one
-parameter, and the argument passed to that parameter is an instance of `Account`.
-Second, it makes the actual `Account` object available to the advice through the `account`
-parameter.
+切点表达式的 `args(account,..)` 部分有两个目的。p它严格匹配了至少带一个参数的执行方法，并且传递给传递的参数是 `Account` 实例。 第二，它使得实际的 `Account` 对象通过 `account` 参数提供给通知。
 
-Another way of writing this is to declare a pointcut that "`provides`" the `Account`
-object value when it matches a join point, and then refer to the named pointcut
-from the advice. This would look as follows:
+另一个方法写法就是先定义切点，然后， "`provides`" `Account` 对象给匹配的连接点，有了连接点，那么引用连接点作为切点的通知就能获得 `Account` 对象的值。这看起来如下：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1375,15 +1027,11 @@ from the advice. This would look as follows:
 	}
 ----
 
-See the AspectJ programming guide for more
-details.
+有关更多详细信息，请参阅AspectJ编程指南。
 
-The proxy object ( `this`), target object ( `target`), and annotations ( `@within`,
-`@target`, `@annotation`, and `@args`) can all be bound in a similar fashion. The next two
-examples show how to match the execution of methods annotated with an
-`@Auditable` annotation and extract the audit code:
+代理对象( `this`)，目标对象 ( `target`)和注解 ( `@within`, `@target`, `@annotation`, 和 `@args`)都可以以类似的方式绑定。接下来的两个示例显示如何匹配带有 `@Auditable` 注解的注解方法的执行并获取audit代码代码:
 
-The first of the two examples shows the definition of the `@Auditable` annotation:
+首先是 `@Auditable` 注解的定义:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1402,7 +1050,7 @@ The first of the two examples shows the definition of the `@Auditable` annotatio
 	annotation class Auditable(val value: AuditCode)
 ----
 
-The second of the two examples shows the advice that matches the execution of `@Auditable` methods:
+然后是匹配 `@Auditable` 方法通知的执行
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1424,10 +1072,9 @@ The second of the two examples shows the advice that matches the execution of `@
 ----
 
 [[aop-ataspectj-advice-params-generics]]
-===== Advice Parameters and Generics
+===== 通知参数和泛型
 
-Spring AOP can handle generics used in class declarations and method parameters. Suppose
-you have a generic type like the following:
+Spring AOP可以处理类声明和方法参数中使用的泛型。假设如下泛型类型:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1446,8 +1093,7 @@ you have a generic type like the following:
 	}
 ----
 
-You can restrict interception of method types to certain parameter types by
-typing the advice parameter to the parameter type for which you want to intercept the method:
+只需将通知参数键入要拦截方法的参数类型，就可以将方法类型的检测限制为某些参数类型:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1466,8 +1112,7 @@ typing the advice parameter to the parameter type for which you want to intercep
 	}
 ----
 
-This approach does not work for generic collections. So you cannot define a
-pointcut as follows:
+此方法不适用于泛型集合。 因此，您无法按如下方式定义切点:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1486,24 +1131,14 @@ pointcut as follows:
 	}
 ----
 
-To make this work, we would have to inspect every element of the collection, which is not
-reasonable, as we also cannot decide how to treat `null` values in general. To achieve
-something similar to this, you have to type the parameter to `Collection<?>` and manually
-check the type of the elements.
+为了使这项工作，我们必须检查集合的每个元素，这是不合理的，因为我们也无法决定如何处理 `null` 值。 要实现与此类似的操作，您必须将参数键入 `Collection<?>` 并手动检查元素的类型。
 
 [[aop-ataspectj-advice-params-names]]
-===== Determining Argument Names
+===== 声明参数的名字
 
-The parameter binding in advice invocations relies on matching names used in pointcut
-expressions to declared parameter names in advice and pointcut method signatures.
-Parameter names are not available through Java reflection, so Spring AOP uses the
-following strategy to determine parameter names:
+参数在通知中的绑定依赖于名字匹配，重点在切点表达式中定义的参数名的方法签名上（通知和切点）。参数名称不能通过Java反射获得，因此Spring AOP使用以下策略来确定参数名称：
 
-* If the parameter names have been explicitly specified by the user, the specified
-  parameter names are used. Both the advice and the pointcut annotations have
-  an optional `argNames` attribute that you can use to specify the argument names of
-  the annotated method. These argument names are available at runtime. The following example
-  shows how to use the `argNames` attribute:
+* 如果用户已明确指定参数名称，则使用指定的参数名称。通知和切点注解都有一个可选的 `argNames` 属性，您可以使用该属性指定带注解的方法的参数名称。 这些参数名称在运行时可用。 以下示例显示如何使用 `argNames` 属性:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1525,11 +1160,7 @@ following strategy to determine parameter names:
 	}
 ----
 
-
-If the first parameter is of the `JoinPoint`, `ProceedingJoinPoint`, or
-`JoinPoint.StaticPart` type, you can leave out the name of the parameter from the value
-of the `argNames` attribute. For example, if you modify the preceding advice to receive
-the join point object, the `argNames` attribute need not include it:
+如果第一个参数是 `JoinPoint`, `ProceedingJoinPoint`, 或 `JoinPoint.StaticPart` 类型，则可以从 `argNames` 属性的值中省略参数的名称。 例如，如果修改前面的通知以接收连接点对象，则 `argNames` 属性不需要包含它:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1551,11 +1182,7 @@ the join point object, the `argNames` attribute need not include it:
 	}
 ----
 
-The special treatment given to the first parameter of the `JoinPoint`,
-`ProceedingJoinPoint`, and `JoinPoint.StaticPart` types is particularly convenient for
-advice instances that do not collect any other join point context. In such situations, you may
-omit the `argNames` attribute. For example, the following advice need not declare
-the `argNames` attribute:
+对 `JoinPoint`,`ProceedingJoinPoint`, 和 `JoinPoint.StaticPart` 类型的第一个参数的特殊处理方便不收集任何其他连接点上下文的通知。 在这种情况下，可以简单地省略 `argNames` 属性。例如，以下建议无需声明 `argNames` 属性:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1574,35 +1201,18 @@ the `argNames` attribute:
 	}
 ----
 
-* Using the `'argNames'` attribute is a little clumsy, so if the `'argNames'` attribute
-  has not been specified,  Spring AOP looks at the debug information for the
-  class and tries to determine the parameter names from the local variable table. This
-  information is present as long as the classes have been compiled with debug
-  information ( `'-g:vars'` at a minimum). The consequences of compiling with this flag
-  on are: (1) your code is slightly easier to understand (reverse engineer), (2)
-  the class file sizes are very slightly bigger (typically inconsequential), (3) the
-  optimization to remove unused local variables is not  applied by your compiler. In
-  other words, you should encounter no difficulties by building with this flag on.
+* 使用 `'argNames'` 属性有点笨拙，所以如果没有指定 `'argNames'` 属性，Spring AOP会查看该类的调试信息，并尝试从局部变量表中确定参数名称。只要使用调试信息( `'-g:vars'` ）编译类， 就会出现此信息。
+使用此标志进行编译的后果是：(1).您的代码将容易被理解(逆向工程。(2). 类文件的大小将会有些大(通常不是什么事)。(3). 对非使用本地变量的优化将不会应用于你的编译器。 换句话说，通过使用此标志构建，您应该不会遇到任何困难。
 +
-NOTE: If an @AspectJ aspect has been compiled by the AspectJ compiler (ajc) even without the
-debug information, you need not add the `argNames` attribute, as the compiler
-retain the needed information.
+NOTE: 如果即使没有调试信息，AspectJ编译器（ajc）也编译了@AspectJ方面，则无需添加 `argNames` 属性，因为编译器会保留所需的信息。
 
-* If the code has been compiled without the necessary debug information, Spring AOP
-  tries to deduce the pairing of binding variables to parameters (for example, if
-  only one variable is bound in the pointcut expression, and the advice method
-  takes only one parameter, the pairing is obvious). If the binding of variables is
-  ambiguous given the available information, an `AmbiguousBindingException` is
-  thrown.
-* If all of the above strategies fail, an `IllegalArgumentException` is thrown.
+* 如果代码是在没有必要的调试信息的情况下编译的，那么Spring AOP将尝试推断绑定变量与参数的配对（例如，如果在切点表达式中只绑定了一个变量，并且该通知方法只需要一个参数，此时两者匹配是明显的）。 如果给定了可用信息，变量的绑定是不明确的话，则会引发 `AmbiguousBindingException` 异常。
+* 如果上述所有策略都失败，则抛出 `IllegalArgumentException` 异常。
 
 [[aop-ataspectj-advice-proceeding-with-the-call]]
-===== Proceeding with Arguments
+===== 处理参数
 
-We remarked earlier that we would describe how to write a `proceed` call with
-arguments that works consistently across Spring AOP and AspectJ. The solution is
-to ensure that the advice signature binds each of the method parameters in order.
-The following example shows how to do so:
+前面说过。将描述如何用在Spring AOP和AspectJ中一致的参数中编写 `proceed` 处理函数。解决方案是确保建议签名按顺序绑定每个方法参数。 以下示例显示了如何执行此操作：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1629,47 +1239,27 @@ The following example shows how to do so:
 	}
 ----
 
-In many cases, you do this binding anyway (as in the preceding example).
+在许多情况下，无论如何都要执行此绑定（如前面的示例所示）。
 
 
 [[aop-ataspectj-advice-ordering]]
-==== Advice Ordering
+==== 通知的顺序
 
-What happens when multiple pieces of advice all want to run at the same join point?
-Spring AOP follows the same precedence rules as AspectJ to determine the order of advice
-execution. The highest precedence advice runs first "`on the way in`" (so, given two pieces
-of before advice, the one with highest precedence runs first). "`On the way out`" from a
-join point, the highest precedence advice runs last (so, given two pieces of after
-advice, the one with the highest precedence will run second).
+当多个通知都希望在同一连接点上运行时会发生什么情况？Spring AOP遵循与AspectJ相同的优先级规则来确定通知执行的顺序。拥有最高优先权的通知会途中先"进入"（因此，给定两条前置通知，优先级最高的通知首先运行）。 从连接点"退出"，拥有最高优先级的通知最后才运行（退出）（（因此，如果有两个后置通知，那么拥有最高优先级的将在最后运行（退出））。
 
-When two pieces of advice defined in different aspects both need to run at the same
-join point, unless you specify otherwise, the order of execution is undefined. You can
-control the order of execution by specifying precedence. This is done in the normal
-Spring way by either implementing the `org.springframework.core.Ordered` interface in
-the aspect class or annotating it with the `Order` annotation. Given two aspects, the
-aspect returning the lower value from `Ordered.getValue()` (or the annotation value) has
-the higher precedence.
+如果在不同切面定义的两个通知都需要在同一个连接点运行，那么除非开发者指定运行的先后，否则执行的顺序是未定义的。 可以通过指定优先级来控制执行顺序。这也是Spring推荐的方式，通过在切面类实现 `org.springframework.core.Ordered` 接口或使用 `Order` 对其进行注解即可。
+如果有两个切面，从 `Ordered.getValue()`（或注解值）返回较低值的方面具有较高的优先级。
 
-When two pieces of advice defined in the same aspect both need to run at the same
-join point, the ordering is undefined (since there is no way to retrieve the declaration
-order through reflection for javac-compiled classes). Consider collapsing such advice
-methods into one advice method per join point in each aspect class or refactor the
-pieces of advice into separate aspect classes that you can order at the aspect level.
+当在同一切面定义的两条通知都需要在同一个连接点上运行时，排序也是未定义的（因为没有办法通过反射检索Javac编译的类的声明顺序） 。考虑将通知方法与一个通知方法合并，根据每个连接点在每个切面类或将通知切分为切面类，可以在切面级别指定顺序。
 
 
 
 [[aop-introductions]]
-=== Introductions
+=== 引入
 
-Introductions (known as inter-type declarations in AspectJ) enable an aspect to declare
-that advised objects implement a given interface, and to provide an implementation of
-that interface on behalf of those objects.
+引入（作为AspectJ中内部类型的声明）允许切面定义通知的对象实现给定的接口,并代表这些对象提供该接口的实现.
 
-You can make an introduction by using the `@DeclareParents` annotation. This annotation is used
-to declare that matching types have a new parent (hence the name). For example, given an
-interface named `UsageTracked` and an implementation of that interface named `DefaultUsageTracked`,
-the following aspect declares that all implementors of service interfaces also implement
-the `UsageTracked` interface (to expose statistics via JMX for example):
+引入使用 `@DeclareParents` 注解来定义,这个注解用于声明匹配拥有新的父类的类型（因此得名）。例如， 给定名为 `UsageTracked` 的接口和名为 `DefaultUsageTracked` 的接口的实现，以下切面声明服务接口的所有实现者也实现 `UsageTracked` 接口（例如，通过JMX公开统计信息）:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1705,12 +1295,7 @@ the `UsageTracked` interface (to expose statistics via JMX for example):
 	}
 ----
 
-The interface to be implemented is determined by the type of the annotated field. The
-`value` attribute of the `@DeclareParents` annotation is an AspectJ type pattern. Any
-bean of a matching type implements the `UsageTracked` interface. Note that, in the
-before advice of the preceding example, service beans can be directly used as
-implementations of the `UsageTracked` interface. If accessing a bean programmatically,
-you would write the following:
+要实现的接口由注解属性的类型来确定。 `@DeclareParents` 注解的 `value` 值是AspectJ类型模式引过来的。注意上面例子中的前置通知， 服务bean可以直接作为 `UsageTracked` 接口的实现，如果以编程方式访问bean，您将编写以下内容：:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1725,19 +1310,13 @@ you would write the following:
 
 
 [[aop-instantiation-models]]
-=== Aspect Instantiation Models
+=== 切面实例化模型
 
-NOTE: This is an advanced topic. If you are just starting out with AOP, you can safely skip
-it until later.
+NOTE: 这是一个高级主题。 如果您刚刚开始使用AOP，您可以跳过它直到稍后再了解。
 
-By default, there is a single instance of each aspect within the application
-context. AspectJ calls this the singleton instantiation model. It is possible to define
-aspects with alternate lifecycles. Spring supports AspectJ's `perthis` and `pertarget`
-instantiation models ( `percflow, percflowbelow,` and `pertypewithin` are not currently
-supported).
+默认情况下，应用程序上下文中的每个切面都有一个实例。AspectJ将其称为单例实例化模型。 可以使用交替生命周期定义切面。 Spring支持AspectJ的 `perthis` 和 `pertarget` 实例化模型（目前不支持 `percflow`, `percflowbelow`, 和 `pertypewithin`）。
 
-You can declare a `perthis` aspect by specifying a `perthis` clause in the `@Aspect`
-annotation. Consider the following example:
+您可以通过在 `@Aspect` 注解中指定 `perthis` 子句来声明相关方面。 请考虑以下示例:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1770,38 +1349,21 @@ annotation. Consider the following example:
 	}
 ----
 
-In the preceding example, the effect of the `'perthis'` clause is that one aspect instance is created for
-each unique service object that executes a business service (each unique object bound to
-'this' at join points matched by the pointcut expression). The aspect instance is
-created the first time that a method is invoked on the service object. The aspect goes
-out of scope when the service object goes out of scope. Before the aspect instance is
-created, none of the advice within it executes. As soon as the aspect instance has been
-created, the advice declared within it executes at matched join points, but only
-when the service object is the one with which this aspect is associated. See the AspectJ
-Programming Guide for more information on `per` clauses.
+在前面的示例中，`'perthis'` 子句的作用是为执行业务服务的每个唯一服务对象创建一个切面实例（每个唯一对象在由切点表达式匹配的连接点处绑定到'this'）。 方法实例是在第一次在服务对象上调用方法时创建的。
+当服务对象超出范围时，该切面也将超出范围。在创建切面实例之前，它包含的任意通知都不会执行。在创建了切面实例后， 其中声明的通知将在匹配的连接点中执行，但仅当服务对象是此切面关联的通知时才会运行。有关 `per` 子句的更多信息，请参阅AspectJ编程指南。
 
-The `pertarget` instantiation model works in exactly the same way as `perthis`, but it
-creates one aspect instance for each unique target object at matched join points.
+`pertarget` 实例化模型的工作方式与 `perthis` 完全相同，但它为匹配的连接点处的每个唯一目标对象创建一个切面实例。
 
 
 
 [[aop-ataspectj-example]]
-=== An AOP Example
+=== AOP 例子
 
-Now that you have seen how all the constituent parts work, we can put them together to do
-something useful.
+现在您已经了解了所有组成部分的工作原理，我们可以将它们放在一起做一些有用的事情.
 
-The execution of business services can sometimes fail due to concurrency issues (for
-example, a deadlock loser). If the operation is retried, it is likely to succeed
-on the next try. For business services where it is appropriate to retry in such
-conditions (idempotent operations that do not need to go back to the user for conflict
-resolution), we want to transparently retry the operation to avoid the client seeing a
-`PessimisticLockingFailureException`. This is a requirement that clearly cuts across
-multiple services in the service layer and, hence, is ideal for implementing through an
-aspect.
+由于并发问题（例如，死锁失败者），业务服务的执行有时会失败。如果重试该操作，则可能在下次尝试时成功。对于适合在这种情况下重试的业务服务（不需要返回给用户来解决冲突的幂等操作）。 希望透明地重试该操作，以避免客户端看到 `PessimisticLockingFailureException` 异常。这个需求很明显，它跨越了服务层中的多个服务，因此非常适合通过切面来实现。
 
-Because we want to retry the operation, we need to use around advice so that we can
-call `proceed` multiple times. The following listing shows the basic aspect implementation:
+因为我们想要重试操作，所以我们需要使用环绕通知，以便我们可以多次调用 `proceed`。 以下清单显示了基本方面的实现:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1884,15 +1446,10 @@ call `proceed` multiple times. The following listing shows the basic aspect impl
 	}
 ----
 
-Note that the aspect implements the `Ordered` interface so that we can set the precedence of
-the aspect higher than the transaction advice (we want a fresh transaction each time we
-retry). The `maxRetries` and `order` properties are both configured by Spring. The
-main action happens in the `doConcurrentOperation` around advice. Notice that, for the
-moment, we apply the retry logic to each `businessService()`. We try to proceed,
-and if we fail with a `PessimisticLockingFailureException`, we try again, unless
-we have exhausted all of our retry attempts.
+请注意，该方面实现了 `Ordered` 接口，以便我们可以将切面的优先级设置为高于事务通知（我们每次重试时都需要一个新的事务）。 `maxRetries` 和 `order` 属性都由Spring配置。主要的操作是在 `doConcurrentOperation` 的环绕通知中。
+请注意，请注意，目前，我们将重试逻辑应用于每个 `businessService()`。 尝试执行时，如果失败了，将产生 `PessimisticLockingFailureException` 异常，但是不用管它，只需再次尝试执行即可，除非已经用尽所有的重试次数。
 
-The corresponding Spring configuration follows:
+相应的Spring配置如下：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -1904,8 +1461,7 @@ The corresponding Spring configuration follows:
 	</bean>
 ----
 
-To refine the aspect so that it retries only idempotent operations, we might define the following
-`Idempotent` annotation:
+为了优化切面以便它只重试幂等操作，我们可以定义以下 `Idempotent` 注解:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1922,9 +1478,7 @@ To refine the aspect so that it retries only idempotent operations, we might def
 	annotation class Idempotent// marker annotation
 ----
 
-We can then use the annotation to annotate the implementation of service operations. The change
-to the aspect to retry only idempotent operations involves refining the pointcut
-expression so that only `@Idempotent` operations match, as follows:
+然后使用它来注解服务操作的实现。对切面的更改只需要重试等幂运算，只需细化切点表达式，以便只匹配 `@Idempotent` 操作:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
