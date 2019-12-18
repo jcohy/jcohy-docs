@@ -1,51 +1,34 @@
 [[technical-overview]]
-== Technical Overview
+== 技术概述
 
 
 [[runtime-environment]]
-=== Runtime Environment
-Spring Security {spring-security-version} requires a Java 8 Runtime Environment or higher.
-As Spring Security aims to operate in a self-contained manner, there is no need to place any special configuration files into your Java Runtime Environment.
-In particular, there is no need to configure a special Java Authentication and Authorization Service (JAAS) policy file or place Spring Security into common classpath locations.
+=== 运行环境
+Spring Security {spring-security-version} 需要JDK 8 或更高的版本运行
+由于 Spring Security 是以独立的方式运作, 就不需要什么特殊的配置文件到你的Java运行环境。特别是, 不需要配置专门的Java认证和授权服务(JAAS)策略文件或将Spring Security的位置放到普通路径中。
 
-Similarly, if you are using an EJB Container or Servlet Container there is no need to put any special configuration files anywhere, nor include Spring Security in a server classloader.
-All the required files will be contained within your application.
+同样，如果你使用的是EJB容器或者Servlet容器也没有必要把任何特殊的配置文件放到任何地方，也不包括Spring Security的服务器类加载器。所有必须的文件都将包含在你的应用程序中。
 
-This design offers maximum deployment time flexibility, as you can simply copy your target artifact (be it a JAR, WAR or EAR) from one system to another and it will immediately work.
+这种设计给部署时间提供了最大的灵活性，你可以简单的复制你的目标文件(可以是JAR, WAR或者EAR)从一个系统到另一个系统，它会立即开始工作。
 
 
 [[core-components]]
-=== Core Components
-As of Spring Security 3.0, the contents of the `spring-security-core` jar were stripped down to the bare minimum.
-It no longer contains any code related to web-application security, LDAP or namespace configuration.
-We'll take a look here at some of the Java types that you'll find in the core module.
-They represent the building blocks of the framework, so if you ever need to go beyond a simple namespace configuration then it's important that you understand what they are, even if you don't actually need to interact with them directly.
+=== 核心组件
+在Spring Security 3.0的版本中，spring-security-core中的内容被精简到了最低限度。它不再包含web应用安全,LDAP或命名空间配置的任何代码。
+我们来看看一些Java类型，你会在核心模块中找到。它们代表了框架的基石，所有如果你需要越过一个简单的命名空间配置，那么最重要的是你要明白它们是什么，即使你不需要直接与它们进行交互。
 
+====  SecurityContextHolder, SecurityContext 和 Authentication 对象
+最核心的对象是 `SecurityContextHolder`。我们把当前应用程序的当前安全环境的细节存储到它里边了， 它也包含了应用当前使用的主体细节。默认情况下 `SecurityContextHolder` 使用 `ThreadLocal` 存储这些信息，
+这意味着，安全环境在同一个线程执行的方法一直是有效的， 即使这个安全环境没有作为一个方法参数传递到那些方法里。这种情况下使用 `ThreadLocal` 是非常安全的，只要记得在处理完当前主体的请求以后，把这个线程清除就行了。
+当然，Spring Security自动帮你管理这一切了， 你就不用担心什么了。
 
-====  SecurityContextHolder, SecurityContext and Authentication Objects
-The most fundamental object is `SecurityContextHolder`.
-This is where we store details of the present security context of the application, which includes details of the principal currently using the application.
-By default the `SecurityContextHolder` uses a `ThreadLocal` to store these details, which means that the security context is always available to methods in the same thread of execution, even if the security context is not explicitly passed around as an argument to those methods.
-Using a `ThreadLocal` in this way is quite safe if care is taken to clear the thread after the present principal's request is processed.
-Of course, Spring Security takes care of this for you automatically so there is no need to worry about it.
+有些程序并不适合使用 `ThreadLocal`，因为它们处理线程的特殊方法。比如Swing客户端也许希望Java 虚拟机里所有的线程 都使用同一个安全环境。`SecurityContextHolder` 可以配置启动策略来指定你希望上下文怎么被存储。
+对于一个独立的应用程序，你会使用 `SecurityContextHolder.MODE_GLOBAL` 策略。
+其他程序可能也想由安全线程产生的线程也承担同样的安全标识。这是通过使用 `SecurityContextHolder.MODE_INHERITABLETHREADLOCAL` 实现。你可以通过两种方式更改默认的 `SecurityContextHolder.MODE_THREADLOCAL` 模式。第一个是设置系统属性，
+第二个是调用 `SecurityContextHolder` 的静态方法。大多数应用程序不需要修改默认值，但是如果你想要修改，可以看一下 `SecurityContextHolder` 的JavaDocs中的详细信息了解更多。
 
-Some applications aren't entirely suitable for using a `ThreadLocal`, because of the specific way they work with threads.
-For example, a Swing client might want all threads in a Java Virtual Machine to use the same security context.
-`SecurityContextHolder` can be configured with a strategy on startup to specify how you would like the context to be stored.
-For a standalone application you would use the `SecurityContextHolder.MODE_GLOBAL` strategy.
-Other applications might want to have threads spawned by the secure thread also assume the same security identity.
-This is achieved by using `SecurityContextHolder.MODE_INHERITABLETHREADLOCAL`.
-You can change the mode from the default `SecurityContextHolder.MODE_THREADLOCAL` in two ways.
-The first is to set a system property, the second is to call a static method on `SecurityContextHolder`.
-Most applications won't need to change from the default, but if you do, take a look at the JavaDoc for `SecurityContextHolder` to learn more.
-
-
-===== Obtaining information about the current user
-Inside the `SecurityContextHolder` we store details of the principal currently interacting with the application.
-Spring Security uses an `Authentication` object to represent this information.
-You won't normally need to create an `Authentication` object yourself, but it is fairly common for users to query the `Authentication` object.
-You can use the following code block - from anywhere in your application - to obtain the name of the currently authenticated user, for example:
-
+===== 当前用户获取信息
+我们在 `SecurityContextHolder` 内存储目前与应用程序交互的主要细节。Spring Security使用一个 `Authentication` 对象来表示这些信息。 你通常不需要创建一个自我认证的对象,但它是很常见的用户查询的 `Authentication` 对象。你可以使用以下代码块-从你的应用程序的任何部分-获得当前身份验证的用户的名称，例如:
 
 [source,java]
 ----
@@ -59,24 +42,16 @@ String username = principal.toString();
 }
 ----
 
-
-The object returned by the call to `getContext()` is an instance of the `SecurityContext` interface.
-This is the object that is kept in thread-local storage.
-As we'll see below, most authentication mechanisms within Spring Security return an instance of `UserDetails` as the principal.
+通过调用 `getContext()` 返回的对象是 `SecurityContext` 接口的实例。这是保存在线程本地存储中的对象。我们将在下面看到，大多数的认证机制以Spring Security返回 `UserDetails` 实例为主。
 
 
 [[tech-userdetailsservice]]
-==== The UserDetailsService
-Another item to note from the above code fragment is that you can obtain a principal from the `Authentication` object.
-The principal is just an `Object`.
-Most of the time this can be cast into a `UserDetails` object.
-`UserDetails` is a core interface in Spring Security.
-It represents a principal, but in an extensible and application-specific way.
-Think of `UserDetails` as the adapter between your own user database and what Spring Security needs inside the `SecurityContextHolder`.
-Being a representation of something from your own user database, quite often you will cast the `UserDetails` to the original object that your application provided, so you can call business-specific methods (like `getEmail()`, `getEmployeeNumber()` and so on).
+==== UserDetailsService
+从上面的代码片段中还可以看出一件事，就是你可以从 `Authentication` 对象中获得安全主体。这个安全主体就是一个 `Object`。大多数情况下，可以强制转换成 `UserDetails` 对象 。
+`UserDetails` 是一个Spring Security的核心接口。它代表一个主体，是扩展的，而且是为特定程序服务的。 想一下 `UserDetails` 章节，在你自己的用户数据库和如何把Spring Security需要的数据放到 `SecurityContextHolder` 里。
+为了让你自己的用户数据库起作用，我们常常把 `UserDetails` 转换成你系统提供的类，这样你就可以直接调用业务相关的方法了(比如 `getEmail()`, `getEmployeeNumber()` 等等)。
 
-By now you're probably wondering, so when do I provide a `UserDetails` object? How do I do that? I thought you said this thing was declarative and I didn't need to write any Java code - what gives? The short answer is that there is a special interface called `UserDetailsService`.
-The only method on this interface accepts a `String`-based username argument and returns a `UserDetails`:
+现在，你可能想知道，我应该什么时候提供这个 `UserDetails` 对象呢?我怎么做呢?我想你说这个东西是声明式的，我不需要写任何代码，怎么办?简单的回答是，这里有一个特殊的接口叫 `UserDetailsService`。这个接口里的唯一的一个方法，接收 `String` 类型的用户名参数，返回 `UserDetails`:
 
 [source,java]
 ----
@@ -84,86 +59,67 @@ The only method on this interface accepts a `String`-based username argument and
 UserDetails loadUserByUsername(String username) throws UsernameNotFoundException;
 ----
 
-This is the most common approach to loading information for a user within Spring Security and you will see it used throughout the framework whenever information on a user is required.
+这是Spring Security用户加载信息的最常用的方法并且每当需对用户的信息时你会看到它使用的整个框架。
 
-On successful authentication, `UserDetails` is used to build the `Authentication` object that is stored in the `SecurityContextHolder` (more on this <<tech-intro-authentication,below>>).
-The good news is that we provide a number of `UserDetailsService` implementations, including one that uses an in-memory map (`InMemoryDaoImpl`) and another that uses JDBC (`JdbcDaoImpl`).
-Most users tend to write their own, though, with their implementations often simply sitting on top of an existing Data Access Object (DAO) that represents their employees, customers, or other users of the application.
-Remember the advantage that whatever your `UserDetailsService` returns can always be obtained from the `SecurityContextHolder` using the above code fragment.
+成功认证后，`UserDetails` 用于构建存储在 `SecurityContextHolder`(详见 <<tech-intro-authentication,以下>>)的 `Authentication` 对象。好消息是，我们提供了一些 `UserDetailsService` 的实现，包括一个使用内存映射(`InMemoryDaoImpl`)而另一个使用JDBC(`JdbcDaoImpl`)。
+大多数用户倾向于写自己的，常常放到已有的数据访问对象(DAO)上使用这些实现，表示他们的雇员，客户或其他企业应用中的用户。记住这个优势，无论你用 `UserDetailsService` 返回的什么数据都可以通过 `SecurityContextHolder` 获得，就像上面的代码片段讲的一样。
 
 [NOTE]
 ====
 
-There is often some confusion about `UserDetailsService`.
-It is purely a DAO for user data and performs no other function other than to supply that data to other components within the framework.
-In particular, it __does not__ authenticate the user, which is done by the `AuthenticationManager`.
-In many cases it makes more sense to <<core-services-authentication-manager,implement `AuthenticationProvider`>> directly if you require a custom authentication process.
-
+关于 `UserDetailsService` 常常有一些混乱。它纯粹是用于用户数据的DAO并没有其它功能，除了提供该数据到其他组件的框架内。特别是，它不会对用户进行身份验证,这是由 `AuthenticationManager` 完成。在许多情况下，如果你需要自定义身份验证过程，直接<<core-services-authentication-manager,实现 `AuthenticationProvider` >> 更有意义 。
 ====
 
 
 [[tech-granted-authority]]
 ==== GrantedAuthority
-Besides the principal, another important method provided by `Authentication` is `getAuthorities()`.
-This method provides an array of `GrantedAuthority` objects.
-A `GrantedAuthority` is, not surprisingly, an authority that is granted to the principal.
-Such authorities are usually "roles", such as `ROLE_ADMINISTRATOR` or `ROLE_HR_SUPERVISOR`.
-These roles are later on configured for web authorization, method authorization and domain object authorization.
-Other parts of Spring Security are capable of interpreting these authorities, and expect them to be present.
-`GrantedAuthority` objects are usually loaded by the `UserDetailsService`.
+除了主体，另一个 `Authentication` 提供的重要方法是 `getAuthorities()`。这个方法提供了 `GrantedAuthority` 对象数组。毫无疑问，`GrantedAuthority` 是赋予到主体的权限。
+这些权限通常使用角色表示，比如 `ROLE_ADMINISTRATOR` 或 `ROLE_HR_SUPERVISOR`。这些角色会在后面，对web验证，方法验证和领域对象验证进行配置。Spring Security的其他部分用来拦截这些权限，期望他们被表现出现。`GrantedAuthority` 对象通常是使用 `UserDetailsService` 读取的。
 
-Usually the `GrantedAuthority` objects are application-wide permissions.
-They are not specific to a given domain object.
-Thus, you wouldn't likely have a `GrantedAuthority` to represent a permission to `Employee` object number 54, because if there are thousands of such authorities you would quickly run out of memory (or, at the very least, cause the application to take a long time to authenticate a user).
-Of course, Spring Security is expressly designed to handle this common requirement, but you'd instead use the project's domain object security capabilities for this purpose.
+通常情况下，`GrantedAuthority` 对象是应用程序范围下的授权。它们不会特意分配给一个特定的领域对象。因此，你不能设置一个 `GrantedAuthority`，让他有权限展示编号54的 `Employee` 对象，
+因为如果有成千上万的这种授权，你会很快用光内存(或者，至少，导致程序花费大量时间去验证一个用户)。当然，Spring Security被明确设计成处理常见的需求，但是你最好别因为这个目的使用项目领域模型安全功能。
+
+==== 小结
+简单回顾一下，Spring Security主要由以下几部分组成的:
 
 
-==== Summary
-Just to recap, the major building blocks of Spring Security that we've seen so far are:
+* `SecurityContextHolder`, 提供几种访问 `SecurityContext` 的方式.
+
+* `SecurityContext`, 保存 `Authentication` 信息和请求对应的安全信息。
+
+* `Authentication`, 展示Spring Security特定的主体。
+
+* `GrantedAuthority`, 反应在应用程序范围你，赋予主体的权限。
+
+* `UserDetails`, 通过你的应用DAO，提供必要的信息，构建 `Authentication` 对象。
+
+* `UserDetailsService`, 创建一个 `UserDetails`，传递一个 `String` 类型的用户名(或者证书ID或其他).
 
 
-* `SecurityContextHolder`, to provide access to the `SecurityContext`.
-
-* `SecurityContext`, to hold the `Authentication` and possibly request-specific security information.
-
-* `Authentication`, to represent the principal in a Spring Security-specific manner.
-
-* `GrantedAuthority`, to reflect the application-wide permissions granted to a principal.
-
-* `UserDetails`, to provide the necessary information to build an Authentication object from your application's DAOs or other source of security data.
-
-* `UserDetailsService`, to create a `UserDetails` when passed in a `String`-based username (or certificate ID or the like).
-
-
-
-Now that you've gained an understanding of these repeatedly-used components, let's take a closer look at the process of authentication.
+现在，你应该对这种重复使用的组件有一些了解了。 让我们贴近看一下验证的过程。
 
 
 [[tech-intro-authentication]]
-=== Authentication
-Spring Security can participate in many different authentication environments.
-While we recommend people use Spring Security for authentication and not integrate with existing Container Managed Authentication, it is nevertheless supported - as is integrating with your own proprietary authentication system.
+=== 验证
+Spring Security可以在很多不同的认证环境下使用。虽然我们推荐人们使用Spring Security，不与已存在的容器管理认证系统结合，但它也是支持的-使用你自己的属性验证系统进行整合。
 
+==== 什么是Spring Security验证?
+让我们考虑一个大家都很熟悉的标准的验证场景。
 
-==== What is authentication in Spring Security?
-Let's consider a standard authentication scenario that everyone is familiar with.
+. 提示用户输入用户名和密码进行登录。
+. 该系统 (成功) 验证该用户名的密码正确。
+. 获取该用户的环境信息 (他们的角色列表等).
+. 为用户建立安全的环境。
+. 用户进行，可能执行一些操作，这是潜在的保护的访问控制机制，检查所需权限，对当前的安全的环境信息的操作。
 
-. A user is prompted to log in with a username and password.
-. The system (successfully) verifies that the password is correct for the username.
-. The context information for that user is obtained (their list of roles and so on).
-. A security context is established for the user
-. The user proceeds, potentially to perform some operation which is potentially protected by an access control mechanism which checks the required permissions for the operation against the current security context information.
+前三个项目构成的验证过程，所以我们将看看这些是如何发生在Spring Security中的。
 
+. 用户名和密码进行组合成一个实例 `UsernamePasswordAuthenticationToken` (一个 `Authentication` 接口的实例, 我们之前看到的).
+. 令牌传递到 `AuthenticationManager` 实例进行验证。
+. 该 `AuthenticationManager` 完全填充 `Authentication` 实例返回成功验证。
+. 安全环境是通过调用 `SecurityContextHolder.getContext().setAuthentication(…​)`, 传递到返回的验证对象建立的。
 
-The first four items constitute the authentication process so we'll take a look at how these take place within Spring Security.
-
-. The username and password are obtained and combined into an instance of `UsernamePasswordAuthenticationToken` (an instance of the `Authentication` interface, which we saw earlier).
-. The token is passed to an instance of `AuthenticationManager` for validation.
-. The `AuthenticationManager` returns a fully populated `Authentication` instance on successful authentication.
-. The security context is established by calling `SecurityContextHolder.getContext().setAuthentication(...)`, passing in the returned authentication object.
-
-From that point on, the user is considered to be authenticated.
-Let's look at some code as an example.
+从这一点上来看，用户被认为是被验证的。让我们看看一些代码作为一个例子:
 
 [source,java]
 ----
@@ -214,10 +170,7 @@ public Authentication authenticate(Authentication auth) throws AuthenticationExc
 }
 ----
 
-Here we have written a little program that asks the user to enter a username and password and performs the above sequence.
-The `AuthenticationManager` which we've implemented here will authenticate any user whose username and password are the same.
-It assigns a single role to every user.
-The output from the above will be something like:
+在这里我们已经写了一个小程序，要求用户输入一个用户名和密码并执行上述序列。这个 `AuthenticationManager` 我们这里将验证用户的用户名和密码将其设置成一样的，它给每一个用户分配一个单一的角色。从上面输出的将是类似的东西:
 
 [source,txt]
 ----
@@ -240,16 +193,17 @@ Granted Authorities: ROLE_USER
 ----
 
 
-
-Note that you don't normally need to write any code like this.
-The process will normally occur internally, in a web authentication filter for example.
-We've just included the code here to show that the question of what actually constitutes authentication in Spring Security has quite a simple answer.
-A user is authenticated when the `SecurityContextHolder` contains a fully populated `Authentication` object.
+请注意，你通常不需要写任何这样的代码。这个过程通常会发生在内部，以一个web认证过滤器为例，我们刚刚在这里的代码显示，
+在Spring Security中究竟是什么构成了验证的问题，有一个相对简单的答案。用户验证时，`SecurityContextHolder` 包含一个完全填充的 `Authentication` 对象的用户进行身份验证。
 
 
-==== Setting the SecurityContextHolder Contents Directly
-In fact, Spring Security doesn't mind how you put the `Authentication` object inside the `SecurityContextHolder`.
-The only critical requirement is that the `SecurityContextHolder` contains an `Authentication` which represents a principal before the `AbstractSecurityInterceptor` (which we'll see more about later) needs to authorize a user operation.
+==== 直接设置SecurityContextHolder的内容
+
+事实上，Spring Security不介意你如何把 `Authentication` 对象包含在 `SecurityContextHolder` 内。唯一的关键要求是 `SecurityContextHolder` 包含 `Authentication` 在 `AbstractSecurityInterceptor` 之前(我们会看到更多的版本)需要用户授权操作。
+
+你可以(很多用户都这样做)写一个自己的过滤器或MVC控制器来提供验证系统的交互，这些都不是基于Spring Security的。比如，你也许使用容器管理认证，从 `ThreadLocal` 或 `JNDI` 里获得当前用户信息。或者，你的公司可能有一个遗留系统，它是一个企业标准，你不能控制它。
+这种情况下，很容易让Spring Security工作，也能提供验证能力。你所需要的就是写一个过滤器(或等价物)从指定位置读取第三方用户信息，把它放到 `SecurityContextHolder` 里。在这种情况下，你还需要考虑的事情通常是由内置的认证基础设施自动照顾。
+例如，您可能需要先创建HTTP会话来<<tech-intro-sec-context-persistence,缓存请求之间的上下文>>，然后再将响应写入客户端 footnote:[It isn't possible to create a session once the response has been committed.].
 
 You can (and many users do) write their own filters or MVC controllers to provide interoperability with authentication systems that are not based on Spring Security.
 For example, you might be using Container-Managed Authentication which makes the current user available from a ThreadLocal or JNDI location.
@@ -257,167 +211,110 @@ Or you might work for a company that has a legacy proprietary authentication sys
 In situations like this it's quite easy to get Spring Security to work, and still provide authorization capabilities.
 All you need to do is write a filter (or equivalent) that reads the third-party user information from a location, build a Spring Security-specific `Authentication` object, and put it into the `SecurityContextHolder`.
 In this case you also need to think about things which are normally taken care of automatically by the built-in authentication infrastructure.
-For example, you might need to pre-emptively create an HTTP session to <<tech-intro-sec-context-persistence,cache the context between requests>>, before you write the response to the client footnote:[It isn't possible to create a session once the response has been committed.].
+For example, you might need to pre-emptively create an HTTP session to , before you write the response to the client footnote:[It isn't possible to create a session once the response has been committed.].
 
-If you're wondering how the `AuthenticationManager` is implemented in a real world example, we'll look at that in the <<core-services-authentication-manager,core services chapter>>.
-
+如果你想知道AuthenticationManager是如何以现实世界的例子来实现，我们可以来看看 <<core-services-authentication-manager,核心服务一章>>
 
 [[tech-intro-web-authentication]]
-=== Authentication in a Web Application
-Now let's explore the situation where you are using Spring Security in a web application (without `web.xml` security enabled).
-How is a user authenticated and the security context established?
+=== 在Web应用程序中的身份验证
+现在让我们来看看你在Web应用程序中使用Spring Security的情况(不启用 `web.xml` 安全性)。用户如何进行身份验证和建立安全环境?
 
-Consider a typical web application's authentication process:
+考虑一个典型的Web应用程序的身份验证过程:
 
 
-. You visit the home page, and click on a link.
-. A request goes to the server, and the server decides that you've asked for a protected resource.
-. As you're not presently authenticated, the server sends back a response indicating that you must authenticate.
-The response will either be an HTTP response code, or a redirect to a particular web page.
-. Depending on the authentication mechanism, your browser will either redirect to the specific web page so that you can fill out the form, or the browser will somehow retrieve your identity (via a BASIC authentication dialogue box, a cookie, a X.509 certificate etc.).
-. The browser will send back a response to the server.
-This will either be an HTTP POST containing the contents of the form that you filled out, or an HTTP header containing your authentication details.
-. Next the server will decide whether or not the presented credentials are valid.
-If they're valid, the next step will happen.
-If they're invalid, usually your browser will be asked to try again (so you return to step two above).
-. The original request that you made to cause the authentication process will be retried.
-Hopefully you've authenticated with sufficient granted authorities to access the protected resource.
-If you have sufficient access, the request will be successful.
-Otherwise, you'll receive back an HTTP error code 403, which means "forbidden".
+. 你访问首页, 点击一个链接。
+. 向服务器发送一个请求，服务器判断你是否在访问一个受保护的资源。
+. 如果你还没有进行过认证，服务器发回一个响应，提示你必须进行认证。响应可能是HTTP响应代码，或者是重新定向到一个特定的web页面。
+. 依据验证机制，你的浏览器将重定向到特定的web页面，这样你可以添加表单，或者浏览器使用其他方式校验你的身份（比如，一个基本校验对话框，cookie，或者X509证书，或者其他）。
+. 浏览器会发回一个响应给服务器。 这将是HTTP POST包含你填写的表单内容，或者是HTTP头部，包含你的验证信息。
+. 下一步，服务器会判断当前的证书是否是有效的， 如果他们是有效的，下一步会执行。 如果他们是非法的，通常你的浏览器会再尝试一次（所以你返回的步骤二）。
+. 你发送的原始请求，会导致重新尝试验证过程。有希望的是，你会通过验证，得到足够的授权，访问被保护的资源。如果你有足够的权限，请求会成功。否则，你会收到一个HTTP错误代码403，意思是访问被拒绝。
 
-Spring Security has distinct classes responsible for most of the steps described above.
-The main participants (in the order that they are used) are the `ExceptionTranslationFilter`, an `AuthenticationEntryPoint` and an "authentication mechanism", which is responsible for calling the `AuthenticationManager` which we saw in the previous section.
-
+Spring Security使用不同的类负责上面提到的每个步骤。主要的参与者是（按照使用顺序） `ExceptionTranslationFilter`, 一个 `AuthenticationEntryPoint` 和身份验证机制, 我们在上一节看到它负责调用 `AuthenticationManager`。
 
 ==== ExceptionTranslationFilter
-`ExceptionTranslationFilter` is a Spring Security filter that has responsibility for detecting any Spring Security exceptions that are thrown.
-Such exceptions will generally be thrown by an `AbstractSecurityInterceptor`, which is the main provider of authorization services.
-We will discuss `AbstractSecurityInterceptor` in the next section, but for now we just need to know that it produces Java exceptions and knows nothing about HTTP or how to go about authenticating a principal.
-Instead the `ExceptionTranslationFilter` offers this service, with specific responsibility for either returning error code 403 (if the principal has been authenticated and therefore simply lacks sufficient access - as per step seven above), or launching an `AuthenticationEntryPoint` (if the principal has not been authenticated and therefore we need to go commence step three).
-
+`ExceptionTranslationFilter` 是一个Spring Security过滤器，用来检测是否抛出了Spring Security异常。这些异常会被 `AbstractSecurityInterceptor` 抛出，它主要用来提供验证服务。
+我们会在下一节讨论 `AbstractSecurityInterceptor`，但是现在，我们只需要知道，它是用来生成Java，并且要知道和HTTP没什么关系，或者如何验证一个主体。
+而 `ExceptionTranslationFilter` 提供这些服务，使用特点那个的响应，返回错误代码403(如果主体被验证了，但是权限不足-在上边的步骤七),或者启动一个 `AuthenticationEntryPoint` (如果主体没有被认证，然后我们需要进入步骤三)。
 
 [[tech-intro-auth-entry-point]]
 ==== AuthenticationEntryPoint
-The `AuthenticationEntryPoint` is responsible for step three in the above list.
-As you can imagine, each web application will have a default authentication strategy (well, this can be configured like nearly everything else in Spring Security, but let's keep it simple for now).
-Each major authentication system will have its own `AuthenticationEntryPoint` implementation, which typically performs one of the actions described in step 3.
+`AuthenticationEntryPoint` 对应上面列表中的步骤三。如你所想的，每个web应用程序都有默认的验证策略(好的，这可以在Spring Security里配置一切，但是让我们现在保持简单)。每个主要验证系统会有它自己的 `AuthenticationEntryPoint` 实现， 会执行动作，如同步骤三里的描述一样。
 
+==== 验证机制
 
-==== Authentication Mechanism
-Once your browser submits your authentication credentials (either as an HTTP form post or HTTP header) there needs to be something on the server that "collects" these authentication details.
-By now we're at step six in the above list.
-In Spring Security we have a special name for the function of collecting authentication details from a user agent (usually a web browser), referring to it as the "authentication mechanism".
-Examples are form-base login and Basic authentication.
-Once the authentication details have been collected from the user agent, an `Authentication` "request" object is built and then presented to the `AuthenticationManager`.
+在你的浏览器决定提交你的认证证书之后(使用HTTP表单发送或者是HTTP头),服务器部分需要有一些东西来 "收集" 这些验证信息。现在我们到了上述的第六步。
+在Spring Security里，我们需要一个特定的名字，来描述从用户代码（通常是浏览器）收集验证信息的功能，这个名字就是"验证机制"。实例是窗体的基本登录和基本的身份验证。一旦认证细节已从用户代理收集,建立一个 `Authentication` "request"对象，然后提交给 `AuthenticationManager`。
 
-After the authentication mechanism receives back the fully-populated `Authentication` object, it will deem the request valid, put the `Authentication` into the `SecurityContextHolder`, and cause the original request to be retried (step seven above).
-If, on the other hand, the `AuthenticationManager` rejected the request, the authentication mechanism will ask the user agent to retry (step two above).
-
-
+验证机制重新获得了组装好的 `Authentication` 对象时，它会认为请求有效，把 `Authentication` 放到 `SecurityContextHolder` 里的，然后导致原始请求重审(第七步)。另一方面,如果 `AuthenticationManager` 驳回了请求,验证机制会让用户代码重试(第二步)。
 [[tech-intro-sec-context-persistence]]
-==== Storing the SecurityContext between requests
-Depending on the type of application, there may need to be a strategy in place to store the security context between user operations.
-In a typical web application, a user logs in once and is subsequently identified by their session Id.
-The server caches the principal information for the duration session.
-In Spring Security, the responsibility for storing the `SecurityContext` between requests falls to the `SecurityContextPersistenceFilter`, which by default stores the context as an `HttpSession` attribute between HTTP requests.
-It restores the context to the `SecurityContextHolder` for each request and, crucially, clears the `SecurityContextHolder` when the request completes.
-You shouldn't interact directly with the `HttpSession` for security purposes.
-There is simply no justification for doing so - always use the `SecurityContextHolder` instead.
+==== 在请求之间存储 `SecurityContext`
 
-Many other types of application (for example, a stateless RESTful web service) do not use HTTP sessions and will re-authenticate on every request.
-However, it is still important that the `SecurityContextPersistenceFilter` is included in the chain to make sure that the `SecurityContextHolder` is cleared after each request.
+根据不同的应用程序类型，在用户操作的过程中需要有合适的策略来保存security信息。在一个典型的web应用中，一个用户登录系统之后就会被一个特有的session Id所唯一标识,服务器会将session作用期间的principal数据保存在缓存中。
+在Spring Security中,保存 `SecurityContext` 的任务落在了 `SecurityContextPersistenceFilter` 身上，它默认将上下文当做 `HttpSession` 属性保存在HTTP请求中,并且将每一个请求的上下文保存在 `SecurityContextHolder` 中，
+最重要的功能,是在请求结束之后,清理 `SecurityContextHolder`。你不需要处于安全的目的直接和 `HttpSession` 打交道。在这里仅仅只是不需要那样做-总是使用 `SecurityContextHolder` 来代替HttpSession。
+
+许多其他的应用（举个例子：一个无状态的RESTful风格web服务）不使用Http Session并且每次请求过来都会进行验证。然而比较重要的是: `SecurityContextPersistenceFilter` 被包含在过滤器链中,并确保每次请求完毕之后清理 `SecurityContextHolder`。
 
 [NOTE]
 ====
-In an application which receives concurrent requests in a single session, the same `SecurityContext` instance will be shared between threads.
-Even though a `ThreadLocal` is being used, it is the same instance that is retrieved from the `HttpSession` for each thread.
-This has implications if you wish to temporarily change the context under which a thread is running.
-If you just use `SecurityContextHolder.getContext()`, and call `setAuthentication(anAuthentication)` on the returned context object, then the `Authentication` object will change in __all__ concurrent threads which share the same `SecurityContext` instance.
-You can customize the behaviour of `SecurityContextPersistenceFilter` to create a completely new `SecurityContext` for each request, preventing changes in one thread from affecting another.
-Alternatively you can create a new instance just at the point where you temporarily change the context.
-The method `SecurityContextHolder.createEmptyContext()` always returns a new context instance.
+其中有一个应用程序接收一个会话的并发请求,同样的 `SecurityContext` 实例将线程之间共享。即使正在使用 `ThreadLocal`,它是相同的实例,从每个线程的 `HttpSession` 检索。如果你希望暂时改变一个线程正在运行的上下文这很有意义。如果你只是使用 `SecurityContextHolder.getContext()`,
+和调用 `setAuthentication(anAuthentication)` 返回的上下文对象,那么 `Authentication` 对象将在全部并发线程共享相同的 `SecurityContext` 情况的变化。
+你可以自定义 `SecurityContextPersistenceFilter` 的行为,为每一个请求创建一个完全新的 `SecurityContext`,防止在一个线程的变化影响另一个。或者,你可以创建一个新的实例,只是在这个点上,你暂时改变了背景。
+方法 `SecurityContextHolder.createEmptyContext()` 总是返回一个新的上下文实例。
 ====
 
 [[tech-intro-access-control]]
-=== Access-Control (Authorization) in Spring Security
-The main interface responsible for making access-control decisions in Spring Security is the `AccessDecisionManager`.
-It has a `decide` method which takes an `Authentication` object representing the principal requesting access, a "secure object" (see below) and a list of security metadata attributes which apply for the object (such as a list of roles which are required for access to be granted).
+=== Spring Security的访问控制(授权)
+负责Spring Security访问控制决策的主要接口是 `AccessDecisionManager`。它有一个decide方法，它需要一个 `Authentication` 对象请求访问,一个"secure object"(见下文)和安全元数据属性的列表适用的对象(如一个列表哪些角色需要被访问授权)。
 
+==== 安全和AOP建议
+如果你熟悉AOP的话，就会知道有几种不同的拦截方式：之前，之后，抛异常和环绕。 其中环绕是非常有用的，因为advisor可以决定是否执行这个方法，是否修改返回的结果，是否抛出异常。
+Spring Security为方法调用提供了一个环绕advice，就像web请求一样。 我们使用Spring的标准AOP支持制作了一个处理方法调用的环绕advice，我们使用标准Filter建立了对web请求的环绕advice。
 
-==== Security and AOP Advice
-If you're familiar with AOP, you'd be aware there are different types of advice available: before, after, throws and around.
-An around advice is very useful, because an advisor can elect whether or not to proceed with a method invocation, whether or not to modify the response, and whether or not to throw an exception.
-Spring Security provides an around advice for method invocations as well as web requests.
-We achieve an around advice for method invocations using Spring's standard AOP support and we achieve an around advice for web requests using a standard Filter.
+对那些不熟悉AOP的人，需要理解的关键问题是Spring Security可以帮助你保护方法的调用，就像保护web请求一样。大多数人对保护服务层里的安全方法非常按兴趣。
+这是因为在目前这一代J2EE程序里，服务器放了更多业务相关的逻辑。如果你只是需要保护服务层的方法调用，Spring标准AOP平台就够了。如果你想直接保护领域对象，你会发现AspectJ非常值得考虑。
 
-For those not familiar with AOP, the key point to understand is that Spring Security can help you protect method invocations as well as web requests.
-Most people are interested in securing method invocations on their services layer.
-This is because the services layer is where most business logic resides in current-generation Java EE applications.
-If you just need to secure method invocations in the services layer, Spring's standard AOP will be adequate.
-If you need to secure domain objects directly, you will likely find that AspectJ is worth considering.
-
-You can elect to perform method authorization using AspectJ or Spring AOP, or you can elect to perform web request authorization using filters.
-You can use zero, one, two or three of these approaches together.
-The mainstream usage pattern is to perform some web request authorization, coupled with some Spring AOP method invocation authorization on the services layer.
-
+可以选择使用AspectJ还是SpringAOP处理方法验证，或者你可以选择使用filters处理web请求验证。 你可以不选，选择其中一个，选择两个，或者三个都选。主流的应用是处理一些web请求验证，再结合一些在服务层里的Spring AOP方法调用验证。
 
 [[secure-objects]]
-==== Secure Objects and the AbstractSecurityInterceptor
-So what __is__ a "secure object" anyway? Spring Security uses the term to refer to any object that can have security (such as an authorization decision) applied to it.
-The most common examples are method invocations and web requests.
+==== 安全对象和 `AbstractSecurityInterceptor`
+那么，什么是“安全对象”？ Spring Security使用该术语来指代任何可以对其应用安全性（例如授权决策）的对象。 最常见的示例是方法调用和Web请求。
 
-Each supported secure object type has its own interceptor class, which is a subclass of `AbstractSecurityInterceptor`.
-Importantly, by the time the `AbstractSecurityInterceptor` is called, the `SecurityContextHolder` will contain a valid `Authentication` if the principal has been authenticated.
+Spring Security支持的每个安全对象类型都有它自己的拦截器,他们都是 `AbstractSecurityInterceptor` 的子类。很重要的是,如果主体是已经通过了验证,在 `AbstractSecurityInterceptor` 被调用的时候,`SecurityContextHolder` 将会包含一个有效的 `Authentication`。
 
-`AbstractSecurityInterceptor` provides a consistent workflow for handling secure object requests, typically:
+`AbstractSecurityInterceptor` 提供了一套一致的工作流程，来处理对安全对象的请求，通常是:
 
-. Look up the "configuration attributes" associated with the present request
-. Submitting the secure object, current `Authentication` and configuration attributes to the `AccessDecisionManager` for an authorization decision
-. Optionally change the `Authentication` under which the invocation takes place
-. Allow the secure object invocation to proceed (assuming access was granted)
-. Call the `AfterInvocationManager` if configured, once the invocation has returned.
-If the invocation raised an exception, the `AfterInvocationManager` will not be invoked.
+. 查找当前请求里分配的"配置属性"
+. 把安全对象，当前的 `Authentication` 和配置属性,提交给 `AccessDecisionManager` 来进行以此认证决定。
+. 有可能在调用的过程中,对 `Authentication` 进行修改
+. 允许安全对象进行处理（假设访问被允许了）
+. 在调用返回的时候执行配置的 `AfterInvocationManager`。如果调用引发异常,`AfterInvocationManager` 将不会被调用。
 
 [[tech-intro-config-attributes]]
-===== What are Configuration Attributes?
-A "configuration attribute" can be thought of as a String that has special meaning to the classes used by `AbstractSecurityInterceptor`.
-They are represented by the interface `ConfigAttribute` within the framework.
-They may be simple role names or have more complex meaning, depending on the how sophisticated the `AccessDecisionManager` implementation is.
-The `AbstractSecurityInterceptor` is configured with a `SecurityMetadataSource` which it uses to look up the attributes for a secure object.
-Usually this configuration will be hidden from the user.
-Configuration attributes will be entered as annotations on secured methods or as access attributes on secured URLs.
-For example, when we saw something like `<intercept-url pattern='/secure/**' access='ROLE_A,ROLE_B'/>` in the namespace introduction, this is saying that the configuration attributes `ROLE_A` and `ROLE_B` apply to web requests matching the given pattern.
-In practice, with the default `AccessDecisionManager` configuration, this means that anyone who has a `GrantedAuthority` matching either of these two attributes will be allowed access.
-Strictly speaking though, they are just attributes and the interpretation is dependent on the `AccessDecisionManager` implementation.
-The use of the prefix `ROLE_` is a marker to indicate that these attributes are roles and should be consumed by Spring Security's `RoleVoter`.
-This is only relevant when a voter-based `AccessDecisionManager` is in use.
-We'll see how the `AccessDecisionManager` is implemented in the <<authz-arch,authorization chapter>>.
-
+===== 配置属性是什么?
+一个"配置属性"可以看做是一个字符串,它对于 `AbstractSecurityInterceptor` 使用的类是有特殊含义的。它们由框架内接口 `ConfigAttribute` 表示。它们可能是简单的角色名称或拥有更复杂的含义,这就与 `AccessDecisionManager` 实现的先进程度有关了。`AbstractSecurityInterceptor` 和配置在一起的 `SecurityMetadataSource` 用来为一个安全对象搜索属性。
+通常这个属性对用户是不可见的。配置属性将以注解的方式设置在受保护方法上，或者作为受保护URLs的访问属性。
+例如,当我们看到像 `<intercept-url pattern='/secure/**' access='ROLE_A,ROLE_B'/>` 命名空间中的介绍,这是说配置属性 `ROLE_A` 和 `ROLE_B` 适用于匹配Web请求的特定模式。
+在实践中,使用默认的 `AccessDecisionManager` 配置, 这意味着,任何人谁拥有 `GrantedAuthority` 只要符合这两个属性将被允许访问。严格来说,它们只是依赖于 `AccessDecisionManager` 实施的属性和解释。
+使用前缀 `ROLE_` 是一个标记,以表明这些属性是角色,应该由Spring Security的 `RoleVoter` 前缀被消耗掉。这只是使用 `AccessDecisionManager` 的选择基础。我们将在 <<authz-arch,授权>>章看到 `AccessDecisionManager` 是如何实现的。
 
 ===== RunAsManager
-Assuming `AccessDecisionManager` decides to allow the request, the `AbstractSecurityInterceptor` will normally just proceed with the request.
-Having said that, on rare occasions users may want to replace the `Authentication` inside the `SecurityContext` with a different `Authentication`, which is handled by the `AccessDecisionManager` calling a `RunAsManager`.
-This might be useful in reasonably unusual situations, such as if a services layer method needs to call a remote system and present a different identity.
-Because Spring Security automatically propagates security identity from one server to another (assuming you're using a properly-configured RMI or HttpInvoker remoting protocol client), this may be useful.
-
+假设 `AccessDecisionManager` 决定允许执行这个请求,`AbstractSecurityInterceptor` 会正常执行这个请求。话虽如此，罕见情况下，用户可能需要把 `SecurityContext` 的 `Authentication` 换成另一个 `Authentication`,
+这是由 `AccessDecisionManager` 调用 `RunAsManager`。这也许在,有原因,不常见的情况下有用,比如服务层方法需要调用远程系统表现不同的身份。 因为Spring Security自动传播安全身份，从一个服务器到另一个（假设你使用了配置好的 RMI 或者 HttpInvoker 远程调用协议客户端），就可以用到它了。
 
 ===== AfterInvocationManager
-Following the secure object invocation proceeding and then returning - which may mean a method invocation completing or a filter chain proceeding - the `AbstractSecurityInterceptor` gets one final chance to handle the invocation.
-At this stage the `AbstractSecurityInterceptor` is interested in possibly modifying the return object.
-We might want this to happen because an authorization decision couldn't be made "on the way in" to a secure object invocation.
-Being highly pluggable, `AbstractSecurityInterceptor` will pass control to an `AfterInvocationManager` to actually modify the object if needed.
-This class can even entirely replace the object, or throw an exception, or not change it in any way as it chooses.
-The after-invocation checks will only be executed if the invocation is successful.
-If an exception occurs, the additional checks will be skipped.
 
-`AbstractSecurityInterceptor` and its related objects are shown in <<abstract-security-interceptor>>
+按照下面安全对象执行和返回的方式-可能意味着完全的方法调用或过滤器链的执行-在 `AbstractSecurityInterceptor` 得到一个最后的机会来处理调用。
+这种状态下 `AbstractSecurityInterceptor` 对有可能修改返回对象感兴趣。你可能想让它发生，因为验证决定不能“关于如何在”一个安全对象调用。高可插拔性,`AbstractSecurityInterceptor` 通过控制 `AfterInvocationManager` 在实际需要的时候修改对象。
+这里类实际上可能替换对象，或者抛出异常，或者什么也不做。如果调用成功后，检查调用才会执行。如果出现异常，额外的检查将被跳过。
+
+`AbstractSecurityInterceptor` 和它的相关对象 <<abstract-security-interceptor,图9.1 安全拦截器和 "安全对象" 模型>>
 
 [[abstract-security-interceptor]]
-.Security interceptors and the "secure object" model
+.安全拦截器和  "安全对象" 模型
 image::images/security-interception.png[Abstract Security Interceptor]
 
-===== Extending the Secure Object Model
-Only developers contemplating an entirely new way of intercepting and authorizing requests would need to use secure objects directly.
-For example, it would be possible to build a new secure object to secure calls to a messaging system.
-Anything that requires security and also provides a way of intercepting a call (like the AOP around advice semantics) is capable of being made into a secure object.
-Having said that, most Spring applications will simply use the three currently supported secure object types (AOP Alliance `MethodInvocation`, AspectJ `JoinPoint` and web request `FilterInvocation`) with complete transparency.
+===== 扩展安全对象模型
+只有当开发人员考虑一个全新的拦截方法和授权请求时才需要直接使用安全对象。例如，为了确保对消息系统的调用，它有可能建立建立一个新的安全对象。
+任何东西都需要安全，并且还提供了一种方法去调用（如建议语义的AOP）能够被做成一个安全对象。不得不说的是，大多数Spring应用程序将只使用三种目前完全支持的安全对象类型(AOP Alliance `MethodInvocation`, `AspectJ` `JoinPoint` 和web请求 `FilterInvocation`)。
