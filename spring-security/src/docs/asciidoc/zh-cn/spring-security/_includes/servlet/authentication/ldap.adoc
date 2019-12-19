@@ -1,0 +1,317 @@
+[[ldap]]
+== LDAP 验证
+
+
+[[ldap-overview]]
+=== 概述
+LDAP通常被组织用作用户信息的中央存储库和身份验证服务。
+它还可以用于存储应用程序用户的角色信息。
+
+关于如何配置LDAP服务器，有许多不同的方案，因此Spring Security的LDAP提供程序是完全可配置的。 它使用单独的策略接口进行身份验证和角色检索，并提供可以配置为处理各种情况的默认实现。
+
+在尝试将其与Spring Security结合使用之前，您应该熟悉LDAP。 以下链接很好地介绍了相关概念，并提供了使用免费LDAP服务器OpenLDAP设置目录的指南： http://www.zytrax.com/books/ldap/[http://www.zytrax.com/books/ldap/]。
+熟悉用于从Java访问LDAP的JNDI API可能也很有用。 我们在LDAP提供程序中未使用任何第三方LDAP库（Mozilla，JLDAP等），但是Spring LDAP被广泛使用，因此如果您计划添加自己的自定义项，则对该项目有些熟悉可能会很有用。
+
+使用LDAP身份验证时，重要的是要确保正确配置LDAP连接池。 如果您不熟悉该操作，可以参考https://docs.oracle.com/javase/jndi/tutorial/ldap/connect/config.html[Java LDAP documentation]文档。
+
+=== 将LDAP与Spring Security结合使用
+Spring Security中的LDAP认证可以大致分为以下几个阶段。
+
+* 从登录名获取唯一的LDAP "Distinguished Name" 或DN。 除非事先知道用户名到DN的确切映射，否则会在目录中执行搜索。 因此，用户在登录时可能会输入名称 "joe" ，但用于验证LDAP的实际名称将是完整DN，例如 `uid=joe,ou=users,dc=spring,dc=io`。
+* 通过“绑定”该用户或通过对该用户的密码与DN目录条目中的password属性进行远程“比较”操作来对用户进行身份验证。
+* 加载用户的权限列表。
+
+例外是仅使用LDAP目录检索用户信息并在本地对其进行身份验证。 这是不可能的，因为目录经常被设置可读权限，例如用户密码。
+
+我们将在下面看一些配置方案.
+下面,我们将看看一些配置场景。完整的可用配置选项的信息,请查阅安全模式名称空间(信息应该在XML编辑器中可用).
+
+
+[[ldap-server]]
+== 配置LDAP服务器
+您需要做的第一件事是配置要对其进行身份验证的服务器。 这是使用安全名称空间中的 `<ldap-server>` 元素完成的。 可以使用 `url` 属性将其配置为指向外部LDAP服务器：
+
+[source,xml]
+----
+<ldap-server url="ldap://springframework.org:389/dc=springframework,dc=org" />
+----
+
+NOTE: `spring-security` 提供了与嵌入式LDAP服务器的 `apacheds` 和 `unboundid` 集成。您可以使用 `ldap-server` 中的 `mode` 属性在它们之间进行选择。
+
+=== 使用嵌入式测试服务器
+`<ldap-server>` 元素也可以用来创建一个嵌入式服务器,它可以是非常有用的进行测试和演示。在这种情况下,你没有使用它的 `url` 属性:
+
+[source,xml]
+----
+<ldap-server root="dc=springframework,dc=org"/>
+----
+
+这里我们指定目录是 "dc=springframework,dc=org",这是默认的.这种方式,使用名称空间解析器将创建一个嵌入式Apache目录服务器的类路径和扫描任何LDIF文件,它将尝试加载到服务器。你可以定制这种行为使用 `ldif` 的属性,它定义了一个 `ldif` 资源加载:
+
+[source,xml]
+----
+<ldap-server ldif="classpath:users.ldif" />
+----
+
+这使它更容易与LDAP同步,因为它可以方便工作与外部服务器。它还将用户从复杂bean配置需要隔离一个Apache连接目录服务器。使用普通的Spring bean配置将会更加混乱。你必须要有必要的Apache Directory依赖性jar用于您的应用程序使用。如LDAP示例应用程序。
+
+=== 使用绑定验证
+这是最常见的LDAP身份验证场景.
+
+[source,xml]
+----
+<ldap-authentication-provider user-dn-pattern="uid={0},ou=people"/>
+----
+
+这个简单的例子将获得用户的DN替代模式和提供的用户登录名试图绑定,用户的登录密码。如果你所有的用户都是存储在单个节点的目录下这很好,如果您希望配置LDAP搜索筛选器来定位用户,你可以使用以下
+
+[source,xml]
+----
+<ldap-authentication-provider user-search-filter="(uid={0})"
+	    user-search-base="ou=people"/>
+----
+
+如果使用上面的服务器定义,这将执行搜索在DN `ou=people,dc=springframework,dc=org` 使用 `user-search-filter` 属性的值作为一个过滤器。用户登录名是代替过滤器的参数名称,所以它将搜索条目 `uid` 属性等于用户名。如果 `user-search-base` 并不提供,从根搜索.
+
+=== 加载机构
+当局是如何从组加载在LDAP目录中由以下属性控制
+
+* `group-search-base`.
+定义了目录树下的一部分应该执行哪一组搜索。
+* `group-role-attribute`.
+属性包含的名称定义的权限组条目。默认为 `cn`
+* `group-search-filter`.
+过滤器用于搜索组成员。默认是 `uniqueMember={0}`,对应于 `groupOfUniqueNames` 的LDAP类脚注:footnote:[注意,这是不同于缺省配置底层 `DefaultLdapAuthoritiesPopulator` 使用 `member={0}`。]
+
+在这种情况下,替换参数是用户的专有名称。可以使用参数 `{1}` 如果你想过滤的登录名.
+
+[source,xml]
+----
+<ldap-authentication-provider user-dn-pattern="uid={0},ou=people"
+		group-search-base="ou=groups" />
+----
+
+和经过验证的成功作为用户 "ben",随后的加载下当局将执行搜索的目录条目的 `ou=groups,dc=springframework,dc=org`,寻找条目包含的属性 `uniqueMember` 价值 `uid=ben,ou=people,dc=springframework,dc=org`。
+默认的权限名称前缀 `ROLE_` 前缀。你可以改变这个使用 `role-prefix` 属性。如果你不想要任何前缀,使用 `role-prefix="none"`.加载机构的更多信息,请参阅 `DefaultLdapAuthoritiesPopulator` 类的Javadoc.
+
+== 实现类
+
+上面的名称空间配置选项我们使用易于使用,更比使用Spring bean简洁明确。有些情况下,您可能需要了解如何配置Spring Security LDAP直接在您的应用程序上下文。您可能希望定制的一些类的行为,例如。如果你使用名称空间配置,那么你可以跳过这一节和下一个.
+
+LDAP provider,`LdapAuthenticationProvider`,实际上并不做太多工作本身,而是代表其他两个bean,一个 `LdapAuthenticator` 和一个 `LdapAuthoritiesPopulator` 分别负责验证用户和检索用户的组 `GrantedAuthority`.
+
+[[ldap-ldap-authenticators]]
+=== LdapAuthenticator 实现
+authenticator 还负责检索所需的用户属性。这是因为权限的属性可能取决于正在使用的身份验证类型。例如,如果绑定用户,与用户可能需要阅读的权限有关.
+
+目前有两种身份验证策略提供Spring安全:
+
+* *直接向LDAP服务器的身份验证("bind" 身份验证)。
+
+* *密码比较,用户提供的密码是与一个存储在存储库中。这可以通过检索密码属性的值和检查本地或通过执行 LDAP"compare"操作,提供的密码在哪里传递到服务器进行比较和真正的密码值是没有检索到.
+
+[[ldap-ldap-authenticators-common]]
+==== 常用功能
+之前可以验证一个用户(通过策略),专有名称(DN)必须从登录名获得提供给应用程序.这可以通过简单的模式匹配(通过设置 `setUserDnPatterns` 数组属性)或通过设置 `userSearch` 属性.对于DN模式匹配方法,格式是使用一个标准的Java模式,将登录名代替参数{0}.
+他应该相对于DN模式,配置 `SpringSecurityContextSource` 将绑定到部分(参见<<ldap-context-source,连接到LDAP服务器>>更多这方面的信息).`ldap://monkeymachine.co.uk/dc=springframework,dc=org` 和有一个模式 `uid={0},ou=greatapes`,"gorilla" 的登录名将会映射到一个DN `uid=gorilla,ou=greatapes,dc=springframework,dc=org`.
+每个配置的DN模式将尝试直到找到一个匹配，有关使用搜索的信息,看到部分下面的<<ldap-searchobjects,LDAP搜索对象>>，结合这两种方法也可以使用——模式首先会检查,如果没有找到匹配DN,将使用搜索.
+
+
+[[ldap-ldap-authenticators-bind]]
+==== 绑定认证者
+`org.springframework.security.ldap.authentication` 包下的 `BindAuthenticator` 实现身份验证绑定验证策略。它只是试图将用户绑定.
+
+[[ldap-ldap-authenticators-password]]
+==== PasswordComparisonAuthenticator
+
+`PasswordComparisonAuthenticator` 实现了密码比较验证策略.
+
+
+[[ldap-context-source]]
+=== 连接到LDAP服务器
+
+上面讨论的bean必须能够连接到服务器。他们都必须提供一个 `SpringSecurityContextSource` 这是SpringLDAP的 `ContextSource` 的延伸。
+除非你有特殊要求,您通常会配置一个 `DefaultSpringSecurityContextSource` bean,可以配置LDAP服务器的URL和可选的"manager"的用户的用户名和密码,使用时将默认绑定到服务器(而不是匿名绑定)。更多信息,读取这个类的Javadoc和SpringLDAP的 `AbstractContextSource`”.
+
+[[ldap-searchobjects]]
+=== LDAP搜索对象
+
+通常需要一个比DN-matching定位目录中的用户条目更复杂的策略，这可以封装在一个 `LdapUserSearch` 实例,可以提供身份验证实现.例如,让他们来定位用户.提供的实现是 `FilterBasedLdapUserSearch`.
+
+[[ldap-searchobjects-filter]]
+==== FilterBasedLdapUserSearch
+
+该bean使用LDAP过滤器来匹配目录中的用户对象
+Javadoc中针对https://java.sun.com/j2se/1.4.2/docs/api/javax/naming/directory/DirContext.html#search(javax.naming.Name%2C%2520java.lang.String%2C%2520java.lang.Object%5B%5D%2C%2520javax.naming.directory.SearchControls)[JDK DirContext class]的相应搜索方法说明了该过程。 如此处所述，可以为搜索过滤器提供参数。 对于此类，唯一有效的参数是 `{0}`，它将替换为用户的登录名。.
+
+
+[[ldap-authorities]]
+=== LdapAuthoritiesPopulator
+成功验证用户身份后，`LdapAuthenticationProvider` 将尝试通过调用配置的 `LdapAuthoritiesPopulator` bean来为用户加载一组权限。
+`DefaultLdapAuthoritiesPopulator`  是一种实现，它将通过在目录中搜索用户所属的组来加载权限（通常，这些组将是目录中的 `groupOfNames` 或 `groupOfUniqueNames` 条目）。 有关此类的更多详细信息，请查阅Javadoc。
+
+如果您只想使用LDAP进行身份验证，但是从其他来源（例如数据库）加载授权，则可以提供自己的接口实现，然后注入该接口。
+
+[[ldap-bean-config]]
+=== Spring Bean 配置
+典型的配置中,我们这里讨论使用一些bean,看起来像这样:
+
+[source,xml]
+----
+<bean id="contextSource"
+		class="org.springframework.security.ldap.DefaultSpringSecurityContextSource">
+    <constructor-arg value="ldap://monkeymachine:389/dc=springframework,dc=org"/>
+    <property name="userDn" value="cn=manager,dc=springframework,dc=org"/>
+    <property name="password" value="password"/>
+</bean>
+
+<bean id="ldapAuthProvider"
+	    class="org.springframework.security.ldap.authentication.LdapAuthenticationProvider">
+    <constructor-arg>
+        <bean class="org.springframework.security.ldap.authentication.BindAuthenticator">
+	        <constructor-arg ref="contextSource"/>
+	        <property name="userDnPatterns">
+	            <list><value>uid={0},ou=people</value></list>
+	        </property>
+        </bean>
+    </constructor-arg>
+    <constructor-arg>
+        <bean class="org.springframework.security.ldap.userdetails.DefaultLdapAuthoritiesPopulator">
+            <constructor-arg ref="contextSource"/>
+            <constructor-arg value="ou=groups"/>
+            <property name="groupRoleAttribute" value="ou"/>
+        </bean>
+    </constructor-arg>
+</bean>
+----
+
+这将设置提供程序访问LDAP服务器URL `ldap://monkeymachine:389/dc=springframework,dc=org`.身份验证将由试图结合DN `uid=<user-login-name>,ou=people,dc=springframework,dc=org`.
+成功的身份验证之后,角色分配给用户通过搜索下的DN `ou=groups,dc=springframework,dc=org` 用默认的过滤器 `(member=<user’s-DN>)` .角色名称将从每一个"ou"属性开始匹配.
+
+配置一个用户搜索对象,使用过滤器 `(uid=<user-login-name>)` 的使用而不是DN-pattern(或补充),您将配置以下bean
+
+[source,xml]
+----
+
+<bean id="userSearch"
+        class="org.springframework.security.ldap.search.FilterBasedLdapUserSearch">
+    <constructor-arg index="0" value=""/>
+    <constructor-arg index="1" value="(uid={0})"/>
+    <constructor-arg index="2" ref="contextSource" />
+</bean>
+----
+
+并使用它通过设置 `BindAuthenticator` bean的 `userSearch` 属性.authenticator将 调用搜索对象来获得正确的用户作为该用户的DN之前绑定.
+
+[[ldap-custom-user-details]]
+=== LDAP 属性和自定义 UserDetails
+使用 `LdapAuthenticationProvider` 进行身份验证的最终结果与使用标准 `UserDetailsService` 接口的常规Spring Security身份验证相同。
+创建一个 `UserDetails` 对象，并将其存储在返回的 `Authentication` 对象中。 与使用 `UserDetailsService` 一样，一个共同的要求是能够自定义此实现并添加其他属性。
+使用LDAP时，这些通常是用户条目中的属性。 `UserDetails` 对象的创建由提供商的 `UserDetailsContextMapper` 策略控制，该策略负责在LDAP上下文数据之间来回映射用户对象：
+
+[source,java]
+----
+public interface UserDetailsContextMapper {
+
+    UserDetails mapUserFromContext(DirContextOperations ctx, String username,
+	    	Collection<GrantedAuthority> authorities);
+
+    void mapUserToContext(UserDetails user, DirContextAdapter ctx);
+}
+----
+
+仅第一种方法与身份验证有关。 如果提供此接口的实现并将其注入 `LdapAuthenticationProvider`，则可以完全控制如何创建 `UserDetails` 对象。
+第一个参数是Spring LDAP的 `DirContextOperations` 的实例，它使您可以访问在身份验证期间加载的LDAP属性。 `username` 参数是用于认证的名称，最后一个参数是配置的 `LdapAuthoritiesPopulator` 为用户加载的权限的集合。
+
+上下文数据的加载方式根据所使用的身份验证类型而略有不同。 使用 `BindAuthenticator`，将从绑定操作返回的上下文用于读取属性，否则将使用从配置的 `ContextSource` 获得的标准上下文读取数据（当配置搜索以定位用户时，这将是数据 由搜索对象返回）。
+
+[[ldap-active-directory]]
+== 激活目录认证
+Active Directory支持其自己的非标准身份验证选项，并且正常使用模式与标准 `LdapAuthenticationProvider` 不太吻合。
+通常，身份验证是使用域用户名（格式为 `user@domain`）而不是使用LDAP可分辨名称来执行的。 为了简化此操作，Spring Security 3.1具有一个身份验证提供程序，该身份验证提供程序是针对典型的Active Directory设置而定制的。
+
+=== ActiveDirectoryLdapAuthenticationProvider
+配置 `ActiveDirectoryLdapAuthenticationProvider` 非常简单。 您只需要提供域名和提供服务器地址的LDAP URL footnote:[也可以使用DNS查找来获取服务器的IP地址。 目前尚不支持此功能，但希望在以后的版本中可用.]。 配置示例如下所示：
+
+[source,xml]
+----
+
+<bean id="adAuthenticationProvider"
+        class="org.springframework.security.ldap.authentication.ad.ActiveDirectoryLdapAuthenticationProvider">
+	<constructor-arg value="mydomain.com" />
+	<constructor-arg value="ldap://adserver.mydomain.com/" />
+</bean>
+----
+
+注意,不需要指定一个单独的 `ContextSource` 来定义服务器位置- bean是完全自包含的。用户名为 "Sharon",例如,将能够验证通过输入用户名 `sharon`或完整的Active Directory `userPrincipalName`,即 `sharon@mydomain.com`.用户的目录条目将被定位,并可能返回的属性中使用自定义创建的 `UserDetails` 对象(`UserDetailsContextMapper` 可以被注入为此,如上所述)。所有与目录发生交互用户的身份。没有一个"manager"用户的概念.
+
+默认情况下,用户当局正在从 `memberOf` 获得用户输入的属性值。政府再分配给用户可以使用被定制 `UserDetailsContextMapper`。你也可以注入一个 `GrantedAuthoritiesMapper` 提供者实例来控制政府最终在 `Authentication` 对象.
+
+==== Active Directory 错误代码
+默认情况下，失败的结果将导致标准的Spring Security `BadCredentialsException`。 如果将属性 `convertSubErrorCodesToExceptions` 设置为 `true`，则将解析异常消息，以尝试提取特定于Active Directory的错误代码并引发更特定的异常。 检查类Javadoc以获取更多信息。
+
+== LDAP Java 配置
+
+您可以找到更新以支持基于LDAP的身份验证。 https://github.com/spring-projects/spring-security/tree/master/samples/javaconfig/ldap[ldap-javaconfig] 示例提供了使用基于LDAP的身份验证的完整示例。
+
+[source,java]
+----
+@Autowired
+private DataSource dataSource;
+
+@Autowired
+public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
+	auth
+		.ldapAuthentication()
+			.userDnPatterns("uid={0},ou=people")
+			.groupSearchBase("ou=groups");
+}
+----
+
+上面的示例使用以下LDIF和嵌入式Apache DS LDAP实例。
+
+.users.ldif
+----
+dn: ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: groups
+
+dn: ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: people
+
+dn: uid=admin,ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+cn: Rod Johnson
+sn: Johnson
+uid: admin
+userPassword: password
+
+dn: uid=user,ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+cn: Dianne Emu
+sn: Emu
+uid: user
+userPassword: password
+
+dn: cn=user,ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: groupOfNames
+cn: user
+uniqueMember: uid=admin,ou=people,dc=springframework,dc=org
+uniqueMember: uid=user,ou=people,dc=springframework,dc=org
+
+dn: cn=admin,ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: groupOfNames
+cn: admin
+uniqueMember: uid=admin,ou=people,dc=springframework,dc=org
+----
