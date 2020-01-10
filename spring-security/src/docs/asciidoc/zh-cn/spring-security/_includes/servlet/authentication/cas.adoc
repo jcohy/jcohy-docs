@@ -30,7 +30,7 @@ Web浏览器，CAS服务器和受Spring Security保护的服务之间的基本�
 * `CasAuthenticationEntryPoint` 会将用户的浏览器重定向到CAS服务器。 它还将指示一个服务参数，它是Spring Security服务（您的应用程序）的回调URL。 例如，浏览器重定向到的URL可能是 https://my.company.com/cas/login?service=https%3A%2F%2Fserver3.company.com%2Fwebapp%2Flogin/cas.
 * 用户的浏览器重定向到CAS后，将提示他们输入用户名和密码。 如果用户提供的会话cookie指示他们先前已登录，则不会提示他们再次登录（此过程有一个例外，我们将在后面介绍）。 CAS将使用上面讨论的 `PasswordHandler`（如果使用CAS 3.0，则使用 `AuthenticationHandler`）来确定用户名和密码是否有效。
 * 成功登录后，CAS会将用户的浏览器重定向回原始服务。 它还将包含一个 `ticket` 参数，它是代表 "service ticket" 的不透明字符串。 继续前面的示例，浏览器重定向到的URL可能是 https://server3.company.com/webapp/login/cas?ticket=ST-0-ER94xMJmn6pha35CQRoZ。
-* 回到服务Web应用程序中，`CasAuthenticationFilter` 始终在侦听对 `/login/cas` 的请求（这是可配置的，但在本简介中将使用默认值）。 处理过滤器将构造一个代表服务票证的 `UsernamePasswordAuthenticationToken`。 主体将等于 `CasAuthenticationFilter.CAS_STATEFUL_IDENTIFIER`，而凭据将是服务凭单的不透明值。 然后，此身份验证请求将移交给已配置的 `AuthenticationManager`。
+* 回到服务Web应用程序中，`CasAuthenticationFilter` 始终在监听对 `/login/cas` 的请求（这是可配置的，但在本简介中将使用默认值）。 处理过滤器将构造一个代表服务票证的 `UsernamePasswordAuthenticationToken`。 主体将等于 `CasAuthenticationFilter.CAS_STATEFUL_IDENTIFIER`，而凭据将是服务凭单的不透明值。 然后，此身份验证请求将移交给已配置的 `AuthenticationManager`。
 * `AuthenticationManager` 实现将是 `ProviderManager`，后者又由 `CasAuthenticationProvider` 配置。 `CasAuthenticationProvider` 仅响应包含特定于CAS的主体的 `UsernamePasswordAuthenticationToken`（如 `CasAuthenticationFilter.CAS_STATEFUL_IDENTIFIER`）和 `CasAuthenticationToken`（稍后讨论）。
 * `CasAuthenticationProvider` 将使用 `TicketValidator` 实现来验证服务票证。 这通常是 `Cas20ServiceTicketValidator`，它是CAS客户端库中包含的类之一。 如果应用程序需要验证代理票证，则使用 `Cas20ProxyTicketValidator`。 `TicketValidator` 向CAS服务器发出HTTPS请求，以验证服务票证。
   它还可能包含此示例中包含的代理回调URL：https://my.company.com/cas/proxyValidate?service=https%3A%2F%2Fserver3.company.com%2Fwebapp%2Flogin/cas&ticket=ST-0-ER94xMJmn6pha35CQRoZ＆pgtUrl=https://server3.company.com/webapp/login/cas/proxyreceptor。
@@ -65,7 +65,7 @@ Web浏览器，CAS服务器和受Spring Security保护的服务之间的基本�
 
 `service` 必须等于由 `CasAuthenticationFilter` 监视的URL。 `sendRenew` 默认为 `false`，但如果您的应用程序特别敏感，则应将其设置为 `true`。 该参数的作用是告诉CAS登录服务单次登录是不可接受的。 而是，用户将需要重新输入其用户名和密码才能访问该服务。
 
-应该配置以下bean以启动CAS身份验证过程（假设您使用的是名称空间配置）：
+应该配置以下bean以启动CAS身份验证过程（假设您使用的是命名空间配置）：
 
 [source,xml]
 ----
@@ -280,7 +280,7 @@ String proxyResponse = CommonUtils.getResponseFromServer(serviceUrl, "UTF-8");
 由于远程协议无法在 `HttpSession` 的上下文中展示自己，因此无法依靠默认做法将安全上下文存储在请求之间的会话中。 此外，由于CAS服务器在票证已由 `TicketValidator` 验证后使票证失效，因此无法在后续请求中显示相同的代理票证。
 
 一个明显的选择是根本不使用CAS远程协议客户端。 但是，这将消除CAS的许多理想功能。 作为中间立场，`CasAuthenticationProvider` 使用 `StatelessTicketCache`。 这仅用于使用等于 `CasAuthenticationFilter.CAS_STATELESS_IDENTIFIER` 的主体的无状态客户端。
-发生的情况是，`CasAuthenticationProvider` 会将生成的 `CasAuthenticationToken` 存储在 `StatelessTicketCache` 中，该密钥在代理凭单上键入。 因此，远程协议客户端可以提供相同的代理票证，并且 `CasAuthenticationProvider` 无需联系CAS服务器进行验证（除了第一个请求）。 一旦通过身份验证，代理票证就可以用于原始目标服务以外的URL。
+发生的情况是，`CasAuthenticationProvider` 会将生成的 `CasAuthenticationToken` 存储在 `StatelessTicketCache` 中，该密钥在代理凭单上输入。 因此，远程协议客户端可以提供相同的代理票证，并且 `CasAuthenticationProvider` 无需联系CAS服务器进行验证（除了第一个请求）。 一旦通过身份验证，代理票证就可以用于原始目标服务以外的URL。
 
 本部分以前面的部分为基础，以适应代理票证身份验证。 第一步是指定对所有工件进行身份验证，如下所示。
 
