@@ -19,7 +19,10 @@ In addition, `HttpSecurity.oauth2Client().authorizationCodeGrant()` enables the 
 
 The following code shows the complete configuration options provided by the `HttpSecurity.oauth2Client()` DSL:
 
-[source,java]
+.OAuth2 Client Configuration Options
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -27,21 +30,43 @@ public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 		http
-			.oauth2Client(oauth2Client ->
-			    oauth2Client
-				    .clientRegistrationRepository(this.clientRegistrationRepository())
-				    .authorizedClientRepository(this.authorizedClientRepository())
-				    .authorizedClientService(this.authorizedClientService())
-				    .authorizationCodeGrant(authorizationCodeGrant ->
-					    authorizationCodeGrant
-						    .authorizationRequestRepository(this.authorizationRequestRepository())
-						    .authorizationRequestResolver(this.authorizationRequestResolver())
-						    .accessTokenResponseClient(this.accessTokenResponseClient())
-				    )
+			.oauth2Client(oauth2 -> oauth2
+				.clientRegistrationRepository(this.clientRegistrationRepository())
+				.authorizedClientRepository(this.authorizedClientRepository())
+				.authorizedClientService(this.authorizedClientService())
+				.authorizationCodeGrant(codeGrant -> codeGrant
+					.authorizationRequestRepository(this.authorizationRequestRepository())
+					.authorizationRequestResolver(this.authorizationRequestResolver())
+					.accessTokenResponseClient(this.accessTokenResponseClient())
+				)
 			);
 	}
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Client {
+                clientRegistrationRepository = clientRegistrationRepository()
+                authorizedClientRepository = authorizedClientRepository()
+                authorizedClientService = authorizedClientService()
+                authorizationCodeGrant {
+                    authorizationRequestRepository = authorizationRequestRepository()
+                    authorizationRequestResolver = authorizationRequestResolver()
+                    accessTokenResponseClient = accessTokenResponseClient()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 The `OAuth2AuthorizedClientManager` is responsible for managing the authorization (or re-authorization) of an OAuth 2.0 Client, in collaboration with one or more `OAuth2AuthorizedClientProvider`(s).
 
@@ -137,7 +162,7 @@ public final class ClientRegistration {
 <4> `clientAuthenticationMethod`: The method used to authenticate the Client with the Provider.
 The supported values are *basic*, *post* and *none* https://tools.ietf.org/html/rfc6749#section-2.1[(public clients)].
 <5> `authorizationGrantType`: The OAuth 2.0 Authorization Framework defines four https://tools.ietf.org/html/rfc6749#section-1.3[Authorization Grant] types.
- The supported values are `authorization_code`, `client_credentials`, `password` and `implicit`.
+ The supported values are `authorization_code`, `client_credentials` and `password`.
 <6> `redirectUriTemplate`: The client's registered redirect URI that the _Authorization Server_ redirects the end-user's user-agent
  to after the end-user has authenticated and authorized access to the client.
 <7> `scopes`: The scope(s) requested by the client during the Authorization Request flow, such as openid, email, or profile.
@@ -251,6 +276,13 @@ public class OAuth2ClientController {
 [NOTE]
 Spring Boot 2.x auto-configuration registers an `OAuth2AuthorizedClientRepository` and/or `OAuth2AuthorizedClientService` `@Bean` in the `ApplicationContext`.
 However, the application may choose to override and register a custom `OAuth2AuthorizedClientRepository` or `OAuth2AuthorizedClientService` `@Bean`.
+
+The default implementation of `OAuth2AuthorizedClientService` is `InMemoryOAuth2AuthorizedClientService`, which stores `OAuth2AuthorizedClient`(s) in-memory.
+
+Alternatively, the JDBC implementation `JdbcOAuth2AuthorizedClientService` may be configured for persisting `OAuth2AuthorizedClient`(s) in a database.
+
+[NOTE]
+`JdbcOAuth2AuthorizedClientService` depends on the table definition described in <<dbschema-oauth2-client, OAuth 2.0 Client Schema>>.
 
 
 [[oauth2Client-authorized-manager-provider]]
@@ -366,11 +398,11 @@ Please refer to the https://tools.ietf.org/html/rfc6749#section-4.1.1[Authorizat
 The `OAuth2AuthorizationRequestRedirectFilter` uses an `OAuth2AuthorizationRequestResolver` to resolve an `OAuth2AuthorizationRequest` and initiate the Authorization Code grant flow by redirecting the end-user's user-agent to the Authorization Server's Authorization Endpoint.
 
 The primary role of the `OAuth2AuthorizationRequestResolver` is to resolve an `OAuth2AuthorizationRequest` from the provided web request.
-The default implementation `DefaultOAuth2AuthorizationRequestResolver` matches on the (default) path `/oauth2/authorization/{registrationId}` extracting the `registrationId` and using it to build the `OAuth2AuthorizationRequest` for the associated `ClientRegistration`.
+The default implementation `DefaultOAuth2AuthorizationRequestResolver` matches on the (default) path `+/oauth2/authorization/{registrationId}+` extracting the `registrationId` and using it to build the `OAuth2AuthorizationRequest` for the associated `ClientRegistration`.
 
 Given the following Spring Boot 2.x properties for an OAuth 2.0 Client registration:
 
-[source,yaml]
+[source,yaml,attrs="-attributes"]
 ----
 spring:
   security:
@@ -397,7 +429,7 @@ which also initiates the Authorization Request redirect by the `OAuth2Authorizat
 
 If the OAuth 2.0 Client is a https://tools.ietf.org/html/rfc6749#section-2.1[Public Client], then configure the OAuth 2.0 Client registration as follows:
 
-[source,yaml]
+[source,yaml,attrs="-attributes"]
 ----
 spring:
   security:
@@ -423,7 +455,7 @@ The `DefaultOAuth2AuthorizationRequestResolver` also supports `URI` template var
 
 The following configuration uses all the supported `URI` template variables:
 
-[source,yaml]
+[source,yaml,attrs="-attributes"]
 ----
 spring:
   security:
@@ -437,9 +469,9 @@ spring:
 ----
 
 [NOTE]
-`{baseUrl}` resolves to `{baseScheme}://{baseHost}{basePort}{basePath}`
+`+{baseUrl}+` resolves to `+{baseScheme}://{baseHost}{basePort}{basePath}+`
 
-Configuring the `redirect-uri` with `URI` template variables is especially useful when the OAuth 2.0 Client is running behind a <<appendix-proxy-server, Proxy Server>>.
+Configuring the `redirect-uri` with `URI` template variables is especially useful when the OAuth 2.0 Client is running behind a <<http-proxy-server,Proxy Server>>.
 This ensures that the `X-Forwarded-*` headers are used when expanding the `redirect-uri`.
 
 ===== Customizing the Authorization Request
@@ -465,18 +497,16 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 		http
-			.authorizeRequests(authorizeRequests ->
-			    authorizeRequests
-				    .anyRequest().authenticated()
+			.authorizeRequests(authorize -> authorize
+				.anyRequest().authenticated()
 			)
-			.oauth2Login(oauth2Login ->
-				oauth2Login
-					.authorizationEndpoint(authorizationEndpoint ->
-						authorizationEndpoint
-							.authorizationRequestResolver(
-							    new CustomAuthorizationRequestResolver(
-							            this.clientRegistrationRepository))    <1>
+			.oauth2Login(oauth2 -> oauth2
+				.authorizationEndpoint(authorization -> authorization
+					.authorizationRequestResolver(
+					    new CustomAuthorizationRequestResolver(
+					            this.clientRegistrationRepository)    <1>
 					)
+				)
 			);
 	}
 }
@@ -587,7 +617,10 @@ The default implementation of `AuthorizationRequestRepository` is `HttpSessionOA
 
 If you have a custom implementation of `AuthorizationRequestRepository`, you may configure it as shown in the following example:
 
-[source,java]
+.AuthorizationRequestRepository Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -595,17 +628,34 @@ public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 		http
-			.oauth2Client(oauth2Client ->
-			    oauth2Client
-				    .authorizationCodeGrant(authorizationCodeGrant ->
-				        authorizationCodeGrant
-					        .authorizationRequestRepository(this.authorizationRequestRepository())
-					        ...
-					)
+			.oauth2Client(oauth2 -> oauth2
+				.authorizationCodeGrant(codeGrant -> codeGrant
+					.authorizationRequestRepository(this.authorizationRequestRepository())
+					...
+				)
 			);
 	}
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Client {
+                authorizationCodeGrant {
+                    authorizationRequestRepository = authorizationRequestRepository()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 
 ===== Requesting an Access Token
@@ -651,7 +701,10 @@ It uses an `OAuth2ErrorHttpMessageConverter` for converting the OAuth 2.0 Error 
 
 Whether you customize `DefaultAuthorizationCodeTokenResponseClient` or provide your own implementation of `OAuth2AccessTokenResponseClient`, you'll need to configure it as shown in the following example:
 
-[source,java]
+.Access Token Response Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -659,17 +712,34 @@ public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 		http
-			.oauth2Client(oauth2Client ->
-			    oauth2Client
-				    .authorizationCodeGrant(authorizationCodeGrant ->
-				        authorizationCodeGrant
-					        .accessTokenResponseClient(this.accessTokenResponseClient())
-					        ...
-					 )
+			.oauth2Client(oauth2 -> oauth2
+				.authorizationCodeGrant(codeGrant -> codeGrant
+					.accessTokenResponseClient(this.accessTokenResponseClient())
+					...
+				)
 			);
 	}
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Client {
+                authorizationCodeGrant {
+                    accessTokenResponseClient = accessTokenResponseClient()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 
 [[oauth2Client-refresh-token-grant]]

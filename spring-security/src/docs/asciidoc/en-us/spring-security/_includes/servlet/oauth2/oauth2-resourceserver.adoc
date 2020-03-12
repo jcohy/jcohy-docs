@@ -124,37 +124,83 @@ There are two `@Bean` s that Spring Boot generates on Resource Server's behalf.
 
 The first is a `WebSecurityConfigurerAdapter` that configures the app as a resource server. When including `spring-security-oauth2-jose`, this `WebSecurityConfigurerAdapter` looks like:
 
-[source,java]
+.Default JWT Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 protected void configure(HttpSecurity http) {
     http
-        .authorizeRequests()
+        .authorizeRequests(authorize -> authorize
             .anyRequest().authenticated()
-            .and()
-        .oauth2ResourceServer(OAuth2ResourceServerConfigurer::jwt)
+        )
+        .oauth2ResourceServer(OAuth2ResourceServerConfigurer::jwt);
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+fun configure(http: HttpSecurity) {
+    http {
+        authorizeRequests {
+            authorize(anyRequest, authenticated)
+        }
+        oauth2ResourceServer {
+            jwt { }
+        }
+    }
+}
+----
+====
 
 If the application doesn't expose a `WebSecurityConfigurerAdapter` bean, then Spring Boot will expose the above default one.
 
 Replacing this is as simple as exposing the bean within the application:
 
-[source,java]
+.Custom JWT Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .mvcMatchers("/messages/**").hasAuthority("SCOPE_message:read")
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .jwt()
-                    .jwtAuthenticationConverter(myConverter());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtAuthenticationConverter(myConverter())
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize("/messages/**", hasAuthority("SCOPE_message:read"))
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                jwt {
+                    jwtAuthenticationConverter = myConverter()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 The above requires the scope of `message:read` for any URL that starts with `/messages/`.
 
@@ -182,21 +228,47 @@ And its configuration can be overridden using `jwkSetUri()` or replaced using `d
 
 An authorization server's JWK Set Uri can be configured <<oauth2resourceserver-jwt-jwkseturi,as a configuration property>> or it can be supplied in the DSL:
 
-[source,java]
+.JWK Set Uri Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .jwt()
-                    .jwkSetUri("https://idp.example.com/.well-known/jwks.json");
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwkSetUri("https://idp.example.com/.well-known/jwks.json")
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                jwt {
+                    jwkSetUri = "https://idp.example.com/.well-known/jwks.json"
+                }
+            }
+        }
+    }
+}
+----
+====
 
 Using `jwkSetUri()` takes precedence over any configuration property.
 
@@ -205,21 +277,47 @@ Using `jwkSetUri()` takes precedence over any configuration property.
 
 More powerful than `jwkSetUri()` is `decoder()`, which will completely replace any Boot auto configuration of `JwtDecoder`:
 
-[source,java]
+.JWT Decoder Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredJwtDecoder extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .jwt()
-                    .decoder(myCustomDecoder());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .decoder(myCustomDecoder())
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredJwtDecoder : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                jwt {
+                    jwtDecoder = myCustomDecoder()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 This is handy when deeper configuration, like <<oauth2resourceserver-jwt-validation,validation>>, <<oauth2resourceserver-jwt-claimsetmapping,mapping>>, or <<oauth2resourceserver-jwt-timeouts,request timeouts>>, is necessary.
 
@@ -405,13 +503,16 @@ When this is the case, Resource Server will attempt to coerce these scopes into 
 
 This means that to protect an endpoint or method with a scope derived from a JWT, the corresponding expressions should include this prefix:
 
-[source,java]
+.Authorization Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests(authorizeRequests -> authorizeRequests
+            .authorizeRequests(authorize -> authorize
                 .mvcMatchers("/contacts/**").hasAuthority("SCOPE_contacts")
                 .mvcMatchers("/messages/**").hasAuthority("SCOPE_messages")
                 .anyRequest().authenticated()
@@ -420,6 +521,27 @@ public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize("/contacts/**", hasAuthority("SCOPE_contacts"))
+                authorize("/messages/**", hasAuthority("SCOPE_messages"))
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                jwt { }
+            }
+        }
+    }
+}
+----
+====
 
 Or similarly with method security:
 
@@ -438,29 +560,63 @@ Or, at other times, the resource server may need to adapt the attribute or a com
 
 To this end, the DSL exposes `jwtAuthenticationConverter()`:
 
-[source,java]
+.Authorities Extractor Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .jwt()
-                    .jwtAuthenticationConverter(grantedAuthoritiesExtractor());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtAuthenticationConverter(grantedAuthoritiesExtractor())
+                )
+            );
     }
 }
 
 Converter<Jwt, AbstractAuthenticationToken> grantedAuthoritiesExtractor() {
     JwtAuthenticationConverter jwtAuthenticationConverter =
             new JwtAuthenticationConverter();
+
     jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter
             (new GrantedAuthoritiesExtractor());
-    return jwtAuthenticationConveter;
+
+    return jwtAuthenticationConverter;
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                jwt {
+                    jwtAuthenticationConverter = grantedAuthoritiesExtractor()
+                }
+            }
+        }
+    }
+
+    private fun grantedAuthoritiesExtractor(): JwtAuthenticationConverter {
+        val jwtAuthenticationConverter = JwtAuthenticationConverter()
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(GrantedAuthoritiesExtractor())
+        return jwtAuthenticationConverter
+    }
+}
+----
+====
 
 which is responsible for converting a `Jwt` into an `Authentication`.
 As part of its configuration, we can supply a subsidiary converter to go from `Jwt` to a `Collection` of granted authorities.
@@ -473,10 +629,11 @@ static class GrantedAuthoritiesExtractor
         implements Converter<Jwt, Collection<GrantedAuthority>> {
 
     public Collection<GrantedAuthority> convert(Jwt jwt) {
-        Collection<String> authorities = (Collection<String>)
-                jwt.getClaims().get("mycustomclaim");
+        Collection<?> authorities = (Collection<?>)
+                jwt.getClaims().getOrDefault("mycustomclaim", Collections.emptyList());
 
         return authorities.stream()
+                .map(Object::toString)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
     }
@@ -698,6 +855,7 @@ This can be handy when revocation is a requirement.
 When using https://spring.io/projects/spring-boot[Spring Boot], configuring an application as a resource server that uses introspection consists of two basic steps.
 First, include the needed dependencies and second, indicate the introspection endpoint details.
 
+[[oauth2resourceserver-opaque-introspectionuri]]
 ==== Specifying the Authorization Server
 
 To specify where the introspection endpoint is, simply do:
@@ -800,37 +958,83 @@ There are two `@Bean` s that Spring Boot generates on Resource Server's behalf.
 The first is a `WebSecurityConfigurerAdapter` that configures the app as a resource server.
 When use Opaque Token, this `WebSecurityConfigurerAdapter` looks like:
 
-[source,java]
+.Default Opaque Token Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 protected void configure(HttpSecurity http) {
     http
-        .authorizeRequests()
+        .authorizeRequests(authorize -> authorize
             .anyRequest().authenticated()
-            .and()
-        .oauth2ResourceServer(OAuth2ResourceServerConfigurer::opaqueToken)
+        )
+        .oauth2ResourceServer(OAuth2ResourceServerConfigurer::opaqueToken);
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+override fun configure(http: HttpSecurity) {
+    http {
+        authorizeRequests {
+            authorize(anyRequest, authenticated)
+        }
+        oauth2ResourceServer {
+            opaqueToken { }
+        }
+    }
+}
+----
+====
 
 If the application doesn't expose a `WebSecurityConfigurerAdapter` bean, then Spring Boot will expose the above default one.
 
 Replacing this is as simple as exposing the bean within the application:
 
-[source,java]
+.Custom Opaque Token Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .mvcMatchers("/messages/**").hasAuthority("SCOPE_message:read")
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .opaqueToken()
-                    .introspector(myIntrospector());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .opaqueToken(opaqueToken -> opaqueToken
+                    .introspector(myIntrospector())
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize("/messages/**", hasAuthority("SCOPE_message:read"))
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                opaqueToken {
+                    introspector = myIntrospector()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 The above requires the scope of `message:read` for any URL that starts with `/messages/`.
 
@@ -855,22 +1059,49 @@ And its configuration can be overridden using `introspectionUri()` and `introspe
 
 An authorization server's Introspection Uri can be configured <<oauth2resourceserver-opaque-introspectionuri,as a configuration property>> or it can be supplied in the DSL:
 
-[source,java]
+.Introspection URI Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredIntrospectionUri extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .opaqueToken()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .opaqueToken(opaqueToken -> opaqueToken
                     .introspectionUri("https://idp.example.com/introspect")
-                    .introspectionClientCredentials("client", "secret");
+                    .introspectionClientCredentials("client", "secret")
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredIntrospectionUri : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                opaqueToken {
+                    introspectionUri = "https://idp.example.com/introspect"
+                    introspectionClientCredentials("client", "secret")
+                }
+            }
+        }
+    }
+}
+----
+====
 
 Using `introspectionUri()` takes precedence over any configuration property.
 
@@ -879,21 +1110,47 @@ Using `introspectionUri()` takes precedence over any configuration property.
 
 More powerful than `introspectionUri()` is `introspector()`, which will completely replace any Boot auto configuration of `OpaqueTokenIntrospector`:
 
-[source,java]
+.Introspector Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class DirectlyConfiguredIntrospector extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests()
+            .authorizeRequests(authorize -> authorize
                 .anyRequest().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .opaqueToken()
-                    .introspector(myCustomIntrospector());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .opaqueToken(opaqueToken -> opaqueToken
+                    .introspector(myCustomIntrospector())
+                )
+            );
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class DirectlyConfiguredIntrospector : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2ResourceServer {
+                opaqueToken {
+                    introspector = myCustomIntrospector()
+                }
+            }
+        }
+    }
+}
+----
+====
 
 This is handy when deeper configuration, like <<oauth2resourceserver-opaque-authorization-extraction,authority mapping>>, <<oauth2resourceserver-opaque-jwt-introspector,JWT revocation>>, or <<oauth2resourceserver-opaque-timeouts,request timeouts>>, is necessary.
 
@@ -1180,11 +1437,12 @@ And then specify this `AuthenticationManagerResolver` in the DSL:
 [source,java]
 ----
 http
-    .authorizeRequests()
+    .authorizeRequests(authorize -> authorize
         .anyRequest().authenticated()
-        .and()
-    .oauth2ResourceServer()
-        .authenticationManagerResolver(this.tokenAuthenticationManagerResolver);
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(this.tokenAuthenticationManagerResolver)
+    );
 ----
 
 [[oauth2resourceserver-multitenancy]]
@@ -1200,117 +1458,64 @@ In each case, there are two things that need to be done and trade-offs associate
 1. Resolve the tenant
 2. Propagate the tenant
 
-==== Resolving the Tenant By Request Material
-
-Resolving the tenant by request material can be done my implementing an `AuthenticationManagerResolver`, which determines the `AuthenticationManager` at runtime, like so:
-
-[source,java]
-----
-@Component
-public class TenantAuthenticationManagerResolver
-        implements AuthenticationManagerResolver<HttpServletRequest> {
-	private final BearerTokenResolver resolver = new DefaultBearerTokenResolver();
-	private final TenantRepository tenants; <1>
-
-	private final Map<String, AuthenticationManager> authenticationManagers = new ConcurrentHashMap<>(); <2>
-
-	public TenantAuthenticationManagerResolver(TenantRepository tenants) {
-		this.tenants = tenants;
-	}
-
-	@Override
-	public AuthenticationManager resolve(HttpServletRequest request) {
-		return this.authenticationManagers.computeIfAbsent(toTenant(request), this::fromTenant);
-	}
-
-	private String toTenant(HttpServletRequest request) {
-		String[] pathParts = request.getRequestURI().split("/");
-		return pathParts.length > 0 ? pathParts[1] : null;
-	}
-
-	private AuthenticationManager fromTenant(String tenant) {
-		return Optional.ofNullable(this.tenants.get(tenant)) <3>
-				.map(JwtDecoders::fromIssuerLocation) <4>
-				.map(JwtAuthenticationProvider::new)
-				.orElseThrow(() -> new IllegalArgumentException("unknown tenant"))::authenticate;
-	}
-}
-----
-<1> A hypothetical source for tenant information
-<2> A cache for `AuthenticationManager`s, keyed by tenant identifier
-<3> Looking up the tenant is more secure than simply computing the issuer location on the fly - the lookup acts as a tenant whitelist
-<4> Create a `JwtDecoder` via the discovery endpoint - the lazy lookup here means that you don't need to configure all tenants at startup
-
-And then specify this `AuthenticationManagerResolver` in the DSL:
-
-[source,java]
-----
-http
-    .authorizeRequests()
-        .anyRequest().authenticated()
-        .and()
-    .oauth2ResourceServer()
-        .authenticationManagerResolver(this.tenantAuthenticationManagerResolver);
-----
-
 ==== Resolving the Tenant By Claim
 
-Resolving the tenant by claim is similar to doing so by request material.
-The only real difference is the `toTenant` method implementation:
+One way to differentiate tenants is by the issuer claim. Since the issuer claim accompanies signed JWTs, this can be done with the `JwtIssuerAuthenticationManagerResolver`, like so:
 
 [source,java]
 ----
-@Component
-public class TenantAuthenticationManagerResolver implements AuthenticationManagerResolver<HttpServletRequest> {
-	private final BearerTokenResolver resolver = new DefaultBearerTokenResolver();
-	private final TenantRepository tenants; <1>
+JwtIssuerAuthenticationManagerResolver authenticationManagerResolver = new JwtIssuerAuthenticationManagerResolver
+    ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo");
 
-	private final Map<String, AuthenticationManager> authenticationManagers = new ConcurrentHashMap<>(); <2>
-
-	public TenantAuthenticationManagerResolver(TenantRepository tenants) {
-		this.tenants = tenants;
-	}
-
-	@Override
-	public AuthenticationManager resolve(HttpServletRequest request) {
-		return this.authenticationManagers.computeIfAbsent(toTenant(request), this::fromTenant); <3>
-	}
-
-	private String toTenant(HttpServletRequest request) {
-		try {
-			String token = this.resolver.resolve(request);
-			return (String) JWTParser.parse(token).getJWTClaimsSet().getIssuer();
-		} catch (Exception e) {
-			throw new IllegalArgumentException(e);
-		}
-	}
-
-	private AuthenticationManager fromTenant(String tenant) {
-		return Optional.ofNullable(this.tenants.get(tenant)) <3>
-				.map(JwtDecoders::fromIssuerLocation) <4>
-				.map(JwtAuthenticationProvider::new)
-				.orElseThrow(() -> new IllegalArgumentException("unknown tenant"))::authenticate;
-	}
-}
-----
-<1> A hypothetical source for tenant information
-<2> A cache for `AuthenticationManager`s, keyed by tenant identifier
-<3> Looking up the tenant is more secure than simply computing the issuer location on the fly - the lookup acts as a tenant whitelist
-<4> Create a `JwtDecoder` via the discovery endpoint - the lazy lookup here means that you don't need to configure all tenants at startup
-
-[source,java]
-----
 http
-    .authorizeRequests()
+    .authorizeRequests(authorize -> authorize
         .anyRequest().authenticated()
-        .and()
-    .oauth2ResourceServer()
-        .authenticationManagerResolver(this.tenantAuthenticationManagerResolver);
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
 ----
 
-==== Parsing the Claim Only Once
+This is nice because the issuer endpoints are loaded lazily.
+In fact, the corresponding `JwtAuthenticationProvider` is instantiated only when the first request with the corresponding issuer is sent.
+This allows for an application startup that is independent from those authorization servers being up and available.
 
-You may have observed that this strategy, while simple, comes with the trade-off that the JWT is parsed once by the `AuthenticationManagerResolver` and then again by the `JwtDecoder`.
+===== Dynamic Tenants
+
+Of course, you may not want to restart the application each time a new tenant is added.
+In this case, you can configure the `JwtIssuerAuthenticationManagerResolver` with a repository of `AuthenticationManager` instances, which you can edit at runtime, like so:
+
+[source,java]
+----
+private void addManager(Map<String, AuthenticationManager> authenticationManagers, String issuer) {
+	JwtAuthenticationProvider authenticationProvider = new JwtAuthenticationProvider
+	        (JwtDecoders.fromIssuerLocation(issuer));
+	authenticationManagers.put(issuer, authenticationProvider::authenticate);
+}
+
+// ...
+
+JwtIssuerAuthenticationManagerResolver authenticationManagerResolver =
+        new JwtIssuerAuthenticationManagerResolver(authenticationManagers::get);
+
+http
+    .authorizeRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+In this case, you construct `JwtIssuerAuthenticationManagerResolver` with a strategy for obtaining the `AuthenticationManager` given the issuer.
+This approach allows us to add and remove elements from the repository (shown as a `Map` in the snippet) at runtime.
+
+NOTE: It would be unsafe to simply take any issuer and construct an `AuthenticationManager` from it.
+The issuer should be one that the code can verify from a trusted source like a whitelist.
+
+===== Parsing the Claim Only Once
+
+You may have observed that this strategy, while simple, comes with the trade-off that the JWT is parsed once by the `AuthenticationManagerResolver` and then again by the `JwtDecoder` later on in the request.
 
 This extra parsing can be alleviated by configuring the `JwtDecoder` directly with a `JWTClaimSetAwareJWSKeySelector` from Nimbus:
 
@@ -1430,8 +1635,8 @@ JwtDecoder jwtDecoder(JWTProcessor jwtProcessor, OAuth2TokenValidator<Jwt> jwtVa
 
 We've finished talking about resolving the tenant.
 
-If you've chosen to resolve the tenant by request material, then you'll need to make sure you address your downstream resource servers in the same way.
-For example, if you are resolving it by subdomain, you'll need to address the downstream resource server using the same subdomain.
+If you've chosen to resolve the tenant by something other than a JWT claim, then you'll need to make sure you address your downstream resource servers in the same way.
+For example, if you are resolving it by subdomain, you may need to address the downstream resource server using the same subdomain.
 
 However, if you resolve it by a claim in the bearer token, read on to learn about <<oauth2resourceserver-bearertoken-resolver,Spring Security's support for bearer token propagation>>.
 
@@ -1449,8 +1654,9 @@ To achieve this, you can wire a `HeaderBearerTokenResolver` instance into the DS
 [source,java]
 ----
 http
-    .oauth2ResourceServer()
-        .bearerTokenResolver(new HeaderBearerTokenResolver("x-goog-iap-jwt-assertion"));
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .bearerTokenResolver(new HeaderBearerTokenResolver("x-goog-iap-jwt-assertion"))
+    );
 ----
 
 ==== Reading the Bearer Token from a Form Parameter
@@ -1462,8 +1668,9 @@ Or, you may wish to read the token from a form parameter, which you can do by co
 DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
 resolver.setAllowFormEncodedBodyParameter(true);
 http
-    .oauth2ResourceServer()
-        .bearerTokenResolver(resolver);
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .bearerTokenResolver(resolver)
+    );
 ----
 
 === Bearer Token Propagation
