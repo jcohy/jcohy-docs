@@ -1407,7 +1407,8 @@ NOTE: 您还可以在 `application.properties` 中指定 `debug=true`。
 | 将 `spring.log` 写入指定的目录。名称可以是绝对位置或相对于当前目录。
 |===
 
-日志文件在达到 `10MB` 时会轮转，并且与控制台输出一样，默认情况下会记录 `ERROR`、`WARN` 和 `INFO` 级别的内容。可以使用 `logging.file.max-size` 属性更改大小限制。除非已设置 `logging.file.max-history` 属性，否则以前轮转的文件将无限期归档。
+日志文件在达到 `10MB` 时会轮转，并且与控制台输出一样，默认情况下会记录 `ERROR`、`WARN` 和 `INFO` 级别的内容。可以使用 `logging.file.max-size` 属性更改大小限制。
+除非已设置 `logging.file.max-history` 属性，否则默认情况下将保留最近7天的轮转日志文件。
 可以使用 `logging.file.total-size-cap` 限制日志归档文件的总大小。 当日志归档的总大小超过该阈值时，将删除备份。 要在应用程序启动时强制清除日志归档文件，请使用 `logging.file.clean-history-on-start` 属性。
 
 TIP: 日日志属性独立于实际的日志底层。因此，spring Boot 不管理特定的配置 key（例如 Logback 的 `logback.configurationFile`）。
@@ -1723,7 +1724,7 @@ Spring Boot 提供了适用于大多数 Spring MVC 应用的自动配置（auto-
 
 如果您想自定义 `RequestMappingHandlerMapping`、`RequestMappingHandlerAdapter` 或者 `ExceptionHandlerExceptionResolver` 实例，可以声明一个 `WebMvcRegistrationsAdapter` 实例来提供这些组件。
 
-如果您想完全掌控 Spring MVC，可以添加自定义注解了 `@EnableWebMvc` 的 `@Configuration` 配置类。
+如果您想完全掌控 Spring MVC，可以添加自定义注解了 `@EnableWebMvc` 的 `@Configuration` 配置类。或者添加自己的 `@Configuration` 注解的 `DelegatingWebMvcConfiguration`，如Java文档中的 `@EnableWebMvc` 所述。 。
 
 [[boot-features-spring-mvc-message-converters]]
 ==== HttpMessageConverters
@@ -2545,16 +2546,16 @@ Spring Boot将为RSocket自动配置Spring Messaging基础结构。
 	@Service
 	public class MyService {
 
-		private final RSocketRequester rsocketRequester;
+		private final Mono<RSocketRequester> rsocketRequester;
 
 		public MyService(RSocketRequester.Builder rsocketRequesterBuilder) {
 			this.rsocketRequester = rsocketRequesterBuilder
-					.connectTcp("example.org", 9898).block();
+					.connectTcp("example.org", 9898).cache();
 		}
 
 		public Mono<User> someRSocketCall(String name) {
-			return this.requester.route("user").data(name)
-					.retrieveMono(User.class);
+			return this.rsocketRequester.flatMap(req ->
+			            req.route("user").data(name).retrieveMono(User.class));
 		}
 
 	}
@@ -3602,7 +3603,6 @@ https://cassandra.apache.org/[Cassandra] 是一个开源的分布式数据库管
 
 		private CassandraTemplate template;
 
-		@Autowired
 		public MyBean(CassandraTemplate template) {
 			this.template = template;
 		}
@@ -3748,7 +3748,7 @@ Spring Data 包含了 LDAP 资源库支持。有关 Spring Data LDAP 的完整�
 
 [[boot-features-ldap-embedded]]
 ==== 内嵌内存式 LDAP 服务器
-为了测试目的，Spring Boot 支持从 https://www.ldap.com/unboundid-ldap-sdk-for-java[UnboundID] 自动配置一个内存式 LDAP 服务器。要配置服务器，请添加 `com.unboundid:unboundid-ldapsdk` 依赖并声明一个 `spring.ldap.embedded.base-dn` 属性：
+为了测试目的，Spring Boot 支持从 https://ldap.com/unboundid-ldap-sdk-for-java/[UnboundID] 自动配置一个内存式 LDAP 服务器。要配置服务器，请添加 `com.unboundid:unboundid-ldapsdk` 依赖并声明一个 `spring.ldap.embedded.base-dn` 属性：
 
 [source,properties,indent=0,configprops]
 ----
@@ -3982,6 +3982,15 @@ NOTE: 默认情况下，会添加一个 key 前缀，这样做是因为如果两
 
 TIP: 您可以通过添加自己的 `RedisCacheConfiguration` `@Bean` 来完全控制配置。如果您想自定义序列化策略，这种方式可能很有用。
 
+如果您需要控制更多的配置，请考虑注册 `RedisCacheManagerBuilderCustomizer` bean.
+以下示例显示了一个自定义的配置，该定制器配置了 `cache1` 和 `cache2` 的特定生存时间
+The following example shows a customizer that configures a specific time to live for `cache1` and `cache2`:
+
+[source,java,indent=0]
+----
+include::{code-examples}/cache/RedisCacheManagerCustomizationExample.java[tag=configuration]
+----
+
 [[boot-features-caching-provider-caffeine]]
 ==== Caffeine
 https://github.com/ben-manes/caffeine[Caffeine]  是一个使用了 Java 8 重写 Guava 缓存，用于取代 Guava 支持的缓存库。如果 Caffeine 存在，则应用程序会自动配置一个 `CaffeineCacheManager`（由 `spring-boot-starter-cache` starter 提供）。
@@ -4065,7 +4074,7 @@ TIP: 有关更多支持的选项，请参阅 {spring-boot-autoconfigure-module-c
 
 [[boot-features-artemis]]
 ==== Artemis 支持
-Spring Boot 可以在检测到 https://activemq.apache.org/artemis/[Artemis] 在 classpath 上可用时自动配置一个 `ConnectionFactory`。如果存在 broker，则会自动启动并配置一个内嵌 broker（除非已明确设置 mode 属性）。
+Spring Boot 可以在检测到 https://activemq.apache.org/components/artemis/[Artemis] 在 classpath 上可用时自动配置一个 `ConnectionFactory`。如果存在 broker，则会自动启动并配置一个内嵌 broker（除非已明确设置 mode 属性）。
 支持的 mode 为 `embedded`（明确表示需要一个内嵌 broker，如果 broker 在 classpath 上不可用则发生错误）和 `native`（使用 `netty` 传输协议连接到 broker）。配置后者后，Spring Boot 会使用默认设置配置一个 `ConnectionFactory`，该 `ConnectionFactory` 连接到在本地计算机上运行的 broker。
 
 NOTE: 如果使用了 `spring-boot-starter-artemis`，则会提供连接到现有的 Artemis 实例的必须依赖，以及与 JMS 集成的Spring 基础设施。将 `org.apache.activemq:artemis-jms-server` 添加到您的应用程序可让您使用内嵌模式。
@@ -4884,11 +4893,11 @@ Spring Boot提供了许多工具类和注解，可以在测试应用程序时提
 === 依赖范围测试
 `spring-boot-starter-test` "`Starter`" (在 `test` `scope`) 包含以下的库：:
 
-* https://junit.org/junit5[JUnit 5] (包括用于与JUnit 4向后兼容的老式引擎): 用于进行Java应用程序单元测试的事实上的标准。
+*  https://junit.org/junit5/[JUnit 5] (包括用于与JUnit 4向后兼容的老式引擎): 用于进行Java应用程序单元测试的事实上的标准。
 * {spring-framework-docs}testing.html#integration-testing[Spring 测试] & Spring Boot 测试: 对Spring Boot应用程序的实用程序和集成测试支持。
-* https://joel-costigliola.github.io/assertj/[AssertJ]: 流式的断言库。
+* https://assertj.github.io/doc/[AssertJ]: 流式的断言库。
 * https://github.com/hamcrest/JavaHamcrest[Hamcrest]: 匹配对象库（也称为约束或谓词）。
-* https://mockito.github.io[Mockito]: 一个Java模拟框架。
+* https://site.mockito.org/[Mockito]: 一个Java模拟框架。
 * https://github.com/skyscreamer/JSONassert[JSONassert]: JSON的断言库。
 * https://github.com/jayway/JsonPath[JsonPath]: JSON的XPath。
 
@@ -6349,7 +6358,7 @@ JUnit 5是默认的，并且提供了vintage引擎与JUnit 4向后兼容。如�
 [[boot-features-kotlin-resources-further-reading]]
 ==== 进阶阅读
 * {kotlin-docs}[Kotlin 语言参考]
-* https://slack.kotlinlang.org/[Kotlin Slack] （有专用的 #spring 频道）
+* https://kotlinlang.slack.com/[Kotlin Slack] （有专用的 #spring 频道）
 * https://stackoverflow.com/questions/tagged/spring+kotlin[Stackoverflow 上 `spring` 和 `kotlin` 标签]
 * https://try.kotlinlang.org/[在浏览器中尝试 Kotlin]
 * https://blog.jetbrains.com/kotlin/[Kotlin 博客]
