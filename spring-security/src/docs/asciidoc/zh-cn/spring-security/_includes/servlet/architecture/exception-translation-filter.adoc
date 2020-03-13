@@ -1,0 +1,46 @@
+[[servlet-exceptiontranslationfilter]]
+= Handling Security Exceptions
+:figures: images/servlet/architecture
+:icondir: images/icons
+
+
+{security-api-url}org/springframework/security/web/access/ExceptionTranslationFilter.html[`ExceptionTranslationFilter`]  允许将  {security-api-url}org/springframework/security/access/AccessDeniedException.html[`AccessDeniedException`]  和  {security-api-url}/org/springframework/security/core/AuthenticationException.html[`AuthenticationException`] 转换为HTTP响应。
+
+`ExceptionTranslationFilter` 作为安全筛选器之一插入到 <<servlet-filterchainproxy,FilterChainProxy>>  中。
+
+image::{figures}/exceptiontranslationfilter.png[]
+
+
+* image:{icondir}/number_1.png[] 首先，`ExceptionTranslationFilter` 调用FilterChain.doFilter（request，response）来调用应用程序的其余部分。
+* image:{icondir}/number_2.png[] 如果用户未通过身份验证或它是 `AuthenticationException`，则启动身份验证。
+** 已清除  <<servlet-authentication-securitycontextholder,SecurityContextHolder>>
+** `HttpServletRequest` 保存在 `RequestCache` 中。 用户成功进行身份验证后，将使用  {security-api-url}org/springframework/security/web/savedrequest/RequestCache.html[`RequestCache`] 重发原始请求。.
+// FIXME: add link to authentication success
+** `AuthenticationEntryPoint` 用于从客户端请求凭据。 例如，它可能重定向到登录页面或发送 `WWW-Authenticate` 标头。
+// FIXME: link to AuthenticationEntryPoint
+* image:{icondir}/number_3.png[] 否则，如果它是 `AccessDeniedException`，则拒绝访问。 调用 `AccessDeniedHandler` 来处理被拒绝的访问。
+// FIXME: link to AccessDeniedHandler
+
+[NOTE]
+====
+如果应用程序未引发 `AccessDeniedException` 或 `AuthenticationException`，则 `ExceptionTranslationFilter` 不执行任何操作。
+====
+
+`ExceptionTranslationFilter` 的伪代码如下所示：
+
+.ExceptionTranslationFilter pseudocode
+[source,java]
+----
+try {
+	filterChain.doFilter(request, response); // <1>
+} catch (AccessDeniedException | AuthenticationException e) {
+	if (!authenticated || e instanceof AuthenticationException) {
+		startAuthentication(); // <2>
+	} else {
+		accessDenied(); // <3>
+	}
+}
+----
+<1> 您将在 <<servlet-filters-review,过滤器回顾>>，调用  `FilterChain.doFilter(request, response)` 等同于调用应用程序的其余部分。 这意味着如果应用程序的另一部分（即 <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>> 或方法安全性）抛出 `AuthenticationException` 或 `AccessDeniedException`，则会在此处捕获并处理。
+<2> 如果用户未通过身份验证或它是 `AuthenticationException`，则启动身份验证。
+<3> 否则，访问被拒绝
