@@ -67,21 +67,6 @@ class PersonObjectInstantiator implements ObjectInstantiator {
 
 创建实体的实例后，Spring Data会填充该类的所有剩余持久性属性。 除非实体的构造函数已经填充了该实体（即通过其构造函数参数列表使用），否则将首先填充identifier属性，以允许解析循环对象引用。 之后，在实体实例上设置所有尚未由构造函数填充的非临时属性。 为此，我们使用以下算法：
 
-
-
-
-
-
-
-房地产人口内部
-
-
-
-Once an instance of the entity has been created, Spring Data populates all remaining persistent properties of that class.
-Unless already populated by the entity's constructor (i.e. consumed through its constructor argument list), the identifier property will be populated first to allow the resolution of cyclic object references.
-After that, all non-transient properties that have not already been populated by the constructor are set on the entity instance.
-For that we use the following algorithm:
-
 1. 如果属性是不可变的，但使用 wither 方法（请参见下文），则我们使用 wither 方法创建具有新属性值的新实体实例。
 2. 如果定义了属性访问权限（即通过getter和setter的访问），则我们正在调用setter方法。
 3. 默认情况下，我们直接设置字段值。
@@ -189,7 +174,7 @@ class Person {
   }
 
   Person withId(Long id) {                                                  <1>
-    return new Person(id, this.firstname, this.lastname, this.birthday);
+    return new Person(id, this.firstname, this.lastname, this.birthday, this.age);
   }
 
   void setRemarks(String remarks) {                                         <5>
@@ -201,18 +186,19 @@ class Person {
 <1> 标识符属性是 `final`，但在构造函数中设置为 `null`。 该类公开用于设置标识符的  `withId(…)`方法，例如 将实例插入数据存储区并已生成标识符时。 创建新实例后，原始 `Person` 实例保持不变。
 通常将相同的模式应用于存储管理的其他属性，但可能需要为持久性操作进行更改。
 <2> `firstname` 和 `lastname` 属性是可能通过getter公开的普通不可变属性。
-<3> `age` 属性是一个不变的，但从  `birthday`  属性派生的属性。 通过显示的设计，数据库值将胜过默认值，因为Spring Data使用唯一声明的构造函数。 即使意图是首选计算，此构造函数也必须将 `age` 作为参数（可能会忽略它），这一点很重要，因为否则属性填充步骤将尝试设置 `age` 字段并由于其不可变而失败，并且没有 存在 `...` 方法。
+<3> `age` 属性是一个不变的，但从  `birthday`  属性派生的属性。 通过显示的设计，数据库值将胜过默认值，因为 Spring Data 使用唯一声明的构造函数。 即使意图是首选计算，此构造函数也必须将 `age` 作为参数（可能会忽略它），这一点很重要，因为否则属性填充步骤将尝试设置 `age` 字段并由于其不可变而失败，并且没有 wither 存在。
 <4> 通过直接设置其字段可以填充 `comment` 属性是可变的。
 <5> `remarks` 属性是可变的，可通过直接设置  `comment` 字段或通过调用setter方法来填充
 <6> 该类公开用于对象创建的工厂方法和构造函数。 这里的核心思想是使用工厂方法而不是其他构造函数，以避免通过 `@PersistenceConstructor` 消除构造函数歧义的需要。 相反，属性的默认设置是在工厂方法中处理的。
 
+[[mapping.general-recommendations]]
 == 一般建议
 
 * _尝试坚持不可变的对象_ -- 不可变的对象很容易创建，因为实现一个对象只需调用其构造函数即可。 同样，这避免了用允许客户端代码操纵对象状态的setter方法乱扔您的域对象。 如果需要它们，则最好使它们受到程序包保护，以便只能由有限数量的同一位置类型调用它们。 仅限构造函数的实现比属性填充快30％。
 * _提供一个全参数的构造函数_ -- 即使您不能或不希望将实体建模为不可变的值，仍然可以提供一个将实体的所有属性作为参数（包括可变属性）作为参数的构造函数，因为这样做可以 对象映射以跳过属性填充以获得最佳性能。
 * _使用工厂方法而不是重载的构造函数来避免  ``@PersistenceConstructor``_ -- 为了获得最佳性能，需要使用全参数构造函数，我们通常希望公开更多特定于应用程序用例的构造函数，从而省略了诸如自动生成的标识符等内容。 使用静态工厂方法公开 `all-args` 构造函数的这些变体。
 * _确保您遵守允许使用生成的实例化器和属性访问器类的约束_ --
-* _对于要生成的标识符，仍然将最终字段与with…方法结合使用_ --
+* _对于要生成的标识符，仍然将最终字段与 wither 方法结合使用_ --
 * _使用Lombok来避免样板代码_ -- 由于持久性操作通常需要构造函数使用所有参数，因此它们的声明成为对字段分配的样板参数的繁琐重复，最好使用Lombok的 `@AllArgsConstructor` 来避免。
 
 [[mapping.kotlin]]
