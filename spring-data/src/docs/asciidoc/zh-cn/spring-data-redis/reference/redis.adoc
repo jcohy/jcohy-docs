@@ -1,0 +1,666 @@
+[[redis]]
+= Redis support
+:referenceDir: .
+
+One of the key-value stores supported by Spring Data is https://redis.io[Redis]. To quote the Redis project home page:
+
+[quote]
+Redis is an advanced key-value store. It is similar to memcached but the dataset is not volatile, and values can be strings, exactly like in memcached, but also lists, sets, and ordered sets. All this data types can be manipulated with atomic operations to push/pop elements, add/remove elements, perform server side union, intersection, difference between sets, and so forth. Redis supports different kind of sorting abilities.
+
+Spring Data Redis provides easy configuration and access to Redis from Spring applications. It offers both low-level and high-level abstractions for interacting with the store, freeing the user from infrastructural concerns.
+
+[[redis:requirements]]
+== Redis Requirements
+
+Spring Redis requires Redis 2.6 or above and Spring Data Redis integrates with https://github.com/lettuce-io/lettuce-core[Lettuce] and https://github.com/xetorthio/jedis[Jedis], two popular open-source Java libraries for Redis.
+
+[[redis:architecture]]
+== Redis Support High-level View
+
+The Redis support provides several components. For most tasks, the high-level abstractions and support services are the best choice. Note that, at any point, you can move between layers. For example, you can get a low-level connection (or even the native library) to communicate directly with Redis.
+
+[[redis:connectors]]
+== Connecting to Redis
+
+One of the first tasks when using Redis and Spring is to connect to the store through the IoC container. To do that, a Java connector (or binding) is required. No matter the library you choose, you need to use only one set of Spring Data Redis APIs (which behaves consistently across all connectors): the `org.springframework.data.redis.connection` package and its `RedisConnection` and `RedisConnectionFactory` interfaces for working with and retrieving active connections to Redis.
+
+[[redis:connectors:connection]]
+=== RedisConnection and RedisConnectionFactory
+
+`RedisConnection` provides the core building block for Redis communication, as it handles the communication with the Redis back end. It also automatically translates the underlying connecting library exceptions to Spring's consistent DAO exception https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#dao-exceptions[hierarchy] so that you can switch the connectors without any code changes, as the operation semantics remain the same.
+
+NOTE: For the corner cases where the native library API is required, `RedisConnection` provides a dedicated method (`getNativeConnection`) that returns the raw, underlying object used for communication.
+
+Active `RedisConnection` objects are created through `RedisConnectionFactory`. In addition, the factory acts as `PersistenceExceptionTranslator` objects, meaning that, once declared, they let you do transparent exception translation. For example, you can do exception translation through the use of the `@Repository` annotation and AOP. For more information, see the dedicated https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#orm-exception-translation[section] in the Spring Framework documentation.
+
+NOTE: Depending on the underlying configuration, the factory can return a new connection or an existing connection (when a pool or shared native connection is used).
+
+The easiest way to work with a `RedisConnectionFactory` is to configure the appropriate connector through the IoC container and inject it into the using class.
+
+IMPORTANT: Unfortunately, currently, not all connectors support all Redis features. When invoking a method on the Connection API that is unsupported by the underlying library, an `UnsupportedOperationException` is thrown.
+
+[[redis:connectors:lettuce]]
+=== Configuring the Lettuce Connector
+
+https://github.com/lettuce-io/lettuce-core[Lettuce] is a https://netty.io/[Netty]-based open-source connector supported by Spring Data Redis through the `org.springframework.data.redis.connection.lettuce` package. The following example shows how to create a new Lettuce connection factory:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    return new LettuceConnectionFactory(new RedisStandaloneConfiguration("server", 6379));
+  }
+}
+----
+
+There are also a few Lettuce-specific connection parameters that can be tweaked. By default, all `LettuceConnection` instances created by the `LettuceConnectionFactory` share the same thread-safe native connection for all non-blocking and non-transactional operations. To use a dedicated connection each time, set `shareNativeConnection` to `false`. `LettuceConnectionFactory` can also be configured to use a `LettucePool` for pooling blocking and transactional connections or all connections if `shareNativeConnection` is set to `false`.
+
+Lettuce integrates with Netty's https://netty.io/wiki/native-transports.html[native transports], letting you use Unix domain sockets to communicate with Redis. Make sure to include the appropriate native transport dependencies that match your runtime environment. The following example shows how to create a Lettuce Connection factory for a Unix domain socket at `/var/run/redis.sock`:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    return new LettuceConnectionFactory(new RedisSocketConfiguration("/var/run/redis.sock"));
+  }
+}
+----
+
+NOTE: Netty currently supports the epoll (Linux) and kqueue (BSD/macOS) interfaces for OS-native transport.
+
+[[redis:connectors:jedis]]
+=== Configuring the Jedis Connector
+
+https://github.com/xetorthio/jedis[Jedis] is a community-driven connector supported by the Spring Data Redis module through the `org.springframework.data.redis.connection.jedis` package. In its simplest form, the Jedis configuration looks as follow:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public JedisConnectionFactory redisConnectionFactory() {
+    return new JedisConnectionFactory();
+  }
+}
+----
+
+For production use, however, you might want to tweak settings such as the host or password, as shown in the following example:
+
+[source,java]
+----
+@Configuration
+class RedisConfiguration {
+
+  @Bean
+  public JedisConnectionFactory redisConnectionFactory() {
+
+    RedisStandaloneConfiguration config = new RedisStandaloneConfiguration("server", 6379);
+    return new JedisConnectionFactory(config);
+  }
+}
+----
+
+[[redis:write-to-master-read-from-replica]]
+=== Write to Master, Read from Replica
+
+The Redis Master/Replica setup -- without automatic failover (for automatic failover see: <<redis:sentinel, Sentinel>>) -- not only allows data to be safely stored at more nodes. It also allows, by using <<redis:connectors:lettuce, Lettuce>>, reading data from replicas while pushing writes to the master. You can set the read/write strategy to be used by using `LettuceClientConfiguration`, as shown in the following example:
+
+[source,java]
+----
+@Configuration
+class WriteToMasterReadFromReplicaConfiguration {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    LettuceClientConfiguration clientConfig = LettuceClientConfiguration.builder()
+      .readFrom(SLAVE_PREFERRED)
+      .build();
+
+    RedisStandaloneConfiguration serverConfig = new RedisStandaloneConfiguration("server", 6379);
+
+    return new LettuceConnectionFactory(serverConfig, clientConfig);
+  }
+}
+----
+
+TIP: For environments reporting non-public addresses through the `INFO` command (for example, when using AWS), use `RedisStaticMasterReplicaConfiguration` instead of `RedisStandaloneConfiguration`. Please note that `RedisStaticMasterReplicaConfiguration` does not support Pub/Sub because of missing Pub/Sub message propagation across individual servers.
+
+[[redis:sentinel]]
+== Redis Sentinel Support
+
+For dealing with high-availability Redis, Spring Data Redis has support for https://redis.io/topics/sentinel[Redis Sentinel], using `RedisSentinelConfiguration`, as shown in the following example:
+
+[source,java]
+----
+/**
+ * Jedis
+ */
+@Bean
+public RedisConnectionFactory jedisConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+  .master("mymaster")
+  .sentinel("127.0.0.1", 26379)
+  .sentinel("127.0.0.1", 26380);
+  return new JedisConnectionFactory(sentinelConfig);
+}
+
+/**
+ * Lettuce
+ */
+@Bean
+public RedisConnectionFactory lettuceConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+  .master("mymaster")
+  .sentinel("127.0.0.1", 26379)
+  .sentinel("127.0.0.1", 26380);
+  return new LettuceConnectionFactory(sentinelConfig);
+}
+----
+
+[TIP]
+====
+`RedisSentinelConfiguration` can also be defined with a `PropertySource`, which lets you set the following properties:
+
+.Configuration Properties
+* `spring.redis.sentinel.master`: name of the master node.
+* `spring.redis.sentinel.nodes`: Comma delimited list of host:port pairs.
+* `spring.redis.sentinel.password`: The password to apply when authenticating with Redis Sentinel
+====
+
+Sometimes, direct interaction with one of the Sentinels is required. Using `RedisConnectionFactory.getSentinelConnection()` or `RedisConnection.getSentinelCommands()` gives you access to the first active Sentinel configured.
+
+[NOTE]
+====
+Sentinel authentication is only available using https://lettuce.io/[Lettuce].
+====
+
+[[redis:template]]
+== Working with Objects through RedisTemplate
+
+Most users are likely to use `RedisTemplate` and its corresponding package, `org.springframework.data.redis.core`. The template is, in fact, the central class of the Redis module, due to its rich feature set. The template offers a high-level abstraction for Redis interactions. While `RedisConnection` offers low-level methods that accept and return binary values (`byte` arrays), the template takes care of serialization and connection management, freeing the user from dealing with such details.
+
+Moreover, the template provides operations views (following the grouping from the Redis command https://redis.io/commands[reference]) that offer rich, generified interfaces for working against a certain type or certain key (through the `KeyBound` interfaces) as described in the following table:
+
+.Operational views
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Interface
+|Description
+
+2+^|_Key Type Operations_
+
+|`GeoOperations`
+|Redis geospatial operations, such as `GEOADD`, `GEORADIUS`,...
+
+|`HashOperations`
+|Redis hash operations
+
+|`HyperLogLogOperations`
+|Redis HyperLogLog operations, such as `PFADD`, `PFCOUNT`,...
+
+|`ListOperations`
+|Redis list operations
+
+|`SetOperations`
+|Redis set operations
+
+|`ValueOperations`
+|Redis string (or value) operations
+
+|`ZSetOperations`
+|Redis zset (or sorted set) operations
+
+2+^|_Key Bound Operations_
+
+|`BoundGeoOperations`
+|Redis key bound geospatial operations
+
+|`BoundHashOperations`
+|Redis hash key bound operations
+
+|`BoundKeyOperations`
+|Redis key bound operations
+
+|`BoundListOperations`
+|Redis list key bound operations
+
+|`BoundSetOperations`
+|Redis set key bound operations
+
+|`BoundValueOperations`
+|Redis string (or value) key bound operations
+
+|`BoundZSetOperations`
+|Redis zset (or sorted set) key bound operations
+
+|====
+
+Once configured, the template is thread-safe and can be reused across multiple instances.
+
+`RedisTemplate` uses a Java-based serializer for most of its operations. This means that any object written or read by the template is serialized and deserialized through Java. You can change the serialization mechanism on the template, and the Redis module offers several implementations, which are available in the `org.springframework.data.redis.serializer` package. See <<redis:serializer>> for more information. You can also set any of the serializers to null and use RedisTemplate with raw byte arrays by setting the `enableDefaultSerializer` property to `false`. Note that the template requires all keys to be non-null. However, values can be null as long as the underlying serializer accepts them. Read the Javadoc of each serializer for more information.
+
+For cases where you need a certain template view, declare the view as a dependency and inject the template. The container automatically performs the conversion, eliminating the `opsFor[X]` calls, as shown in the following example:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+  <!-- redis template definition -->
+  <bean id="redisTemplate" class="org.springframework.data.redis.core.RedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
+  ...
+
+</beans>
+----
+
+[source,java]
+----
+public class Example {
+
+  // inject the actual template
+  @Autowired
+  private RedisTemplate<String, String> template;
+
+  // inject the template as ListOperations
+  @Resource(name="redisTemplate")
+  private ListOperations<String, String> listOps;
+
+  public void addLink(String userId, URL url) {
+    listOps.leftPush(userId, url.toExternalForm());
+  }
+}
+----
+
+[[redis:string]]
+== String-focused Convenience Classes
+
+Since it is quite common for the keys and values stored in Redis to be `java.lang.String`, the Redis modules provides two extensions to `RedisConnection` and `RedisTemplate`, respectively the `StringRedisConnection` (and its `DefaultStringRedisConnection` implementation) and `StringRedisTemplate` as a convenient one-stop solution for intensive String operations. In addition to being bound to `String` keys, the template and the connection use the `StringRedisSerializer` underneath, which means the stored keys and values are human-readable (assuming the same encoding is used both in Redis and your code). The following listings show an example:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+
+  <bean id="stringRedisTemplate" class="org.springframework.data.redis.core.StringRedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
+  ...
+</beans>
+----
+
+[source,java]
+----
+public class Example {
+
+  @Autowired
+  private StringRedisTemplate redisTemplate;
+
+  public void addLink(String userId, URL url) {
+    redisTemplate.opsForList().leftPush(userId, url.toExternalForm());
+  }
+}
+----
+
+As with the other Spring templates, `RedisTemplate` and `StringRedisTemplate` let you talk directly to Redis through the `RedisCallback` interface. This feature gives complete control to you, as it talks directly to the `RedisConnection`. Note that the callback receives an instance of `StringRedisConnection` when a `StringRedisTemplate` is used. The following example shows how to use the `RedisCallback` interface:
+
+[source,java]
+----
+public void useCallback() {
+
+  redisTemplate.execute(new RedisCallback<Object>() {
+    public Object doInRedis(RedisConnection connection) throws DataAccessException {
+      Long size = connection.dbSize();
+      // Can cast to StringRedisConnection if using a StringRedisTemplate
+      ((StringRedisConnection)connection).set("key", "value");
+    }
+   });
+}
+----
+
+[[redis:serializer]]
+== Serializers
+
+From the framework perspective, the data stored in Redis is only bytes. While Redis itself supports various types, for the most part, these refer to the way the data is stored rather than what it represents. It is up to the user to decide whether the information gets translated into strings or any other objects.
+
+In Spring Data, the conversion between the user (custom) types and raw data (and vice-versa) is handled Redis in the `org.springframework.data.redis.serializer` package.
+
+This package contains two types of serializers that, as the name implies, take care of the serialization process:
+
+* Two-way serializers based on ``RedisSerializer``.
+* Element readers and writers that use `RedisElementReader` and ``RedisElementWriter``.
+
+The main difference between these variants is that `RedisSerializer` primarily serializes to `byte[]` while readers and writers use `ByteBuffer`.
+
+Multiple implementations are available (including two that have been already mentioned in this documentation):
+
+* `JdkSerializationRedisSerializer`, which is used by default for `RedisCache` and `RedisTemplate`.
+* the `StringRedisSerializer`.
+
+However one can use `OxmSerializer` for Object/XML mapping through Spring https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#oxm[OXM] support or `Jackson2JsonRedisSerializer` or `GenericJackson2JsonRedisSerializer` for storing data in https://en.wikipedia.org/wiki/JSON[JSON] format.
+
+Do note that the storage format is not limited only to values. It can be used for keys, values, or hashes without any restrictions.
+
+[WARNING]
+====
+By default, `RedisCache` and `RedisTemplate` are configured to use Java native serialization. Java native serialization is known for allowing remote code execution caused by payloads that exploit vulnerable libraries and classes injecting unverified bytecode. Manipulated input could lead to unwanted code execution in the application during the deserialization step. As a consequence, do not use serialization in untrusted environments. In general, we strongly recommend any other message format (such as JSON) instead.
+
+If you are concerned about security vulnerabilities due to Java serialization, consider the general-purpose serialization filter mechanism at the core JVM level, originally developed for JDK 9 but backported to JDK 8, 7, and 6:
+
+* https://blogs.oracle.com/java-platform-group/entry/incoming_filter_serialization_data_a[Filter Incoming Serialization Data].
+* https://openjdk.java.net/jeps/290[JEP 290].
+* https://www.owasp.org/index.php/Deserialization_of_untrusted_data[OWASP: Deserialization of untrusted data].
+====
+
+[[redis.hashmappers.root]]
+== Hash mapping
+
+Data can be stored by using various data structures within Redis. `Jackson2JsonRedisSerializer` can convert objects in https://en.wikipedia.org/wiki/JSON[JSON] format. Ideally, JSON can be stored as a value by using plain keys. You can achieve a more sophisticated mapping of structured objects by using Redis hashes. Spring Data Redis offers various strategies for mapping data to hashes (depending on the use case):
+
+* Direct mapping, by using `HashOperations` and a <<redis:serializer,serializer>>
+* Using <<redis.repositories>>
+* Using `HashMapper` and `HashOperations`
+
+=== Hash Mappers
+
+Hash mappers are converters of map objects to a `Map<K, V>` and back. `HashMapper` is intended for using with Redis Hashes.
+
+Multiple implementations are available:
+
+* `BeanUtilsHashMapper` using Spring's https://docs.spring.io/spring/docs/{springVersion}/javadoc-api/org/springframework/beans/BeanUtils.html[BeanUtils].
+* `ObjectHashMapper` using <<redis.repositories.mapping>>.
+* <<redis.hashmappers.jackson2,`Jackson2HashMapper`>> using https://github.com/FasterXML/jackson[FasterXML Jackson].
+
+The following example shows one way to implement hash mapping:
+
+[source,java]
+----
+public class Person {
+  String firstname;
+  String lastname;
+
+  // …
+}
+
+public class HashMapping {
+
+  @Autowired
+  HashOperations<String, byte[], byte[]> hashOperations;
+
+  HashMapper<Object, byte[], byte[]> mapper = new ObjectHashMapper();
+
+  public void writeHash(String key, Person person) {
+
+    Map<byte[], byte[]> mappedHash = mapper.toHash(person);
+    hashOperations.putAll(key, mappedHash);
+  }
+
+  public Person loadHash(String key) {
+
+    Map<byte[], byte[]> loadedHash = hashOperations.entries("key");
+    return (Person) mapper.fromHash(loadedHash);
+  }
+}
+----
+
+[[redis.hashmappers.jackson2]]
+=== Jackson2HashMapper
+
+`Jackson2HashMapper` provides Redis Hash mapping for domain objects by using https://github.com/FasterXML/jackson[FasterXML Jackson].
+`Jackson2HashMapper` can map top-level properties as Hash field names and, optionally, flatten the structure.
+Simple types map to simple values. Complex types (nested objects, collections, maps, and so on) are represented as nested JSON.
+
+Flattening creates individual hash entries for all nested properties and resolves complex types into simple types, as far as possible.
+
+Consider the following class and the data structure it contains:
+
+[source,java]
+----
+public class Person {
+  String firstname;
+  String lastname;
+  Address address;
+  Date date;
+  LocalDateTime localDateTime;
+}
+
+public class Address {
+  String city;
+  String country;
+}
+----
+
+The following table shows how the data in the preceding class would appear in normal mapping:
+
+.Normal Mapping
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Hash Field
+|Value
+
+|firstname
+|`Jon`
+
+|lastname
+|`Snow`
+
+|address
+|`{ "city" : "Castle Black", "country" : "The North" }`
+
+|date
+|`1561543964015`
+
+|localDateTime
+|`2018-01-02T12:13:14`
+|====
+
+The following table shows how the data in the preceding class would appear in flat mapping:
+
+.Flat Mapping
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Hash Field
+|Value
+
+|firstname
+|`Jon`
+
+|lastname
+|`Snow`
+
+|address.city
+|`Castle Black`
+
+|address.country
+|`The North`
+
+|date
+|`1561543964015`
+
+|localDateTime
+|`2018-01-02T12:13:14`
+|====
+
+NOTE: Flattening requires all property names to not interfere with the JSON path. Using dots or brackets in map keys or as property names is not supported when you use flattening. The resulting hash cannot be mapped back into an Object.
+
+NOTE: `java.util.Date` and `java.util.Calendar` are represented with milliseconds. JSR-310 Date/Time types are serialized to their `toString` form if  `jackson-datatype-jsr310` is on the class path.
+
+:leveloffset: 2
+include::{referenceDir}/redis-messaging.adoc[]
+
+include::{referenceDir}/redis-streams.adoc[]
+
+include::{referenceDir}/redis-transactions.adoc[]
+
+include::{referenceDir}/pipelining.adoc[]
+
+include::{referenceDir}/redis-scripting.adoc[]
+
+:leveloffset: 1
+[[redis:support]]
+== Support Classes
+
+Package `org.springframework.data.redis.support` offers various reusable components that rely on Redis as a backing store. Currently, the package contains various JDK-based interface implementations on top of Redis, such as https://download.oracle.com/javase/8/docs/api/java/util/concurrent/atomic/package-summary.html[atomic] counters and JDK https://download.oracle.com/javase/8/docs/api/java/util/Collection.html[Collections].
+
+The atomic counters make it easy to wrap Redis key incrementation while the collections allow easy management of Redis keys with minimal storage exposure or API leakage. In particular, the `RedisSet` and `RedisZSet` interfaces offer easy access to the set operations supported by Redis, such as `intersection` and `union`. `RedisList` implements the `List`, `Queue`, and `Deque` contracts (and their equivalent blocking siblings) on top of Redis, exposing the storage as a FIFO (First-In-First-Out), LIFO (Last-In-First-Out) or capped collection with minimal configuration. The following example shows the configuration for a bean that uses a `RedisList`:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p" xsi:schemaLocation="
+  http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="queue" class="org.springframework.data.redis.support.collections.DefaultRedisList">
+    <constructor-arg ref="redisTemplate"/>
+    <constructor-arg value="queue-key"/>
+  </bean>
+
+</beans>
+----
+
+The following example shows a Java configuration example for a `Deque`:
+
+[source,java]
+----
+public class AnotherExample {
+
+  // injected
+  private Deque<String> queue;
+
+  public void addTag(String tag) {
+    queue.push(tag);
+  }
+}
+----
+
+As shown in the preceding example, the consuming code is decoupled from the actual storage implementation. In fact, there is no indication that Redis is used underneath. This makes moving from development to production environments transparent and highly increases testability (the Redis implementation can be replaced with an in-memory one).
+
+[[redis:support:cache-abstraction]]
+=== Support for the Spring Cache Abstraction
+
+NOTE: Changed in 2.0
+
+Spring Redis provides an implementation for the Spring https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/integration.html#cache[cache abstraction] through the `org.springframework.data.redis.cache` package. To use Redis as a backing implementation, add `RedisCacheManager` to your configuration, as follows:
+
+[source,java]
+----
+@Bean
+public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+	return RedisCacheManager.create(connectionFactory);
+}
+----
+
+`RedisCacheManager` behavior can be configured with `RedisCacheManagerBuilder`, letting you set the default `RedisCacheConfiguration`, transaction behavior, and predefined caches.
+
+[source,java]
+----
+RedisCacheManager cm = RedisCacheManager.builder(connectionFactory)
+	.cacheDefaults(defaultCacheConfig())
+	.withInitialCacheConfigurations(singletonMap("predefined", defaultCacheConfig().disableCachingNullValues()))
+	.transactionAware()
+	.build();
+----
+
+As shown in the preceding example, `RedisCacheManager` allows definition of configurations on a per-cache basis.
+
+The behavior of `RedisCache` created with `RedisCacheManager` is defined with `RedisCacheConfiguration`. The configuration lets you set key expiration times, prefixes, and ``RedisSerializer`` implementations for converting to and from the binary storage format, as shown in the following example:
+
+[source,java]
+----
+RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+    .entryTtl(Duration.ofSeconds(1))
+	.disableCachingNullValues();
+----
+
+`RedisCacheManager` defaults to a lock-free `RedisCacheWriter` for reading and writing binary values. Lock-free caching improves throughput. The lack of entry locking can lead to overlapping, non-atomic commands for the `putIfAbsent` and `clean` methods, as those require multiple commands to be sent to Redis. The locking counterpart prevents command overlap by setting an explicit lock key and checking against presence of this key, which leads to additional requests and potential command wait times.
+
+It is possible to opt in to the locking behavior as follows:
+
+[source,java]
+----
+RedisCacheManager cm = RedisCacheManager.build(RedisCacheWriter.lockingRedisCacheWriter())
+	.cacheDefaults(defaultCacheConfig())
+	...
+----
+
+By default, any `key` for a cache entry gets prefixed with the actual cache name followed by two colons.
+This behavior can be changed to a static as well as a computed prefix.
+
+The following example shows how to set a static prefix:
+
+[source,java]
+----
+// static key prefix
+RedisCacheConfiguration.defaultCacheConfig().prefixKeysWith("( ͡° ᴥ ͡°)");
+
+The following example shows how to set a computed prefix:
+
+// computed key prefix
+RedisCacheConfiguration.defaultCacheConfig().computePrefixWith(cacheName -> "¯\_(ツ)_/¯" + cacheName);
+----
+
+The following table lists the default settings for `RedisCacheManager`:
+
+.`RedisCacheManager` defaults
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Setting
+|Value
+
+|Cache Writer
+|Non-locking
+
+|Cache Configuration
+|`RedisCacheConfiguration#defaultConfiguration`
+
+|Initial Caches
+|None
+
+|Trasaction Aware
+|No
+|====
+
+The following table lists the default settings for `RedisCacheConfiguration`:
+
+.RedisCacheConfiguration defaults
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Key Expiration
+|None
+
+|Cache `null`
+|Yes
+
+|Prefix Keys
+|Yes
+
+|Default Prefix
+|The actual cache name
+
+|Key Serializer
+|`StringRedisSerializer`
+
+|Value Serializer
+|`JdkSerializationRedisSerializer`
+
+|Conversion Service
+|`DefaultFormattingConversionService` with default cache key converters
+|====

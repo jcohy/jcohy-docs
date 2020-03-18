@@ -118,7 +118,7 @@ JWK Set uri尚未标准化，但通常可以在授权服务器的文档中找到
 [NOTE]
 此属性也可以直接在<<webflux-oauth2resourceserver-jwt-jwkseturi-dsl,DSL>>上提供。
 
-[[webflux-oauth2resourceserver-sansboot]]
+[[webflux-oauth2resourceserver-jwt-sansboot]]
 === 覆盖或替换引导自动配置
 
 Spring Boot代表Resource Server生成了两个 `@Bean`。
@@ -130,9 +130,8 @@ Spring Boot代表Resource Server生成了两个 `@Bean`。
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges ->
-			exchanges
-				.anyExchange().authenticated()
+		.authorizeExchange(exchanges -> exchanges
+			.anyExchange().authenticated()
 		)
 		.oauth2ResourceServer(OAuth2ResourceServerSpec::jwt)
 	return http.build();
@@ -148,14 +147,12 @@ SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges ->
-			exchanges
-				.pathMatchers("/message/**").hasAuthority("SCOPE_message:read")
-				.anyExchange().authenticated()
+		.authorizeExchange(exchanges -> exchanges
+			.pathMatchers("/message/**").hasAuthority("SCOPE_message:read")
+			.anyExchange().authenticated()
 		)
-		.oauth2ResourceServer(oauth2ResourceServer ->
-			oauth2ResourceServer
-				.jwt(withDefaults())
+		.oauth2ResourceServer(oauth2 -> oauth2
+			.jwt(withDefaults())
 		);
 	return http.build();
 }
@@ -191,16 +188,13 @@ public ReactiveJwtDecoder jwtDecoder() {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges ->
-			exchanges
-				.anyExchange().authenticated()
+		.authorizeExchange(exchanges -> exchanges
+			.anyExchange().authenticated()
 		)
-		.oauth2ResourceServer(oauth2ResourceServer ->
-			oauth2ResourceServer
-				.jwt(jwt ->
-					jwt
-						.jwkSetUri("https://idp.example.com/.well-known/jwks.json")
-				)
+		.oauth2ResourceServer(oauth2 -> oauth2
+			.jwt(jwt -> jwt
+				.jwkSetUri("https://idp.example.com/.well-known/jwks.json")
+			)
 		);
 	return http.build();
 }
@@ -218,12 +212,14 @@ SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange()
+		.authorizeExchange(exchanges -> exchanges
 			.anyExchange().authenticated()
-			.and()
-		.oauth2ResourceServer()
-			.jwt()
-				.decoder(myCustomDecoder());
+		)
+		.oauth2ResourceServer(oauth2 -> oauth2
+			.jwt(jwt -> jwt
+				.decoder(myCustomDecoder())
+			)
+		);
     return http.build();
 }
 ----
@@ -251,7 +247,7 @@ public ReactiveJwtDecoder jwtDecoder() {
 您可以通过<<webflux-oauth2resourceserver-jwt-boot-algorithm,Spring Boot>>或  <<webflux-oauth2resourceserver-jwt-decoder-builder,`NimbusJwtDecoder` 构建器>>对此进行自定义。
 
 [[webflux-oauth2resourceserver-jwt-boot-algorithm]]
-=== 通过Spring Boot
+=== 通过 Spring Boot
 
 设置算法的最简单方法是作为属性：
 
@@ -393,7 +389,7 @@ public ReactiveJwtDecoder jwtDecoder() {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges ->exchanges
+		.authorizeExchange(exchanges -> exchanges
 			.mvcMatchers("/contacts/**").hasAuthority("SCOPE_contacts")
 			.mvcMatchers("/messages/**").hasAuthority("SCOPE_messages")
 			.anyExchange().authenticated()
@@ -425,12 +421,14 @@ public Flux<Message> getMessages(...) {}
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange()
+		.authorizeExchange(exchanges -> exchanges
 			.anyExchange().authenticated()
-			.and()
-		.oauth2ResourceServer()
-			.jwt()
-				.jwtAuthenticationConverter(grantedAuthoritiesExtractor());
+		)
+		.oauth2ResourceServer(oauth2 -> oauth2
+			.jwt(jwt -> jwt
+				.jwtAuthenticationConverter(grantedAuthoritiesExtractor())
+			)
+		);
 	return http.build();
 }
 
@@ -453,10 +451,11 @@ static class GrantedAuthoritiesExtractor
         implements Converter<Jwt, Collection<GrantedAuthority>> {
 
     public Collection<GrantedAuthority> convert(Jwt jwt) {
-        Collection<String> authorities = (Collection<String>)
-                jwt.getClaims().get("mycustomclaim");
+        Collection<?> authorities = (Collection<?>)
+                jwt.getClaims().getOrDefault("mycustomclaim", Collections.emptyList());
 
         return authorities.stream()
+                .map(Object::toString)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
     }
@@ -661,9 +660,9 @@ Spring Boot代表Resource Server生成了两个 `@Bean`。
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange()
+		.authorizeExchange(exchanges -> exchanges
 			.anyExchange().authenticated()
-			.and()
+		)
 		.oauth2ResourceServer(ServerHttpSecurity.OAuth2ResourceServerSpec::opaqueToken)
 	return http.build();
 }
@@ -680,13 +679,15 @@ public class MyCustomSecurityConfiguration {
     @Bean
     SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
         http
-            .authorizeExchange()
+            .authorizeExchange(exchanges -> exchanges
                 .pathMatchers("/messages/**").hasAuthority("SCOPE_message:read")
                 .anyExchange().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .opaqueToken()
-                    .introspector(myIntrospector());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .opaqueToken(opaqueToken -> opaqueToken
+                    .introspector(myIntrospector())
+                )
+            );
         return http.build();
     }
 }
@@ -748,12 +749,14 @@ public class DirectlyConfiguredIntrospector {
     @Bean
     SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
         http
-            .authorizeExchange()
+            .authorizeExchange(exchanges -> exchanges
                 .anyExchange().authenticated()
-                .and()
-            .oauth2ResourceServer()
-                .opaqueToken()
-                    .introspector(myCustomIntrospector());
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .opaqueToken(opaqueToken -> opaqueToken
+                    .introspector(myCustomIntrospector())
+                )
+            );
         return http.build();
     }
 }
@@ -994,6 +997,78 @@ ReactiveOpaqueTokenIntrospector introspector() {
     return new UserInfoOpaqueTokenIntrospector(...);
 }
 ----
+
+[[webflux-oauth2resourceserver-multitenancy]]
+== 多-租户
+
+A resource server is considered multi-tenant when there are multiple strategies for verifying a bearer token, keyed by some tenant identifier.
+
+For example, your resource server may accept bearer tokens from two different authorization servers.
+Or, your authorization server may represent a multiplicity of issuers.
+
+In each case, there are two things that need to be done and trade-offs associated with how you choose to do them:
+
+1. Resolve the tenant
+2. Propagate the tenant
+
+=== Resolving the Tenant By Claim
+
+One way to differentiate tenants is by the issuer claim. Since the issuer claim accompanies signed JWTs, this can be done with the `JwtIssuerReactiveAuthenticationManagerResolver`, like so:
+
+[source,java]
+----
+JwtIssuerReactiveAuthenticationManagerResolver authenticationManagerResolver = new JwtIssuerReactiveAuthenticationManagerResolver
+    ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo");
+
+http
+    .authorizeRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+This is nice because the issuer endpoints are loaded lazily.
+In fact, the corresponding `JwtReactiveAuthenticationManager` is instantiated only when the first request with the corresponding issuer is sent.
+This allows for an application startup that is independent from those authorization servers being up and available.
+
+==== Dynamic Tenants
+
+Of course, you may not want to restart the application each time a new tenant is added.
+In this case, you can configure the `JwtIssuerReactiveAuthenticationManagerResolver` with a repository of `ReactiveAuthenticationManager` instances, which you can edit at runtime, like so:
+
+[source,java]
+----
+private Mono<ReactiveAuthenticationManager> addManager(
+		Map<String, ReactiveAuthenticationManager> authenticationManagers, String issuer) {
+
+	return Mono.fromCallable(() -> ReactiveJwtDecoders.fromIssuerLocation(issuer))
+            .subscribeOn(Schedulers.boundedElastic())
+            .map(JwtReactiveAuthenticationManager::new)
+            .doOnNext(authenticationManager -> authenticationManagers.put(issuer, authenticationManager));
+}
+
+// ...
+
+JwtIssuerReactiveAuthenticationManagerResolver authenticationManagerResolver =
+        new JwtIssuerReactiveAuthenticationManagerResolver(authenticationManagers::get);
+
+http
+    .authorizeRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+In this case, you construct `JwtIssuerReactiveAuthenticationManagerResolver` with a strategy for obtaining the `ReactiveAuthenticationManager` given the issuer.
+This approach allows us to add and remove elements from the repository (shown as a `Map` in the snippet) at runtime.
+
+NOTE: It would be unsafe to simply take any issuer and construct an `ReactiveAuthenticationManager` from it.
+The issuer should be one that the code can verify from a trusted source like a whitelist.
+
 
 == Bearer Token 传播
 

@@ -1,0 +1,79 @@
+[[servlet-authentication-digest]]
+= Digest Authentication
+
+本节详细介绍了Spring Security如何为 https://tools.ietf.org/html/rfc2617[Digest Authentication]   提供的 `DigestAuthenticationFilter` 支持。
+
+[WARNING]
+====
+您不应该在现代应用程序中使用摘要式身份验证，因为它不安全。 最明显的问题是，您必须以纯文本，加密或MD5格式存储密码。 所有这些存储格式都被认为是不安全的。 相反，您应该使用摘要身份验证不支持的单向自适应密码哈希（即bCrypt，PBKDF2，SCrypt等）存储凭据。
+====
+
+摘要式身份验证试图解决  <<servlet-authentication-basic,Basic authentication>> 的许多弱点，特别是通过确保凭据不会以明文形式通过网络发送来解决。 许多浏览器支持 https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Digest#Browser_compatibility[browsers support Digest Authentication]。
+
+HTTP摘要认证的标准由  https://tools.ietf.org/html/rfc2617[RFC 2617] 定义，该标准更新了  https://tools.ietf.org/html/rfc2069[RFC 2069] 规定的摘要认证标准的早期版本。
+大多数用户代理实现RFC2617。SpringSecurity的摘要认证支持与“ auth”保护质量兼容（ qop）是由RFC 2617规定的，它还提供了与RFC 2069的向后兼容性。
+如果您需要使用未加密的HTTP（即没有TLS / HTTPS）并且希望最大程度地提高身份验证过程的安全性，则摘要身份验证被视为一种更具吸引力的选择。 但是，每个人都应该使用 <<http,HTTPS>>。
+
+摘要式身份验证的核心是“一次性”。 这是服务器生成的值。 Spring Security的随机数采用以下格式：
+
+.Digest Syntax
+====
+[source,txt]
+----
+base64(expirationTime + ":" + md5Hex(expirationTime + ":" + key))
+expirationTime:   The date and time when the nonce expires, expressed in milliseconds
+key:              A private key to prevent modification of the nonce token
+----
+====
+
+您将需要确保使用 `NoOpPasswordEncoder` <<authentication-password-storage-configuration,configure>>不安全的纯文本 <<authentication-password-storage,密码存储>>。 以下提供了使用Java配置配置摘要式身份验证的示例：
+
+.Digest Authentication
+====
+.Java
+[source,java,role="primary"]
+----
+@Autowired
+UserDetailsService userDetailsService;
+
+DigestAuthenticationEntryPoint entryPoint() {
+	DigestAuthenticationEntryPoint result = new DigestAuthenticationEntryPoint();
+	result.setRealmName("My App Relam");
+	result.setKey("3028472b-da34-4501-bfd8-a355c42bdf92");
+}
+
+DigestAuthenticationFilter digestAuthenticationFilter() {
+	DigestAuthenticationFilter result = new DigestAuthenticationFilter();
+	result.setUserDetailsService(userDetailsService);
+	result.setAuthenticationEntryPoint(entryPoint());
+}
+
+protected void configure(HttpSecurity http) throws Exception {
+	http
+		// ...
+		.exceptionHandling(e -> e.authenticationEntryPoint(authenticationEntryPoint()))
+		.addFilterBefore(digestFilter());
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<b:bean id="digestFilter"
+        class="org.springframework.security.web.authentication.www.DigestAuthenticationFilter"
+    p:userDetailsService-ref="jdbcDaoImpl"
+    p:authenticationEntryPoint-ref="digestEntryPoint"
+/>
+
+<b:bean id="digestEntryPoint"
+        class="org.springframework.security.web.authentication.www.DigestAuthenticationEntryPoint"
+    p:realmName="My App Relam"
+	p:key="3028472b-da34-4501-bfd8-a355c42bdf92"
+/>
+
+<http>
+	<!-- ... -->
+	<custom-filter ref="userFilter" position="DIGEST_AUTH_FILTER"/>
+</http>
+----
+====

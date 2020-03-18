@@ -1272,6 +1272,12 @@ NOTE: Spring MVC使用 `PathMatcher` 联系和 `AntPathMatcher` 实现位于 `sp
 
 基于URL的内容协商仍然有用（例如，在浏览器中输入URL时）。 为此，我们建议使用基于查询参数的策略来避免文件扩展名带来的大多数问题。 或者，如果必须使用文件扩展名，请考虑通过 `ContentNegotiationConfigurer` 的 `mediaTypes` 属性将它们限制为显式注册的扩展名列表。
 
+[NOTE]
+====
+从5.2.4开始，已弃用与路径扩展相关的选项，这些选项用于 {api-spring-framework}/org/springframework/web/servlet/mvc/method/annotation/RequestMappingHandlerMapping.java[RequestMappingHandlerMapping] 中的请求映射
+和 {api-spring-framework}/org.springframework.web.accept/ContentNegotiationManagerFactoryBean.java[ContentNegotiationManagerFactoryBean] 中的内容协商。 有关更多计划，请参见Spring Framework第 https://github.com/spring-projects/spring-framework/issues/24179[#24179]  issues 和相关问题。
+====
+
 [[mvc-ann-requestmapping-rfd]]
 ==== 后缀匹配和RFD
 
@@ -3824,11 +3830,11 @@ HTTP缓存可以显着提高Web应用程序的性能。HTTP缓存围绕 `Cache-C
 <2> 响应已设置为304（NOT_MODIFIED） - 无需进一步处理。
 <3> 继续请求处理。
 
-有三种变体可用于检查针对 `eTag` 值，`lastModified` 值或两者的条件请求。 对于条件 `GET` 和 `HEAD` 请求， 您可以将响应设置为304（NOT_MODIFIED）。对于 `POST`, `PUT`, 和 `DELETE`，您可以将响应设置为409（PRECONDITION_FAILED），以防止并发修改。
+有三种变体可用于检查针对 `eTag` 值，`lastModified` 值或两者的条件请求。 对于条件 `GET` 和 `HEAD` 请求， 您可以将响应设置为304（NOT_MODIFIED）。对于 `POST`, `PUT`, 和 `DELETE`，您可以将响应设置为 412（PRECONDITION_FAILED），以防止并发修改。
 
 [[mvc-caching-static-resources]]
 === Static Resources
-[.small]#<<web-reactive.adoc#webflux-caching-static-resources, WebFlux>>#
+[.small]#<<web-reactive.adoc#webflux-caching-filters-shallow-etagstatic-resources, WebFlux>>#
 
 您应该使用 `Cache-Control` 和条件响应头来提供静态资源，以获得最佳性能。 请参阅有关<<mvc-config-static-resources,配置静态资源>>的部分。
 
@@ -3928,7 +3934,8 @@ MVC Java配置和MVC命名空间提供了适用于大多数应用程序的默认
 === 类型转换
 [.small]#<<web-reactive.adoc#webflux-config-conversion, WebFlux>>#
 
-数字的 `Number` 类型和日期 `Date` 类型的格式化是默认安装了的，包括 `@NumberFormat` 注解和 `@DateTimeFormat` 注解，如果类路径中存在Joda-Time，则还会安装对Joda-Time格式库的完全支持。
+默认情况下，将安装各种数字和日期类型的格式化程序以及支持
+通过字段上的 `@NumberFormat` 和 `@DateTimeFormat` 进行定制。
 
 在Java配置中，您可以注册自定义格式化程序和转换器，如以下示例所示：
 
@@ -3995,6 +4002,39 @@ MVC Java配置和MVC命名空间提供了适用于大多数应用程序的默认
 		</bean>
 
 	</beans>
+----
+
+默认情况下，Spring MVC在解析和格式化日期值时会考虑请求区域设置。 这适用于使用  "input" 日期表示为字符串的表单。
+但是，对于  "date" 和 "time" 表单字段，浏览器使用HTML规范中定义的固定格式。 在这种情况下，日期和时间格式可以按以下方式自定义：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@EnableWebMvc
+	public class WebConfig implements WebMvcConfigurer {
+
+		@Override
+		public void addFormatters(FormatterRegistry registry) {
+			DateTimeFormatterRegistrar registrar = new DateTimeFormatterRegistrar();
+			registrar.setUseIsoFormat(true);
+			registrar.registerFormatters(registry);
+      	}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@EnableWebMvc
+	class WebConfig : WebMvcConfigurer {
+
+		override fun addFormatters(registry: FormatterRegistry) {
+			val registrar = DateTimeFormatterRegistrar()
+			registrar.setUseIsoFormat(true)
+			registrar.registerFormatters(registry)
+		}
+	}
 ----
 
 NOTE: 	有关何时使用<<core.adoc#format-FormatterRegistrar-SPI, the `FormatterRegistrar` SPI>>实现的更多信息，请参阅 FormatterRegistrar SPI和 `FormattingConversionServiceFactoryBean`。
@@ -4324,7 +4364,7 @@ NOTE: 除了 https://search.maven.org/#search%7Cga%7C1%7Ca%3A%22jackson-dataform
 	<mvc:view-controller path="/" view-name="home"/>
 ----
 
-
+如果将 `@RequestMapping` 方法映射到任何HTTP方法的URL，则使用视图 控制器不能用于处理相同的URL。 这是因为通过URL匹配的带注释的控制器被视为端点所有权的足够有力的指示，因此 405（METHOD_NOT_ALLOWED），415（UNSUPPORTED_MEDIA_TYPE）或类似的响应可以 发送给客户端以帮助调试。 因此，建议避免在带注释的控制器和视图控制器之间拆分URL处理。
 
 [[mvc-config-view-resolvers]]
 === View 解析器
@@ -4650,13 +4690,11 @@ https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceR
 		@Override
 		public void configurePathMatch(PathMatchConfigurer configurer) {
 			configurer
-				.setUseSuffixPatternMatch(true)
 				.setUseTrailingSlashMatch(false)
 				.setUseRegisteredSuffixPatternMatch(true)
 				.setPathMatcher(antPathMatcher())
 				.setUrlPathHelper(urlPathHelper())
-				.addPathPrefix("/api",
-						HandlerTypePredicate.forAnnotation(RestController.class));
+				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController.class));
 		}
 
 		@Bean
@@ -4684,8 +4722,7 @@ https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceR
 				.setUseRegisteredSuffixPatternMatch(true)
 				.setPathMatcher(antPathMatcher())
 				.setUrlPathHelper(urlPathHelper())
-				.addPathPrefix("/api",
-						HandlerTypePredicate.forAnnotation(RestController::class.java))
+				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController::class.java))
 		}
 
 		@Bean

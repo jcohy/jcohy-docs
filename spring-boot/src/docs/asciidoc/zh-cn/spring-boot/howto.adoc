@@ -199,8 +199,8 @@ NOTE: Gradle的 `expand` 方法使用Groovy 的方法 `SimpleTemplateEngine` 来
 
 您还可以提供以下系统属性（或环境变量）来更改行为：
 
-* configprop:spring.config.name[] (configprop:spring.config.name[format=envvar]): 默认为 `application` 作为文件名的根。
-* configprop:spring.config.location[] (configprop:spring.config.location[format=envvar]): 要加载的文件（例如类路径资源或URL）。`Environment` 为此文档设置了单独的属性源，可以通过系统属性，环境变量或命令行来覆盖它。
+* `spring.config.name`[]` (`spring.config.name[format=envvar]`): 默认为 `application` 作为文件名的根。
+* `spring.config.location`[]` (`spring.config.location[format=envvar]`): 要加载的文件（例如类路径资源或URL）。`Environment` 为此文档设置了单独的属性源，可以通过系统属性，环境变量或命令行来覆盖它。
 
 无论您在环境中进行什么设置，Spring Boot都将始终 `application.properties` 如上所述进行加载。默认情况下，如果使用 YAML，则扩展名为 `'.yml'` 的文件也将添加到列表中。
 
@@ -633,11 +633,21 @@ NOTE: 日志的默认位置是相对于Tomcat基本目录的日志目录。 默�
 默认情况下，日志被重定向到 `System.err`。 有关更多详细信息，请参见 {jetty-docs}/configuring-jetty-request-logs.html[Jetty文档]。
 
 [[howto-use-behind-a-proxy-server]]
-[[howto-use-tomcat-behind-a-proxy-server]]
-=== 在前端代理服务器后面运行
-您的应用程序可能需要发送 `302` 重定向或使用绝对链接将内容呈现回自身。 当在代理后面运行时，调用者需要链接到代理，而不要链接到托管您的应用程序的计算机的物理地址。 通常，此类情况是通过与代理之间的合同来处理的，该代理添加了标头，以告诉后端如何构造与自身的链接。
 
-如果代理添加了常规的 `X-Forwarded-For` 和 `X-Forwarded-Proto` 标头（大多数代理服务器这样做），则应正确呈现绝对链接，前提是在您的应用程序中的  `application.properties` 将 `server.forward-headers-strategy` 设置为 `NATIVE` 或 `FRAMEWORK`。
+=== 在前端代理服务器后面运行
+
+如果您的应用程序在代理，负载均衡器之后或在云中运行，则请求信息（例如主机，端口，协议...）可能会随之变化。
+例如，您的应用程序可能正在 "10.10.10.10:8080" 上运行，但是HTTP客户端应该只能看到 "example.org"。
+
+https://tools.ietf.org/html/rfc7239[RFC7239 "Forwarded Headers"] 定义了 "转发的" HTTP标头；代理可以使用此标头提供有关原始请求的信息。
+您可以将应用程序配置为读取这些标头，并在创建链接将其发送到HTTP 302响应，JSON文档或HTML页面中的客户端时自动使用该信息。
+还有一些非标准的标头，例如 "X-Forwarded-Host"，"X-Forwarded-Port"， "X-Forwarded-Proto"，"X-Forwarded-Ssl" 和 "X-Forwarded-Prefix"。
+
+如果代理添加了常用的 `X-Forwarded-For` 和 `X-Forwarded-Proto` 标头，则将 `server.forward-headers-strategy` 设置为 `NATIVE` 以支持这些标头。
+使用此选项，Web服务器本身就需要支持此功能。您可以查看他们的特定文档以了解特定行为。
+
+如果这还不够，Spring框架会提供一个 {spring-framework-docs}web.html#filters-forwarded-headers[ForwardedHeaderFilter]。
+您可以通过将 `server.forward-headers-strategy` 设置为 `FRAMEWORK` 来将其注册为 Servlet 过滤器。
 
 NOTE: 如果您的应用程序在Cloud Foundry或Heroku中运行，则 `server.forward-headers-strategy` 属性默认为 `NATIVE`。在所有其他情况下，它默认为 `NONE`。
 
@@ -695,8 +705,8 @@ NOTE: 您可以通过将 `internal-proxies`  设置为空来信任所有代理�
 			return connector;
 		}
 		catch (IOException ex) {
-			throw new IllegalStateException("can't access keystore: [" + "keystore"
-					+ "] or truststore: [" + "keystore" + "]", ex);
+			throw new IllegalStateException("can't access keystore: [" + keystore
+					+ "] or truststore: [" + truststore + "]", ex);
 		}
 	}
 ----
@@ -860,7 +870,7 @@ Spring Boot还具有一些功能，可以更轻松地自定义此行为。
 | `true`, `false`
 
 | `com.fasterxml.jackson.annotation.JsonInclude.Include`
-| configprop:spring.jackson.default-property-inclusion[]
+| `spring.jackson.default-property-inclusion`
 | `always`, `non_null`, `non_absent`, `non_default`, `non_empty`
 |===
 
@@ -1670,9 +1680,12 @@ Spring Boot提供了许多包含消息传递的启动器。 本部分回答了�
 
 [[howto-batch-applications]]
 == Batch Applications
-本部分回答了将Spring Batch与Spring Boot结合使用所引起的问题。
+当人们从Spring Boot应用程序中使用Spring Batch时，经常会出现许多问题。 本节解决这些问题。
 
-NOTE: 默认情况下，批处理应用程序需要一个数据源来存储作业详细信息。 批处理在您的上下文中自动装配单个数据源，并将其用于处理。 要使批处理使用应用程序的主数据源以外的其他数据源，请声明一个数据源bean，并用 `@BatchDataSource` 注释其 `@Bean` 方法。
+[[howto-spring-batch-specifying-a-data-source]]
+=== 指定批处理数据源
+
+默认情况下，批处理应用程序需要一个数据源来存储作业详细信息。 批处理在您的上下文中自动装配单个数据源，并将其用于处理。 要使批处理使用应用程序的主数据源以外的其他数据源，请声明一个数据源bean，并用 `@BatchDataSource` 注释其 `@Bean` 方法。
 如果这样做并想要两个数据源，请记住创建另一个数据源并将其标记为 `@Primary`。 为了更好地控制，请实现 `BatchConfigurer`。 有关更多详细信息，请参见 {spring-batch-api}/core/configuration/annotation/EnableBatchProcessing.html[The Javadoc of `@EnableBatchProcessing`] 的Javadoc。
 
 有关Spring Batch的更多信息，请参见 {spring-batch}[Spring Batch 项目页面]。
@@ -1680,19 +1693,46 @@ NOTE: 默认情况下，批处理应用程序需要一个数据源来存储作�
 
 [[howto-execute-spring-batch-jobs-on-startup]]
 === 在启动时执行Spring Batch作业
-通过在上下文中的某个位置添加 `@EnableBatchProcessing`（来自Spring Batch），可以启用Spring Batch自动配置。
+通过在 `@Configuration` 类的某个位置添加 `@EnableBatchProcessing`，可以启用Spring Batch自动配置。
 
 默认情况下，它将在启动时在应用程序上下文中执行所有作业（有关详细信息，请参见  {spring-boot-autoconfigure-module-code}/batch/JobLauncherCommandLineRunner.java[JobLauncherCommandLineRunner]）。 您可以通过指定 `spring.batch.job.names`（采用作业名称模式的逗号分隔列表）来缩小到一个或多个特定作业。
 
-[TIP]
-.在命令行上指定作业参数
-====
-与<<spring-boot-features.adoc#boot-features-external-config-command-line-args,在 `Environment` 中设置属性 >>的命令行选项参数不同（即以 `--` 开头，例如 `--my-property=value`），必须在命令行上指定作业参数而不能使用破折号（例如 `jobParam=value`）。
-====
+ {spring-boot-autoconfigure-module-code}/batch/BatchAutoConfiguration.java[BatchAutoConfiguration] and {spring-batch-api}/core/configuration/annotation/EnableBatchProcessing.html[@EnableBatchProcessing] 获取更多信息.
 
-如果应用程序上下文包括 `JobRegistry`，则将在注册表中查找 `spring.batch.job.names` 中的作业，而不是从上下文中自动连线。 这是更复杂的系统的常见模式，其中多个作业在子上下文中定义并集中注册。
+[[howto-spring-batch-running-command-line]]
+=== 在命令行上运行
 
-有关更多详细信息，请参见 {spring-boot-autoconfigure-module-code}/batch/BatchAutoConfiguration.java[BatchAutoConfiguration] 和  https://github.com/spring-projects/spring-batch/blob/master/spring-batch-core/src/main/java/org/springframework/batch/core/configuration/annotation/EnableBatchProcessing.java[@EnableBatchProcessing]。
+从命令行通过Spring Boot运行Spring Batch与从命令行单独运行Spring Batch有所不同。
+最重要的区别是，它们对命令行参数的解析方式不同，这可能会引起麻烦，如下一节所述。
+
+==== 通过命令行参数
+
+Spring Boot将任何以 `--` 开头的命令行参数转换为一个属性以添加到 `Environment` 中，请参见 << spring-boot-features.adoc＃boot-features-external-config-command-line-args，访问命令行属性>>。
+不应该将其作为参数传递给批处理作业。
+要在命令行上指定批处理参数，请使用常规格式（即不使用 `--` ），如以下示例所示：
+
+[indent=0,subs="attributes"]
+----
+	$ java -jar myapp.jar someParameter=someValue anotherParameter=anotherValue
+----
+
+如果在命令行上指定 `Environment` 的属性，它将影响您的作业使用的参数。
+考虑以下命令：
+
+[indent=0,subs="attributes"]
+----
+	$ java -jar myapp.jar --server.port=7070 someParameter=someValue
+----
+
+这为批处理作业提供了两个参数：`someParameter=someValue`  和 `-server.port=7070`。
+请注意，第二个参数缺少连字符，因为Spring Batch将删除属性的第一个 `-`  字符（如果存在）。
+
+[[howto-spring-batch-storing-job-repository]]
+=== 存储作业库
+
+Spring Batch需要一个用于Job仓库的数据存储。
+如果使用Spring Boot，则必须使用实际的数据库。
+请注意，它可以是内存数据库，请参见 {spring-batch-docs} job.html＃configuringJobRepository[配置作业存储库]。
 
 [[howto-actuator]]
 == Actuator
@@ -1721,9 +1761,11 @@ NOTE: 设置 `server.error.whitelabel.enabled=false` 可以关闭默认错误页
 === Sanitize sensible values
 `env` 和 `configprops` 端点返回的信息可能有些敏感，因此默认情况下会清理匹配特定模式的键（即，它们的值将替换为 `******`）。
 
-Spring Boot对此类密钥使用明智的默认设置：例如，对任何以单词 "password", "secret", "key" 或 "token"  结尾的密钥进行清理。 也可以改用正则表达式，例如 `+*credentials.*+` 来清理任何将单词凭据作为密钥一部分保存的密钥。
-
 可以分别使用 `management.endpoint.env.keys-to-sanitize` 和  `management.endpoint.configprops.keys-to-sanitize` 来定制要使用的模式。
+
+Spring Boot对此类密钥使用明智的默认设置：例如，对任何以单词 "password", "secret", "key", "token", "vcap_services", "sun.java.command", "uri", "uris", "address"  或 "addresses"  结尾的密钥进行清理。 也可以改用正则表达式，例如 `+*credentials.*+` 来清理任何将单词凭据作为密钥一部分保存的密钥。
+
+如果要清理的任何 key 都是URI格式（即 `<scheme>://<username>:<password>@<host>:<port>/`），则仅清理密码部分。
 
 [[howto-security]]
 == 安全
@@ -1804,7 +1846,7 @@ Spring Boot支持的大多数模板技术都包含用于禁用缓存的配置选
 
 [[howto-reload-fast-restart]]
 === 快速重启应用程序
-`spring-boot-devtools` 模块包括对应用程序自动重启的支持。 尽管不如 https://jrebel.com/software/jrebel/[JRebel] 这样的技术快，但通常比  "`cold start`" 要快得多。 在研究本文档后面讨论的一些更复杂的重载选项之前，您可能应该先尝试一下。
+`spring-boot-devtools` 模块包括对应用程序自动重启的支持。 尽管不如 https://www.jrebel.com/products/jrebel[JRebel]  这样的技术快，但通常比  "`cold start`" 要快得多。 在研究本文档后面讨论的一些更复杂的重载选项之前，您可能应该先尝试一下。
 
 有关更多详细信息，请参见  <<using-spring-boot.adoc#using-boot-devtools,using-spring-boot.html>> 部分。
 

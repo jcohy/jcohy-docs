@@ -1,0 +1,46 @@
+[[customizing-sdr.adding-sdr-to-spring-mvc-app]]
+= Adding Spring Data REST to an Existing Spring MVC Application
+
+NOTE: The following steps are unnecessary if you use Spring Boot. For Boot applications, adding `spring-boot-starter-data-rest` automatically adds Spring Data REST to your application.
+
+You can integrate Spring Data REST with an existing Spring MVC application. In your Spring MVC configuration (most likely where you configure your MVC resources), add a bean reference to the Java configuration class that is responsible for configuring the `RepositoryRestController`. The class name is `org.springframework.data.rest.webmvc.RepositoryRestMvcConfiguration`. The following example shows how to use an `@Import` annotation to add the proper reference:
+
+In Java, this would look like:
+
+====
+[source,java]
+----
+import org.springframework.context.annotation.Import;
+import org.springframework.data.rest.webmvc.RepositoryRestMvcConfiguration;
+
+@Configuration
+@Import(RepositoryRestMvcConfiguration.class)
+public class MyApplicationConfiguration {
+
+  …
+}
+----
+====
+
+The following example shows the corresponding XML configuration:
+
+====
+[source,xml]
+----
+<bean class="org.springframework.data.rest.webmvc.config.RepositoryRestMvcConfiguration"/>
+----
+====
+
+When your ApplicationContext comes across this bean definition, it bootstraps the necessary Spring MVC resources to fully configure the controller for exporting the repositories it finds in that `ApplicationContext` and any parent contexts.
+
+== More on Required Configuration
+
+Spring Data REST depends on a couple Spring MVC resources that must be configured correctly for it to work inside an existing Spring MVC application. We tried to isolate those resources from whatever similar resources already exist within your application, but it may be that you want to customize some of the behavior of Spring Data REST by modifying these MVC components.
+
+You should pay special attention to configuring `RepositoryRestHandlerMapping`, covered in the next section.
+
+=== `RepositoryRestHandlerMapping`
+
+We register a custom `HandlerMapping` instance that responds only to the `RepositoryRestController` and only if a path is meant to be handled by Spring Data REST. In order to keep paths that are meant to be handled by your application separate from those handled by Spring Data REST, this custom `HandlerMapping` class inspects the URL path and checks to see if a repository has been exported under that name. If it has, the custom `HandlerMapping` class lets the request be handled by Spring Data REST. If there is no Repository exported under that name, it returns `null`, which means "`let other `HandlerMapping` instances try to service this request`".
+
+The Spring Data REST `HandlerMapping` is configured with `order=(Ordered.LOWEST_PRECEDENCE - 100)`, which means it is usually first in line when it comes time to map a URL path. Your existing application never gets a chance to service a request that is meant for a repository. For example, if you have a repository exported under the name of `person`, then all requests to your application that start with `/person` are handled by Spring Data REST, and your application never sees that request. If your repository is exported under a different name (such as `people`), however, then requests to `/people` go to Spring Data REST and requests to `/person` are handled by your application.

@@ -1683,6 +1683,18 @@ the issues that come with file extensions. Alternatively, if you must use file e
 restricting them to a list of explicitly registered extensions through the
 `mediaTypes` property of <<mvc-config-content-negotiation,ContentNegotiationConfigurer>>.
 
+[NOTE]
+====
+Starting in 5.2.4, path extension related options for request mapping in
+{api-spring-framework}/org/springframework/web/servlet/mvc/method/annotation/RequestMappingHandlerMapping.java[RequestMappingHandlerMapping]
+and for content negotiation in
+{api-spring-framework}/org.springframework.web.accept/ContentNegotiationManagerFactoryBean.java[ContentNegotiationManagerFactoryBean]
+are deprecated. See Spring Framework issue
+https://github.com/spring-projects/spring-framework/issues/24179[#24179] and related
+issues for further plans.
+====
+
+
 
 [[mvc-ann-requestmapping-rfd]]
 ==== Suffix Match and RFD
@@ -4965,12 +4977,10 @@ sub-elements are available.
 === Type Conversion
 [.small]#<<web-reactive.adoc#webflux-config-conversion, WebFlux>>#
 
-By default formatters, for `Number` and `Date` types are installed, including support for
-the `@NumberFormat` and `@DateTimeFormat` annotations. Full support for the Joda-Time
-formatting library is also installed if Joda-Time is present on the classpath.
+By default, formatters for various number and date types are installed, along with support
+for customization via `@NumberFormat` and `@DateTimeFormat` on fields.
 
-In Java configuration, you can register custom formatters and converters, as the
-following example shows:
+To register custom formatters and converters in Java config, use the following:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -4998,7 +5008,7 @@ following example shows:
 	}
 ----
 
-The following example shows how to achieve the same configuration in XML:
+To do the same in XML config, use the following:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -5035,6 +5045,41 @@ The following example shows how to achieve the same configuration in XML:
 		</bean>
 
 	</beans>
+----
+
+By default Spring MVC considers the request Locale when parsing and formatting date
+values. This works for forms where dates are represented as Strings with "input" form
+fields. For "date" and "time" form fields, however, browsers use a fixed format defined
+in the HTML spec. For such cases date and time formatting can be customized as follows:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@EnableWebMvc
+	public class WebConfig implements WebMvcConfigurer {
+
+		@Override
+		public void addFormatters(FormatterRegistry registry) {
+			DateTimeFormatterRegistrar registrar = new DateTimeFormatterRegistrar();
+			registrar.setUseIsoFormat(true);
+			registrar.registerFormatters(registry);
+      	}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@EnableWebMvc
+	class WebConfig : WebMvcConfigurer {
+
+		override fun addFormatters(registry: FormatterRegistry) {
+			val registrar = DateTimeFormatterRegistrar()
+			registrar.setUseIsoFormat(true)
+			registrar.registerFormatters(registry)
+		}
+	}
 ----
 
 NOTE: See <<core.adoc#format-FormatterRegistrar-SPI, the `FormatterRegistrar` SPI>>
@@ -5398,6 +5443,13 @@ using the `<mvc:view-controller>` element:
 ----
 	<mvc:view-controller path="/" view-name="home"/>
 ----
+
+If an `@RequestMapping` method is mapped to a URL for any HTTP method then a view
+controller cannot be used to handle the same URL. This is because a match by URL to an
+annotated controller is considered a strong enough indication of endpoint ownership so
+that a 405 (METHOD_NOT_ALLOWED), a 415 (UNSUPPORTED_MEDIA_TYPE), or similar response can
+be sent to the client to help with debugging. For this reason it is recommended to avoid
+splitting URL handling across an annotated controller and a view controller.
 
 
 
@@ -5772,13 +5824,11 @@ The following example shows how to customize path matching in Java configuration
 		@Override
 		public void configurePathMatch(PathMatchConfigurer configurer) {
 			configurer
-				.setUseSuffixPatternMatch(true)
 				.setUseTrailingSlashMatch(false)
 				.setUseRegisteredSuffixPatternMatch(true)
 				.setPathMatcher(antPathMatcher())
 				.setUrlPathHelper(urlPathHelper())
-				.addPathPrefix("/api",
-						HandlerTypePredicate.forAnnotation(RestController.class));
+				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController.class));
 		}
 
 		@Bean
@@ -5806,8 +5856,7 @@ The following example shows how to customize path matching in Java configuration
 				.setUseRegisteredSuffixPatternMatch(true)
 				.setPathMatcher(antPathMatcher())
 				.setUrlPathHelper(urlPathHelper())
-				.addPathPrefix("/api",
-						HandlerTypePredicate.forAnnotation(RestController::class.java))
+				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController::class.java))
 		}
 
 		@Bean
@@ -5828,7 +5877,6 @@ The following example shows how to achieve the same configuration in XML:
 ----
 	<mvc:annotation-driven>
 		<mvc:path-matching
-			suffix-pattern="true"
 			trailing-slash="false"
 			registered-suffixes-only="true"
 			path-helper="pathHelper"

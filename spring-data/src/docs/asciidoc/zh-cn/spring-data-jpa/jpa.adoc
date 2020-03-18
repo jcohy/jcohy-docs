@@ -1,0 +1,1145 @@
+[[jpa.repositories]]
+= JPA 存储库
+include::attributes.adoc[]
+
+本章指出了JPA信息库支持的特长。 这建立在  "`<<repositories,使用Spring数据存储库>>`" 中解释的核心存储库支持的基础上。 确保您对此处介绍的基本概念有很好的了解。
+
+[[jpa.introduction]]
+== 简介
+
+本节介绍通过以下两种方式配置Spring Data JPA的基础知识：
+
+* "`<<jpa.namespace,Spring 命名空间>>`" (XML 配置)
+* "`<<jpa.java-config,基于注解的配置>>`" (Java 配置)
+
+[[jpa.namespace]]
+=== Spring 命名空间
+
+Spring Data的JPA模块包含一个自定义名称空间，允许定义存储库bean。 它还包含JPA特有的某些功能和元素属性。 通常，可以通过使用repositories元素来设置JPA存储库，如以下示例所示：
+
+.使用命名空间建立JPA 存储库
+====
+[source, xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:jpa="http://www.springframework.org/schema/data/jpa"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+    https://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/data/jpa
+    https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
+
+  <jpa:repositories base-package="com.acme.repositories" />
+
+</beans>
+----
+====
+
+使用 `repositories`  元素可按  "`<<repositories.create-instances,创建存储库实例>>`" 中所述查找Spring Data存储库。 除此之外，它还为所有使用 `@Repository` 注释的bean激活持久性异常转换，以将JPA持久性提供程序引发的异常转换为Spring的 `DataAccessException` 层次结构。
+
+==== 自定义命名空间属性
+
+除了 `repositories`  元素的默认属性之外，JPA命名空间还提供了其他属性，使您可以更详细地控制存储库的设置：
+
+.自定义JPA特定于 `repositories` 元素的属性
+[options = "autowidth"]
+|===============
+|`entity-manager-factory-ref`|显式地将 `EntityManagerFactory` 与要使用的 `repositories` 元素所检测到的存储库连接。 通常在应用程序中使用多个 `EntityManagerFactory` bean的情况下使用。 如果未配置，Spring Data会在 `ApplicationContext` 中自动查找名称为 `EntityManagerFactory` 的 `EntityManagerFactory` bean。
+|`transaction-manager-ref`|明确地将 `PlatformTransactionManager` 与要由 `repositories` 元素检测到的存储库进行连线。 通常仅在配置了多个事务管理器或 `EntityManagerFactory` bean时才需要。 默认为当前 `ApplicationContext` 中单个定义的 `PlatformTransactionManager`。
+|===============
+
+NOTE: 如果未定义显式的 `transaction-manager-ref`，Spring Data JPA要求提供一个名为 `transactionManager` 的 `PlatformTransactionManager` bean。
+
+[[jpa.java-config]]
+=== 基于注解的配置
+Spring Data JPA存储库支持不仅可以通过XML名称空间来激活，还可以通过JavaConfig使用注释来激活，如以下示例所示：
+
+.使用JavaConfig的Spring Data JPA存储库
+====
+[source, java]
+----
+@Configuration
+@EnableJpaRepositories
+@EnableTransactionManagement
+class ApplicationConfig {
+
+  @Bean
+  public DataSource dataSource() {
+
+    EmbeddedDatabaseBuilder builder = new EmbeddedDatabaseBuilder();
+    return builder.setType(EmbeddedDatabaseType.HSQL).build();
+  }
+
+  @Bean
+  public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
+
+    HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
+    vendorAdapter.setGenerateDdl(true);
+
+    LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
+    factory.setJpaVendorAdapter(vendorAdapter);
+    factory.setPackagesToScan("com.acme.domain");
+    factory.setDataSource(dataSource());
+    return factory;
+  }
+
+  @Bean
+  public PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
+
+    JpaTransactionManager txManager = new JpaTransactionManager();
+    txManager.setEntityManagerFactory(entityManagerFactory);
+    return txManager;
+  }
+}
+----
+====
+NOTE: 您必须直接创建 `LocalContainerEntityManagerFactoryBean` 而不是 `EntityManagerFactory`，因为前者除了创建 `EntityManagerFactory` 之外，还参与异常转换机制。
+
+[[jpa.bootstrap-mode]]
+=== Bootstrap 模式
+
+默认情况下，Spring Data JPA存储库是默认的Spring Bean。 它们是单例作用域，并且已被急切初始化。 在启动期间，它们已经与JPA `EntityManager` 进行交互，以进行验证和元数据分析。
+Spring框架在后台线程中支持JPA `EntityManagerFactory` 的初始化，因为该过程通常在Spring应用程序中占用大量启动时间。 为了有效地利用后台初始化，我们需要确保JPA存储库尽可能早地初始化。
+
+从Spring Data JPA 2.1开始，您现在可以配置 `BootstrapMode`（通过 `@EnableJpaRepositories` 批注或XML名称空间），该 `BootstrapMode` 采用以下值：
+
+* `DEFAULT` (默认值) -- 急切地实例化存储库，除非使用 `@Lazy` 显式注释。 仅当没有任何客户Bean需要存储库实例时，`lazification` 才有效，因为这将需要初始化存储库bean。
+* `LAZY` -- 隐式地声明所有存储库bean都是惰性的，并且还使创建的惰性初始化代理被注入到客户端bean中。 这意味着，如果客户端bean仅将实例存储在字段中并且在初始化期间不使用存储库，则不会实例化存储库。 首次与存储库交互时，将初始化并验证存储库实例。
+* `DEFERRED` -- 基本与 `LAZY` 相同，但会响应 `ContextRefreshedEvent` 触发存储库初始化，以便在应用程序完全启动之前验证存储库。
+
+==== 推荐建议
+
+如果您不使用默认 Bootstrap 模式的异步JPA引导。
+
+如果您以异步方式引导JPA，则 `DEFERRED` 是一个合理的默认值，因为它可以确保Spring Data JPA引导仅在其花费比初始化所有其他应用程序组件更长的时间时才等待 `EntityManagerFactory` 安装。 尽管如此，它仍可以确保在应用程序发出信号之前，对存储库进行了正确的初始化和验证。
+
+`LAZY` 是测试方案和本地开发的不错选择。 一旦确定了存储库将正确引导后，或者在测试应用程序的其他部分时，对所有存储库执行验证可能只会不必要地增加启动时间。 这同样适用于本地开发，在本地开发中，您仅访问应用程序的某些部分，而这些部分可能只需要初始化一个存储库即可。
+
+[[jpa.entity-persistence]]
+== 持久化实体
+
+本节描述如何使用Spring Data JPA持久化（保存）实体。
+
+[[jpa.entity-persistence.saving-entites]]
+=== 保存实体
+
+可以使用 `CrudRepository.save(…)`  方法执行保存实体。 它通过使用基础JPA `EntityManager` 持久化或合并给定实体。 如果实体还没有持久化，Spring Data JPA会通过调用 `entityManager.persist(…)` 方法来保存实体。 否则，它将调用 `entityManager.merge(…)` 方法。
+
+[[jpa.entity-persistence.saving-entites.strategies]]
+==== 实体状态检测策略
+Spring Data JPA提供以下策略来检测实体是否为新实体：
+
+1. Version-Property和Id-Property检查（默认）：默认情况下，Spring Data JPA首先检查是否存在非基本类型的Version-property。
+如果存在，则将该实体视为新实体（如果该值为 `null`）。 没有这样的版本属性，Spring Data JPA会检查给定实体的标识符属性。 如果标识符属性为 `null`，则假定该实体为新实体。 否则，假定它不是新的。
+2. 实现 `Persistable`：如果实体实现 `Persistable`，则Spring Data JPA将新检测委托给该实体的 `isNew(…)` 方法。 有关详细信息，请参见 link:$$https://docs.spring.io/spring-data/data-commons/docs/current/api/index.html?org/springframework/data/domain/Persistable.html$$[JavaDoc] 。
+3. 实现 `EntityInformation`：通过创建 `JpaRepositoryFactory` 的子类并相应地重写  `getEntityInformation(…)` 方法，可以自定义 `SimpleJpaRepository` 实现中使用的 `EntityInformation` 抽象。 然后，您必须将JpaRepositoryFactory的自定义实现注册为Spring bean。 请注意，这几乎没有必要。 有关详细信息，请参见  link:$$https://docs.spring.io/spring-data/data-jpa/docs/current/api/index.html?org/springframework/data/jpa/repository/support/JpaRepositoryFactory.html$$[JavaDoc] 。
+
+对于使用手动分配的标识符的实体，选项1不是选项，因为标识符将始终为非 `null`。 在这种情况下，一种常见的模式是使用一个公共基类，该基类的过渡标志默认表示一个新实例，并使用JPA生命周期回调在持久性操作上翻转该标志：
+
+.具有手动分配的标识符的实体的基类
+====
+[source, java]
+----
+@MappedSuperclass
+public abstract class AbstractEntity<ID> implements Persistable<ID> {
+
+  @Transient
+  private boolean isNew = true; <1>
+
+  @Override
+  public boolean isNew() {
+    return isNew; <2>
+  }
+
+  @PrePersist <3>
+  @PostLoad
+  void markNotNew() {
+    this.isNew = false;
+  }
+
+  // More code…
+}
+----
+<1> 声明一个标志以保持新状态。 暂时的，因此它不会持久化到数据库中。
+<2> 在 `Persistable.isNew()` 的实现中返回标志，以便Spring Data存储库知道是调用 `EntityManager.persist()` 还是  `….merge()`。
+<3> 声明一个使用JPA实体回调的方法，以便在存储库调用 `save(…)` 或持久性提供程序创建实例之后，将标志切换为指示现有实体。
+====
+
+[[jpa.query-methods]]
+== 查询方法
+
+本节描述了使用Spring Data JPA创建查询的各种方法。
+
+[[jpa.sample-app.finders.strategies]]
+=== 查询策略
+
+JPA模块支持手动将查询定义为String或从方法名称派生查询。
+
+谓词为 `IsStartingWith`，`StartingWith`，`StartsWith`，`IsEndingWith`，`EndingWith`，`EndsWith`，`IsNotContaining`，`NotContaining`，`NotContains`，`IsContaining`，`Containing` 的派生查询将包含这些查询的各自参数。
+这意味着，如果参数实际包含 `LIKE` 识别为通配符的字符，则这些字符将被转义，因此它们仅作为文字匹配。 可以通过设置 `@EnableJpaRepositories` 批注的 `escapeCharacter` 来配置使用的转义字符。 与使用 <<jpa.query.spel-expressions,SpEL表达式>>进行比较。
+
+==== 声明查询
+尽管从方法名派生一个查询很方便，但可能会遇到这样一种情况，即方法名解析器不支持一个人想使用的关键字，或者方法名不必要地变得丑陋。 因此，您可以通过命名约定使用JPA命名查询（有关更多信息，请参见使用<<jpa.query-methods.named-queries,JPA命名查询>>）， 或者通过 `@Query` 注释您的查询方法（有关详细信息，请参见使用@Query）。
+
+[[jpa.query-methods.query-creation]]
+=== 查询创建
+
+通常，JPA的查询创建机制按 "`<<repositories.query-methods,查询方法>>`" 中所述运行。 以下示例显示了JPA查询方法转换为的内容：
+
+.通过方法名称创建查询
+====
+----
+public interface UserRepository extends Repository<User, Long> {
+
+  List<User> findByEmailAddressAndLastname(String emailAddress, String lastname);
+}
+----
+我们从中使用JPA标准API创建查询，但是从本质上讲，这将转换为以下查询：`select u from User u where u.emailAddress = ?1 and u.lastname = ?2`。 Spring Data JPA进行属性检查并遍历嵌套的属性，如  "`<<repositories.query-methods.query-property-expressions,属性表达式>>`" 中所述。
+====
+
+下表描述了JPA支持的关键字以及包含该关键字的方法所转换的含义：
+
+.方法名称中受支持的关键字
+[options = "header, autowidth"]
+|===============
+|关键字|Sample|JPQL snippet
+|`And`|`findByLastnameAndFirstname`|`… where x.lastname = ?1 and x.firstname = ?2`
+|`Or`|`findByLastnameOrFirstname`|`… where x.lastname = ?1 or x.firstname = ?2`
+|`Is`, `Equals`|`findByFirstname`,`findByFirstnameIs`,`findByFirstnameEquals`|`… where x.firstname = ?1`
+|`Between`|`findByStartDateBetween`|`… where x.startDate between ?1 and ?2`
+|`LessThan`|`findByAgeLessThan`|`… where x.age < ?1`
+|`LessThanEqual`|`findByAgeLessThanEqual`|`… where x.age \<= ?1`
+|`GreaterThan`|`findByAgeGreaterThan`|`… where x.age > ?1`
+|`GreaterThanEqual`|`findByAgeGreaterThanEqual`|`… where x.age >= ?1`
+|`After`|`findByStartDateAfter`|`… where x.startDate > ?1`
+|`Before`|`findByStartDateBefore`|`… where x.startDate < ?1`
+|`IsNull`, `Null`|`findByAge(Is)Null`|`… where x.age is null`
+|`IsNotNull`, `NotNull`|`findByAge(Is)NotNull`|`… where x.age not null`
+|`Like`|`findByFirstnameLike`|`… where x.firstname like ?1`
+|`NotLike`|`findByFirstnameNotLike`|`… where x.firstname not like ?1`
+|`StartingWith`|`findByFirstnameStartingWith`|`… where x.firstname like ?1` (parameter bound with appended `%`)
+|`EndingWith`|`findByFirstnameEndingWith`|`… where x.firstname like ?1` (parameter bound with prepended `%`)
+|`Containing`|`findByFirstnameContaining`|`… where x.firstname like ?1` (parameter bound wrapped in `%`)
+|`OrderBy`|`findByAgeOrderByLastnameDesc`|`… where x.age = ?1 order by x.lastname desc`
+|`Not`|`findByLastnameNot`|`… where x.lastname <> ?1`
+|`In`|`findByAgeIn(Collection<Age> ages)`|`… where x.age in ?1`
+|`NotIn`|`findByAgeNotIn(Collection<Age> ages)`|`… where x.age not in ?1`
+|`True`|`findByActiveTrue()`|`… where x.active = true`
+|`False`|`findByActiveFalse()`|`… where x.active = false`
+|`IgnoreCase`|`findByFirstnameIgnoreCase`|`… where UPPER(x.firstame) = UPPER(?1)`
+|===============
+
+NOTE: `In` 和 `NotIn` 也将 `Collection` 的任何子类作为参数以及 `varargs` 的数组。 对于同一逻辑运算符的其他语法版本，请选中 "`<<repository-query-keywords,存储库查询关键字>>`"。
+
+[[jpa.query-methods.named-queries]]
+=== 使用JPA命名查询
+
+NOTE: 这些示例使用 `<named-query />` 元素和 `@NamedQuery` 批注。 这些配置元素的查询必须使用JPA查询语言进行定义。 当然，您也可以使用 `<named-native-query />` 或 `@NamedNativeQuery` 。 这些元素使您可以通过失去数据库平台独立性来在本机SQL中定义查询。
+
+==== XML命名查询定义
+要使用XML配置，请将必要的 `<named-query />` 元素添加到位于类路径的 `META-INF` 文件夹中的 `orm.xml` JPA配置文件中。 通过使用一些定义的命名约定，可以自动调用命名查询。 有关更多详细信息，请参见下文。
+
+.XML 命名查询配置
+====
+[source, xml]
+----
+<named-query name="User.findByLastname">
+  <query>select u from User u where u.lastname = ?1</query>
+</named-query>
+----
+====
+
+该查询具有一个特殊名称，该名称用于在运行时解析它。
+
+==== 基于注释的配置
+基于注释的配置的优点是不需要编辑另一个配置文件，从而减少了维护工作。 您需要为每个新的查询声明重新编译域类，从而为此付出了代价。
+
+.基于注释的命名查询配置
+====
+[source, java]
+----
+@Entity
+@NamedQuery(name = "User.findByEmailAddress",
+  query = "select u from User u where u.emailAddress = ?1")
+public class User {
+
+}
+----
+====
+
+==== 声明接口
+要允许执行这些命名查询，请按以下方式指定 `UserRepository`：
+
+.UserRepository中的查询方法声明
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  List<User> findByLastname(String lastname);
+
+  User findByEmailAddress(String emailAddress);
+}
+----
+====
+
+Spring Data尝试将对这些方法的调用解析为对命名查询的调用，从已配置域类的简单名称开始，然后是由句点分隔的方法名称。 因此，前面的示例将使用示例中定义的命名查询，而不是尝试从方法名称创建查询。
+
+[[jpa.query-methods.at-query]]
+=== 使用 `@Query`
+
+使用命名查询声明对实体的查询是一种有效的方法，并且对于少量查询也可以正常工作。 由于查询本身与执行它们的Java方法相关联，因此您实际上可以通过使用Spring Data JPA `@Query` 注释直接绑定它们，而不是将它们注释到域类。 这样可以将域类从持久性特定的信息中释放出来，并将查询放置在存储库接口中。
+
+注释查询方法的查询优先于使用 `@NamedQuery` 定义的查询或在 `orm.xml` 中声明的命名查询。
+
+以下示例显示使用 `@Query` 注释创建的查询：
+
+.使用 `@Query` 在查询方法中声明查询
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query("select u from User u where u.emailAddress = ?1")
+  User findByEmailAddress(String emailAddress);
+}
+----
+====
+
+==== 使用高级 `LIKE` 表达式
+
+使用 `@Query` 创建的手动定义查询的查询执行机制允许在查询定义中定义高级 `LIKE` 表达式，如以下示例所示：
+
+.@Query中的高级 `like` 表达式
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query("select u from User u where u.firstname like %?1")
+  List<User> findByFirstnameEndsWith(String firstname);
+}
+----
+====
+
+在前面的示例中，识别了 `LIKE` 分隔符（`％`），并将查询转换为有效的JPQL查询（删除了 `％`）。 查询执行后，传递给方法调用的参数将使用先前识别的 `LIKE` 模式进行扩充。
+
+==== 本地查询
+
+`@Query` 批注允许通过将 `nativeQuery` 标志设置为 `true` 来运行本地查询，如以下示例所示：
+
+.使用@Query在查询方法中声明一个本地查询
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query(value = "SELECT * FROM USERS WHERE EMAIL_ADDRESS = ?1", nativeQuery = true)
+  User findByEmailAddress(String emailAddress);
+}
+----
+
+====
+
+NOTE: Spring Data JPA当前不支持对本机查询进行动态排序，因为它必须操纵声明的实际查询，而这对于本机SQL无法可靠地进行。 但是，您可以自己指定计数查询，从而将本机查询用于分页，如以下示例所示：
+
+.使用 `@Query` 在查询方法中声明本机计数查询以进行分页
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query(value = "SELECT * FROM USERS WHERE LASTNAME = ?1",
+    countQuery = "SELECT count(*) FROM USERS WHERE LASTNAME = ?1",
+    nativeQuery = true)
+  Page<User> findByLastname(String lastname, Pageable pageable);
+}
+----
+
+====
+
+通过将 `.count` 后缀添加到查询的副本中，类似的方法也可用于命名本机查询。 不过，您可能需要为计数查询注册结果集映射。
+
+[[jpa.query-methods.sorting]]
+=== 使用排序
+
+可以通过提供 `PageRequest` 或直接使用 `Sort` 来完成排序。 在 `Sort` 的 `Order` 实例中实际使用的属性需要与您的域模型匹配，这意味着它们需要解析为查询中使用的属性或别名。 JPQL将此定义为状态字段路径表达式。
+
+NOTE: 使用任何不可引用的路径表达式都会导致异常。
+
+但是，将 `Sort` 与 `<<jpa.query-methods.at-query, `@Query`>>  一起使用，可以让您潜入包含 `ORDER BY` 子句中的函数的未经路径检查的 `Order` 实例。 这是可能的，因为 `Order` 附加到给定的查询字符串。 默认情况下，Spring Data JPA拒绝任何包含函数调用的Order实例，但是您可以使用 `JpaSort.unsafe` 添加可能不安全的订购。
+
+以下示例使用 `Sort` 和 `JpaSort`，在 `JpaSort` 上包括一个不安全的选项：
+
+.使用 `Sort` 和 `JpaSort`
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query("select u from User u where u.lastname like ?1%")
+  List<User> findByAndSort(String lastname, Sort sort);
+
+  @Query("select u.id, LENGTH(u.firstname) as fn_len from User u where u.lastname like ?1%")
+  List<Object[]> findByAsArrayAndSort(String lastname, Sort sort);
+}
+
+repo.findByAndSort("lannister", new Sort("firstname"));               <1>
+repo.findByAndSort("stark", new Sort("LENGTH(firstname)"));           <2>
+repo.findByAndSort("targaryen", JpaSort.unsafe("LENGTH(firstname)")); <3>
+repo.findByAsArrayAndSort("bolton", new Sort("fn_len"));              <4>
+----
+<1> 指向域模型中属性的有效 `Sort` 表达式。
+<2> 包含函数调用的无效 `Sort`  Thows异常。
+<3> 有效  `Sort` 包含明显不安全的  `Order`。
+<4> 指向别名函数的有效 `Sort` 表达式。
+====
+
+[[jpa.named-parameters]]
+=== 使用命名参数
+
+默认情况下，Spring Data JPA使用基于位置的参数绑定，如前面所有示例中所述。 当重构关于参数位置的查询方法时，这会使查询方法容易出错。 要解决此问题，可以使用 `@Param` 批注为方法参数指定一个具体名称，并在查询中绑定该名称，如以下示例所示：
+
+.使用命名参数
+====
+[source, java]
+----
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  @Query("select u from User u where u.firstname = :firstname or u.lastname = :lastname")
+  User findByLastnameOrFirstname(@Param("lastname") String lastname,
+                                 @Param("firstname") String firstname);
+}
+----
+====
+
+NOTE: 方法参数根据其在定义的查询中的顺序进行切换。
+
+NOTE: 从版本4开始，Spring完全基于 `-parameters` 编译器标志支持Java 8的参数名称发现。 通过在构建中使用此标志作为调试信息的替代方法，可以省略 `@Param` 标注中的命名参数。
+
+[[jpa.query.spel-expressions]]
+=== 使用 SpEL 表达式
+
+从Spring Data JPA 1.4版开始，我们支持在使用 `@Query` 定义的手动定义的查询中使用受限的SpEL模板表达式。 查询执行后，将根据一组预定义的变量对这些表达式进行求值。
+Spring Data JPA支持一个名为 `entityName` 的变量。 它的用法是  `select x from #{#entityName} x`。 它插入与给定存储库关联的域类型的 `entityName`。 实体名称的解析如下：如果域类型已在 `@Entity` 批注上设置了名称属性，则将其使用。
+否则，将使用域类型的简单类名。
+
+以下示例演示了查询字符串中  `+#{#entityName}+` 表达式的一种用例，您想在其中使用查询方法和手动定义的查询来定义存储库接口：
+
+.在存储库查询方法中使用SpEL表达式-entityName
+====
+[source, java]
+----
+@Entity
+public class User {
+
+  @Id
+  @GeneratedValue
+  Long id;
+
+  String lastname;
+}
+
+public interface UserRepository extends JpaRepository<User,Long> {
+
+  @Query("select u from #{#entityName} u where u.lastname = ?1")
+  List<User> findByLastname(String lastname);
+}
+----
+====
+
+为避免在 `@Query` 注释的查询字符串中声明实际的实体名称，可以使用 `+#{#entityName}+` 变量。
+
+NOTE: 可以使用 `@Entity` 批注来自定义 `entityName`。 SpEL表达式不支持 `orm.xml` 中的自定义。
+
+当然，您可能只在查询声明中直接使用了 `User`，但这也需要您更改查询。 对 `#entityName` 的引用将 `User` 类将来可能的重新映射选择为另一个实体名称（例如，通过使用 `@Entity(name = "MyUser")`。
+
+查询字符串中 `#{#entityName}` 表达式的另一个用例是，如果您想为特定的域类型定义一个带有专用存储库接口的通用存储库接口。 要不在具体接口上重复定义自定义查询方法，可以在通用存储库接口的 `@Query` 注释的查询字符串中使用实体名称表达式，如以下示例所示：
+
+.在仓库查询方法中使用SpEL表达式-具有继承的entityName
+====
+[source, java]
+----
+@MappedSuperclass
+public abstract class AbstractMappedType {
+  …
+  String attribute
+}
+
+@Entity
+public class ConcreteType extends AbstractMappedType { … }
+
+@NoRepositoryBean
+public interface MappedTypeRepository<T extends AbstractMappedType>
+  extends Repository<T, Long> {
+
+  @Query("select t from #{#entityName} t where t.attribute = ?1")
+  List<T> findAllByAttribute(String attribute);
+}
+
+public interface ConcreteRepository
+  extends MappedTypeRepository<ConcreteType> { … }
+----
+====
+
+在前面的示例中，`MappedTypeRepository` 接口是扩展 `AbstractMappedType` 的一些域类型的公共父接口。 它还定义了通用的  `findAllByAttribute(…)` 方法，该方法可用于专用存储库接口的实例。 如果现在在 `ConcreteRepository` 上调用  `findByAllAttribute(…)` ，则查询  `select t from ConcreteType t where t.attribute = ?1` 。
+
+SpEL表达式可用于操作参数，也可用于操作方法参数。 在这些SpEL表达式中，实体名称不可用，但自变量可用。 可以通过名称或索引访问它们，如以下示例所示。
+
+.在存储库查询方法中使用SpEL表达式-访问参数。
+====
+[source, java]
+----
+@Query("select u from User u where u.firstname = ?1 and u.firstname=?#{[0]} and u.emailAddress = ?#{principal.emailAddress}")
+List<User> findByFirstnameAndCurrentUserWithCustomQuery(String firstname);
+----
+====
+
+对于 `like`，通常需要将 `％` 附加到 `String` 值参数的开头或结尾。 这可以通过在绑定参数标记或SpEL表达式上附加或前缀％来完成。 以下示例再次说明了这一点。
+
+.在仓库查询方法中使用SpEL表达式-通配符快捷方式。
+====
+[source, java]
+----
+@Query("select u from User u where u.lastname like %:#{[0]}% and u.lastname like %:lastname%")
+List<User> findByLastnameWithSpelExpression(@Param("lastname") String lastname);
+----
+====
+
+如果使用 `like` 条件的值来自不安全来源，则应清除这些值，以使它们不能包含任何通配符，从而使攻击者可以选择比其应有的能力更多的数据。 为此，在SpEL上下文中可以使用  `escape(String)` 方法。 它在第一个参数中的 `_` 和 `％` 的所有实例之前加上第二个参数中的单个字符。 与JPQL中提供的 `like` 表达式的转义子句和标准SQL结合使用，可以轻松清除绑定参数。
+
+.在存储库查询方法中使用SpEL表达式-清理输入值。
+====
+[source, java]
+----
+@Query("select u from User u where u.firstname like %?#{escape([0])}% escape ?#{escapeCharacter()}")
+List<User> findContainingEscaped(String namePart);
+----
+====
+
+在存储库接口中给出此方法声明后， `findContainingEscaped("Peter_")` 将找到 `Peter_Parker` 而不是 `Peter Parker`。可以通过设置 `@EnableJpaRepositories` 批注的 `escapeCharacter` 来配置所使用的转义字符。请注意，该方法 `escape(String)` 可用 在SpEL上下文中，仅将转义SQL和JPQL标准通配符 `_` 和 `％`，如果基础数据库或JPA实现支持其他通配符，则将不会转义这些通配符。
+
+[[jpa.modifying-queries]]
+=== 修改查询
+
+前面所有部分均描述了如何声明查询以访问给定实体或实体集合。 您可以使用 "`<<repositories.custom-implementations,Spring数据存储库的自定义实现>>`" 中介绍的功能来添加自定义修改行为。 由于此方法对于全面的定制功能是可行的，因此可以通过使用 `@Modifying` 注释查询方法来修改仅需要参数绑定的查询，如以下示例所示：
+
+.声明操作查询
+====
+[source, java]
+----
+@Modifying
+@Query("update User u set u.firstname = ?1 where u.lastname = ?2")
+int setFixedFirstnameFor(String firstname, String lastname);
+----
+====
+
+这样做会触发注释该方法的查询作为更新查询，而不是选择查询。 由于 `EntityManager` 在执行修改查询后可能包含过时的实体，因此我们不会自动清除它（有关详细信息，请参阅 `EntityManager.clear()` 的  https://docs.oracle.com/javaee/7/api/javax/persistence/EntityManager.html[JavaDoc] ），因为这会有效地将所有尚未刷新的更改丢弃在 `EntityManager` 中。 如果您希望自动清除 `EntityManager`，则可以将 `@Modifying` 注释的 `clearAutomatically` 属性设置为 `true`。
+
+`@Modifying` 注释仅与 `@Query` 注释结合使用。 派生的查询方法或自定义方法不需要此注释。
+
+[[jpa.modifying-queries.derived-delete]]
+==== 派生删除查询
+Spring Data JPA还支持派生的删除查询，使您避免显式声明JPQL查询，如以下示例所示：
+
+.使用派生的删除查询
+====
+[source, java]
+----
+interface UserRepository extends Repository<User, Long> {
+
+  void deleteByRoleId(long roleId);
+
+  @Modifying
+  @Query("delete from User u where u.role.id = ?1")
+  void deleteInBulkByRoleId(long roleId);
+}
+----
+====
+
+尽管 `deleteByRoleId(…)` 方法看起来基本上与 `deleteInBulkByRoleId(…)` 产生相同的结果，但是在执行方法方面，这两个方法声明之间存在重要区别。 顾名思义，后一种方法针对数据库发出单个JPQL查询（在批注中定义的查询）。 这意味着，即使当前加载的 `User` 实例也看不到生命周期回调。
+
+为了确保生命周期查询被实际调用，调用  `deleteByRoleId(…)`  会执行一个查询，然后逐个删除返回的实例，以便持久性提供程序实际上可以在这些实体上调用 `@PreRemove` 回调。
+
+实际上，派生的删除查询是执行查询，然后对结果调用  `CrudRepository.delete(Iterable<User> users)`  并使行为与 `CrudRepository` 中其他  `delete(…)`  方法的实现保持同步的快捷方式。
+
+[[jpa.query-hints]]
+=== 应用查询提示
+要将JPA查询提示应用于在存储库接口中声明的查询，可以使用 `@QueryHints` 批注。 它需要一个JPA `@QueryHint` 批注加上一个布尔标志，以潜在地禁用应用于应用分页时触发的附加计数查询的提示，如以下示例所示：
+
+
+.将QueryHints与存储库方法一起使用
+====
+[source, java]
+----
+public interface UserRepository extends Repository<User, Long> {
+
+  @QueryHints(value = { @QueryHint(name = "name", value = "value")},
+              forCounting = false)
+  Page<User> findByLastname(String lastname, Pageable pageable);
+}
+----
+====
+前面的声明将为该实际查询应用已配置的 `@QueryHint`，但是省略了将其应用于为计算总页数而触发的计数查询。
+
+[[jpa.entity-graph]]
+=== 配置提取和加载图
+
+JPA 2.1规范引入了对指定Fetch-和 LoadGraphs的支持，我们也支持 `@EntityGraph` 批注，该批注使您可以引用@NamedEntityGraph定义。 您可以在实体上使用该注释来配置结果查询的获取计划。 可以通过使用 `@EntityGraph` 批注上的 `type` 属性来配置获取的类型（`Fetch` 或 `Load`）。 有关更多参考，请参见JPA 2.1 Spec 3.7.4。
+
+
+The JPA 2.1 specification introduced support for specifying Fetch- and LoadGraphs that we also support with the `@EntityGraph` annotation, which lets you reference a `@NamedEntityGraph` definition. You can use that annotation on an entity to configure the fetch plan of the resulting query. The type () of the fetching can be configured by using the `type` attribute on the `@EntityGraph` annotation. See the JPA 2.1 Spec 3.7.4 for further reference.
+
+The following example shows how to define a named entity graph on an entity:
+
+.在一个实体上定义一个命名实体图。
+====
+[source, java]
+----
+@Entity
+@NamedEntityGraph(name = "GroupInfo.detail",
+  attributeNodes = @NamedAttributeNode("members"))
+public class GroupInfo {
+
+  // default fetch mode is lazy.
+  @ManyToMany
+  List<GroupMember> members = new ArrayList<GroupMember>();
+
+  …
+}
+----
+====
+
+以下示例显示如何在存储库查询方法上引用命名实体图：
+
+.在存储库查询方法上引用命名实体图定义
+====
+[source, java]
+----
+@Repository
+public interface GroupRepository extends CrudRepository<GroupInfo, String> {
+
+  @EntityGraph(value = "GroupInfo.detail", type = EntityGraphType.LOAD)
+  GroupInfo getByGroupName(String name);
+
+}
+----
+====
+
+也可以使用 `@EntityGraph` 定义临时实体图。 提供的 `attributePaths` 转换为相应的 `EntityGraph`，而无需将 `@NamedEntityGraph` 显式添加到您的域类型，如以下示例所示：
+
+.在存储库查询方法上使用AD-HOC实体图定义。
+====
+[source, java]
+----
+@Repository
+public interface GroupRepository extends CrudRepository<GroupInfo, String> {
+
+  @EntityGraph(attributePaths = { "members" })
+  GroupInfo getByGroupName(String name);
+
+}
+----
+====
+
+
+include::{spring-data-commons-docs}/repository-projections.adoc[leveloffset=+2]
+
+[[jpa.stored-procedures]]
+== 存储过程
+JPA 2.1规范引入了对使用JPA标准查询API调用存储过程的支持。 我们引入了 `@Procedure` 批注，用于在存储库方法上声明存储过程元数据。
+
+下面的示例使用以下存储过程：
+
+.HSQL DB中 `plus1inout`  过程的定义。
+====
+[source, sql]
+----
+/;
+DROP procedure IF EXISTS plus1inout
+/;
+CREATE procedure plus1inout (IN arg int, OUT res int)
+BEGIN ATOMIC
+ set res = arg + 1;
+END
+/;
+----
+====
+
+可以通过在实体类型上使用 `NamedStoredProcedureQuery` 批注来配置存储过程的元数据。
+
+[[jpa.stored-procedure-entity-metadata]]
+.实体上的StoredProcedure元数据定义
+====
+[source, java]
+----
+@Entity
+@NamedStoredProcedureQuery(name = "User.plus1", procedureName = "plus1inout", parameters = {
+  @StoredProcedureParameter(mode = ParameterMode.IN, name = "arg", type = Integer.class),
+  @StoredProcedureParameter(mode = ParameterMode.OUT, name = "res", type = Integer.class) })
+public class User {}
+----
+====
+
+请注意，`@NamedStoredProcedureQuery` 具有两个不同的存储过程名称。 名称是JPA使用的名称。 `procedureName` 是存储过程在数据库中具有的名称。
+
+您可以通过多种方式从存储库方法引用存储过程。 可以使用 `@Procedure` 批注的 `value` 或 `procedureName` 属性直接定义要调用的存储过程。 这直接引用数据库中的存储过程，并忽略通过 `@NamedStoredProcedureQuery` 进行的任何配置。
+
+或者，您可以将 `@NamedStoredProcedureQuery.name` 属性指定为 `@Procedure.name` 属性。 如果未配置 `value`，`procedureName` 或 `name`，则将存储库方法的名称用作 `name` 属性。
+
+下面的示例演示如何引用显式映射的过程：
+
+[[jpa.stored-procedure-reference]]
+.在数据库中引用名称为 "plus1inout" 的显式映射过程。
+====
+[source, java]
+----
+@Procedure("plus1inout")
+Integer explicitlyNamedPlus1inout(Integer arg);
+----
+====
+
+以下示例与上一个示例等效，但是使用了 `procedureName` 别名：
+
+.通过 `procedureName` 别名在数据库中引用名称为 "plus1inout" 的隐式映射过程
+====
+[source, java]
+----
+@Procedure(procedureName = "plus1inout")
+Integer callPlus1InOut(Integer arg);
+----
+====
+
+下面再次与前两个等效，但是使用方法名称而不是显式注释属性。
+
+.使用方法名称在 `EntityManager` 中引用隐式映射的命名存储过程 "User.plus1" 。
+====
+[source, java]
+----
+@Procedure
+Integer plus1inout(@Param("arg") Integer arg);
+----
+====
+
+下面的示例演示如何通过引用@ NamedStoredProcedureQuery.name属性来引用存储过程。
+
+.在EntityManager中引用显式映射的命名存储过程 "User.plus1IO"。
+====
+[source, java]
+----
+@Procedure(name = "User.plus1IO")
+Integer entityAnnotatedCustomNamedProcedurePlus1IO(@Param("arg") Integer arg);
+----
+====
+
+如果被调用的存储过程只有一个out参数，则该参数可以作为方法的返回值返回。 如果在 `@NamedStoredProcedureQuery` 批注中指定了多个out参数，则这些参数可以作为Map返回，其键为 `@NamedStoredProcedureQuery` 批注中给出的参数名称。
+
+[[specifications]]
+== Specification
+
+JPA 2引入了一个标准API，您可以使用它来以编程方式构建查询。 通过编写条件，可以定义域类查询的where子句。 再往前一步，这些标准可以视为JPA标准API约束所描述的实体的谓词。
+
+Spring Data JPA遵循Eric Evans的书 "`领域驱动设计`" 中的规范概念，遵循相同的语义，并提供了使用JPA标准API定义此类规范的API。 为了支持规范，可以使用 `JpaSpecificationExecutor` 接口扩展存储库接口，如下所示：
+
+[source, java]
+----
+public interface CustomerRepository extends CrudRepository<Customer, Long>, JpaSpecificationExecutor {
+ …
+}
+----
+
+附加接口具有使您能够以各种方式执行规范的方法。 例如，`findAll` 方法返回与规范匹配的所有实体，如以下示例所示：
+
+[source, java]
+----
+List<T> findAll(Specification<T> spec);
+----
+
+`Specification` 接口定义如下：
+
+[source, java]
+----
+public interface Specification<T> {
+  Predicate toPredicate(Root<T> root, CriteriaQuery<?> query,
+            CriteriaBuilder builder);
+}
+----
+
+Specifications 可以轻松地用于在实体之上构建可扩展的谓词集，然后可以将其组合并与 `JpaRepository` 一起使用，而无需为每个所需的组合声明查询（方法），如以下示例所示：
+
+.自定义 Specifications
+====
+[source, java]
+----
+public class CustomerSpecs {
+
+  public static Specification<Customer> isLongTermCustomer() {
+    return new Specification<Customer>() {
+      public Predicate toPredicate(Root<Customer> root, CriteriaQuery<?> query,
+            CriteriaBuilder builder) {
+
+         LocalDate date = new LocalDate().minusYears(2);
+         return builder.lessThan(root.get(Customer_.createdAt), date);
+      }
+    };
+  }
+
+  public static Specification<Customer> hasSalesOfMoreThan(MonetaryAmount value) {
+    return new Specification<Customer>() {
+      public Predicate toPredicate(Root<T> root, CriteriaQuery<?> query,
+            CriteriaBuilder builder) {
+
+         // build query here
+      }
+    };
+  }
+}
+----
+====
+
+诚然，样板文件的数量尚待改进（最终可能会因Java 8闭包而减少），但是客户端会变得更好，正如您将在本节后面看到的那样。 `Customer_` 类型是使用JPA元模型生成器生成的元模型类型（有关示例，link:$$https://docs.jboss.org/hibernate/jpamodelgen/1.0/reference/en-US/html_single/#whatisit$$[参见Hibernate实现的文档]）。 因此，表达式 `Customer_.createdAt` 假定客户具有类型为 `Date` 的 `createdAt` 属性。 除此之外，我们在业务需求抽象级别上表达了一些标准，并创建了可执行的 `Specifications`。 因此，客户端可以使用以下 `Specifications`：
+
+.使用一个简单的 Specification
+====
+[source, java]
+----
+List<Customer> customers = customerRepository.findAll(isLongTermCustomer());
+----
+====
+
+为什么不为这种数据访问创建查询？ 与纯查询声明相比，使用单个 `Specification` 不会带来很多好处。 将 specifications 组合在一起以创建新的 specifications 对象时，specifications 的力量真正发挥了作用。 您可以通过我们提供的用于构建类似于以下内容的表达式的默认 `Specification`方法来实现此目的：
+
+.组合 Specifications
+====
+[source, java]
+----
+MonetaryAmount amount = new MonetaryAmount(200.0, Currencies.DOLLAR);
+List<Customer> customers = customerRepository.findAll(
+  isLongTermCustomer().or(hasSalesOfMoreThan(amount)));
+----
+`Specification` 提供了一些 "`glue-code`" d默认方法来链接和组合  `Specification` 实例,这些方法使您可以通过创建新的  `Specification`  实现并将它们与现有的实现组合来扩展数据访问层。
+====
+
+include::{spring-data-commons-docs}/query-by-example.adoc[leveloffset=+1]
+include::query-by-example.adoc[leveloffset=+1]
+
+[[transactions]]
+== 事务性
+
+默认情况下，存储库实例上的CRUD方法是事务性的。 对于读取操作，事务配置 `readOnly` 标志设置为 `true`。 所有其他文件都配置有简单的 `@Transactional`，以便应用默认事务配置。
+有关详细信息，请参见 link:$$https://docs.spring.io/spring-data/data-jpa/docs/current/api/index.html?org/springframework/data/jpa/repository/support/SimpleJpaRepository.html$$[`SimpleJpaRepository`] 的JavaDoc。 如果需要调整存储库中声明的方法之一的事务配置，请在存储库接口中重新声明该方法，如下所示：
+
+.CRUD的自定义事务配置
+====
+[source, java]
+----
+public interface UserRepository extends CrudRepository<User, Long> {
+
+  @Override
+  @Transactional(timeout = 10)
+  public List<User> findAll();
+
+  // Further query method declarations
+}
+----
+这样做会使 `findAll()` 方法以10秒的超时运行，并且没有 `readOnly` 标志。
+====
+
+更改事务行为的另一种方法是使用外观或服务实现（通常）覆盖多个存储库。 其目的是为非CRUD操作定义事务边界。 以下示例显示了如何将这样的外观用于多个存储库：
+
+.使用外观定义多个存储库调用的事务
+====
+[source, java]
+----
+@Service
+class UserManagementImpl implements UserManagement {
+
+  private final UserRepository userRepository;
+  private final RoleRepository roleRepository;
+
+  @Autowired
+  public UserManagementImpl(UserRepository userRepository,
+    RoleRepository roleRepository) {
+    this.userRepository = userRepository;
+    this.roleRepository = roleRepository;
+  }
+
+  @Transactional
+  public void addRoleToAllUsers(String roleName) {
+
+    Role role = roleRepository.findByName(roleName);
+
+    for (User user : userRepository.findAll()) {
+      user.addRole(role);
+      userRepository.save(user);
+    }
+}
+----
+此示例使对 `addRoleToAllUsers(…)`  的调用在事务内运行（参与现有事务或在没有事务的情况下创建新事务）。 然后忽略存储库中的事务配置，因为外部事务配置确定了实际使用的事务配置。 请注意，必须激活 `<tx：annotation-driven />` 或显式使用 `@EnableTransactionManagement` 才能使立面的基于注释的配置生效。 本示例假定您使用组件扫描。
+====
+
+[[transactional-query-methods]]
+=== 事务查询方法
+要使查询方法具有事务性，请在您定义的存储库接口上使用 `@Transactional`，如以下示例所示：
+
+.在查询方法上使用@Transactional
+====
+[source, java]
+----
+@Transactional(readOnly = true)
+public interface UserRepository extends JpaRepository<User, Long> {
+
+  List<User> findByLastname(String lastname);
+
+  @Modifying
+  @Transactional
+  @Query("delete from User u where u.active = false")
+  void deleteInactiveUsers();
+}
+----
+通常，您希望将 `readOnly` 标志设置为 `true`，因为大多数查询方法仅读取数据。 与此相反， `deleteInactiveUsers()` 使用 `@Modifying` 注释并覆盖事务配置。 因此，该方法在 `readOnly` 标志设置为 `false` 的情况下运行。
+====
+
+[NOTE]
+====
+您可以将事务用于只读查询，并通过设置 `readOnly` 标志将其标记为事务。 但是，这样做并不表示您不会触发操作查询（尽管某些数据库拒绝只读事务中的 `INSERT` 和 `UPDATE` 语句）。 相反，将readOnly标志作为提示传播到底层JDBC驱动程序，以进行性能优化。 此外，Spring在基础JPA提供程序上执行了一些优化。 例如，当与Hibernate一起使用时，将事务配置为 `readOnly` 时，刷新模式将设置为 `NEVER`，这将导致Hibernate跳过脏检查（对大型对象树的显着改进）。
+====
+
+[[locking]]
+== 锁
+要指定要使用的锁定模式，可以在查询方法上使用 `@Lock` 批注，如以下示例所示：
+
+.在查询方法上定义锁元数据
+====
+[source, java]
+----
+interface UserRepository extends Repository<User, Long> {
+
+  // Plain query method
+  @Lock(LockModeType.READ)
+  List<User> findByLastname(String lastname);
+}
+----
+====
+
+此方法声明使触发的查询配备有 `READ` 的 `LockModeType`。 您还可以通过在存储库界面中重新声明CRUD方法并为它们添加 `@Lock` 注释来定义CRUD方法的锁定，如以下示例所示：
+
+.在CRUD方法上定义锁元数据
+====
+[source, java]
+----
+interface UserRepository extends Repository<User, Long> {
+
+  // Redeclaration of a CRUD method
+  @Lock(LockModeType.READ);
+  List<User> findAll();
+}
+----
+====
+
+:leveloffset: +1
+include::{spring-data-commons-docs}/auditing.adoc[]
+:leveloffset: -1
+
+[[jpa.auditing]]
+== JPA 审计
+
+[[jpa.auditing.configuration]]
+=== 通用审核配置
+
+Spring Data JPA附带了一个实体侦听器，该侦听器可用于触发捕获审计信息。 首先，必须在 `orm.xml` 文件内的持久性上下文中注册要用于所有实体的 `AuditingEntityListener`，如以下示例所示：
+
+.Auditing configuration orm.xml
+====
+[source, xml]
+----
+<persistence-unit-metadata>
+  <persistence-unit-defaults>
+    <entity-listeners>
+      <entity-listener class="….data.jpa.domain.support.AuditingEntityListener" />
+    </entity-listeners>
+  </persistence-unit-defaults>
+</persistence-unit-metadata>
+----
+====
+
+您还可以使用 `@EntityListeners` 批注按每个实体启用 `AuditingEntityListener`，如下所示：
+
+====
+[source, java]
+----
+@Entity
+@EntityListeners(AuditingEntityListener.class)
+public class MyEntity {
+
+}
+----
+====
+
+NOTE: 审计功能要求 `spring-aspects.jar` 位于类路径中。
+
+通过适当地修改 `orm.xml` 并在类路径上使用 `spring-aspects.jar`，激活审核功能只需将Spring Data JPA `auditing` 名称空间元素添加到您的配置中，如下所示：
+
+.使用XML配置激活审计
+====
+[source, xml]
+----
+<jpa:auditing auditor-aware-ref="yourAuditorAwareBean" />
+----
+====
+
+从Spring Data JPA 1.5开始，您可以通过使用 `@EnableJpaAuditing` 注释对配置类进行注释来启用审核。 您仍然必须修改 `orm.xml` 文件，并在类路径上具有 `spring-aspects.jar`。 以下示例显示了如何使用 `@EnableJpaAuditing` 批注：
+
+.用Java配置激活审计
+====
+[source, java]
+----
+@Configuration
+@EnableJpaAuditing
+class Config {
+
+  @Bean
+  public AuditorAware<AuditableUser> auditorProvider() {
+    return new AuditorAwareImpl();
+  }
+}
+----
+====
+
+如果将类型 `AuditorAware` 的bean暴露给 `ApplicationContext`，则审计基础结构会自动选择它并使用它来确定要在域类型上设置的当前用户。 如果您在 `ApplicationContext` 中注册了多个实现，则可以通过显式设置 `@EnableJpaAuditing` 的 `auditAwareRef` 属性来选择要使用的实现。
+
+[[jpa.misc]]
+= 其他注意事项
+
+[[jpa.misc.jpa-context]]
+== 在自定义实现中使用 `JpaContext`
+
+当使用多个 `EntityManager` 实例和<<repositories.custom-implementations,自定义存储库实现>>实现时，您需要将正确的 `EntityManager` 连接到存储库实现类中。 您可以通过在 `@PersistenceContext` 批注中显式命名 `EntityManager` 来实现，
+或者，如果 `EntityManager` 是 `@Autowired`，则可以使用 `@Qualifier` 来实现。
+
+从Spring Data JPA 1.9开始，Spring Data JPA包含一个名为 `JpaContext` 的类，假定您仅由应用程序中的 `EntityManager` 实例之一进行管理，该类使您可以通过托管域类获取 `EntityManager`。 以下示例显示如何在自定义存储库中使用 `JpaContext`：
+
+.在自定义存储库实现中使用 `JpaContext`
+====
+[source, java]
+----
+class UserRepositoryImpl implements UserRepositoryCustom {
+
+  private final EntityManager em;
+
+  @Autowired
+  public UserRepositoryImpl(JpaContext context) {
+    this.em = context.getEntityManagerByManagedType(User.class);
+  }
+
+  …
+}
+----
+====
+
+这种方法的优点是，如果将域类型分配给其他持久性单元，则无需触摸存储库即可更改对持久性单元的引用。
+
+[[jpa.misc.merging-persistence-units]]
+== 合并持久性单元
+
+Spring支持具有多个持久性单元。 但是，有时您可能希望对应用程序进行模块化，但仍要确保所有这些模块都在单个持久性单元中运行。 为了实现这种行为，Spring Data JPA提供了一个 `PersistenceUnitManager` 实现，该实现会根据其名称自动合并持久性单元，如以下示例所示：
+
+.使用 MergingPersistenceUnitmanager
+====
+[source, xml]
+----
+<bean class="….LocalContainerEntityManagerFactoryBean">
+  <property name="persistenceUnitManager">
+    <bean class="….MergingPersistenceUnitManager" />
+  </property>
+</bean>
+----
+====
+
+[[jpa.misc.entity-scanning]]
+=== @Entity类和JPA映射文件的类路径扫描
+
+普通的JPA设置要求所有注释映射的实体类在 `orm.xml` 中列出。 XML映射文件也是如此。 Spring Data JPA提供了一个 `ClasspathScanningPersistenceUnitPostProcessor`，它配置了一个基本包，并可以选择采用映射文件名模式。 然后，它在给定的软件包中扫描以 `@Entity` 或 `@MappedSuperclass` 注释的类，加载与文件名模式匹配的配置文件，并将其交给JPA配置。 后处理器必须配置如下：
+
+.使用 ClasspathScanningPersistenceUnitPostProcessor
+====
+[source, xml]
+----
+<bean class="….LocalContainerEntityManagerFactoryBean">
+  <property name="persistenceUnitPostProcessors">
+    <list>
+      <bean class="org.springframework.data.jpa.support.ClasspathScanningPersistenceUnitPostProcessor">
+        <constructor-arg value="com.acme.domain" />
+        <property name="mappingFileNamePattern" value="**/*Mapping.xml" />
+      </bean>
+    </list>
+  </property>
+</bean>
+----
+====
+
+NOTE: 从Spring 3.1开始，可以直接在 `LocalContainerEntityManagerFactoryBean` 上配置要扫描的程序包，以对实体类启用类路径扫描。 有关详细信息，请参见 link:$$https://docs.spring.io/spring/docs/current/javadoc-api/org/springframework/orm/jpa/LocalContainerEntityManagerFactoryBean.html#setPackagesToScan(java.lang.String...)$$[JavaDoc]
+
+[[jpd.misc.cdi-integration]]
+== CDI 集成
+
+存储库接口的实例通常由容器创建，在使用Spring Data时，Spring是最自然的选择。 如<<repositories.create-instances,创建存储库实例>>中所述，Spring为创建bean实例提供了复杂的支持。 从1.1.0版本开始，Spring Data JPA附带了一个自定义CDI扩展名，该扩展名允许在CDI环境中使用存储库抽象。 该扩展是JAR的一部分。 要激活它，请将Spring Data JPA JAR包含在类路径中。
+
+现在，您可以通过为 `EntityManagerFactory` 和 `EntityManager` 实现CDI生产者来设置基础结构，如以下示例所示：
+
+[source, java]
+----
+class EntityManagerFactoryProducer {
+
+  @Produces
+  @ApplicationScoped
+  public EntityManagerFactory createEntityManagerFactory() {
+    return Persistence.createEntityManagerFactory("my-presistence-unit");
+  }
+
+  public void close(@Disposes EntityManagerFactory entityManagerFactory) {
+    entityManagerFactory.close();
+  }
+
+  @Produces
+  @RequestScoped
+  public EntityManager createEntityManager(EntityManagerFactory entityManagerFactory) {
+    return entityManagerFactory.createEntityManager();
+  }
+
+  public void close(@Disposes EntityManager entityManager) {
+    entityManager.close();
+  }
+}
+----
+
+必要的设置可能会因JavaEE环境而异。 您可能需要做的只是将 `EntityManager` 重新声明为CDI bean，如下所示：
+
+[source, java]
+----
+class CdiConfig {
+
+  @Produces
+  @RequestScoped
+  @PersistenceContext
+  public EntityManager entityManager;
+}
+----
+
+在前面的示例中，容器必须能够创建JPA `EntityManagers` 本身。 所有配置所做的就是将JPA `EntityManager` 重新导出为CDI bean。
+
+每当容器请求存储库类型的bean时，Spring Data JPA CDI扩展都将所有可用的 `EntityManager` 实例作为CDI bean进行选择，并为Spring Data存储库创建代理。 因此，获取Spring Data存储库的实例只需声明一个 `@Injected` 属性即可，如以下示例所示：
+
+[source, java]
+----
+class RepositoryClient {
+
+  @Inject
+  PersonRepository repository;
+
+  public void businessMethod() {
+    List<Person> people = repository.findAll();
+  }
+}
+----
