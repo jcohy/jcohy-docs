@@ -1,46 +1,50 @@
 [[redis]]
-= Redis support
+= Redis 支持
 :referenceDir: .
 
-One of the key-value stores supported by Spring Data is https://redis.io[Redis]. To quote the Redis project home page:
+Spring Data 支持的 key-value 存储之一是 Redis. 下面这句话引用自 https://redis.io[Redis] 项目主页:
 
 [quote]
-Redis is an advanced key-value store. It is similar to memcached but the dataset is not volatile, and values can be strings, exactly like in memcached, but also lists, sets, and ordered sets. All this data types can be manipulated with atomic operations to push/pop elements, add/remove elements, perform server side union, intersection, difference between sets, and so forth. Redis supports different kind of sorting abilities.
+Redis 是高级键值存储. 它类似于 memcached,但数据集是不易失的,值可以是字符串,就像在 memcached 中一样,也可以是列表,集合和有序集合.
+所有这些数据类型都可以通过原子操作进行操作,以 push/pop 元素, add/remove 元素,包括 union,intersection,集合之间的差异等. Redis 支持不同种类的排序功能.
 
-Spring Data Redis provides easy configuration and access to Redis from Spring applications. It offers both low-level and high-level abstractions for interacting with the store, freeing the user from infrastructural concerns.
+Spring Data Redis 提供了简单的配置,并可以从 Spring 应用程序访问 Redis. 它提供了与 store 交互的低层和高层抽象,使用户摆脱了基础配置的困扰.
 
 [[redis:requirements]]
-== Redis Requirements
+== Redis 要求
 
-Spring Redis requires Redis 2.6 or above and Spring Data Redis integrates with https://github.com/lettuce-io/lettuce-core[Lettuce] and https://github.com/xetorthio/jedis[Jedis], two popular open-source Java libraries for Redis.
+Spring Redis 需要 Redis 2.6 或更高版本,Spring Data Redis 与 https://github.com/lettuce-io/lettuce-core[Lettuce] 和 https://github.com/xetorthio/jedis[Jedis] 集成,这是两个流行的 Redis 开源 Java 库.
 
 [[redis:architecture]]
-== Redis Support High-level View
+== Redis 支持高级视图
 
-The Redis support provides several components. For most tasks, the high-level abstractions and support services are the best choice. Note that, at any point, you can move between layers. For example, you can get a low-level connection (or even the native library) to communicate directly with Redis.
+Redis 提供了几个组件. 对于大多数任务,高级抽象和支持服务是最佳选择. 请注意,您可以随时在视图之间移动. 例如,您可以获得底层连接(甚至本地库)以直接与 Redis 通信.
 
 [[redis:connectors]]
-== Connecting to Redis
+== 连接到 Redis
 
-One of the first tasks when using Redis and Spring is to connect to the store through the IoC container. To do that, a Java connector (or binding) is required. No matter the library you choose, you need to use only one set of Spring Data Redis APIs (which behaves consistently across all connectors): the `org.springframework.data.redis.connection` package and its `RedisConnection` and `RedisConnectionFactory` interfaces for working with and retrieving active connections to Redis.
+使用 Redis 和 Spring 时的首要任务之一是通过IoC容器连接到 store. 为此,需要 Java 连接器(或绑定). 无论选择哪种库,您都只需要使用一组 Spring Data Redis API(在所有连接器上都保持一致):
+使用 `org.springframework.data.redis.connection` 包下的 `RedisConnection` 和 `RedisConnectionFactory` 接口即可自动检索 与 Redis 的活动连接.
 
 [[redis:connectors:connection]]
-=== RedisConnection and RedisConnectionFactory
+=== RedisConnection 和 RedisConnectionFactory
 
-`RedisConnection` provides the core building block for Redis communication, as it handles the communication with the Redis back end. It also automatically translates the underlying connecting library exceptions to Spring's consistent DAO exception https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#dao-exceptions[hierarchy] so that you can switch the connectors without any code changes, as the operation semantics remain the same.
+`RedisConnection` 提供了 Redis 通信的核心模块,因为它处理与 Redis 服务端的通信. 它还会自动将底层连接库异常转换为 Spring 的 DAO 异常 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#dao-exceptions[层次结构],以便您可以在不更改任何代码的情况下切换连接器,因为操作语义保持不变.
 
-NOTE: For the corner cases where the native library API is required, `RedisConnection` provides a dedicated method (`getNativeConnection`) that returns the raw, underlying object used for communication.
+NOTE: 对于需要本地库API的特殊情况,`RedisConnection` 提供了专用方法(`getNativeConnection`),该方法返回用于通信的原始底层对象.
 
-Active `RedisConnection` objects are created through `RedisConnectionFactory`. In addition, the factory acts as `PersistenceExceptionTranslator` objects, meaning that, once declared, they let you do transparent exception translation. For example, you can do exception translation through the use of the `@Repository` annotation and AOP. For more information, see the dedicated https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#orm-exception-translation[section] in the Spring Framework documentation.
+激活的 `RedisConnection` 对象是通过 `RedisConnectionFactory` 创建的. 另外,工厂还充当 `PersistenceExceptionTranslator` 对象,这意味着一旦声明,它们就可以让您进行透明的异常转换.
+例如,您可以使用 `@Repository` 注解和AOP进行异常转换. 有关更多信息,请参见 Spring Framework 文档中的 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#orm-exception-translation[相关部分].
 
-NOTE: Depending on the underlying configuration, the factory can return a new connection or an existing connection (when a pool or shared native connection is used).
+NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或共享本地连接时).
 
-The easiest way to work with a `RedisConnectionFactory` is to configure the appropriate connector through the IoC container and inject it into the using class.
+使用 `RedisConnectionFactory` 的最简单方法是通过IoC容器配置适当的连接器,并将其注入 using 类.
 
-IMPORTANT: Unfortunately, currently, not all connectors support all Redis features. When invoking a method on the Connection API that is unsupported by the underlying library, an `UnsupportedOperationException` is thrown.
+IMPORTANT: 不幸的是,当前,并非所有连接器都支持所有 Redis 功能. 在底层库不支持的 Connection API 上调用方法时,将抛出 `UnsupportedOperationException`.
+Unfortunately, currently, not all connectors support all Redis features. When invoking a method on the Connection API that is unsupported by the underlying library, an `UnsupportedOperationException` is thrown.
 
 [[redis:connectors:lettuce]]
-=== Configuring the Lettuce Connector
+=== 配置 Lettuce 连接器
 
 https://github.com/lettuce-io/lettuce-core[Lettuce] is a https://netty.io/[Netty]-based open-source connector supported by Spring Data Redis through the `org.springframework.data.redis.connection.lettuce` package. The following example shows how to create a new Lettuce connection factory:
 
