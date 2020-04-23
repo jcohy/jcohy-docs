@@ -1,17 +1,17 @@
 [[redis:reactive:pubsub]]
 = Redis Messaging/PubSub
 
-Spring Data provides dedicated messaging integration for Redis, very similar in functionality and naming to the JMS integration in Spring Framework; in fact, users familiar with the JMS support in Spring should feel right at home.
+Spring Data 为 Redis 提供了专用的消息传递集成,其功能和命名与 Spring Framework 中的JMS集成非常相似； 实际上,熟悉 Spring 的 JMS 支持的用户应该有宾至如归的感觉.
 
-Redis messaging can be roughly divided into two areas of functionality, namely the production or publication and consumption or subscription of messages, hence the shortcut pubsub (Publish/Subscribe). The `ReactiveRedisTemplate` class is used for message production. For asynchronous reception, Spring Data provides a dedicated message listener container that is used consume a stream of messages.
-For the purpose of just subscribing `ReactiveRedisTemplate` offers stripped down alternatives to utilizing a listener container.
+Redis消息传递可以大致分为两个功能区域,即消息的产生或发布以及消息的使用或订阅,因此简称为 pubsub(发布/订阅). `ReactiveRedisTemplate` 类用于消息生成. 对于异步接收,Spring Data 提供了一个专用的消息侦听器容器,该容器用于消耗消息流.
+出于订阅目的,`ReactiveRedisTemplate` 提供了使用侦听器容器的简化选择.
 
-The package `org.springframework.data.redis.connection` and `org.springframework.data.redis.listener` provide the core functionality for using Redis messaging.
+`org.springframework.data.redis.connection` 和 `org.springframework.data.redis.listener` 包提供了使用Redis消息传递的核心功能.
 
 [[redis:reactive:pubsub:publish]]
 == Sending/Publishing messages
 
-To publish a message, one can use, as with the other operations, either the low-level `ReactiveRedisConnection` or the high-level `ReactiveRedisTemplate`. Both entities offer a publish method that accepts as an argument the message that needs to be sent as well as the destination channel. While `ReactiveRedisConnection` requires raw-data, the `ReactiveRedisTemplate` allow arbitrary objects to be passed in as messages:
+要发布消息,可以与其他操作一样使用底层的 `ReactiveRedisConnection` 或高级 `ReactiveRedisTemplate`. 这两个实体都提供一种发布方法,该方法接受需要发送的消息以及目标通道作为参数. 尽管 `ReactiveRedisConnection` 需要原始数据,但 `ReactiveRedisTemplate` 允许将任意对象作为消息传递:
 
 [source,java]
 ----
@@ -28,26 +28,27 @@ Mono<Long> publish = template.convertAndSend("channel", "message");
 [[redis:reactive:pubsub:subscribe]]
 == Receiving/Subscribing for messages
 
-On the receiving side, one can subscribe to one or multiple channels either by naming them directly or by using pattern matching. The latter approach is quite useful as it not only allows multiple subscriptions to be created with one command but to also listen on channels not yet created at subscription time (as long as they match the pattern).
+在接收端,可以直接命名一个通道或使用模式匹配来订阅一个或多个通道. 后一种方法非常有用,因为它不仅允许使用一个命令创建多个订阅,而且还可以侦听在订阅时尚未创建的通道(只要它们与模式匹配).
 
-At the low-level, `ReactiveRedisConnection` offers `subscribe` and `pSubscribe` methods that map the Redis commands for subscribing by channel respectively by pattern. Note that multiple channels or patterns can be used as arguments. To change a subscription, simply query the channels and patterns of `ReactiveSubscription`.
+在低层,`ReactiveRedisConnection` 提供了 subscription 和 `pSubscribe` 方法,它们映射Redis命令以分别按模式按通道进行订阅. 注意,可以将多个通道或模式用作参数. 要更改订阅,只需查询 `ReactiveSubscription` 的通道和模式.
 
-NOTE: Reactive subscription commands in Spring Data Redis are non-blocking and may terminate without emitting an element.
+NOTE: Spring Data Redis中的反应性订阅命令是非阻塞的,可以终止而不会发出任何元素.
 
-As mentioned above, once subscribed a connection starts waiting for messages. No other commands can be invoked on it except for adding new subscriptions or modifying/canceling the existing ones. Commands other than `subscribe`, `pSubscribe`, `unsubscribe`, or `pUnsubscribe` are illegal and will cause an exception.
+如上所述,一旦订阅,连接就会开始等待消息. 除了添加新订阅或修改/取消现有订阅之外,无法在其上调用其他命令. 除 `subscribe`,`pSubscribe`,`unsubscribe` 或 `pUnsubscribe` 以外的命令是非法的,并且会导致异常.
 
-In order to receive messages, one needs to obtain the message stream. Note that a subscription only publishes messages for channels and patterns that are registered with that particular subscription. The message stream itself is a hot sequence that produces elements without regard to demand. Make sure to register sufficient demand to not exhaust the message buffer.
+为了接收消息,需要获得消息流. 请注意,订阅仅发布有关在该特定订阅中注册的通道和模式的消息. 消息流本身是一个热序列,它在不考虑需求的情况下生成元素. 确保注册足够的需求,以免耗尽消息缓冲区.
 
 [[redis:reactive:pubsub:subscribe:containers]]
-=== Message Listener Containers
+=== Message 监听容器
 
-Spring Data offers `ReactiveRedisMessageListenerContainer` which does all the heavy lifting of conversion and subscription state management on behalf of the user.
+Spring Data提供了 `ReactiveRedisMessageListenerContainer`,它代表用户完成所有繁重的转换和订阅状态管理.
 
-`ReactiveRedisMessageListenerContainer` acts as a message listener container. It is used to receive messages from a Redis channel and expose a stream of messages that emits channel messages with deserialization applied. It takes care of registering to receive messages, resource acquisition and release, exception conversion and the like. This allows you as an application developer to write the (possibly complex) business logic associated with receiving a message (and reacting to it), and delegates boilerplate Redis infrastructure concerns to the framework. Message streams register a subscription in Redis upon publisher subscription and unregister if the subscription gets canceled.
+`ReactiveRedisMessageListenerContainer` 充当消息侦听器容器. 它用于从 Redis 通道接收消息并公开消息流,该消息流发出应用反序列化的通道消息. 它负责注册接收消息,资源获取和释放,异常转换等. 这使您作为应用程序开发人员, 可以编写与接收消息(并对消息做出响应)相关的(可能很复杂)业务逻辑,并将样板Redis基础结构问题委托给框架. 消息流在发布者订阅后在 Redis 中注册一个订阅,如果订阅被取消,则注销.
 
-Furthermore, to minimize the application footprint, `ReactiveRedisMessageListenerContainer` allows one connection and one thread to be shared by multiple listeners even though they do not share a subscription. Thus no matter how many listeners or channels an application tracks, the runtime cost will remain the same through out its lifetime. Moreover, the container allows runtime configuration changes so one can add or remove listeners while an application is running without the need for restart. Additionally, the container uses a lazy subscription approach, using a `ReactiveRedisConnection` only when needed - if all the listeners are unsubscribed, cleanup is automatically performed.
+此外,为了最大程度地减少应用程序占用空间,`ReactiveRedisMessageListenerContainer` 允许一个连接和一个线程由多个侦听器共享,即使它们不共享订阅. 因此,无论应用程序跟踪多少个侦听器或通道,整个生命周期的运行时间成本都将保持不变.
+此外,该容器允许更改运行时配置,因此可以在应用程序运行时添加或删除侦听器,而无需重新启动. 此外,容器使用惰性订阅方法,仅在需要时才使用 `ReactiveRedisConnection`---- 如果所有侦听器都未订阅,则将自动执行清除.
 
-The message listener container itself does not require external threading resources. It uses the driver threads to publish messages.
+消息侦听器容器本身不需要外部线程资源. 它使用驱动程序线程来发布消息.
 
 [source,java]
 ----
@@ -58,12 +59,9 @@ Flux<ChannelMessage<String, String>> stream = container.receive(ChannelTopic.of(
 ----
 
 [[redis:reactive:pubsub:subscribe:template]]
-=== Subscribing via template API
+=== 通过模板API订阅
 
-As mentioned above you can directly use `ReactiveRedisTemplate` to subscribe to channels / patterns. This approach
-offers a straight forward, though limited solution as you loose the option to add subscriptions after the initial
-ones. Nevertheless you still can control the message stream via the returned `Flux` using eg. `take(Duration)`. When
-done reading, on error or cancellation all bound resources are freed again.
+如上所述,您可以直接使用 `ReactiveRedisTemplate` 订阅通道/模式. 这种方法提供了一种直接但有限的解决方案,因为您松开了在初始订阅之后添加订阅的选项. 不过,您仍然可以使用例如返回的 `Flux` 控制消息流. 服用(持续时间). 完成读取后,一旦出错或取消,所有绑定的资源将再次释放.
 
 [source,java]
 ----

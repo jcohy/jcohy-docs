@@ -1,14 +1,14 @@
 [[cluster]]
-= Redis Cluster
+= Redis 集群
 
-Working with https://redis.io/topics/cluster-spec[Redis Cluster] requires Redis Server version 3.0+. See the https://redis.io/topics/cluster-tutorial[Cluster Tutorial] for more information.
+使用 https://redis.io/topics/cluster-spec[Redis Cluster] 需要Redis Server 3.0+版本. 有关更多信息,请参见 https://redis.io/topics/cluster-tutorial[集群教程].
 
-== Enabling Redis Cluster
+== 启用 Redis 集群
 
-Cluster support is based on the same building blocks as non-clustered communication. `RedisClusterConnection`, an extension to `RedisConnection`, handles the communication with the Redis Cluster and translates errors into the Spring DAO exception hierarchy.
-`RedisClusterConnection` instances are created with the `RedisConnectionFactory`, which has to be set up with the associated `RedisClusterConfiguration`, as shown in the following example:
+群集支持基于与非群集通信相同的构造块. `RedisClusterConnection` 是 `RedisConnection` 的扩展,用于处理与 Redis 群集的通信,并将错误转换为 Spring DAO 异常层次结构. `RedisClusterConnection` 实例是使用 `RedisConnectionFactory` 创建的,
+必须使用关联的 `RedisClusterConfiguration` 对其进行设置,如以下示例所示:
 
-.Sample RedisConnectionFactory Configuration for Redis Cluster
+.Redis 集群的示例 RedisConnectionFactory 配置
 ====
 [source,java]
 ----
@@ -56,27 +56,36 @@ public class AppConfig {
 
 [TIP]
 ====
-`RedisClusterConfiguration` can also be defined through `PropertySource` and has the following properties:
+`RedisClusterConfiguration` 也可以通过 `PropertySource` 定义,并具有以下属性:
 
-.Configuration Properties
-- `spring.redis.cluster.nodes`: Comma-delimited list of host:port pairs.
-- `spring.redis.cluster.max-redirects`: Number of allowed cluster redirections.
+.配置属性
+- `spring.redis.cluster.nodes`: 以逗号分隔的 host:port 列表.
+- `spring.redis.cluster.max-redirects`: 允许的集群重定向数.
 ====
 
-NOTE: The initial configuration points driver libraries to an initial set of cluster nodes. Changes resulting from live cluster reconfiguration are kept only in the native driver and are not written back to the configuration.
+NOTE: 初始配置将驱动程序库指向一组初始的群集节点. 由实时群集重新配置导致的更改仅保留在本地驱动程序中,而不会写回到配置中.
 
-== Working With Redis Cluster Connection
+== 使用 Redis 群集连接
 
-As mentioned earlier, Redis Cluster behaves differently from single-node Redis or even a Sentinel-monitored master-replica environment. This is because the automatic sharding maps a key to one of 16384 slots, which are distributed across the nodes. Therefore, commands that involve more than one key must assert all keys map to the exact same slot to avoid cross-slot execution errors.
-A single cluster node serves only a dedicated set of keys. Commands issued against one particular server return results only for those keys served by that server. As a simple example, consider the `KEYS` command. When issued to a server in a cluster environment, it returns only the keys served by the node the request is sent to and not necessarily all keys within the cluster. So, to get all keys in a cluster environment, you must read the keys from all the known master nodes.
+如前所述,Redis 群集的行为与单节点 ​​Redis 甚至是 Sentinel 监视的主副本环境不同. 这是因为自动分片将密钥映射到16384个slots之一,该 slots 分布在节点上. 因此,涉及多个键的命令必须断言所有键都映射到完全相同的 slots ,以避免跨 slots 执行错误.
+单个群集节点仅提供一组专用密钥. 针对一台特定服务器发出的命令仅针对该服务器提供的那些键返回结果. 作为一个简单的示例,请考虑  `KEYS`  命令. 当在集群环境中发布给服务器时,它仅返回请求发送到的节点所服务的密钥,而不一定返回集群中的所有密钥.
+因此,要在群集环境中获取所有密钥,必须从所有已知的主节点读取密钥.
 
-While redirects for specific keys to the corresponding slot-serving node are handled by the driver libraries, higher-level functions, such as collecting information across nodes or sending commands to all nodes in the cluster, are covered by `RedisClusterConnection`. Picking up the keys example from earlier, this means that the `keys(pattern)` method picks up every master node in the cluster and simultaneously executes the `KEYS` command on every master node while picking up the results and returning the cumulated set of keys. To just request the keys of a single node `RedisClusterConnection` provides overloads for those methods (for example, `keys(node, pattern)`).
 
-A `RedisClusterNode` can be obtained from `RedisClusterConnection.clusterGetNodes` or it can be constructed by using either the host and the port or the node Id.
+虽然将特定密钥重定向到相应的 slots 服务节点是由驱动程序库处理的,但是 `RedisClusterConnection` 涵盖了更高级别的功能,例如跨节点收集信息或向集群中的所有节点发送命令. 拾取前面的密钥示例,这意味着keys(pattern)方法将拾取群集中的每个主节点,
+并同时在每个主节点上执行 `KEYS` 命令,同时拾取结果并返回累积的键集. 仅请求单个节点的键,`RedisClusterConnection` 为这些方法提供了重载(例如,`keys(node, pattern)`).
 
-The following example shows a set of commands being run across the cluster:
+While redirects for specific keys to the corresponding slot-serving node are handled by the driver libraries, higher-level functions, such a
+s collecting information across nodes or sending commands to all nodes in the cluster, are covered by `RedisClusterConnection`. Picking
+up the keys example from earlier, this means that the `keys(pattern)` method picks up every master node in the cluster and simultaneously executes the `KEYS` co
+mmand on every master node while picking up the results and returning the cumulated set of keys. To just request the keys of a single node `RedisClusterConnection` provide
+s overloads for those methods (for example, `keys(node, pattern)`).
 
-.Sample of Running Commands Across the Cluster
+可以从 `RedisClusterConnection.clusterGetNodes` 获得 `RedisClusterNode`,也可以使用主机和端口或节点ID来构造它.
+
+以下示例显示了在集群中运行的一组命令:
+
+.跨集群运行命令的示例
 ====
 [source,text]
 ----
@@ -115,7 +124,8 @@ connection.keys(NODE_7382, "*");                                               <
 <11> Request routed to node at 7382 -> [thing2]
 ====
 
-When all keys map to the same slot, the native driver library automatically serves cross-slot requests, such as `MGET`. However, once this is not the case, `RedisClusterConnection` executes multiple parallel `GET` commands against the slot-serving nodes and again returns an accumulated result. This is less performant than the single-slot execution and, therefore, should be used with care. If in doubt, consider pinning keys to the same slot by providing a prefix in curly brackets, such as `{my-prefix}.thing1` and `{my-prefix}.thing2`, which will both map to the same slot number. The following example shows cross-slot request handling:
+当所有键都映射到同一 slot 时,本地驱动程序库会自动处理跨 slots 请求,例如 `MGET`. 但是,一旦不是这种情况,`RedisClusterConnection` 会对 slots 服务节点执行多个并行的 `GET` 命令,然后再次返回累积的结果.
+这比单 slot 执行的性能要差,因此应谨慎使用. 如有疑问,请考虑通过在大括号中提供前缀(例如 `{my-prefix}.thing1` 和 `{my-prefix}.thing2`)来将密钥固定到同一 slot ,这两者都将映射到相同的 slot 号. 以下示例显示了跨槽请求处理:
 
 .Sample of Cross-Slot Request Handling
 ====
@@ -139,25 +149,25 @@ connection.mGet("thing1", "{thing1}.thing2");                                  <
 
 connection.mGet("thing1", "thing2");                                           <3>
 ----
-<1> Same Configuration as in the sample before.
+<1> 与之前示例中的配置相同.
 <2> Keys map to same slot -> 127.0.0.1:7381 MGET thing1 {thing1}.thing2
 <3> Keys map to different slots and get split up into single slot ones routed to the according nodes +
  -> 127.0.0.1:7379 GET thing2 +
  -> 127.0.0.1:7381 GET thing1
 ====
 
-TIP: The preceding examples demonstrate the general strategy followed by Spring Data Redis. Be aware that some operations might require loading huge amounts of data into memory to compute the desired command. Additionally, not all cross-slot requests can safely be ported to multiple single slot requests and error if misused (for example, `PFCOUNT`).
+TIP: 前面的示例演示了Spring Data Redis遵循的一般策略. 请注意,某些操作可能需要将大量数据加载到内存中才能计算所需的命令. 此外,并非所有跨槽请求都可以安全地移植到多个单个槽请求,如果使用不当,则会出错(例如 `PFCOUNT`).
 
-== Working with `RedisTemplate` and `ClusterOperations`
+== 使用 `RedisTemplate` 和 `ClusterOperations`
 
-See the <<redis:template>> section for information about the general purpose, configuration, and usage of `RedisTemplate`.
+有关  <<redis:template>> 的一般用途,配置和用法的信息,请参见通过 `RedisTemplate` 使用对象.
 
-CAUTION: Be careful when setting up `RedisTemplate#keySerializer` using any of the JSON `RedisSerializers`, as changing JSON structure has immediate influence on hash slot calculation.
+CAUTION: 使用任何 JSON `RedisSerializer` 设置  `RedisTemplate#keySerializer` 时要小心,因为更改JSON结构会立即影响哈希槽的计算.
 
-`RedisTemplate` provides access to cluster-specific operations through the `ClusterOperations` interface, which can be obtained from `RedisTemplate.opsForCluster()`. This lets you explicitly run commands on a single node within the cluster while retaining the serialization and deserialization features configured for the template. It also provides administrative commands (such as `CLUSTER MEET`) or more high-level operations (for example, resharding).
+`RedisTemplate` 通过 `ClusterOperations` 接口提供对特定于集群的操作的访问,该接口可以从 `RedisTemplate.opsForCluster()` 获得. 这使您可以在群集内的单个节点上显式运行命令,同时保留为模板配置的序列化和反序列化功能.
+它还提供管理命令(例如 `CLUSTER MEET`)或更高级的操作(例如,重新分片).
 
-The following example shows how to access `RedisClusterConnection` with `RedisTemplate`:
-
+以下示例显示如何使用 `RedisTemplate` 访问 `RedisClusterConnection`:
 
 .Accessing `RedisClusterConnection` with `RedisTemplate`
 ====

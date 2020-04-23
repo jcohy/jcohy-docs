@@ -1,27 +1,29 @@
 [[redis.streams]]
 = Redis Streams
 
-Redis Streams model a log data structure in an abstract approach. Typically, logs are append-only data structures and are consumed from the beginning on, at a random position, or by streaming new messages.
+Redis Streams 以更抽象的方式模拟日志数据结构. 就像一个日志文件,通常实现为以只附加模式打开的文件,从一开始就在随机位置或通过流式传输新消息来使用日志.
 
-NOTE: Learn more about Redis Streams in the https://redis.io/topics/streams-intro[Redis reference documentation].
+NOTE:  https://redis.io/topics/streams-intro[Redis 参考文档] 中获取有关 Redis Stream 的文档.
 
-Redis Streams can be roughly divided into two areas of functionality:
+Redis Streams 可以大致分为两个功能区域:
 
-* Appending records
-* Consuming records
+* 追加记录
+* 消费记录
 
-Although this pattern has similarities to <<pubsub, Pub/Sub>>, the main difference lies in the persistence of messages and how they are consumed.
+尽管此模式与发布/订阅有相似之处,但主要区别在于消息的持久性及其使用方式.
 
-While Pub/Sub relies on the broadcasting of transient messages (i.e. if you don't listen, you miss a message), Redis Stream use a persistent, append-only data type that retains messages until the stream is trimmed. Another difference in consumption is that Pub/Sub registers a server-side subscription. Redis pushes arriving messages to the client while Redis Streams require active polling.
+尽管发布/订阅依赖于广播瞬态消息(即,如果您不收听,则会错过一条消息),但 Redis Stream 使用一种持久的,仅追加的数据类型,该类型将保留消息,直到流被修剪为止. 消费方面的另一个区别是<<pubsub, Pub/Sub>> 注册了服务器端订阅. Redis Stream 需要活动轮询时,
+Redis 将到达的消息推送到客户端.
 
-The `org.springframework.data.redis.connection` and `org.springframework.data.redis.stream` packages provide the core functionality for Redis Streams.
+`org.springframework.data.redis.connection` 和 `org.springframework.data.redis.stream` 包提供 Redis Streams 的核心功能.
 
-NOTE: Redis Stream support is currently only available through the <<redis:connectors:lettuce, Lettuce client>> as it is not yet supported by <<redis:connectors:jedis, Jedis>>.
+NOTE: Redis Stream 支持当前仅可通过 <<redis:connectors:lettuce, Lettuce 客户端>> 获得,因为  <<redis:connectors:jedis, Jedis>> 尚不支持.
 
 [[redis.streams.send]]
-== Appending
+== 追加
 
-To send a record, you can use, as with the other operations, either the low-level `RedisConnection` or the high-level `StreamOperations`. Both entities offer the `add` (`xAdd`) method, which accepts the record and the destination stream as arguments. While `RedisConnection` requires raw data (array of bytes), the `StreamOperations` lets arbitrary objects be passed in as records, as shown in the following example:
+要发送记录,可以与其他操作一起使用底层 `RedisConnection` 或高级 `StreamOperations`. 这两个实体都提供 `add` (`xAdd`) 方法,该方法接受记录和目标流作为参数.
+尽管 `RedisConnection` 需要原始数据(字节数组),但 `StreamOperations` 允许将任意对象作为记录传递,如以下示例所示:
 
 [source,java]
 ----
@@ -37,23 +39,23 @@ StringRecord record = StreamRecords.string(…).withStreamKey("my-stream");
 template.streamOps().add(record);
 ----
 
-Stream records carry a `Map`, key-value tuples, as their payload. Appending a record to a stream returns the `RecordId` that can be used as further reference.
+Stream 记录携带 `Map`,键值元组作为其有效负载. 将记录追加到流将返回 RecordId,该 RecordId 可用作进一步参考.
 
 [[redis.streams.receive]]
-== Consuming
+== 消费
 
-On the consuming side, one can consume one or multiple streams. Redis Streams provide read commands that allow consumption of the stream from an arbitrary position (random access) within the known stream content and beyond the stream end to consume new stream record.
+在消费方面,可以消费一个或多个流. Redis 流提供读取命令,该命令允许从已知流内容内的任意位置(流访问之外)的任意位置(随机访问)使用流,以消耗新的流记录.
 
-At the low-level, `RedisConnection` offers the `xRead` and `xReadGroup` methods that map the Redis commands for reading and reading within a consumer group, respectively. Note that multiple streams can be used as arguments.
+在低层,`RedisConnection` 提供了 `xRead` 和 `xReadGroup` 方法,它们分别映射 Redis 命令以在使用者组中进行读取和读取. 请注意,可以将多个流用作参数.
 
-NOTE: Subscription commands in Redis can be blocking. That is, calling `xRead` on a connection causes the current thread to block as it starts waiting for messages. The thread is released only if the read command times out or receives a message.
+NOTE: Redis 中的订阅命令可能被阻塞. 也就是说,在连接上调用 `xRead` 会导致当前线程在开始等待消息并阻塞. 仅当读取命令超时或收到消息时才释放线程.
 
-To consume stream messages, one can either poll for messages in application code, or use one of the two <<redis.streams.receive.containers>>, the imperative or the reactive one. Each time a new records arrives, the container notifies the application code.
+要使用流消息,可以在应用程序代码中轮询消息,或者通过消息侦听器容器使用两种 <<redis.streams.receive.containers>> 之一,即命令式或响应式. 每当有新记录到达时,容器都会通知应用程序代码.
 
 [[redis.streams.receive.synchronous]]
-=== Synchronous reception
+=== 同步接收
 
-While stream consumption is typically associated with asynchronous processing, it is possible to consume messages synchronously. The overloaded `StreamOperations.read(…)` methods provide this functionality. During a synchronous receive, the calling thread potentially blocks until a message becomes available. The property `StreamReadOptions.block` specifies how long the receiver should wait before giving up waiting for a message.
+虽然消费流通常与异步处理相关联,但是可以同步消费消息. 重载的  `StreamOperations.read(…)` 方法提供了此功能. 在同步接收期间,调用线程可能会阻塞,直到消息可用为止. `StreamReadOptions.block` 属性指定接收者在放弃等待消息之前应该等待多长时间.
 
 [source,java]
 ----
@@ -69,23 +71,23 @@ List<MapRecord<K, HK, HV>> messages = template.streamOps().read(Consumer.from("m
 ----
 
 [[redis.streams.receive.containers]]
-=== Asynchronous reception through Message Listener Containers
+=== 通过消息侦听器容器进行异步接收
 
-Due to its blocking nature, low-level polling is not attractive, as it requires connection and thread management for every single consumer. To alleviate this problem, Spring Data offers message listeners, which do all the heavy lifting. If you are familiar with EJB and JMS, you should find the concepts familiar, as it is designed to be as close as possible to the support in Spring Framework and its message-driven POJOs (MDPs).
+由于其阻塞性质,低级别轮询没有吸引力,因为它需要每个单个使用者进行连接和线程管理. 为了减轻这个问题,Spring Data 提供了消息侦听器,它可以完成所有繁重的工作. 如果您熟悉 EJB 和 JMS,则应该熟悉这些概念,因为它被设计为尽可能接近 Spring Framework 及其消息驱动的POJO(MDP)的支持.
 
-Spring Data ships with two implementations tailored to the used programming model:
+Spring Data 附带了两种针对所用编程模型的实现:
 
-* `StreamMessageListenerContainer` acts as message listener container for imperative programming models. It is used to consume records from a Redis Stream and drive the `StreamListener` instances that are injected into it.
-* `StreamReceiver` provides a reactive variant of a message listener. It is used to consume messages from a Redis Stream as potentially infinite stream and emit stream messages through a `Flux`.
+* `StreamMessageListenerContainer` 充当命令式编程模型的消息侦听器容器. 它用于消耗Redis流中的记录并驱动注入其中的 `StreamListener` 实例.
+* `StreamReceiver` 提供了消息侦听器的响应式变体. 它用于将来自Redis流的消息作为潜在的无限流使用,并通过 `Flux` 发出流消息.
 
-`StreamMessageListenerContainer` and `StreamReceiver` are responsible for all threading of message reception and dispatch into the listener for processing. A message listener container/receiver is the intermediary between an MDP and a messaging provider and takes care of registering to receive messages, resource acquisition and release, exception conversion, and the like. This lets you as an application developer write the (possibly complex) business logic associated with receiving a message (and reacting to it) and delegates boilerplate Redis infrastructure concerns to the framework.
+`StreamMessageListenerContainer` 和 `StreamReceiver` 负责消息接收的所有线程,并分派到侦听器中进行处理. 消息侦听器容器/接收器是MDP与消息传递提供程序之间的中介,并负责注册接收消息,资源获取和释放,异常转换等.
+这使您作为应用程序开发人员可以编写与接收消息(并对消息做出响应)相关的(可能很复杂的)业务逻辑,并将样板 Redis 基础结构问题委托给框架.
 
-Both containers allow runtime configuration changes so that you can add or remove subscriptions while an application is running without the need for a restart. Additionally, the container uses a lazy subscription approach, using a `RedisConnection` only when needed. If all the listeners are unsubscribed, it automatically performs a cleanup, and the thread is released.
+这两个容器都允许更改运行时配置,因此您可以在应用程序运行时添加或删除订阅,而无需重新启动. 此外,容器使用延迟订阅方法,仅在需要时才使用 `RedisConnection`. 如果所有侦听器都未订阅,它将自动执行清除,然后释放线程.
 
+==== `StreamMessageListenerContainer`
 
-==== Imperative `StreamMessageListenerContainer`
-
-In a fashion similar to a Message-Driven Bean (MDB) in the EJB world, the Stream-Driven POJO (SDP) acts as a receiver for Stream messages. The one restriction on an SDP is that it must implement the `org.springframework.data.redis.stream.StreamListener` interface. Please also be aware that in the case where your POJO receives messages on multiple threads, it is important to ensure that your implementation is thread-safe.
+流驱动POJO(SDP)以类似于EJB世界中的消息驱动Bean(MDB)的方式充当流消息的接收者. SDP 的一个限制是它必须实现 `org.springframework.data.redis.stream.StreamListener` 接口. 还请注意,在POJO在多个线程上接收消息的情况下,确保您的实现是线程安全的很重要.
 
 [source,java]
 ----
@@ -101,7 +103,7 @@ class ExampleStreamListener implements StreamListener<String, MapRecord<String, 
 }
 ----
 
-`StreamListener` represents a functional interface so implementations can be rewritten using their Lambda form:
+`StreamListener` 表示一个功能接口,因此可以使用其 Lambda 形式重写实现:
 
 [source,java]
 ----
@@ -113,8 +115,8 @@ message -> {
 };
 ----
 
-Once you’ve implemented your `StreamListener`, it’s time to create a message listener container and register a subscription:
- 
+一旦实现了 `StreamListener`,就可以创建一个消息侦听器容器并注册订阅了:
+
 [source,java]
 ----
 RedisConnectionFactory connectionFactory = …
@@ -129,11 +131,11 @@ StreamMessageListenerContainer<String, MapRecord<String, String, String>> contai
 Subscription subscription = container.receive(StreamOffset.fromStart("my-stream"), streamListener);
 ----
 
-Please refer to the Javadoc of the various message listener containers for a full description of the features supported by each implementation.
+请参阅各种消息侦听器容器的Javadoc,以获取每个实现所支持功能的完整说明.
 
 ==== Reactive `StreamReceiver`
 
-Reactive consumption of streaming data sources typically happens through a `Flux` of events or messages. The reactive receiver implementation is provided with `StreamReceiver` and its overloaded `receive(…)` messages. The reactive approach requires fewer infrastructure resources such as threads in comparison to `StreamMessageListenerContainer` as it is leveraging threading resources provided by the driver. The receiving stream is a demand-driven publisher of ``StreamMessage``:  
+流式数据源的 Reactive consumption 通常通过 `Flux` 的事件或消息发生. 响应接收器实现由 `StreamReceiver` 和重载的 `receive(…)` 消息提供. 与 `StreamMessageListenerContainer` 相比,被动方法需要更少的基础结构资源,例如线程,因为它利用了驱动程序提供的线程资源. 接收流是 ``StreamMessage`` 的需求驱动的发布者:
 
 [source,java]
 ----
@@ -146,7 +148,7 @@ return messages.doOnNext(it -> {
 });
 ----
 
-Now we need to create the `StreamReceiver` and register a subscription to consume stream messages:
+现在我们需要创建 `StreamReceiver` 并注册一个订阅以使用流消息:
 
 [source,java]
 ----
@@ -159,15 +161,15 @@ StreamReceiver<String, MapRecord<String, String, String>> receiver = StreamRecei
 Flux<MapRecord<String, String, String>> messages = receiver.receive(StreamOffset.fromStart("my-stream"));
 ----
 
-Please refer to the Javadoc of the various message listener containers for a full description of the features supported by each implementation.
+请参阅各种消息侦听器容器的 Javadoc,以获取每个实现所支持功能的完整说明.
 
-NOTE: Demand-driven consumption uses backpressure signals to activate and deactivate polling. `StreamReceiver` subscriptions pause polling if the demand is satisfied until subscribers signal further demand. Depending on the `ReadOffset` strategy, this can cause messages to be skipped.
+NOTE: 需求驱动的消耗使用背压信号来激活和停用轮询. 如果满足需求,则 `StreamReceiver` 订阅将暂停轮询,直到订阅者发出进一步的请求. 根据 `ReadOffset` 策略,这可能导致消息被跳过.
 
 [[redis.streams.acknowledge]]
-=== `Acknowledge` strategies
+=== `Acknowledge` 策略
 
-When you read with messages via a `Consumer Group`, the server will remember that a given message was delivered and add it to the Pending Entries List (PEL). A list of messages delivered but not yet acknowledged. +
-Messages have to be acknowledged via `StreamOperations.acknowledge` in order to be removed from the Pending Entries List as shown in the snippet below.
+当您通过 `Consumer Group` 阅读邮件时,服务器将记住已传递给定邮件,并将其添加到“待处理条目列表”(PEL)中. 已发送但尚未确认的邮件列表.
+消息必须通过 `StreamOperations.acknowledge` 进行确认,以便从待处理条目列表中删除,如下面的代码片段所示.
 
 ====
 [source,java]
@@ -182,22 +184,22 @@ container.receive(Consumer.from("my-group", "my-consumer"), <1>
 	    redisTemplate.opsForStream().acknowledge("my-group", msg); <2>
     });
 ----
-<1> Read as _my-consumer_ from group _my-group_. Received messages are not acknowledged.
-<2> Acknowledged the message after processing.
+<1> 从 _my-group_ 组读取为 _my-consumer_. 收到的消息不被确认.
+<2> 处理后确认消息.
 ====
 
-TIP: To auto acknowledge messages on receive use `receiveAutoAck` instead of `receive`.
+TIP: 要在接收时自动确认消息,请使用 `receiveAutoAck` 而不是 `receive`.
 
 [[redis.streams.receive.readoffset]]
-=== `ReadOffset` strategies
+=== `ReadOffset` 策略
 
-Stream read operations accept a read offset specification to consume messages from the given offset on. `ReadOffset` represents the read offset specification. Redis supports 3 variants of offsets, depending on whether you consume the stream standalone or within a consumer group:
+流读取操作接受读取偏移量规范以从给定偏移量开始消耗消息. `ReadOffset` 表示读取偏移量规范. Redis支持三种偏移量,具体取决于您是独立使用流还是在使用者组中使用流:
 
-* `ReadOffset.latest()` – Read the latest message.
-* `ReadOffset.from(…)` – Read after a specific message Id.
-* `ReadOffset.lastConsumed()` – Read after the last consumed message Id (consumer-group only).
+* `ReadOffset.latest()` – 阅读最新消息.
+* `ReadOffset.from(…)` – 在特定消息ID之后阅读.
+* `ReadOffset.lastConsumed()` – 在最后消耗的消息ID之后读取(仅针对消费者组).
 
-In the context of a message container-based consumption, we need to advance (or increment) the read offset when consuming a message. Advancing depends on the requested `ReadOffset` and consumption mode (with/without consumer groups). The following matrix explains how containers advance `ReadOffset`:
+在基于消息容器的使用情况下,我们在使用消息时需要提高(或增加)读取偏移量. 前进取决于请求的 `ReadOffset` 和消费模式(有/无消费组). 以下矩阵说明了容器如何提高 `ReadOffset`:
 
 .ReadOffset Advancing
 [options="header,footer,autowidth"]
@@ -208,13 +210,13 @@ In the context of a message container-based consumption, we need to advance (or 
 | Last Consumed       | Use last seen message as the next MessageId | Last consumed message as per consumer group
 |===
 
-Reading from a specific message id and the last consumed message can be considered safe operations that ensure consumption of all messages that were appended to the stream.
-Using the latest message for read can skip messages that were added to the stream while the poll operation was in the state of dead time. Polling introduces a dead time in which messages can arrive between individual polling commands. Stream consumption is not a linear contiguous read but split into repeating `XREAD` calls.
+从特定消息ID和最后使用的消息读取可以被视为安全操作,可确保消耗附加到流中的所有消息. 使用最新消息进行读取可以跳过在轮询操作处于停滞时间状态时添加到流中的消息. 轮询会引入一个停滞时间,在该停滞时间内消息可以在各个轮询命令之间到达. 流消耗不是线性连续读取,
+而是分成重复的 `XREAD` 调用.
 
 [[redis.streams.receive.serialization]]
-=== Serialization
+=== 序列化
 
-Any Record sent to the stream needs to be serialized to its binary format. Due to the streams closeness to the hash data structure the stream key, field names and values use the according serializers configured on the `RedisTemplate`.
+发送到流的任何记录都需要序列化为其二进制格式. 由于流与哈希数据结构非常接近,因此流键,字段名称和值使用在 `RedisTemplate` 上配置的相应序列化器.
 
 .Stream Serialization
 [options="header,footer,autowidth"]
@@ -225,15 +227,14 @@ Any Record sent to the stream needs to be serialized to its binary format. Due t
 | value            | hashValueSerializer | used for each map value in the payload
 |===
 
-Please make sure to review ``RedisSerializer``s in use and note that if you decide to not use any serializer you need to make sure those values are binary already.
+请确保查看使用中的Redis  ``RedisSerializer``,并注意,如果您决定不使用任何序列化器,则需要确保这些值已经是二进制的.
 
 [[redis.streams.hashing]]
 === Object Mapping
 
-==== Simple Values
+==== 简单的值
 
-`StreamOperations` allows to append simple values, via `ObjectRecord`, directly to the stream without having to put those values into a `Map` structure.
-The value will then be assigned to an _payload_ field and can be extracted when reading back the value.
+`StreamOperations` 允许通过 `ObjectRecord` 将简单值直接附加到流,而不必将这些值放入 `Map` 结构中. 然后将该值分配给有效负载字段,并在读回该值时可以将其提取.
 
 [source,java]
 ----
@@ -251,21 +252,19 @@ List<ObjectRecord<String, String>> records = redisTemplate()
 ----
 <1> XADD my-stream * "_class" "com.example.User" "firstname" "night" "lastname" "angel"
 
-``ObjectRecord``s pass through the very same serialization process as the all other records, thus the Record can also obtained using the untyped read operation returning a `MapRecord`.
+``ObjectRecord``s 与所有其他记录通过相同的序列化过程,因此 Record 也可以使用返回 `MapRecord` 的无类型读取操作获得.
 
-==== Complex Values
+==== 复杂的值
 
-Adding a complex value to the stream can be done in 3 ways:
+可以通过3种方式将复杂的值添加到流中:
 
-* Convert to simple value using eg. a String JSON representation.
-* Serialize the value with a suitable `RedisSerializer`.
-* Convert the value into a `Map` suitable for serialization using a `HashMapper`.
+* 使用转换为简单值. 字符串JSON表示形式.
+* 用合适的 `RedisSerializer` 序列化该值.
+* 使用 `HashMapper` 将值转换为适合于序列化的 `Map`.
 
-The first variant is the most straight forward one but neglects the field value capabilities offered by the stream structure, still the values in the stream will be readable for other consumers.
-The 2nd option holds the same benefits as the first one, but may lead to a very specific consumer limitations as the all consumers must implement the very same serialization mechanism.
-The `HashMapper` approach is the a bit more complex one making use of the steams hash structure, but flattening the source. Still other consumers remain able to read the records as long as suitable serializer combinations are chosen.
+第一个变体是最直接的变体,但忽略了流结构提供的字段值功能,但流中的值仍可供其他使用者读取. 第二个选项具有与第一个选项相同的好处,但是可能会导致非常特殊的使用方限制,因为所有使用方都必须实现完全相同的序列化机制. `HashMapper` 方法是一种更复杂的方法,它使用了Steam哈希结构,但是却使源代码变得平坦. 只要选择了合适的序列化器组合,其他使用者仍然可以读取记录.
 
-NOTE: HashMappers convert the payload to a `Map` with specific types. Make sure to use Hash-Key and Hash-Value serializers that are capable of (de-)serializing the hash.
+NOTE: `HashMappers` 将有效负载转换为具有特定类型的Map. 确保使用能够(反)序列化哈希的哈希键和哈希值序列化程序.
 
 [source,java]
 ----
@@ -283,8 +282,7 @@ List<ObjectRecord<String, User>> records = redisTemplate()
 ----
 <1> XADD user-logon * "_class" "com.example.User" "firstname" "night" "lastname" "angel"
 
-`StreamOperations` use by default <<redis.repositories.mapping, ObjectHashMapper>>.
-You may provide a `HashMapper` suitable for your requirements when obtaining `StreamOperations`.
+默认情况下,`StreamOperations` 使用  <<redis.repositories.mapping, ObjectHashMapper>>. 获取 `StreamOperations` 时,可以提供适合您要求的 `HashMapper`.
 
 [source,java]
 ----
