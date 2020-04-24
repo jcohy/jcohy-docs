@@ -1,0 +1,88 @@
+[[client]]
+= Client-side Support
+:base-dir: ../../../../
+
+本节介绍 Spring HATEOAS 对客户端的支持.
+
+[[client.traverson]]
+== Traverson
+
+Spring HATEOAS 提供了用于客户端服务遍历的API.它受 https://blog.codecentric.de/en/2013/11/traverson/[Traverson JavaScript library] 的启发.以下示例显示了如何使用它:
+
+====
+[source, java, tabsize=2]
+----
+Map<String, Object> parameters = new HashMap<>();
+parameters.put("user", 27);
+
+Traverson traverson = new Traverson(URI.create("http://localhost:8080/api/"), MediaTypes.HAL_JSON);
+String name = traverson
+		.follow("movies", "movie", "actor").withTemplateParameters(parameters)
+		.toObject("$.name");
+----
+====
+
+您可以通过将 `Traverson` 实例指向REST服务器并配置要设置为 `Accept` 标头的媒体类型来设置它. 然后,您可以定义要发现和遵循的关系名称. 关系名称可以是简单名称,也可以是JSONPath表达式(以 `$` 开头).
+
+然后,示例将参数映射传递给执行. 这些参数用于扩展遍历过程中找到的URI(已模板化). 通过访问最终遍历的表示来结束遍历. 在前面的示例中,我们评估一个JSONPath表达式来访问演员的名字.
+
+前面的示例是遍历的最简单版本,其中 `rel` 值是字符串,并且在每个hop处都应用相同的模板参数.
+
+在每个级别上,还有更多的选项可以自定义模板参数. 以下示例显示了这些选项.
+
+[source,java,indent=0, tabsize=2]
+----
+include::{base-dir}/test/java/org/springframework/hateoas/client/TraversonTest.java[tag=hop-with-param]
+----
+
+静态 `rel(...)`  函数是定义 single  `Hop` 的便捷方法.使用  `.withParameter(key, value)` 可以简化指定URI模板变量的过程.
+
+NOTE: `.withParameter()` 返回可链接的新 `Hop` 对象. 您可以根据需要将任意多个 `.withParameter` 串在一起. 结果是单个 hop 定义. 以下示例显示了一种方法:
+
+====
+[source,java,indent=0, tabsize=2]
+----
+include::{base-dir}/test/java/org/springframework/hateoas/client/TraversonTest.java[tag=hop-put]
+----
+====
+
+您还可以使用 `.withParameters(Map)` 加载整个参数  `Map` .
+
+NOTE: `follow()` 是可链接的,这意味着您可以将多个 hop 串在一起,如前面的示例所示. 您可以放置​​多个基于字符串的 `rel` 值(`follow("items", "item")`),也可以放置具有特定参数的单个 hop .
+
+=== `EntityModel<T>` vs. `CollectionModel<T>`
+
+到目前为止显示的示例演示了如何避免Java的类型擦除,以及如何将单个JSON格式的资源转换为 `EntityModel<Item>`  对象. 但是,如果您得到像 `\_embedded` HAL集合这样的集合,该怎么办？ 只需稍作调整即可完成此操作,如以下示例所示:
+
+====
+[source,java, tabsize=2]
+----
+CollectionModelType<Item> collectionModelType =
+		TypeReferences.CollectionModelType<Item>() {};
+
+CollectionModel<Item> itemResource = traverson.//
+		follow(rel("items")).//
+		toObject(collectionModelType);
+----
+====
+
+该资源没有获取单个资源,而是将一个集合反序列化为 `CollectionModel`.
+
+[[client.link-discoverer]]
+== 使用 `LinkDiscoverer` 实例
+
+使用启用了超媒体的表示形式时,常见的任务是在其中找到具有特定关系类型的链接. Spring HATEOAS 为默认表示渲染或 HAL 提供了 `LinkDiscoverer` 接口的基于 https://code.google.com/p/json-path[JSONPath] 的实现. 使用 `@EnableHypermediaSupport` 时,我们会自动将支持配置的超媒体类型的实例作为 Spring Bean 暴露.
+
+另外,您可以按以下步骤设置和使用实例:
+
+====
+[source, java]
+----
+String content = "{'_links' :  { 'foo' : { 'href' : '/foo/bar' }}}";
+LinkDiscoverer discoverer = new HalLinkDiscoverer();
+Link link = discoverer.findLinkWithRel("foo", content);
+
+assertThat(link.getRel(), is("foo"));
+assertThat(link.getHref(), is("/foo/bar"));
+----
+====

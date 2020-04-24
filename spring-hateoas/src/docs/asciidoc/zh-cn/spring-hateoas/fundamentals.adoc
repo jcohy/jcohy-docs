@@ -1,0 +1,181 @@
+[[fundamentals]]
+= Fundamentals
+:code-dir: ../../../java/org/springframework/hateoas
+:resource-dir: ../../../resources/org/springframework/hateoas
+
+本节介绍 Spring HATEOAS 的基础知识及其基本域抽象.
+
+[[fundamentals.links]]
+== Links
+
+超媒体的基本思想是用超媒体元素丰富资源的表示.
+最简单的形式是链接.
+它们指示客户端可以导航到特定资源.
+相关资源的语义是在所谓的链接关系中定义的.
+您可能已经在HTML文件的标题中看到了这一点:
+
+.A link in an HTML document
+====
+[source, html]
+----
+<link href="theme.css" rel="stylesheet" type="text/css" />
+----
+====
+
+如您所见,链接指向资源 `theme.css` 并指示它是样式表. 链接通常包含其他信息,例如资源将返回的媒体类型. 但是,链接的基本构建块是其引用和关系.
+
+Spring HATEOAS 使您可以通过其不可变的 `Link` 值类型来处理链接. 它的构造函数同时接受超文本引用和链接关系,后者默认为 IANA 链接 `self`. 在<<fundamentals.link-relations>>阅读有关后者的更多信息.
+
+.Using links
+====
+[source, java, indent=0, tabsize=2]
+----
+include::{code-dir}/FundamentalsTest.java[tags=links]
+----
+====
+
+`Link` 暴露了 https://tools.ietf.org/html/rfc8288[RFC-8288] 中定义的其他属性. 您可以通过在 `Link` 实例上调用相应的 wither 方法来设置它们.
+
+在 Spring MVC 的构建链接和 Spring WebFlux 的构建链接中找到有关如何创建指向  <<server.link-builder.webmvc>>  和 <<server.link-builder.webflux>> 控制器的链接的更多信息.
+
+[[fundamentals.uri-templates]]
+== URI 模板
+
+对于 Spring HATEOAS  `Link`,超文本引用不仅可以是 URI,而且可以是根据 https://tools.ietf.org/html/rfc6570[RFC-6570] 的URI模板. URI模板包含所谓的模板变量,并允许扩展这些参数. 这样,客户端就可以将参数化的模板转换为URI,而不必了解最终URI的结构,它只需要知道变量的名称即可.
+
+.Using links with templated URIs
+====
+[source, java, indent=0, tabsize=2]
+----
+include::{code-dir}/FundamentalsTest.java[tags=templatedLinks]
+----
+<1> `Link` 实例指示已被模板化,即它包含URI模板.
+<2> 它暴露了模板中包含的参数
+<3> 它允许扩展参数.
+====
+
+可以手动构造URI模板,稍后再添加模板变量.
+
+.Working with URI templates
+====
+[source, java]
+----
+UriTemplate template = new UriTemplate("/{segment}/something")
+  .with(new TemplateVariable("parameter", VariableType.REQUEST_PARAM);
+
+assertThat(template.toString()).isEqualTo("/{segment}/something{?parameter}");
+----
+====
+
+[[fundamentals.link-relations]]
+== Link 关系
+
+为了指示目标资源与当前的关系,使用了一种所谓的链接关系. Spring HATEOAS 提供了 `LinkRelation` 类型,可以轻松地创建基于 String 的实例.
+
+[[fundamentals.link-relations.iana]]
+=== IANA link 关系
+
+Internet 分配号码授权机构包含一组 https://www.iana.org/assignments/link-relations/link-relations.xhtml[预定义的链接关系]. 可以通过 `IanaLinkRelations` 引用它们.
+
+.Using IANA link relations
+====
+[source, java]
+----
+Link link = new Link("/some-resource"), IanaLinkRelations.NEXT);
+
+assertThat(link.getRel()).isEqualTo(LinkRelation.of("next"));
+assertThat(IanaLinkRelation.isIanaRel(link.getRel())).isTrue();
+----
+====
+
+[[fundamentals.representation-models]]
+== [[fundamentals.resources]] 表示模型
+
+为了轻松创建丰富的超媒体表示,Spring HATEOAS 提供了一组在其根处具有 `RepresentationModel` 的类. 它基本上是用于收集链接的容器,并具有方便的方法将其添加到模型中.
+以后可以将模型呈现为各种媒体类型格式,这些格式将定义超媒体元素在表示中的外观. 有关此的更多信息,请查看<<mediatypes>>.
+
+.The `RepresentationModel` class hierarchy
+====
+[plantuml, diagram-classes, svg]
+....
+class RepresentationModel
+class EntityModel
+class CollectionModel
+class PagedModel
+
+EntityModel -|> RepresentationModel
+CollectionModel -|> RepresentationModel
+PagedModel -|> CollectionModel
+....
+====
+
+使用 `RepresentationModel` 的默认方法是创建其子类,以包含该表示应包含的所有属性,创建该类的实例,填充这些属性,并使用链接对其进行充实.
+
+.A sample representation model type
+====
+[source, java]
+----
+class PersonModel extends RepresentationModel<PersonModel> {
+
+  String firstname, lastname;
+}
+----
+====
+
+要让  `RepresentationModel.add(…)`  返回其自身的实例,必须进行通用的自键入.现在可以像这样使用模型类型:
+
+.Using the person representation model
+====
+[source, java]
+----
+PersonModel model = new PersonModel();
+model.firstname = "Dave";
+model.lastname = "Matthews";
+model.add(new Link("https://myhost/people/42"));
+----
+====
+
+如果您从Spring MVC或WebFlux控制器返回了这样的实例,并且客户端发送了一个  `Accept`  头集设置为 `application/hal+json`,则响应将如下所示:
+
+.The HAL representation generated for the person representation model
+====
+[source, json]
+----
+{
+  "_links" : {
+    "self" : {
+      "href" : "https://myhost/people/42"
+    }
+  },
+  "firstname" : "Dave",
+  "lastname" : "Matthews"
+}
+----
+====
+
+[[fundamentals.entity-model]]
+=== 模型表示子资源
+
+对于由单个对象或概念支持的资源,存在便利的 `EntityModel` 类型. 不必为每个概念创建自定义模型类型,您只需重用一个已经存在的类型并将其实例包装到 `EntityModel` 中即可.
+
+.Using `EntityModel` to wrap existing objects
+====
+[source, java]
+----
+Person person = new Person("Dave", "Matthews");
+EntityModel<Person> model = new EntityModel<>(person);
+----
+====
+
+=== 模型表示集合资源
+
+对于概念上是集合的资源,可以使用 `CollectionModel`. 它的元素可以是简单对象,也可以是 `RepresentationModel` 实例.
+
+.Using `CollectionModel` to wrap a collection of existing objects
+====
+[source, java]
+----
+Collection<Person> people = Collections.singleton(new Person("Dave", "Matthews"));
+CollectionModel<Person> model = new CollectionModel<>(people);
+----
+====

@@ -1,0 +1,561 @@
+[[mediatypes]]
+= 媒体类型
+:code-dir: ../../../java/org/springframework/hateoas
+:resource-dir: ../../../resources/org/springframework/hateoas
+:test-dir: ../../../../test/java/org/springframework/hateoas
+:linkattrs:
+
+[[mediatypes.hal]]
+== HAL – Hypertext Application Language
+
+https://tools.ietf.org/html/draft-kelly-json-hal-08[JSON Hypertext Application Language] 或 HAL 是不基于任何 Web 栈的最简单,使用最广泛的超媒体类型之一.
+
+这是 Spring HATEOAS 采用的第一种基于规范的媒体类型.
+
+[[mediatypes.hal.configuration]]
+=== 配置链接渲染
+
+在HAL中,`_links` 是一个JSON对象. 属性名称是 <<fundamentals.link-relations,link relations>>,每个值都是https://tools.ietf.org/html/draft-kelly-json-hal-07#section-4.1.1[链接对象或链接对象数组].
+
+对于具有两个或多个链接的给定链接关系,规范在表示形式上很明确:
+
+.HAL document with two links associated with one relation
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/hal/hal-multiple-entry-link-relation.json[]
+----
+====
+
+但是,如果给定关系只有一个链接,则说明是不明确的. 您可以将其渲染为单个对象或单个 item 数组.
+
+默认情况下,Spring HATEOAS使用最简洁的方法并呈现如下所示的单链接关系:
+
+.HAL document with single link rendered as an object
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-object.json[]
+----
+====
+
+一些用户更喜欢在使用HAL时不在数组和对象之间切换.他们更喜欢这种类型的渲染:
+
+.HAL with single link rendered as an array
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-array.json[]
+----
+====
+
+如果您希望自定义此策略,则要做的就是将 `HalConfiguration` bean注入应用程序配置中. 有多种选择.
+
+.Global HAL single-link rendering policy
+====
+[source, java, indent=0, tabsize=2]
+----
+include::{code-dir}/SampleAppConfiguration.java[tag=1]
+----
+<1> 通过将所有单链接关系呈现为数组来覆盖 Spring HATEOAS 的默认设置.
+====
+
+如果您只想重写某些特定的链接关系,则可以创建如下的 `HalConfiguration` bean:
+
+.Link relation-based HAL single-link rendering policy
+====
+[source, java, indent=0, tabsize=2]
+----
+include::{code-dir}/SampleAppConfiguration.java[tag=2]
+----
+<1> 始终将 `item` link 关系呈现为数组.
+<2> 当只有一个链接时,将 `prev` 链接关系呈现为一个对象.
+====
+
+如果这些都不符合您的需求,则可以使用Ant样式的路径模式:
+
+.Pattern-based HAL single-link rendering policy
+====
+[source,java,indent=0,tabsize=2]
+----
+include::{code-dir}/SampleAppConfiguration.java[tag=3]
+----
+<1> 将以 `http` 开头的所有链接关系呈现为数组.
+
+NOTE: 基于模式的方法使用 Spring 的 `AntPathMatcher`.
+====
+
+所有这些 `HalConfiguration` 凋零都可以组合形成一项全面的策略. 确保对您的API进行广泛测试,以免出现意外情况.
+
+[[mediatypes.hal.i18n]]
+=== 链接标题国际化
+
+HAL为其链接对象定义  `title` 属性. 可以使用 Spring 的资源包抽象和名为 `rest-messages` 的资源包来填充这些标题,以便客户端可以在其UI中直接使用它们. 该捆绑包将自动设置,并在HAL链接序列化期间使用.
+
+要定义链接的标题,请使用密钥模板  `_links.$relationName.title` ,如下所示:
+
+.A sample `rest-messages.properties`
+====
+[source]
+----
+_links.cancel.title=Cancel order
+_links.payment.title=Proceed to checkout
+----
+====
+
+这将导致以下HAL表示形式:
+
+.A sample HAL document with link titles defined
+====
+[source, javascript]
+----
+{
+  "_links" : {
+    "cancel" : {
+      "href" : "…"
+      "title" : "Cancel order"
+    },
+    "payment" : {
+      "href" : "…"
+      "title" : "Proceed to checkout"
+    }
+  }
+}
+----
+====
+
+[[mediatypes.hal.curie-provider]]
+=== [[spis.curie-provider]] 使用 `CurieProvider` API
+
+https://tools.ietf.org/html/rfc8288#section-2.1[Web Linking RFC] 描述了注册和扩展链接关系类型. 已注册的 rels 是在 https://www.iana.org/assignments/link-relations/link-relations.xhtml[IANA registry of link relation types]
+中注册的众所周知的字符串. 不希望注册关系类型的应用程序可以使用扩展 `rel`  URI. 每个都是唯一标识关系类型的 URI. `rel` URI可以序列化为紧凑URI或 https://www.w3.org/TR/curie[Curie].
+例如,如果 `ex` 定义为 `https://example.com/rels/{rel}`.,则  `ex:persons`  curie 代表链接关系类型 `https://example.com/rels/persons`. 如果使用 `curies`,则基本URI必须存在于响应范围中.
+
+默认的 `RelProvider` 创建的 `rel` 值是扩展关系类型,因此,必须是 URI,这会导致很多开销. `CurieProvider` API可以解决此问题:它使您可以将基 本URI 定义为 URI 模板,并定义代表该基本 URI 的前缀. 如果存在 `CurieProvider`,则 `RelProvider` 会在所有 `rel` 值之前添加居里前缀.
+此外,还会将 curies 链接自动添加到HAL资源.
+
+以下配置定义了默认的 curie 提供程序:
+
+====
+[source, java]
+----
+@Configuration
+@EnableWebMvc
+@EnableHypermediaSupport(type= {HypermediaType.HAL})
+public class Config {
+
+  @Bean
+  public CurieProvider curieProvider() {
+    return new DefaultCurieProvider("ex", new UriTemplate("https://www.example.com/rels/{rel}"));
+  }
+}
+----
+====
+
+请注意,现在 `ex:` 前缀会自动出现在所有未向IANA注册的 rel 值之前,例如  `ex:orders`. 客户可以使用 `curies` 链接将 Curie 解析为完整表单. 以下示例显示了如何执行此操作:
+
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/hal/hal-with-curies.json[]
+----
+====
+
+由于 `CurieProvider` API的目的是允许自动创建居里文件,因此每个应用程序范围只能定义一个 `CurieProvider` bean.
+
+[[mediatypes.hal-forms]]
+== HAL-FORMS
+
+https://rwcbook.github.io/hal-forms/[HAL-FORMS, window="_blank"] 旨在向 <<mediatypes.hal,HAL media type>> 添加运行时 form 支持 .
+
+[quote, Mike Amundsen, HAL-FORMS spec]
+____
+HAL-FORMS "looks like HAL." However, it is important to keep in mind that HAL-FORMS is not the same as HAL — the two
+should not be thought of as interchangeable in any way.
+____
+
+要启用此媒体类型,请将以下配置放入代码中:
+
+.HAL-FORMS enabled application
+====
+[source, java, tabsize=2]
+----
+include::{code-dir}/HalFormsApplication.java[tag=code]
+----
+====
+
+每当客户端提供带有  `application/prs.hal-forms+json` 的 `Accept` 标头时,您都可以期待这样的事情:
+
+.HAL-FORMS sample document
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/hal/forms/hal-forms-sample.json[]
+----
+====
+
+查看 https://rwcbook.github.io/hal-forms/[HAL-FORMS 规范] 以了解  *_templates*  属性的详细信息. 阅读有关 <<server.affordances,Affordances API>>  的信息,以通过这些额外的元数据来扩充您的控制器.
+
+对于单项(`EntityModel`)和聚合根集合(`CollectionModel`),Spring HATEOAS使其呈现与 <<mediatypes.hal,HAL 文档>>相同.
+
+[[mediatypes.hal-forms.metadata]]
+=== 定义 HAL-FORMS 元数据
+
+HAL-FORMS允许描述每个表单字段的标准. Spring HATEOAS 可以通过调整输入和输出类型的模型类型并在其上使用注解来自定义它们.
+
+[options="header", cols="1,4"]
+|===============
+|Attribute|Description
+|`readOnly`| 如果该属性没有设置方法,则设置为 `true`.如果存在,请在访问器或字段上明确使用 Jackson 的 `@JsonProperty(Access.READ_ONLY)`.默认情况下不呈现,因此默认为 `false`.
+|`regex`| 可以通过在字段或类型上使用 JSR-303 的 `@Pattern` 注解进行自定义.对于后者,该模式将用于声明为该特定类型的每个属性.默认情况下不呈现.
+|`required`| 可以使用 JSR-303 的 `@NotNull` 进行自定义.默认情况下不呈现,因此默认为 `false`.使用 `PATCH` 作为方法的模板将自动将所有属性设置为不需要.
+|===============
+
+对于无法手动注解的类型,可以通过应用程序上下文中存在的 `HalFormsConfiguration` bean注册自定义模式.
+
+[source, java]
+----
+@Configuration
+class CustomConfiguration {
+
+  @Bean
+  HalFormsConfiguration halFormsConfiguration() {
+
+    HalFormsConfiguration configuration = new HalFormsConfiguration();
+    configuration.registerPatternFor(CreditCardNumber.class, "[0-9]{16}");
+  }
+}
+----
+
+此设置将使 `CreditCardNumber` 类型的表示模型属性的HAL-FORMS模板属性声明值为  `[0-9]{16}` 的正则表达式字段.
+
+[[mediatypes.hal-forms.i18n]]
+=== 表单属性的国际化
+
+HAL-FORMS包含用于人工解释的属性,例如模板的标题或属性提示. 可以使用Spring的资源包支持和默认情况下由 Spring HATEOAS 配置的  `rest-messages` 资源包来定义和国际化它们.
+
+==== Template titles
+
+要定义模板标题,请使用以下模式: `_templates.$affordanceName.title`. 请注意,在 HAL-FORMS 中,如果模板名称是唯一的,则它是默认名称. 这意味着您通常必须使用能力描述的本地或完全限定的输入类型名称来限定键.
+
+.Defining HAL-FORMS template titles
+====
+[source]
+----
+_templates.default.title=Some title <1>
+_templates.putEmployee.title=Create employee <2>
+Employee._templates.default.title=Create employee <3>
+com.acme.Employee._templates.default.title=Create employee <4>
+----
+<1> 使用默认键作为标题的全局定义.
+<2> 使用实际可得名称作为关键字的标题的全局定义. 除非在创建提供者时明确定义,否则默认为  `$httpMethod + $simpleInputTypeName`.
+<3> 本地定义的标题将应用于名为 `Employee` 的所有类型.
+<4> 使用完全限定的类型名称的标题定义.
+====
+
+NOTE: 使用实际可负担名称的密钥优先于默认密钥.
+
+==== 属性提示
+
+还可以通过Spring HATEOAS自动配置的  `rest-messages` 资源包来解决属性提示. 这些密钥可以全局,本地或完全定义,并且需要一个  `._prompt`  链接到实际的属性密钥
+
+.Defining prompts for an `email` property
+====
+[source]
+----
+firstName._prompt=Firstname <1>
+Employee.firstName._prompt=Firstname <2>
+com.acme.Employee.firstName._prompt=Firstname <3>
+----
+<1> 所有名为 `firstName` 的属性都将呈现 `Firstname`,而与声明它们的类型无关.
+<2> 类型为 `Employee` 的 `firstName` 属性将提示 `Firstname`.
+<3> `com.acme.Employee` 的 `firstName` 属性将获得分配的  `Firstname` 提示.
+====
+
+定义了模板标题和属性提示的示例文档将如下所示:
+
+.带有国际化模板标题和属性提示的 HAL-FORMS 文档示例
+====
+[source]
+----
+{
+  …,
+  "_templates" : {
+    "default" : {
+      "title" : "Create employee",
+      "method" : "put",
+      "contentType" : "",
+      "properties" : [ {
+        "name" : "firstName",
+        "prompt" : "Firstname",
+        "required" : true
+      }, {
+        "name" : "lastName",
+        "prompt" : "Lastname",
+        "required" : true
+      }, {
+        "name" : "role",
+        "prompt" : "Role",
+        "required" : true
+      } ]
+    }
+  }
+}
+----
+====
+
+[[mediatypes.collection-json]]
+== Collection+JSON
+
+http://amundsen.com/media-types/collection/format/[Collection+JSON, window="_blank"] 是向IANA批准的媒体类型 `application/vnd.collection+json` 注册的JSON规范.
+
+[quote, Mike Amundsen, Collection+JSON spec]
+____
+http://amundsen.com/media-types/collection/[Collection+JSON, window="_blank"] is a JSON-based read/write hypermedia-type designed to support
+management and querying of simple collections.
+____
+
+Collection+JSON 提供了一种统一的方式来表示单个 item 资源和集合.要启用此媒体类型,请将以下配置放入代码中:
+
+.Collection+JSON enabled application
+====
+[source, java, tabsize=2]
+----
+include::{code-dir}/CollectionJsonApplication.java[tag=code]
+----
+====
+
+此配置将使您的应用程序响应具有 `application/vnd.collection+json` 的 `Accept` 标头的请求,如下所示.
+
+规格中的以下示例显示了一个 item
+
+.Collection+JSON single item example
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/collectionjson/spec-part3.json[]
+----
+<1> `self` 链接存储在文档的 `href` 属性.
+<2> 该文档的顶部  `links` 部分包含集合级链接(减去 `self` 链接)
+<3> `items` 部分包含数据集合,由于这是一个单项文档,因此只有一个条目.
+<4> `data` 部分包含实际内容. 它由属性组成.
+<5> 该 items 的各个 `links`.
+====
+
+[IMPORTANT]
+====
+先前的片段已从规格中删除. 当 Spring HATEOAS 呈现 `EntityModel` 时,它将:
+
+* 将 `self` 链接置于文档的 `href` 属性和 items 级 `href` 属性.
+* 将模型的其余链接放在顶级 `links` 和 items 级别  `links` 中.
+* 从EntityModel中提取属性并将其转换为…
+====
+
+呈现资源集合时,文档几乎相同,除了在 `items`  JSON数组项中有多个条目,每个条目一个.
+
+Spring HATEOAS更具体地将:
+
+* 将整个集合的 `self` 放入顶级 `href` 属性.
+* `CollectionModel` 链接(减去 `self`)将放入顶级 `links`.
+* 每个 items 级别的 `href` 都将包含 `CollectionModel.content` 集合中每个条目的相应 `self` 链接.
+* 每个 items 级  `links`  将包含 `CollectionModel.content` 每个条目的所有其他链接..
+
+
+[[mediatypes.uber]]
+== UBER - 交换代表的统一依据
+
+https://rawgit.com/uber-hypermedia/specification/master/uber-hypermedia.html[UBER, window="_blank"] is an experimental JSON spec
+
+[quote, Mike Amundsen, UBER spec]
+____
+The UBER document format is a minimal read/write hypermedia type designed to support simple state transfers and ad-hoc
+hypermedia-based transitions.
+____
+
+UBER提供了一种统一的方式来表示单个 item 资源和集合.要启用此媒体类型,请将以下配置放入代码中:
+
+.UBER+JSON enabled application
+====
+[source, java, tabsize=2]
+----
+include::{code-dir}/UberApplication.java[tag=code]
+----
+====
+
+此配置将使您的应用程序使用 `Accept` 标头  `application/vnd.amundsen-uber+json` 响应请求,如下所示:
+
+.UBER sample document
+====
+[source, json, tabsize=2]
+----
+include::{resource-dir}/docs/mediatype/uber/uber-sample.json[]
+----
+====
+
+此媒体类型以及规范本身仍在开发中.如果您在使用票时遇到问题,请随时 https://github.com/spring-projects/spring-hateoas/issues[open a ticket, window="_blank"].
+
+NOTE: *UBER media type* 媒体类型与 *Uber Technologies Inc.* 公司没有任何关联.
+
+[[mediatypes.alps]]
+== ALPS - Application-Level Profile Semantics
+
+https://tools.ietf.org/html/draft-amundsen-richardson-foster-alps-01[ALPS, window="_blank"] i是一种媒体类型,用于提供有关另一个资源的基于配置文件的元数据.
+
+[quote, Mike Amundsen, ALPS spec]
+____
+An ALPS document can be used as a profile to
+explain the application semantics of a document with an application-
+agnostic media type (such as HTML, HAL, Collection+JSON, Siren,
+etc.).  This increases the reusability of profile documents across
+media types.
+____
+
+ALPS不需要特殊激活.相反,您可以  "build"   `Alps` 记录,并从 Spring MVC 或 Spring WebFlux Web 方法返回它,如下所示:
+
+.Building an `Alps` record
+====
+[source, java, tabsize=2, indent=0]
+----
+include::{test-dir}/support/WebMvcEmployeeController.java[tag=alps-profile]
+----
+* 本示例利用 `PropertyUtils.getExposedProperties()`  提取有关域对象属性的元数据.
+====
+
+此片段已插入测试数据.它会生成如下所示的JSON:
+
+.ALPS JSON
+====
+----
+{
+  "version": "1.0",
+  "doc": {
+    "format": "TEXT",
+    "href": "https://example.org/samples/full/doc.html",
+    "value": "value goes here"
+  },
+  "descriptor": [
+    {
+      "id": "class field [name]",
+      "name": "name",
+      "type": "SEMANTIC",
+      "descriptor": [
+        {
+          "id": "embedded"
+        }
+      ],
+      "ext": {
+        "id": "ext [name]",
+        "href": "https://example.org/samples/ext/name",
+        "value": "value goes here"
+      },
+      "rt": "rt for [name]"
+    },
+    {
+      "id": "class field [role]",
+      "name": "role",
+      "type": "SEMANTIC",
+      "descriptor": [
+        {
+          "id": "embedded"
+        }
+      ],
+      "ext": {
+        "id": "ext [role]",
+        "href": "https://example.org/samples/ext/role",
+        "value": "value goes here"
+      },
+      "rt": "rt for [role]"
+    }
+  ]
+}
+----
+====
+
+您可以手动编写它们,而不必将每个字段“自动”链接到域对象的字段. 也可以使用 Spring Framework 的消息包和 `MessageSource` 界面. 这使您能够将这些值委托给特定于区域设置的消息束,甚至可以使元数据国际化.
+
+[[mediatypes.custom]]
+== 注册自定义媒体类型
+
+Spring HATEOAS 允许通过第三方可以实现的一组SPI集成对自定义媒体类型的支持. 这样的实现的构造块是:
+
+1. 某种形式的Jackson ObjectMapper定制. 在最简单的情况下,这就是Jackson模块的实现.
+2. `LinkDiscoverer` 实现,以便客户端支持能够检测生成的表示形式中的链接.
+3. 一些配置基础结构将允许 Spring HATEOAS 查找自定义实现并选择其配置.
+
+[[mediatypes.custom.configuration]]
+=== 自定义媒体类型配置
+
+自定义媒体类型实现是通过 Spring 的 `SpringFactories` 机制获得的,类似于 Java ServiceLoader API. 每个媒体类型实现都需要在 `META-INF` 中附带一个 `spring.factories`,其中包含 `org.springframework.hateoas.config.MediaTypeConfigurationProvider` key 的实现类条目:
+
+.An example `MediaTypeConfigurationProvider` declaration
+====
+[source]
+org.springframework.hateoas.config.MediaTypeConfigurationProvider=\
+  com.acme.mymediatype.MyMediaTypeConfigurationProvider
+====
+
+该实现类如下所示:
+
+.An example `MediaTypeConfigurationProvider` implementation in `META-INF/spring.factories`
+====
+[source, java]
+----
+class MyMediaTypeConfigurationProvider
+  implements MediaTypeConfigurationProvider {
+
+  @Override
+  public Class<? extends HypermediaMappingInformation> getConfiguration() {
+    return MyMediaTypeConfiguration.class; <1>
+  }
+
+  @Override
+  public boolean supportsAny(Collection<MediaType> mediaTypes) {
+    return mediaTypes.contains(MediaTypes.HAL_JSON); <2>
+  }
+}
+----
+配置类需要具有默认的构造函数并暴露两个方法:
+
+<1> 一种返回Spring配置类的方法,该方法将在激活Spring HATEOAS时(包括通过Spring Boot自动配置或通过  `@EnableHypermediaSupport` 隐式地)包含在应用程序引导程序中.).
+<2> 一种回调方法,将通过应用程序选择的媒体类型进行激活. 这使媒体类型实现可以在何时激活时进行控制.
+====
+
+配置类必须实现 `HypermediaMappingInformation`.它看起来像这样简单:
+
+====
+[source, java]
+----
+@Configuration
+class MyMediaTypeConfiguration implements HypermediaMappingInformation {
+
+  @Override
+  public List<MediaType> getMediaTypes() {
+    return MediaType.parse("application/vnd-acme-media-type") <1>
+  }
+
+  @Override
+  public Module getJacksonModule() {
+    return new Jackson2MediaTypeModule(); <2>
+  }
+
+  @Bean
+  MyLinkDiscoverer myLinkDiscoverer() {
+    return new MyLinkDiscoverer(); <3>
+  }
+}
+----
+<1> 配置类返回要设置 Spring MVC/Spring WebFlux 支持的媒体类型.
+<2> 它重写 `getJacksonModule()` 以提供自定义序列化程序来创建特定于媒体类型的表示形式.
+<3> 它还声明了用于客户端支持的自定义 `LinkDiscoverer` 实现.
+====
+
+Jackson模块通常为表示模型类型 `RepresentationModel`,`EntityModel`,`CollectionModel` 和 `PagedModel` 声明 `Serializer` 和 `Deserializer` 实现. 如果您需要进一步自定义 Jackson 的 ObjectMapper(如自定义的 `HandlerInstantiator`),
+则可以替代重写 `configureObjectMapper(…)`.
+
+
+[[mediatypes.custom.recommendation]]
+=== 建议
+
+实现媒体类型表示的首选方法是通过提供与预期格式匹配的类型层次结构,并且可以由Jackson进行序列化. 在为 `RepresentationModel` 注册的序列化器和反序列化器实现中,将实例转换为特定于媒体类型的模型类型,然后为这些实例查找 Jackson 序列化器.
+
+默认情况下支持的媒体类型使用与第三方实现相同的配置机制.因此,值得研究  https://github.com/spring-projects/spring-hateoas/tree/master/src/main/java/org/springframework/hateoas/mediatype[ `mediatype` 包] 中的实现.
