@@ -2,299 +2,136 @@
 = Spring WebFlux
 :doc-spring-security: {doc-root}/spring-security/site/docs/current/reference
 
-The original web framework included in the Spring Framework, Spring Web MVC, was
-purpose-built for the Servlet API and Servlet containers. The reactive-stack web framework,
-Spring WebFlux, was added later in version 5.0. It is fully non-blocking, supports
-https://www.reactive-streams.org/[Reactive Streams] back pressure, and runs on such servers as
-Netty, Undertow, and Servlet 3.1+ containers.
+Spring 框架中包含的原始 Web 框架 Spring Web MVC 是专门为 Servlet API 和 Servlet 容器而构建的。 reactive-stack Web框架 Spring WebFlux 在更高版本5.0中添加。
+它是完全非阻塞的，支持 https://www.reactive-streams.org/[Reactive Streams] 背压，并在 Netty，Undertow 和 Servlet 3.1+ 容器等服务器上运行。
 
-Both web frameworks mirror the names of their source modules
-(https://github.com/spring-projects/spring-framework/tree/master/spring-webmvc[spring-webmvc] and
-https://github.com/spring-projects/spring-framework/tree/master/spring-webflux[spring-webflux])
-and co-exist side by side in the Spring Framework. Each module is optional.
-Applications can use one or the other module or, in some cases, both --
-for example, Spring MVC controllers with the reactive `WebClient`.
-
-
+这两个 Web 框架的模块(https://github.com/spring-projects/spring-framework/tree/master/spring-webmvc[spring-webmvc] 和
+https://github.com/spring-projects/spring-framework/tree/master/spring-webflux[spring-webflux])，都在 Spring Framework 中。 每个模块都是可选的。
+应用程序可以使用一个或另一个模块，或者在某些情况下可以同时使用这两个模块，例如，带有响应式 `WebClient` 的 Spring MVC 控制器。
 
 
 [[webflux-new-framework]]
-== Overview
+== 概述
 
-Why was Spring WebFlux created?
+为什么创建Spring WebFlux?
 
-Part of the answer is the need for a non-blocking web stack to handle concurrency with a
-small number of threads and scale with fewer hardware resources. Servlet 3.1 did provide
-an API for non-blocking I/O. However, using it leads away from the rest of the Servlet API,
-where contracts are synchronous (`Filter`, `Servlet`) or blocking (`getParameter`,
-`getPart`). This was the motivation for a new common API to serve as a foundation across
-any non-blocking runtime. That is important because of servers (such as Netty) that are
-well-established in the async, non-blocking space.
+一是需要一个非阻塞式的 Web 堆栈来处理少量线程的来处理并发并且可以使用更少的硬件资源进行扩展。 Servlet 3.1 确实提供了用于非阻塞 I/O 的 API。但是，使用它会导致 Servlet API 的其余部分偏离，在这些 API 中，(`Filter`, `Servlet`) 是同步的 ，(`getParameter`,
+`getPart`) 是阻塞的。这是促使新的通用API成为所有非阻塞运行时的基础的动机。这很重要，因为服务器（例如 Netty）已在异步，非阻塞空间中建立良好。
 
-The other part of the answer is functional programming. Much as the addition of annotations
-in Java 5 created opportunities (such as annotated REST controllers or unit tests), the addition
-of lambda expressions in Java 8 created opportunities for functional APIs in Java.
-This is a boon for non-blocking applications and continuation-style APIs (as popularized
-by `CompletableFuture` and http://reactivex.io/[ReactiveX]) that allow declarative
-composition of asynchronous logic. At the programming-model level, Java 8 enabled Spring
-WebFlux to offer functional web endpoints alongside annotated controllers.
-
+另一个原因是函数式编程。就像在 Java 5 中添加注解会创造功能（例如带注解的 REST 控制器或单元测试）一样，在 Java 8 中添加 lambda 表达式也为 Java 中的功能 API 创造了机会。这对于非阻塞的应用程序和延续样式的 API（如由 `CompletableFuture` 和 http://reactivex.io/[ReactiveX] 流行的API）是有利的，
+这些 API 允许以声明方式构成异步逻辑。在编程模型级别，Java 8 使 Spring WebFlux 能够与带注解的控制器一起提供功能性的 Web 端点。
 
 
 [[webflux-why-reactive]]
-=== Define "`Reactive`"
+=== 定义 "`Reactive`"
 
-We touched on "`non-blocking`" and "`functional`" but what does reactive mean?
+我们谈到了 "`non-blocking`" 和 "`functional`" ，但是 reactive 意味着什么？
 
-The term, "`reactive,`" refers to programming models that are built around reacting to change --
-network components reacting to I/O events, UI controllers reacting to mouse events, and others.
-In that sense, non-blocking is reactive, because, instead of being blocked, we are now in the mode
-of reacting to notifications as operations complete or data becomes available.
+术语  "`reactive,`"  是指围绕对更改做出反应的编程模型-网络组件对I/O事件做出反应，UI 控制器对鼠标事件做出反应等。从这个意义上说，非阻塞是响应性的，因为随着操作完成或数据变得可用，我们现在处于响应通知的模式，而不是被阻塞。
 
-There is also another important mechanism that we on the Spring team associate with "`reactive`"
-and that is non-blocking back pressure. In synchronous, imperative code, blocking calls
-serve as a natural form of back pressure that forces the caller to wait. In non-blocking
-code, it becomes important to control the rate of events so that a fast producer does not
-overwhelm its destination.
+我们 Spring 团队还有另一个重要的机制与 "`reactive`" 相关联，即非阻塞背压。在同步命令式代码中，阻塞调用是背压的自然形式，迫使调用者者等待。在非阻塞代码中，控制事件的速率非常重要，这样快速的生产者就不会淹没其目的地。
 
-Reactive Streams is a
-https://github.com/reactive-streams/reactive-streams-jvm/blob/master/README.md#specification[small spec]
-(also https://docs.oracle.com/javase/9/docs/api/java/util/concurrent/Flow.html[adopted] in Java 9)
-that defines the interaction between asynchronous components with back pressure.
-For example a data repository (acting as
-https://www.reactive-streams.org/reactive-streams-1.0.1-javadoc/org/reactivestreams/Publisher.html[Publisher])
-can produce data that an HTTP server (acting as
-https://www.reactive-streams.org/reactive-streams-1.0.1-javadoc/org/reactivestreams/Subscriber.html[Subscriber])
-can then write to the response. The main purpose of Reactive Streams is to let the
-  subscriber to control how quickly or how slowly the publisher produces data.
+Reactive Streams 是一个 https://github.com/reactive-streams/reactive-streams-jvm/blob/master/README.md#specification[small spec]（在Java 9 中也 https://docs.oracle.com/javase/9/docs/api/java/util/concurrent/Flow.html[adopted]），
+它定义了带有响应式的异步组件之间的交互。例如，数据存储库（充当 https://www.reactive-streams.org/reactive-streams-1.0.1-javadoc/org/reactivestreams/Publisher.html[Publisher]）可以生成 HTTP 服务器（充当 https://www.reactive-streams.org/reactive-streams-1.0.1-javadoc/org/reactivestreams/Subscriber.html[Subscriber]）然后可以写入响应的数据。响应式流的主要目的是让订阅者控制发布者生成数据的速度或速度。
 
-NOTE: *Common question: what if a publisher cannot slow down?* +
-The purpose of Reactive Streams is only to establish the mechanism and a boundary.
-If a publisher cannot slow down, it has to decide whether to buffer, drop, or fail.
-
-
+NOTE: *常见问题: 如果 publisher 太快怎么办?* +
+Reactive Streams 的目的仅仅是建立机制和边界.
+如果 publisher 无法放慢速度，则必须决定是缓冲，删除还是失败.
 
 [[webflux-reactive-api]]
 === Reactive API
 
-Reactive Streams plays an important role for interoperability. It is of interest to libraries
-and infrastructure components but less useful as an application API, because it is too
-low-level. Applications need a higher-level and richer, functional API to
-compose async logic -- similar to the Java 8 `Stream` API but not only for collections.
-This is the role that reactive libraries play.
+Reactive Streams 对于互操作性起着重要作用。库和基础结构组件对此很感兴趣，但由于它太底层了，它作为应用程序API的用处不大。应用程序需要更高级别且功能更丰富的API来构成异步逻辑，这与 Java 8 Stream API 相似，但不仅适用于集合。这就是 reactive 库的作用。
 
-https://github.com/reactor/reactor[Reactor] is the reactive library of choice for
-Spring WebFlux. It provides the
-https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Mono.html[`Mono`] and
-https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html[`Flux`] API types
-to work on data sequences of 0..1 (`Mono`) and 0..N (`Flux`) through a rich set of operators aligned with the
-ReactiveX http://reactivex.io/documentation/operators.html[vocabulary of operators].
-Reactor is a Reactive Streams library and, therefore, all of its operators support non-blocking back pressure.
-Reactor has a strong focus on server-side Java. It is developed in close collaboration
-with Spring.
+https://github.com/reactor/reactor[Reactor] 是 Spring WebFlux 的首选 reactive 库。它提供了 https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Mono.html[`Mono`] 和 https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html[`Flux`] API类型，
+以通过与 `ReactiveX` http://reactivex.io/documentation/operators.html[vocabulary of operators] 保持一致的丰富运算符集来处理 0..1 (`Mono`) 和 0..N (`Flux`)  的数据序列。 Reactor 是 Reactive Streams 库，因此，它的所有运算符都支持无阻塞背压。 Reactor 非常注重服务器端 Java。它是与 Spring 紧密合作开发的。
 
-WebFlux requires Reactor as a core dependency but it is interoperable with other reactive
-libraries via Reactive Streams. As a general rule, a WebFlux API accepts a plain `Publisher`
-as input, adapts it to a Reactor type internally, uses that, and returns either a
-`Flux` or a `Mono` as output. So, you can pass any `Publisher` as input and you can apply
-operations on the output, but you need to adapt the output for use with another reactive library.
-Whenever feasible (for example, annotated controllers), WebFlux adapts transparently to the use
-of RxJava or another reactive library. See <<webflux-reactive-libraries>> for more details.
+WebFlux 需要 Reactor 作为核心依赖，但是它可以通过 Reactive Streams 与其他 React 库进行互操作。通常，WebFlux API 接受普通的 Publisher 作为输入，在内部将其适应于 Reactor 类型，使用它，然后返回 Flux 或 Mono 作为输出。
+因此，您可以将任何 `Publisher` 作为输入传递，并且可以对输出应用操作，但是您需要调整输出以与其他 reactive 库一起使用。只要可行（例如，带注解的控制器），WebFlux 就会透明地适应 RxJava 或其他反应式库的使用。有关更多详细信息，请参见 <<webflux-reactive-libraries>> 。
 
-NOTE: In addition to Reactive APIs, WebFlux can also be used with 
-<<languages.adoc#coroutines, Coroutines>> APIs in Kotlin which provides a more imperative style of programming.
-The following Kotlin code samples will be provided with Coroutines APIs.
-
+NOTE: 除了 Reactive API 外，WebFlux 还可以与 Kotlin 中的 <<languages.adoc#coroutines, Coroutines>> API 一起使用，从而提供了更强的编程风格。
 
 
 [[webflux-programming-models]]
-=== Programming Models
+=== 编程模型
 
-The `spring-web` module contains the reactive foundation that underlies Spring WebFlux,
-including HTTP abstractions, Reactive Streams <<webflux-httphandler, adapters>> for supported
-servers, <<webflux-codecs, codecs>>, and a core <<webflux-web-handler-api>> comparable to
-the Servlet API but with non-blocking contracts.
+`spring-web` 模块包含 Spring WebFlux reactive 基础，包括 HTTP 抽象，用于支持的服务器的 Reactive Streams <<webflux-httphandler, adapters>>，<<webflux-codecs, codecs>>，以及与 Servlet API 相似但具有非阻塞的核心 <<webflux-web-handler-api>> 。
 
-On that foundation, Spring WebFlux provides a choice of two programming models:
+在此基础上，Spring WebFlux 提供了两种编程模型的选择：
 
-* <<webflux-controller>>: Consistent with Spring MVC and based on the same annotations
-from the `spring-web` module. Both Spring MVC and WebFlux controllers support reactive
-(Reactor and RxJava) return types, and, as a result, it is not easy to tell them apart. One notable
-difference is that WebFlux also supports reactive `@RequestBody` arguments.
-* <<webflux-fn>>: Lambda-based, lightweight, and functional programming model. You can think of
-this as a small library or a set of utilities that an application can use to route and
-handle requests. The big difference with annotated controllers is that the application
-is in charge of request handling from start to finish versus declaring intent through
-annotations and being called back.
-
-
+* <<webflux-controller>>: 与 Spring MVC 一致，并且使用和 `spring-web` 模块的相同注解。 Spring MVC 和 WebFlux 控制器都支持 响应式（Reactor 和 RxJava）返回类型，因此，区分它们并不容易。
+一个显着的区别是 WebFlux 还支持响应式 `@RequestBody` 参数。
+* <<webflux-fn>>: 基于 Lambda 的轻量级功能编程模型。 您可以将其视为一个小型库或一组实用程序，应用程序可以使用它们来路由和处理请求。 带注释的控制器的最大区别在于，应用程序负责从头到尾的请求处理，而不是通过注释声明意图并被回调。
 
 [[webflux-framework-choice]]
-=== Applicability
+=== 适用性
 
-Spring MVC or WebFlux?
+Spring MVC 或 WebFlux?
 
-A natural question to ask but one that sets up an unsound dichotomy. Actually, both
-work together to expand the range of available options. The two are designed for
-continuity and consistency with each other, they are available side by side, and feedback
-from each side benefits both sides. The following diagram shows how the two relate, what they
-have in common, and what each supports uniquely:
+实际上，两者共同努力扩大了可用选项的范围。 两者的设计旨在实现彼此的连续性和一致性，它们可以并行使用，并且来自双方的反馈对双方都有利。 下图显示了两者之间的关系，它们的共同点以及各自的独特支持：
 
 image::images/spring-mvc-and-webflux-venn.png[]
 
-We suggest that you consider the following specific points:
+我们建议您考虑以下几点：
 
-* If you have a Spring MVC application that works fine, there is no need to change.
-Imperative programming is the easiest way to write, understand, and debug code.
-You have maximum choice of libraries, since, historically, most are blocking.
-
-* If you are already shopping for a non-blocking web stack, Spring WebFlux offers the same
-execution model benefits as others in this space and also provides a choice of servers
-(Netty, Tomcat, Jetty, Undertow, and Servlet 3.1+ containers), a choice of programming models
-(annotated controllers and functional web endpoints), and a choice of reactive libraries
-(Reactor, RxJava, or other).
-
-* If you are interested in a lightweight, functional web framework for use with Java 8 lambdas
-or Kotlin, you can use the Spring WebFlux functional web endpoints. That can also be a good choice
-for smaller applications or microservices with less complex requirements that can benefit
-from greater transparency and control.
-
-* In a microservice architecture, you can have a mix of applications with either Spring MVC
-or Spring WebFlux controllers or with Spring WebFlux functional endpoints. Having support
-for the same annotation-based programming model in both frameworks makes it easier to
-re-use knowledge while also selecting the right tool for the right job.
-
-* A simple way to evaluate an application is to check its dependencies. If you have blocking
-persistence APIs (JPA, JDBC) or networking APIs to use, Spring MVC is the best choice
-for common architectures at least. It is technically feasible with both Reactor and
-RxJava to perform blocking calls on a separate thread but you would not be making the
-most of a non-blocking web stack.
-
-* If you have a Spring MVC application with calls to remote services, try the reactive `WebClient`.
-You can return reactive types (Reactor, RxJava, <<webflux-reactive-libraries, or other>>)
-directly from Spring MVC controller methods. The greater the latency per call or the
-interdependency among calls, the more dramatic the benefits. Spring MVC controllers
-can call other reactive components too.
-
-* If you have a large team, keep in mind the steep learning curve in the shift to non-blocking,
-functional, and declarative programming. A practical way to start without a full switch
-is to use the reactive `WebClient`. Beyond that, start small and measure the benefits.
-We expect that, for a wide range of applications, the shift is unnecessary. If you are
-unsure what benefits to look for, start by learning about how non-blocking I/O works
-(for example, concurrency on single-threaded Node.js) and its effects.
-
-
+* 如果您有运行正常的 Spring MVC 应用程序，则无需更改。 命令式编程是编写，理解和调试代码的最简单方法。 您有更多的库的选择空间，因为从历史上看，大多数库都处于阻塞状态。
+* 如果您已经在购买非阻塞 Web 堆栈，那么 Spring WebFlux 在此空间中提供的执行模型优势与其他模型相同，并且还提供服务器选择（Netty，Tomcat，Jetty，Undertow 和 Servlet 3.1+容器）， 选择编程模型（带注释的控制器和功能性 Web 端点），以及选择反应式库（Reactor，RxJava 或其他）。
+* 如果您对与 Java 8 lambda 或 Kotlin 一起使用的轻量级功能性 Web 框架感兴趣，则可以使用 Spring WebFlux 功能性 Web 端点。 对于要求较低复杂性的较小应用程序或微服务（可以受益于更高的透明度和控制）而言，这也是一个不错的选择。
+* 在微服务架构中，您可以混合使用带有 Spring MVC 或 Spring WebFlux 控制器或带有 Spring WebFlux 功能端点的应用程序。 在两个框架中都支持相同的基于注释的编程模型，这使得重用知识变得更加容易，同时还为正确的工作选择了正确的工具。
+* 评估应用程序的一种简单方法是检查其依赖关系。 如果您要使用阻塞持久性API（JPA，JDBC）或网络 API，则 Spring MVC 至少是常见体系结构的最佳选择。 使用 Reactor 和 RxJava 在单独的线程上执行阻塞调用在技术上是可行的，但是您不会充分利用非阻塞Web堆栈。
+* 如果您的Spring MVC应用程序具有对远程服务的调用，请尝试响应式 `WebClient`。 您可以直接从 Spring MVC 控制器方法返回反应类型（Reactor，RxJava 或 <<webflux-reactive-libraries, or other>>）。 每个调用的等待时间或呼叫之间的相互依赖性越大，好处就越明显。 Spring MVC 控制器也可以调用其他反应式组件。
+* 如果您有庞大的团队，请牢记向无阻塞，功能性和声明性编程的过渡过程中的学习曲线陡峭。 一种无需完全切换即可开始的实用方法是使用反应式 WebClient。 除此之外，从小处着手并衡量收益。 我们希望对于广泛的应用而言，这种转变是不必要的。 如果不确定要寻找什么好处，请先了解非阻塞 I/O 的工作原理（例如，单线程 Node.js 上的并发性）及其效果。
 
 [[webflux-server-choice]]
 === Servers
 
-Spring WebFlux is supported on Tomcat, Jetty, Servlet 3.1+ containers, as well as on
-non-Servlet runtimes such as Netty and Undertow. All servers are adapted to a low-level,
-<<webflux-httphandler, common API>> so that higher-level
-<<webflux-programming-models, programming models>> can be supported across servers.
+Tomcat，Jetty，Servlet 3.1+ 容器以及无服务器运行时（例如 Netty 和 Undertow）都支持 Spring WebFlux。 所有服务器都适应于底层 <<webflux-httphandler, common API>>，因此可以跨服务器支持更高级别的<<webflux-programming-models, programming models>>。
 
-Spring WebFlux does not have built-in support to start or stop a server. However, it is
-easy to <<webflux-web-handler-api, assemble>> an application from Spring configuration and
-<<webflux-config, WebFlux infrastructure>> and <<webflux-httphandler, run it>> with a few
-lines of code.
+Spring WebFlux不具有内置支持来启动或停止服务器。 但是，从 Spring 配置和 <<webflux-config, WebFlux 基础结构>> <<webflux-web-handler-api, assemble>> 应用程序并用几行代码 <<webflux-httphandler, run it>>它很容易。
 
-Spring Boot has a WebFlux starter that automates these steps. By default, the starter uses
-Netty, but it is easy to switch to Tomcat, Jetty, or Undertow by changing your
-Maven or Gradle dependencies. Spring Boot defaults to Netty, because it is more widely
-used in the asynchronous, non-blocking space and lets a client and a server share resources.
+Spring Boot 具有一个 WebFlux 启动器，可以自动执行这些步骤。 默认情况下，默认使用 Netty，但是通过更改 Maven 或 Gradle 依赖，可以轻松切换到 Tomcat，Jetty 或 Undertow。 Spring Boot 默认为Netty，因为它在异步，非阻塞空间中得到更广泛的使用，并允许客户端和服务器共享资源。
 
-Tomcat and Jetty can be used with both Spring MVC and WebFlux. Keep in mind, however, that
-the way they are used is very different. Spring MVC relies on Servlet blocking I/O and
-lets applications use the Servlet API directly if they need to. Spring WebFlux
-relies on Servlet 3.1 non-blocking I/O and uses the Servlet API behind a low-level
-adapter and not exposed for direct use.
+Tomcat 和 Jetty 可以与 Spring MVC 和 WebFlux 一起使用。 但是请记住，它们的使用方式非常不同。 Spring MVC 依靠 Servlet 阻塞 I/O，并允许应用程序在需要时直接使用 Servlet API。 Spring WebFlux 依赖于 Servlet 3. 1非阻塞I/O，并在底层适配器后面使用 Servlet API，并且不公开供直接使用。
 
-For Undertow, Spring WebFlux uses Undertow APIs directly without the Servlet API.
-
-
+对于 Undertow，Spring WebFlux 直接使用 Undertow API，而无需使用 Servlet API。
 
 [[webflux-performance]]
-=== Performance
+=== 性能
 
-Performance has many characteristics and meanings. Reactive and non-blocking generally
-do not make applications run faster. They can, in some cases, (for example, if using the
-`WebClient` to execute remote calls in parallel). On the whole, it requires more work to do
-things the non-blocking way and that can increase slightly the required processing time.
+性能具有许多特征和意义。 Reactive 和非阻塞通常不会使应用程序运行得更快。 在某些情况下，它们可以（例如，如果使用 `WebClient` 并行执行远程调用）。 总体而言，以非阻塞方式进行操作需要更多的工作，这可能会稍微增加所需的处理时间。
 
-The key expected benefit of reactive and non-blocking is the ability to scale with a small,
-fixed number of threads and less memory. That makes applications more resilient under load,
-because they scale in a more predictable way. In order to observe those benefits, however, you
-need to have some latency (including a mix of slow and unpredictable network I/O).
-That is where the reactive stack begins to show its strengths, and the differences can be
-dramatic.
-
+reactive 和非阻塞性的主要预期好处是能够以较少的固定数量的线程和较少的内存进行扩展。 这使应用程序在负载下更具弹性，因为它们以更可预测的方式扩展。 为了观察到这些好处，您需要有一些延迟（包括缓慢的和不可预测的网络 I/O）。 这就是反应堆开始显示其优势的地方，差异可能很大。
 
 
 [[webflux-concurrency-model]]
-=== Concurrency Model
+=== 并发模型
 
-Both Spring MVC and Spring WebFlux support annotated controllers, but there is a key
-difference in the concurrency model and the default assumptions for blocking and threads.
+Spring MVC 和 Spring WebFlux 都支持带注释的控制器，但是并发模型和默认的阻塞和线程假设存在关键差异。
 
-In Spring MVC (and servlet applications in general), it is assumed that applications can
-block the current thread, (for example, for remote calls), and, for this reason, servlet containers
-use a large thread pool to absorb potential blocking during request handling.
+在 Spring MVC（通常是 servlet 应用程序）中，假定应用程序可以阻塞当前线程（例如，用于远程调用），因此，servlet 容器使用大线程池来吸收请求期间的潜在阻塞。 处理。
 
-In Spring WebFlux (and non-blocking servers in general), it is assumed that applications
-do not block, and, therefore, non-blocking servers use  a small, fixed-size thread pool
-(event loop workers) to handle requests.
+在 Spring WebFlux（通常是非阻塞服务器）中，假定应用程序不阻塞，因此，非阻塞服务器使用固定大小的小型线程池（事件循环工作器）来处理请求。
 
-TIP: "`To scale`" and "`small number of threads`" may sound contradictory but to never block the
-current thread (and rely on callbacks instead) means that you do not need extra threads, as
-there are no blocking calls to absorb.
+TIP: "`To scale`" 和 "`small number of threads`" 可能听起来是矛盾的，但是从不阻塞当前线程（而是依靠回调）意味着您不需要额外的线程，因为没有阻塞调用可以吸收。
 
+.调用  Blocking API
+如果确实需要使用阻塞怎么办？ Reactor 和 RxJava 都提供了 `publishOn` 运算符以继续在其他线程上进行处理。 这意味着容易逃生。 但是请记住，阻塞式API不适用于此并发模型。
 
+.可变状态
+在 Reactor 和 RxJava 中，您可以通过运算符声明逻辑，然后在运行时形成一个反应式管道，在其中以不同的阶段顺序处理数据。 这样做的主要好处是，它使应用程序不必保护可变状态，因为该管道中的应用程序代码永远不会被同时调用。
 
-.Invoking a Blocking API
-What if you do need to use a blocking library? Both Reactor and RxJava provide the
-`publishOn` operator to continue processing on a different thread. That means there is an
-easy escape hatch. Keep in mind, however, that blocking APIs are not a good fit for
-this concurrency model.
+.线程模型
+您期望在运行 Spring WebFlux 的服务器上看到哪些线程？
 
-.Mutable State
-In Reactor and RxJava, you declare logic through operators, and, at runtime, a reactive
-pipeline is formed where data is processed sequentially, in distinct stages. A key benefit
-of this is that it frees applications from having to protect mutable state because
-application code within that pipeline is never invoked concurrently.
+* 在“原始” Spring WebFlux 服务器上（例如，没有数据访问权限或其他可选依赖），您可以期望该服务器有一个线程，而其他几个线程则可以进行请求处理（通常与CPU核心数量一样多）。
+但是，Servlet 容器可能以更多的线程（例如，Tomcat 上为 10）开始，以支持 Servlet（阻塞）I/O和 Servlet 3.1（非阻塞）I/O使用。
+* reactive `WebClient` 以事件循环风格运行。 因此，您可以看到与之相关的固定数量的处理线程（例如，带有 Reactor Netty 连接器的 `reactor-http-nio-` ）。 但是，如果客户端和服务器都使用 Reactor Netty，则默认情况下，这两个共享事件循环资源。
+* Reactor 和 RxJava 提供称为调度程序的线程池抽象，以与 `publishOn`  运算符配合使用，该运算符用于将处理切换到其他线程池。
+调度程序具有建议特定并发策略的名称-例如， "`parallel`"（对于具有有限数量的线程的CPU绑定工作）或  "`elastic`"（对于具有大量线程的 I/O 绑定）。 如果看到这样的线程，则意味着某些代码正在使用特定的线程池 `Scheduler`  策略。
+* 数据访问库和其他第三方依赖性也可以创建和使用自己的线程。
 
-.Threading Model
-What threads should you expect to see on a server running with Spring WebFlux?
-
-* On a "`vanilla`" Spring WebFlux server (for example, no data access nor other optional
-dependencies), you can expect one thread for the server and several others for request
-processing (typically as many as the number of CPU cores). Servlet containers, however,
-may start with more threads (for example, 10 on Tomcat), in support of both servlet (blocking) I/O
-and servlet 3.1 (non-blocking) I/O usage.
-
-* The reactive `WebClient` operates in event loop style. So you can see a small, fixed
-number of processing threads related to that (for example, `reactor-http-nio-` with the Reactor
-Netty connector). However, if Reactor Netty is used for both client and server, the two
-share event loop resources by default.
-
-* Reactor and RxJava provide thread pool abstractions, called Schedulers, to use with the
-`publishOn` operator that is used to switch processing to a different thread pool.
-The schedulers have names that suggest a specific concurrency strategy -- for example, "`parallel`"
-(for CPU-bound work with a limited number of threads) or "`elastic`" (for I/O-bound work with
-a large number of threads). If you see such threads, it means some code is using a
-specific thread pool `Scheduler` strategy.
-
-* Data access libraries and other third party dependencies can also create and use threads
-of their own.
-
-.Configuring
-The Spring Framework does not provide support for starting and stopping
-<<webflux-server-choice, servers>>. To configure the threading model for a server,
-you need to use server-specific configuration APIs, or, if you use Spring Boot,
-check the Spring Boot configuration options for each server. You can
-<<web-reactive.adoc#webflux-client-builder, configure>> the `WebClient` directly.
-For all other libraries, see their respective documentation.
-
-
+.配置
+Spring框架不提供启动和停止 <<webflux-server-choice, servers>> 的支持。 要为服务器配置线程模型，您需要使用服务器特定的配置API，或者，如果使用 Spring Boot，请检查每个服务器的 Spring Boot 配置选项。 您可以直接 <<web-reactive.adoc#webflux-client-builder, configure>> `WebClient`。 对于所有其他库，请参阅其各自的文档。
 
 
 [[webflux-reactive-spring-web]]
