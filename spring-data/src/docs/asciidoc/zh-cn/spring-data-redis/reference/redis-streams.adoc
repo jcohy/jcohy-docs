@@ -50,7 +50,7 @@ Stream 记录携带 `Map`,键值元组作为其有效负载. 将记录追加到�
 
 NOTE: Redis 中的订阅命令可能被阻塞. 也就是说,在连接上调用 `xRead` 会导致当前线程在开始等待消息并阻塞. 仅当读取命令超时或收到消息时才释放线程.
 
-要使用流消息,可以在应用程序代码中轮询消息,或者通过消息侦听器容器使用两种 <<redis.streams.receive.containers>> 之一,即命令式或响应式. 每当有新记录到达时,容器都会通知应用程序代码.
+要使用流消息,可以在应用程序代码中轮询消息,或者通过消息监听器容器使用两种 <<redis.streams.receive.containers>> 之一,即命令式或响应式. 每当有新记录到达时,容器都会通知应用程序代码.
 
 [[redis.streams.receive.synchronous]]
 === 同步接收
@@ -71,19 +71,19 @@ List<MapRecord<K, HK, HV>> messages = template.streamOps().read(Consumer.from("m
 ----
 
 [[redis.streams.receive.containers]]
-=== 通过消息侦听器容器进行异步接收
+=== 通过消息监听器容器进行异步接收
 
-由于其阻塞性质,低级别轮询没有吸引力,因为它需要每个单个使用者进行连接和线程管理. 为了减轻这个问题,Spring Data 提供了消息侦听器,它可以完成所有繁重的工作. 如果您熟悉 EJB 和 JMS,则应该熟悉这些概念,因为它被设计为尽可能接近 Spring Framework 及其消息驱动的POJO(MDP)的支持.
+由于其阻塞性质,低级别轮询没有吸引力,因为它需要每个单个使用者进行连接和线程管理. 为了减轻这个问题,Spring Data 提供了消息监听器,它可以完成所有繁重的工作. 如果您熟悉 EJB 和 JMS,则应该熟悉这些概念,因为它被设计为尽可能接近 Spring Framework 及其消息驱动的POJO(MDP)的支持.
 
 Spring Data 附带了两种针对所用编程模型的实现:
 
-* `StreamMessageListenerContainer` 充当命令式编程模型的消息侦听器容器. 它用于消耗Redis流中的记录并驱动注入其中的 `StreamListener` 实例.
-* `StreamReceiver` 提供了消息侦听器的响应式变体. 它用于将来自Redis流的消息作为潜在的无限流使用,并通过 `Flux` 发出流消息.
+* `StreamMessageListenerContainer` 充当命令式编程模型的消息监听器容器. 它用于消耗Redis流中的记录并驱动注入其中的 `StreamListener` 实例.
+* `StreamReceiver` 提供了消息监听器的响应式变体. 它用于将来自Redis流的消息作为潜在的无限流使用,并通过 `Flux` 发出流消息.
 
-`StreamMessageListenerContainer` 和 `StreamReceiver` 负责消息接收的所有线程,并分派到侦听器中进行处理. 消息侦听器容器/接收器是MDP与消息传递提供程序之间的中介,并负责注册接收消息,资源获取和释放,异常转换等.
+`StreamMessageListenerContainer` 和 `StreamReceiver` 负责消息接收的所有线程,并分派到监听器中进行处理. 消息监听器容器/接收器是MDP与消息传递提供程序之间的中介,并负责注册接收消息,资源获取和释放,异常转换等.
 这使您作为应用程序开发人员可以编写与接收消息(并对消息做出响应)相关的(可能很复杂的)业务逻辑,并将样板 Redis 基础结构问题委托给框架.
 
-这两个容器都允许更改运行时配置,因此您可以在应用程序运行时添加或删除订阅,而无需重新启动. 此外,容器使用延迟订阅方法,仅在需要时才使用 `RedisConnection`. 如果所有侦听器都未订阅,它将自动执行清除,然后释放线程.
+这两个容器都允许更改运行时配置,因此您可以在应用程序运行时添加或删除订阅,而无需重新启动. 此外,容器使用延迟订阅方法,仅在需要时才使用 `RedisConnection`. 如果所有监听器都未订阅,它将自动执行清除,然后释放线程.
 
 ==== `StreamMessageListenerContainer`
 
@@ -115,7 +115,7 @@ message -> {
 };
 ----
 
-一旦实现了 `StreamListener`,就可以创建一个消息侦听器容器并注册订阅了:
+一旦实现了 `StreamListener`,就可以创建一个消息监听器容器并注册订阅了:
 
 [source,java]
 ----
@@ -131,7 +131,7 @@ StreamMessageListenerContainer<String, MapRecord<String, String, String>> contai
 Subscription subscription = container.receive(StreamOffset.fromStart("my-stream"), streamListener);
 ----
 
-请参阅各种消息侦听器容器的Javadoc,以获取每个实现所支持功能的完整说明.
+请参阅各种消息监听器容器的Javadoc,以获取每个实现所支持功能的完整说明.
 
 ==== Reactive `StreamReceiver`
 
@@ -161,14 +161,14 @@ StreamReceiver<String, MapRecord<String, String, String>> receiver = StreamRecei
 Flux<MapRecord<String, String, String>> messages = receiver.receive(StreamOffset.fromStart("my-stream"));
 ----
 
-请参阅各种消息侦听器容器的 Javadoc,以获取每个实现所支持功能的完整说明.
+请参阅各种消息监听器容器的 Javadoc,以获取每个实现所支持功能的完整说明.
 
 NOTE: 需求驱动的消耗使用背压信号来激活和停用轮询. 如果满足需求,则 `StreamReceiver` 订阅将暂停轮询,直到订阅者发出进一步的请求. 根据 `ReadOffset` 策略,这可能导致消息被跳过.
 
 [[redis.streams.acknowledge]]
 === `Acknowledge` 策略
 
-当您通过 `Consumer Group` 阅读邮件时,服务器将记住已传递给定邮件,并将其添加到“待处理条目列表”(PEL)中. 已发送但尚未确认的邮件列表.
+当您通过 `Consumer Group` 阅读邮件时,服务器将记住已传递给定邮件,并将其添加到"待处理条目列表”(PEL)中. 已发送但尚未确认的邮件列表.
 消息必须通过 `StreamOperations.acknowledge` 进行确认,以便从待处理条目列表中删除,如下面的代码片段所示.
 
 ====
