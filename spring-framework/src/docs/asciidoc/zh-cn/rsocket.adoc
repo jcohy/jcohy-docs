@@ -1,0 +1,785 @@
+[[rsocket]]
+= RSocket
+include::attributes.adoc[]
+
+
+本节描述了 Spring Framework 对 RSocket 协议的支持.
+
+
+[[rsocket-overview]]
+== 概述
+
+RSocket 是通过 TCP,WebSocket 和其他字节流传输进行多路复用,双工通信的应用协议,RSocket 使用以下交互模型:
+
+* `Request-Response` -- 这是最典型也最常见的模式.发送方在发送消息给接收方之后,等待与之对应的响应消息.
+* `Request-Stream` -- 发送方的每个请求消息,都对应于接收方的一个消息流作为响应.
+* `Channel` -- 在发送方和接收方之间建立一个双向传输的通道.
+* `Fire-and-Forget` -- 发送方的请求消息没有与之对应的响应.
+
+一旦建立了初始连接,由于双方变得对称,并且双方都可以发起上述交互之一,因此"客户端”与"服务器”的区别将消失. 这就是为什么在协议中将参与方称为"请求者”和"响应者”,而将上述交互称为"请求流”或简称为"请求”的原因.
+
+这些是 RSocket 协议的主要功能和优势:
+
+* https://www.reactive-streams.org/[Reactive Streams] semantics across network boundary --
+for streaming requests such as `Request-Stream` and `Channel`, back pressure signals
+travel between requester and responder, allowing a requester to slow down a responder at
+the source, hence reducing reliance on network layer congestion control, and the need
+for buffering at the network level or at any level.
+* Request throttling -- this feature is named "Leasing" after the `LEASE` frame that
+can be sent from each end to limit the total number of requests allowed by other end
+for a given time. Leases are renewed periodically.
+* Session resumption -- this is designed for loss of connectivity and requires some state
+to be maintained. The state management is transparent for applications, and works well
+in combination with back pressure which can stop a producer when possible and reduce
+the amount of state required.
+* Fragmentation and re-assembly of large messages.
+* Keepalive (heartbeats).
+
+RSocket 有多种语言的 {gh-rsocket}[实现].{gh-rsocket-java}[Java library]构建在 https://projectreactor.io/[Project Reactor] 和用于传输的  https://github.com/reactor/reactor-netty[Reactor Netty] 之上.这意味着来自应用程序中的响应流发布者的信号通过RSocket在网络中透明地传播.
+
+[[rsocket-protocol]]
+=== 协议
+
+RSocket 的优点之一是,它在线路上具有定义明确的行为,并且易于阅读的 https://rsocket.io/docs/Protocol[规范] 以及某些协议 {gh-rsocket}/rsocket/tree/master/Extensions[扩展].
+
+**Connecting**
+
+最初,客户端通过一些低级流传输(例如 TCP 或 WebSocket)连接到服务器,然后将 `SETUP` 帧发送到服务器以设置连接参数.
+
+服务器可以拒绝 `SETUP` 帧,但是通常在发送(对于客户端)和接收(对于服务器)之后,双方都可以开始发出请求,除非 `SETUP` 指示使用租赁语义来限制请求的数量. 在这种情况下,双方都必须等待另一端的 `LEASE` 帧以允许发出请求.
+
+**Making Requests**
+
+建立连接后,双方都可以通过帧 `REQUEST_RESPONSE`,`REQUEST_STREAM`,`REQUEST_CHANNEL` 或 `REQUEST_FNF` 中的一个来发起请求. 这些帧中的每一个都将一条消息从请求者传送到响应者.
+
+然后,响应者可以返回带有响应消息的 `PAYLOAD` 帧,在 `REQUEST_CHANNEL` 的情况下,请求者还可以发送带有更多请求消息的 `PAYLOAD` 帧.
+
+当请求涉及消息流(例如 Request-Stream 和 Channel)时,响应者必须遵守来自请求者的需求信号. 需求表示为许多消息. 初始需求在 `REQUEST_STREAM` 和 `REQUEST_CHANNEL` 帧中指定. 后续需求通过 `REQUEST_N` 帧发出信号.
+
+每一端还可以通过 `METADATA_PUSH` 帧发送元数据通知,该元数据通知与任何单独的请求无关,而与整个连接有关.
+
+**Message Format**
+
+RSocket 消息包含数据和元数据. 元数据可用于发送路由,安全令牌等.数据和元数据的格式可以不同. 每个 MIME 类型都在 SETUP 框架中声明,并应用于给定连接上的所有请求.
+
+尽管所有消息都可以具有元数据,但通常每个请求都包含诸如路由之类的元数据,因此仅包含在请求的第一条消息中,即与帧 `REQUEST_RESPONSE`,`REQUEST_STREAM`,`REQUEST_CHANNEL` 或 `REQUEST_FNF` 中的一个一起使用.
+
+协议扩展定义了用于应用程序的通用元数据格式:
+* {gh-rsocket-extentions}/CompositeMetadata.md[Composite Metadata]-- multiple,
+  independently formatted metadata entries.
+* {gh-rsocket-extentions}/Routing.md[Routing] -- the route for a request.
+
+
+
+[[rsocket-java]]
+=== Java 实现
+
+RSocket 的 {gh-rsocket-java}[Java implementation] 基于 https://projectreactor.io/[Project Reactor] 构建. TCP 和 WebSocket 的传输建立在 https://github.com/reactor/reactor-netty[Reactor Netty] 上.
+作为 Reactive Streams 库,Reactor 简化了实现协议的工作. 对于应用程序,自然而然的选择是将 `Flux` 和 `Mono` 与声明性运算符和透明背压支持一起使用.
+
+RSocket Java 中的 API 故意是最小且基本的. 它侧重于协议功能,而将应用程序编程模型(例如 RPC 代码生成与其他)作为一个更高级别的独立关注点.
+
+主合同 {gh-rsocket-java}[Java implementation] 对四种请求交互类型进行建模,其中 `Mono` 表示单个消息的承诺,`Flux` 表示消息流,而 `io.rsocket.Payload` 通过访问实际数据消息来访问数据和元数据作为字节缓冲区. `RSocket` 合同是对称使用的.
+对于请求,将为应用程序提供一个 `RSocket` 来执行请求. 为了响应,该应用程序实现 `RSocket` 来处理请求.
+
+这并不意味着要进行全面介绍. 在大多数情况下,Spring应用程序将不必直接使用其API. 但是,独立于 Spring 来看或尝试 RSocket 可能很重要. RSocket Java 存储库包含许多 {gh-rsocket-java}/tree/master/rsocket-examples[示例应用程序] ,以演示其API和协议功能.
+
+[[rsocket-spring]]
+=== Spring 支持
+
+`spring-messaging` 模块包含以下内容
+
+* <<rsocket-requester>> -- 流式的API通过 `io.rsocket.RSocket` 进行请求,并进行数据和元数据编码/解码.
+* <<rsocket-annot-responders>> -- `@MessageMapping` 响应注解处理方法
+
+`spring-web` 模块包含 RSocket 应用程序可能需要的 `Encoder` 和 `Decoder` 实现,例如 Jackson CBOR/JSON 和 Protobuf. 它还包含 `PathPatternParser`,可以将其插入以进行有效的路由匹配.
+
+Spring Boot 2.2 支持通过 TCP 或 WebSocket 站立 RSocket 服务器,包括在 WebFlux 服务器中通过 WebSocket 暴露 RSocket 的选项. `RSocketRequester.Builder` 和 `RSocketStrategies` 还具有客户端支持和自动配置.
+有关更多详细信息,请参见 Spring Boot 参考中的 https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#boot-features-rsocket[RSocket 部分].
+
+Spring Security 5.2 提供了 RSocket 支持.
+
+Spring Integration 5.2 提供了入站和出站网关以与 RSocket 客户端和服务器进行交互. 有关更多详细信息,请参见 Spring Integration参考手册.
+
+Spring Cloud Gateway 支持 RSocket 连接.
+
+[[rsocket-requester]]
+== RSocketRequester
+
+`RSocketRequester` 提供了一个流式的API来执行RSocket请求,接受和返回数据和元数据的对象,而不是底层数据缓冲区. 它可以对称地用于从客户端发出请求和从服务器发出请求.
+
+[[rsocket-requester-client]]
+=== Client Requester
+
+要在客户端获得 `RSocketRequester`,需要连接到服务器,同时准备并发送初始 RSocket `SETUP` 帧. `RSocketRequester` 为此提供了一个生成器. 内部使用 RSocket Java 的 `RSocketFactory`.
+
+这是使用默认设置进行连接的最基本方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.connectTcp("localhost", 7000);
+
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.connectWebSocket(URI.create("https://example.org:8080/rsocket"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+	import org.springframework.messaging.rsocket.connectWebSocketAndAwait
+
+	val requester = RSocketRequester.builder()
+			.connectTcpAndAwait("localhost", 7000)
+
+	val requester = RSocketRequester.builder()
+			.connectWebSocketAndAwait(URI.create("https://example.org:8080/rsocket"))
+----
+
+以上是推迟的. 实际连接和使用请求者:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Connect asynchronously
+	RSocketRequester.builder().connectTcp("localhost", 7000)
+		.subscribe(requester -> {
+			// ...
+		});
+
+	// Or block
+	RSocketRequester requester = RSocketRequester.builder()
+		.connectTcp("localhost", 7000)
+		.block(Duration.ofSeconds(5));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Connect asynchronously
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	class MyService {
+
+		private var requester: RSocketRequester? = null
+
+		private suspend fun requester() = requester ?:
+			RSocketRequester.builder().connectTcpAndAwait("localhost", 7000).also { requester = it }
+
+		suspend fun doSomething() = requester().route(...)
+	}
+
+	// Or block
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	class MyService {
+
+		private val requester = runBlocking {
+			RSocketRequester.builder().connectTcpAndAwait("localhost", 7000)
+		}
+
+		suspend fun doSomething() = requester.route(...)
+	}
+----
+
+
+[[rsocket-requester-client-setup]]
+==== Connection Setup
+
+`RSocketRequester.Builder` 提供了以下自定义初始 `SETUP` 框架的功能:
+
+* `dataMimeType(MimeType)` -- 设置连接数据的 mime 类型.
+* `metadataMimeType(MimeType)` -- 设置连接上元数据的 mime 类型.
+* `setupData(Object)` -- 包含在 `SETUP` 中的数据.
+* `setupRoute(String, Object...)` -- 在元数据中路由以包含在 `SETUP` 中.
+* `setupMetadata(Object, MimeType)` -- 其他要包含在 `SETUP` 中的元数据.
+
+对于数据,默认的 mime 类型是从第一个配置的 `Decoder` 继承的. 对于元数据,默认的 mime 类型是 {gh-rsocket-extentions}/CompositeMetadata.md[复合元数据],它允许每个请求有多个元数据值和 mime 类型对. 通常,两者都不需要更改.
+
+`SETUP` 框架中的数据和元数据是可选的. 在服务器端,<<rsocket-annot-connectmapping>> 方法可用于处理连接的开始以及SETUP框架的内容. 元数据可用于连接级别的安全性.
+
+[[rsocket-requester-client-strategies]]
+==== Strategies
+
+`RSocketRequester.Builder` 接受 `RSocketStrategies` 来配置请求者. 您需要使用它来提供编码器和解码器,以对数据和元数据值进行(反)序列化. 默认情况下,仅注册 `spring-core` 中用于 `String`, `byte[]` 和 `ByteBuffer` 的基本编解码器.
+添加 `spring-web` 可以访问更多可以注册的内容,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	RSocketStrategies strategies = RSocketStrategies.builder()
+		.encoders(encoders -> encoders.add(new Jackson2CborEncoder()))
+		.decoders(decoders -> decoders.add(new Jackson2CborDecoder()))
+		.build();
+
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.rsocketStrategies(strategies)
+		.connectTcp("localhost", 7000);
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	val strategies = RSocketStrategies.builder()
+			.encoders { it.add(Jackson2CborEncoder()) }
+			.decoders { it.add(Jackson2CborDecoder()) }
+			.build()
+
+	val requester = RSocketRequester.builder()
+			.rsocketStrategies(strategies)
+			.connectTcpAndAwait("localhost", 7000)
+----
+
+`RSocketStrategies` 设计为可重复使用. 在某些情况下,例如 客户和服务器在同一应用程序中,最好在Spring配置中声明它.
+
+[[rsocket-requester-client-responder]]
+==== Client Responders
+
+`RSocketRequester.Builder` 可用于配置响应器以响应来自服务器的请求.
+
+您可以根据服务器上使用的相同基础结构,使用带注解的处理程序来进行客户端响应,但是通过编程方式进行了以下注册:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	RSocketStrategies strategies = RSocketStrategies.builder()
+		.routeMatcher(new PathPatternRouteMatcher())  // <1>
+		.build();
+
+	ClientHandler handler = new ClientHandler(); // <2>
+
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.rsocketFactory(RSocketMessageHandler.clientResponder(strategies, handler)) // <3>
+		.connectTcp("localhost", 7000);
+----
+<1> 如果存在 `spring-web`,请使用 `PathPatternRouteMatcher`,以提高效率路线匹配.
+<2> 创建包含 `@MessageMaping` 或 `@ConnectMapping` 方法的响应者.
+<3> 在 `RSocketMessageHandler` 中使用静态工厂方法来注册一个或多个响应者.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	val strategies = RSocketStrategies.builder()
+			.routeMatcher(PathPatternRouteMatcher())  // <1>
+			.build()
+
+	val handler = ClientHandler() // <2>
+
+	val requester = RSocketRequester.builder()
+			.rsocketFactory(RSocketMessageHandler.clientResponder(strategies, handler)) // <3>
+			.connectTcpAndAwait("localhost", 7000)
+----
+<1> 如果存在 `spring-web`,请使用 `PathPatternRouteMatcher`,以提高效率路线匹配.
+<2> 创建包含 `@MessageMaping` 或 `@ConnectMapping` 方法的响应者.
+<3> 在 `RSocketMessageHandler` 中使用静态工厂方法来注册一个或多个响应者.
+
+请注意,以上只是设计用于客户端响应程序的程序化注册的快捷方式. 对于客户端响应者处于Spring配置的替代方案,您仍然可以将 `RSocketMessageHandler` 声明为Spring Bean,然后按如下所示进行应用:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	ApplicationContext context = ... ;
+	RSocketMessageHandler handler = context.getBean(RSocketMessageHandler.class);
+
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.rsocketFactory(factory -> factory.acceptor(handler.responder()))
+		.connectTcp("localhost", 7000);
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.beans.factory.getBean
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	val context: ApplicationContext = ...
+	val handler = context.getBean<RSocketMessageHandler>()
+
+	val requester = RSocketRequester.builder()
+			.rsocketFactory { it.acceptor(handler.responder()) }
+			.connectTcpAndAwait("localhost", 7000)
+----
+
+对于上述情况,您可能还需要使用 `RSocketMessageHandler` 中的 `setHandlerPredicate` 来切换到用于检测客户端响应程序的其他策略,例如 基于自定义注解,例如 `@RSocketClientResponder` 与默认 `@Controller`.
+在客户端和服务器或同一应用程序中有多个客户端的情况下,这是必需的.
+
+有关编程模型的更多信息,请参见  <<rsocket-annot-responders>>.
+
+[[rsocket-requester-client-advanced]]
+==== Advanced
+
+`RSocketRequesterBuilder` 提供了一个回调,用于从 RSocket Java 中暴露底层 `ClientRSocketFactory`,以获取更多有关 keepalive 间隔,会话恢复,拦截器等的配置选项. 您可以按以下方式在该级别上配置选项:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+		.rsocketFactory(factory -> {
+			// ...
+		})
+		.connectTcp("localhost", 7000);
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.connectTcpAndAwait
+
+	val requester = RSocketRequester.builder()
+			.rsocketFactory {
+				//...
+			}.connectTcpAndAwait("localhost", 7000)
+----
+
+
+[[rsocket-requester-server]]
+=== Server Requester
+
+从服务器向连接的客户端发出请求是从服务器获取连接客户端的请求者的问题.
+
+在<<rsocket-annot-responders>>中,`@ConnectMapping` 和 `@MessageMapping` 方法支持 `RSocketRequester` 参数. 使用它来访问连接的请求者. 请记住,`@ConnectMapping` 方法本质上是 `SETUP` 框架的处理程序,必须在请求开始之前对其进行处理.
+因此,必须从一开始就将请求与处理分离. 例如:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ConnectMapping
+	Mono<Void> handle(RSocketRequester requester) {
+		requester.route("status").data("5")
+			.retrieveFlux(StatusReport.class)
+			.subscribe(bar -> { // <1>
+				// ...
+			});
+		return ... // <2>
+	}
+----
+<1> 独立于处理,异步启动请求.
+<2> 执行处理并返回完成 `Mono<Void>`.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ConnectMapping
+	suspend fun handle(requester: RSocketRequester) {
+		GlobalScope.launch {
+			requester.route("status").data("5").retrieveFlow<StatusReport>().collect { // <1>
+				// ...
+			}
+		}
+		/// ... <2>
+	}
+----
+<1> Start the request asynchronously, independent from handling.
+<2> Perform handling in the suspending function.
+
+
+
+[[rsocket-requester-requests]]
+=== Requests
+
+有了<<rsocket-requester-client,client>>或<<rsocket-requester-server,server>> 请求者后,可以按以下方式发出请求:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	ViewBox viewBox = ... ;
+
+	Flux<AirportLocation> locations = requester.route("locate.radars.within") // <1>
+			.data(viewBox) // <2>
+			.retrieveFlux(AirportLocation.class); // <3>
+
+----
+<1> 指定要包含在请求消息的元数据中的路由.
+<2> 提供请求消息的数据.
+<3> 声明预期的响应.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val viewBox: ViewBox = ...
+
+	val locations = requester.route("locate.radars.within") // <1>
+			.data(viewBox) // <2>
+			.retrieveFlow<AirportLocation>() // <3>
+----
+<1> 指定要包含在请求消息的元数据中的路由.
+<2> 提供请求消息的数据.
+<3> 声明预期的响应.
+
+交互类型是根据输入和输出的基数隐式确定的. 上面的示例是一个 `Request-Stream`,因为发送了一个值并接收了一个值流. 在大多数情况下,只要输入和输出的选择与 RSocket 交互类型以及响应者期望的输入和输出类型相匹配,就无需考虑这一点.
+无效组合的唯一示例是多对一.
+
+`data(Object)` 方法还接受任何 Reactive Streams `Publisher`,包括 `Flux` 和 `Mono`,以及在 `ReactiveAdapterRegistry` 中注册的任何其他值的生产者. 对于产生相同类型值的多值发布器(例如 `Flux`),请考虑使用重载 `data` 方法之一, 以避免对每个元素进行类型检查和 `Encoder` 查找:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+data(Object producer, Class<?> elementClass);
+data(Object producer, ParameterizedTypeReference<?> elementTypeRef);
+----
+
+`data(Object)` 步骤是可选的. 跳过不发送数据的请求:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<AirportLocation> location = requester.route("find.radar.EWR"))
+		.retrieveMono(AirportLocation.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.retrieveAndAwait
+
+	val location = requester.route("find.radar.EWR")
+		.retrieveAndAwait<AirportLocation>()
+----
+
+如果使用 {gh-rsocket-extentions}/CompositeMetadata.md[复合元数据](默认设置)并且注册的 `Encoder` 支持该值,则可以添加额外的元数据值. 例如:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	String securityToken = ... ;
+	ViewBox viewBox = ... ;
+	MimeType mimeType = MimeType.valueOf("message/x.rsocket.authentication.bearer.v0");
+
+	Flux<AirportLocation> locations = requester.route("locate.radars.within")
+			.metadata(securityToken, mimeType)
+			.data(viewBox)
+			.retrieveFlux(AirportLocation.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.retrieveFlow
+
+	val requester: RSocketRequester = ...
+
+	val securityToken: String = ...
+	val viewBox: ViewBox = ...
+	val mimeType = MimeType.valueOf("message/x.rsocket.authentication.bearer.v0")
+
+	val locations = requester.route("locate.radars.within")
+			.metadata(securityToken, mimeType)
+			.data(viewBox)
+			.retrieveFlow<AirportLocation>()
+----
+
+对于 `Fire-and-Forget`,请使用返回 `Mono<Void>` 的  `send()`  方法. 请注意,`Mono` 仅指示消息已成功发送,而不是已被处理.
+
+[[rsocket-annot-responders]]
+== Annotated Responders
+
+RSocket 响应器可以实现为 `@MessageMapping` 和 `@ConnectMapping` 方法. `@MessageMapping` 方法处理单个请求,而 `@ConnectMapping` 方法处理连接级事件(设置和元数据推送). 对称支持带注解的响应者,用于从服务器端响应和从客户端端响应.
+
+
+[[rsocket-annot-responders-server]]
+=== Server Responders
+
+要在服务器端使用带注解的响应者,请将 `RSocketMessageHandler` 添加到您的Spring配置中,以使用 `@MessageMapping` 和 `@ConnectMapping` 方法检测 `@Controller` Bean:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	static class ServerConfig {
+
+		@Bean
+		public RSocketMessageHandler rsocketMessageHandler() {
+			RSocketMessageHandler handler = new RSocketMessageHandler();
+			handler.routeMatcher(new PathPatternRouteMatcher());
+			return handler;
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	class ServerConfig {
+
+		@Bean
+		fun rsocketMessageHandler() = RSocketMessageHandler().apply {
+			routeMatcher = PathPatternRouteMatcher()
+		}
+	}
+----
+
+然后通过 Java RSocket API 启动 RSocket 服务器,并为响应者插入 `RSocketMessageHandler`,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	ApplicationContext context = ... ;
+	RSocketMessageHandler handler = context.getBean(RSocketMessageHandler.class);
+
+	CloseableChannel server =
+		RSocketFactory.receive()
+			.acceptor(handler.responder())
+			.transport(TcpServerTransport.create("localhost", 7000))
+			.start()
+			.block();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.beans.factory.getBean
+
+	val context: ApplicationContext = ...
+	val handler = context.getBean<RSocketMessageHandler>()
+
+	val server = RSocketFactory.receive()
+			.acceptor(handler.responder())
+			.transport(TcpServerTransport.create("localhost", 7000))
+			.start().awaitFirst()
+----
+
+`RSocketMessageHandler` 默认情况下支持 {gh-rsocket-extentions}/CompositeMetadata.md[复合] 和 {gh-rsocket-extentions}/Routing.md[路由] 元数据. 如果需要切换到其他 mime 类型或注册其他元数据 mime 类型,则可以设置其 <<rsocket-metadata-extractor>>.
+
+您需要设置支持元数据和数据格式所需的 `Encoder` 和 `Decoder` 实例. 您可能需要 `spring-web` 模块来实现编解码器.
+
+默认情况下,`SimpleRouteMatcher` 用于通过 `AntPathMatcher` 匹配路由. 我们建议从 `spring-web` 插入 `PathPatternRouteMatcher` 以进行有效的路由匹配. RSocket 路由可以是分层的,但不是URL路径. 两个路由匹配器都配置为使用 "."  默认为分隔符,并且没有 HTTP 网址那样的 URL 解码.
+
+`RSocketMessageHandler` 可以通过 `RSocketStrategies` 进行配置,如果您需要在同一过程中在客户端和服务器之间共享配置,这可能会很有用:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	static class ServerConfig {
+
+		@Bean
+		public RSocketMessageHandler rsocketMessageHandler() {
+			RSocketMessageHandler handler = new RSocketMessageHandler();
+			handler.setRSocketStrategies(rsocketStrategies());
+			return handler;
+		}
+
+		@Bean
+		public RSocketStrategies rsocketStrategies() {
+			return RSocketStrategies.builder()
+				.encoders(encoders -> encoders.add(new Jackson2CborEncoder()))
+				.decoders(decoders -> decoders.add(new Jackson2CborDecoder()))
+				.routeMatcher(new PathPatternRouteMatcher())
+				.build();
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	class ServerConfig {
+
+		@Bean
+		fun rsocketMessageHandler() = RSocketMessageHandler().apply {
+			rSocketStrategies = rsocketStrategies()
+		}
+
+		@Bean
+		fun rsocketStrategies() = RSocketStrategies.builder()
+				.encoders { it.add(Jackson2CborEncoder()) }
+				.decoders { it.add(Jackson2CborDecoder()) }
+				.routeMatcher(PathPatternRouteMatcher())
+				.build()
+	}
+----
+
+[[rsocket-annot-responders-client]]
+=== Client Responders
+
+需要在 `RSocketRequester.Builder` 中配置客户端的带注解的响应者. 有关详细信息,请参阅<<rsocket-requester-client-responder>>.
+
+[[rsocket-annot-messagemapping]]
+=== @MessageMapping
+
+<<rsocket-annot-responders-server,server>> 或 <<rsocket-annot-responders-client,client>> 响应程序配置到位后,可以按以下方式使用 `@MessageMapping` 方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Controller
+	public class RadarsController {
+
+		@MessageMapping("locate.radars.within")
+		public Flux<AirportLocation> radars(MapRequest request) {
+			// ...
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+@Controller
+class RadarsController {
+
+	@MessageMapping("locate.radars.within")
+	fun radars(request: MapRequest): Flow<AirportLocation> {
+		// ...
+	}
+}
+----
+
+上面的 `@MessageMapping` 方法响应具有路由 "locate.radars.within" 的请求-流交互. 它支持灵活的方法签名,并可以选择使用以下方法参数:
+
+[cols="1,3",options="header"]
+|===
+| 方法参数
+| 描述
+
+| `@Payload`
+| 请求的有效负载. 这可以是诸如 `Mono` 或 `Flux` 之类的异步类型的具体值.
+  *Note:* 注解的使用是可选的. 并非简单类型并且不是其他任何受支持参数的方法参数都假定为预期的有效负载.
+
+| `RSocketRequester`
+| 向远端发出请求的请求者.
+
+| `@DestinationVariable`
+| 根据映射模式中的变量从路线提取的值,例如 `@MessageMapping("find.radar.{id}")`.
+
+| `@Header`
+| 如 <<rsocket-metadata-extractor>> 中所述注册要提取的元数据值.
+
+| `@Headers Map<String, Object>`
+| 如 <<rsocket-metadata-extractor>> 中所述,注册所有用于提取的元数据值.
+
+|===
+
+返回值应为一个或多个要序列化为响应有效负载的对象. 可以是诸如 `Mono` 或 `Flux` 的异步类型,具体值,也可以是 `void` 或无值的异步类型,例如 `Mono<Void>`.
+
+`@MessageMapping` 方法支持的 RSocket 交互类型由输入(即 `@Payload` 参数)和输出的基数确定,其中基数表示以下内容:
+
+[%autowidth]
+[cols=2*,options="header"]
+|===
+| 基数
+| 描述
+
+| 1
+| 显式值或单值异步类型(如 `Mono<T>`) .
+
+| Many
+| 多值异步类型,例如 `Flux<T>`.
+
+| 0
+| 对于输入,这意味着该方法没有 `@Payload`  参数.
+
+对于输出,这是空的或无值异步类型,例如 `Mono <Void>`.
+|===
+
+下表显示了所有输入和输出基数组合以及相应的交互类型:
+
+[%autowidth]
+[cols=3*,options="header"]
+|===
+| Input Cardinality
+| Output Cardinality
+| Interaction Types
+
+| 0, 1
+| 0
+| Fire-and-Forget, Request-Response
+
+| 0, 1
+| 1
+| Request-Response
+
+| 0, 1
+| Many
+| Request-Stream
+
+| Many
+| 0, 1, Many
+| Request-Channel
+
+|===
+
+
+[[rsocket-annot-connectmapping]]
+=== @ConnectMapping
+
+`@ConnectMapping` 在 RSocket 连接开始时处理 `SETUP` 帧,并通过 `METADATA_PUSH` 帧(即 `io.rsocket.RSocket` 中的 `metadataPush(Payload)` 处理任何后续的元数据推送通知.
+
+`@ConnectMapping` 方法支持与 <<rsocket-annot-messagemapping>>  相同的参数,但基于 `SETUP` 和 `METADATA_PUSH` 帧中的元数据和数据. `@ConnectMapping` 可以具有将处理范围缩小到元数据中具有路由的特定连接的模式,或者,如果未声明任何模式,则所有连接都匹配.
+
+`@ConnectMapping` 方法无法返回数据,必须使用 `void` 或 `Mono<Void>` 作为返回值进行声明. 如果处理为新连接返回错误,则连接被拒绝. 不得阻止向 RSocketRequester 发出连接请求的处理. 有关详细信息,请参见<<rsocket-requester-server>>.
+
+[[rsocket-metadata-extractor]]
+== MetadataExtractor
+
+响应者必须解释元数据. {gh-rsocket-extentions}/CompositeMetadata.md[复合元数据] 允许独立格式化的元数据值(例如,用于路由,安全性和跟踪),每个元数据值都有自己的mime类型. 应用程序需要一种配置要支持的元数据 mime 类型的方法,以及一种访问提取值的方法.
+
+`MetadataExtractor` 是一种协议,用于获取序列化的元数据并返回解码的名称/值对,然后可以按名称对标题进行访问,例如通过带注解的处理程序方法中的 `@Header` 进行访问.
+
+可以为 `DefaultMetadataExtractor` 提供 `Decoder` 实例以解码元数据. 开箱即用,它具有对 {gh-rsocket-extentions}/Routing.md["message/x.rsocket.routing.v0"] 的内置支持,它可以解码为 `String` 并保存在  "route"  键下.
+对于任何其他 mime 类型,您需要提供一个 `Decoder` 并注册 mime 类型,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	DefaultMetadataExtractor extractor = new DefaultMetadataExtractor(metadataDecoders);
+	extractor.metadataToExtract(fooMimeType, Foo.class, "foo");
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.metadataToExtract
+
+	val extractor = DefaultMetadataExtractor(metadataDecoders)
+	extractor.metadataToExtract<Foo>(fooMimeType, "foo")
+----
+
+复合元数据很好地结合了独立的元数据值. 但是,请求者可能不支持复合元数据,或者可以选择不使用它. 为此,`DefaultMetadataExtractor` 可能需要自定义逻辑以将解码后的值映射到输出映射. 这是将JSON用于元数据的示例:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	DefaultMetadataExtractor extractor = new DefaultMetadataExtractor(metadataDecoders);
+	extractor.metadataToExtract(
+		MimeType.valueOf("application/vnd.myapp.metadata+json"),
+		new ParameterizedTypeReference<Map<String,String>>() {},
+		(jsonMap, outputMap) -> {
+			outputMap.putAll(jsonMap);
+		});
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.metadataToExtract
+
+	val extractor = DefaultMetadataExtractor(metadataDecoders)
+	extractor.metadataToExtract<Map<String, String>>(MimeType.valueOf("application/vnd.myapp.metadata+json")) { jsonMap, outputMap ->
+		outputMap.putAll(jsonMap)
+	}
+----
+
+通过 `RSocketStrategies` 配置 `MetadataExtractor` 时,可以让 `RSocketStrategies.Builder` 使用配置的解码器创建提取器,并简单地使用回调自定义注册,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	RSocketStrategies strategies = RSocketStrategies.builder()
+		.metadataExtractorRegistry(registry -> {
+			registry.metadataToExtract(fooMimeType, Foo.class, "foo");
+			// ...
+		})
+		.build();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.messaging.rsocket.metadataToExtract
+
+	val strategies = RSocketStrategies.builder()
+			.metadataExtractorRegistry { registry: MetadataExtractorRegistry ->
+				registry.metadataToExtract<Foo>(fooMimeType, "foo")
+				// ...
+			}
+			.build()
+----

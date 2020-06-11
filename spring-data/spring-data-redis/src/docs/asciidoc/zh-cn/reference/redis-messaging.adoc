@@ -1,0 +1,135 @@
+[[pubsub]]
+= Redis 消息 (Pub/Sub)
+
+Spring Data 为 Redis 提供了专用的消息传递集成,其功能和命名与 Spring Framework 中的 JMS 集成相似.
+
+Redis 消息传递可以大致分为两个功能区域:
+
+* 消息的发布或产生
+* 订阅或消费消息
+
+这是通常称为 "发布/订阅”(简称 "发布/订阅”)的模式的示例. `RedisTemplate` 类用于消息生成.
+对于类似于 Java EE 消息驱动 bean 样式的异步接收,Spring Data 提供了一个专用的消息监听器容器,该容器用于创建消息驱动的 POJO(MDP),并用于同步接收 `RedisConnection` 契约.
+
+`org.springframework.data.redis.connection` 和 `org.springframework.data.redis.listener` 包提供了 Redis 消息的核心功能
+
+[[redis:pubsub:publish]]
+== Publishing (发送消息)
+
+要发布消息,可以与其他操作一起使用底层 `RedisConnection` 或高级别 `RedisTemplate`. 这两个实体都提供了 `publish` 方法,该方法接受消息和目标通道作为参数. 虽然 `RedisConnection` 需要原始数据(字节数组), 但 `RedisTemplate` 允许将任意对象作为消息传递,如以下示例所示:
+
+[source,java]
+----
+// send message through connection RedisConnection con = ...
+byte[] msg = ...
+byte[] channel = ...
+con.publish(msg, channel); // send message through RedisTemplate
+RedisTemplate template = ...
+template.convertAndSend("hello!", "world");
+----
+
+[[redis:pubsub:subscribe]]
+== Subscribing (接收消息)
+
+在接收端,可以直接命名一个 channels 或使用模式匹配来订阅一个或多个 channels. 后一种方法非常有用,因为它不仅允许使用一个命令创建多个订阅,而且还可以监听在订阅时尚未创建的 channel(只要它们与模式匹配).
+
+在低层,`RedisConnection` 提供了 `subscription` 和 `pSubscribe` 方法,它们分别映射 Redis 命令以分别按通道或按模式进行订阅. 注意,可以将多个通道或模式用作参数. 要更改订阅的连接或查询连接是否在监听,`RedisConnection` 提供了 `getSubscription` 和 `isSubscribed` 方法.
+
+NOTE: Spring Data Redis 中的订阅命令是阻塞的. 也就是说,在连接上调用订阅会导致当前线程阻塞,等待消息返回. 仅当取消订阅时才释放线程,这是在另一个线程在同一连接上调用 `unsubscribe` 或 `pUnsubscribe` 时发生的. 有关此问题的解决方案,请参见 "`<<redis:pubsub:subscribe:containers>>`" (在本文档后面).
+
+如前所述,一旦订阅,连接即开始等待消息. 仅允许添加新订阅,修改现有订阅以及取消现有订阅的命令. 调用 `subscribe`,`pSubscribe`, `unsubscribe` 或 `pUnsubscribe` 之外的其他任何操作都会引发异常.
+
+为了订阅消息,需要实现 `MessageListener` 回调. 每次收到新消息时,都会通过 `onMessage` 方法调用回调并运行用户代码. 该接口不仅可以访问实际消息,还可以访问已通过其接收的通道,以及订阅使用的与通道匹配的模式(如果有). 该信息使被叫方不仅可以按内容来区分各种消息,还可以检查其他细节.
+
+[[redis:pubsub:subscribe:containers]]
+=== 消息监听容器
+
+由于其阻塞性质,底层订阅并不吸引人,因为它要求每个监听器都具有连接和线程管理. 为了减轻这个问题,Spring Data 提供了 `RedisMessageListenerContainer`,它可以完成所有繁重的工作. 如果您熟悉 EJB 和J MS,则应该熟悉这些概念,因为它被设计为尽可能接近 Spring Framework 及其消息驱动的 POJO(MDP)的支持.
+
+`RedisMessageListenerContainer` 充当消息监听器容器. 它用于接收来自 Redis 通道的消息,并驱动注入到其中的 `MessageListener` 实例. 监听器容器负责消息接收的所有线程,并分派到监听器中进行处理. 消息监听器容器是MDP与消息传递提供程序之间的中介,并负责注册接收消息,资源获取和释放,异常转换等.
+这使您作为应用程序开发人员可以编写与接收消息(并对消息做出响应)相关的(可能很复杂的)业务逻辑,并将样板Redis基础结构问题委托给框架.
+
+此外,为了最大限度地减少应用程序占用空间,`RedisMessageListenerContainer` 允许一个连接和一个线程由多个监听器共享,即使它们不共享订阅.因此,无论应用程序跟踪多少监听器或通道,运行时间成本在整个生命周期中都保持不变.
+此外,该容器允许更改运行时配置,以便您可以在应用程序运行时添加或删除监听器,而无需重新启动.此外,容器使用延迟订阅方法,仅在需要时才使用 `RedisConnection`.如果所有监听器都未订阅,则将自动执行清除,然后释放线程.
+
+为了帮助解决消息的异步特性,容器需要使用 `java.util.concurrent.Executor`(或 Spring 的 `TaskExecutor`)来调度消息.根据负载,监听器的数量或运行时环境,应更改或调整执行程序,以更好地满足您的需求.
+特别是在托管环境(例如应用服务器)中,强烈建议选择合适的 `TaskExecutor` 以利用其运行时.
+
+
+[[redis:pubsub:subscribe:adapter]]
+=== MessageListenerAdapter
+
+`MessageListenerAdapter` 类是 Spring 异步消息支持中的最后一个组件. 简而言之,它使您几乎可以将任何类暴露为MDP(尽管存在一些约束).
+
+考虑以下接口定义:
+
+[source,java]
+----
+public interface MessageDelegate {
+  void handleMessage(String message);
+  void handleMessage(Map message); void handleMessage(byte[] message);
+  void handleMessage(Serializable message);
+  // pass the channel/pattern as well
+  void handleMessage(Serializable message, String channel);
+ }
+----
+
+请注意,尽管该接口未扩展 `MessageListener` 接口,但仍可以通过使用 `MessageListenerAdapter` 类将其用作MDP. 还请注意,如何根据各种消息处理方法可以接收和处理的各种消息类型的内容来强类型化. 另外,可以将发送消息的通道或模式作为 String 类型的第二个参数传递给该方法:
+
+[source,java]
+----
+public class DefaultMessageDelegate implements MessageDelegate {
+  // implementation elided for clarity...
+}
+----
+
+注意上面的 `MessageDelegate` 接口的实现(上面的 `DefaultMessageDelegate` 类)如何完全没有 Redis 依赖. 这确实是我们使用以下配置将 MPO 制成的 POJO:
+
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+ <beans xmlns="http://www.springframework.org/schema/beans"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xmlns:redis="http://www.springframework.org/schema/redis"
+   xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+   http://www.springframework.org/schema/redis https://www.springframework.org/schema/redis/spring-redis.xsd">
+
+<!-- the default ConnectionFactory -->
+<redis:listener-container>
+  <!-- the method attribute can be skipped as the default method name is "handleMessage" -->
+  <redis:listener ref="listener" method="handleMessage" topic="chatroom" />
+</redis:listener-container>
+
+<bean id="listener" class="redisexample.DefaultMessageDelegate"/>
+ ...
+<beans>
+----
+
+NOTE: 监听器主题可以是通道(for example, `topic="chatroom"`) 或模式(for example, `topic="*room"`)
+
+前面的示例使用 Redis 命名空间声明消息监听器容器,并自动将POJO注册为监听器. 完整的定义如下:
+
+[source,xml]
+----
+<bean id="messageListener" class="org.springframework.data.redis.listener.adapter.MessageListenerAdapter">
+  <constructor-arg>
+    <bean class="redisexample.DefaultMessageDelegate"/>
+  </constructor-arg>
+</bean>
+
+<bean id="redisContainer" class="org.springframework.data.redis.listener.RedisMessageListenerContainer">
+  <property name="connectionFactory" ref="connectionFactory"/>
+  <property name="messageListeners">
+    <map>
+      <entry key-ref="messageListener">
+        <bean class="org.springframework.data.redis.listener.ChannelTopic">
+          <constructor-arg value="chatroom"/>
+        </bean>
+      </entry>
+    </map>
+  </property>
+</bean>
+----
+
+每次接收到消息时,适配器都会自动且透明地(使用配置的 `RedisSerializer`)在底层格式和所需对象类型之间执行转换. 容器捕获并处理由方法调用引起的任何异常(默认情况下,异常会被记录).

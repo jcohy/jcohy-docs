@@ -1,0 +1,88 @@
+[[events]]
+= 事件
+
+REST 在使用实体暴露的整个过程中会发出八个不同的事件:
+
+* `BeforeCreateEvent`
+* `AfterCreateEvent`
+* `BeforeSaveEvent`
+* `AfterSaveEvent`
+* `BeforeLinkSaveEvent`
+* `AfterLinkSaveEvent`
+* `BeforeDeleteEvent`
+* `AfterDeleteEvent`
+
+[[events.application-listener]]
+== 编写一个 `ApplicationListener`
+
+您可以继承一个抽象类,以监听此类事件并根据事件类型调用适当的方法.  为此,请重写有关事件的方法,如下所示:
+
+====
+[source,java]
+----
+public class BeforeSaveEventListener extends AbstractRepositoryEventListener {
+
+  @Override
+  public void onBeforeSave(Object entity) {
+    ... logic to handle inspecting the entity before the Repository saves it
+  }
+
+  @Override
+  public void onAfterDelete(Object entity) {
+    ... send a message that this entity has been deleted
+  }
+}
+----
+====
+
+但是,使用这种方法要注意的一件事是,它不会根据实体的类型进行区分.  您必须自己检查一下.
+
+== 编写一个注解处理程序
+
+另一种方法是使用带注解的处理程序,该处理程序根据实体类型过滤事件.
+
+要声明一个处理程序,创建一个 POJO 并在其上添加 `@RepositoryEventHandler` 注解. 这告诉 `BeanPostProcessor` 这个类需要检查处理程序的方法.
+
+一旦 `BeanPostProcessor` 找到带有此注解的 bean,它会遍历暴露的方法,并查找与你感兴趣的事件相对应的注解.  例如,要处理带注解的 POJO 中用于不同种类的实体类型的 `BeforeSaveEvent` 实例,可以按如下方式定义您的类:
+
+====
+[source,java]
+----
+@RepositoryEventHandler <1>
+public class PersonEventHandler {
+
+  @HandleBeforeSave
+  public void handlePersonSave(Person p) {
+    // … you can now deal with Person in a type-safe way
+  }
+
+  @HandleBeforeSave
+  public void handleProfileSave(Profile p) {
+    // … you can now deal with Profile in a type-safe way
+  }
+}
+----
+
+<1> 可以通过使用 `@RepositoryEventHandler(Person.class)` 来缩小此处理程序应用的类型.
+====
+
+您感兴趣的事件的实体类型是根据注解方法的第一个参数的类型确定的.
+
+要注册您的事件处理程序,请使用 Spring 的 `@Component` 原生注解注解此类 (以便可以被 `@SpringBootApplication` 或 `@ComponentScan` 扫描到) 或在 `ApplicationContext` 中声明带注解的 bean 的实例.
+然后,在 `RepositoryRestMvcConfiguration` 中创建的 `BeanPostProcessor` 检查Bean的处理程序,并将其连接到正确的事件.  下面的示例演示如何为 `Person` 类创建事件处理程序:
+
+====
+[source,java]
+----
+@Configuration
+public class RepositoryConfiguration {
+
+  @Bean
+  PersonEventHandler personEventHandler() {
+    return new PersonEventHandler();
+  }
+}
+----
+====
+
+NOTE: 	Spring Data REST 事件是自定义的 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/core.html#context-functionality-events[Spring application events]. 默认情况下,Spring 事件是同步的,除非它们跨越边界重新发布 (如发布 WebSocket 事件或跨线程) .

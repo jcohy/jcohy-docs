@@ -1,0 +1,554 @@
+[[servlet-authentication-ldap]]
+= LDAP 认证
+
+LDAP通常被组织用作用户信息的中央存储库和身份验证服务.  它还可以用于存储应用程序用户的角色信息.
+
+当 Spring Security 配置为 <<servlet-authentication-unpwd-input,接受用户名/密码>> 进行身份验证时,将使用 Spring Security 的基于LDAP的身份验证.  但是,尽管利用了用户名/密码进行身份验证,它也无法使用 `UserDetailsService` 集成,
+因为在 <<servlet-authentication-ldap-bind,绑定身份验证>> 中LDAP服务器不会返回密码,因此应用程序无法执行密码验证.
+
+关于如何配置LDAP服务器,有许多不同的方案,以便 Spring Security 的LDAP提供程序是完全可配置的.  它使用单独的策略接口进行身份验证和角色检索,并提供可配置为处理各种情况的默认实现.
+
+[[servlet-authentication-ldap-prerequisites]]
+== 前提条件
+
+在尝试将其与 Spring Security 结合使用之前,您应该熟悉LDAP.  以下链接很好地介绍了相关概念,并提供了使用免费 LDAP 服务器 OpenLDAP 设置目录的指南:  http://www.zytrax.com/books/ldap/[http://www.zytrax.com/books/ldap/].
+熟悉用于从Java访问LDAP的 JNDI API 可能也很有用.  我们在LDAP提供程序中未使用任何第三方LDAP库(Mozilla,JLDAP等) ,但是Spring LDAP被广泛使用,因此如果您计划添加自己的自定义项,则对该项目有些熟悉可能会很有用.
+
+使用LDAP身份验证时,重要的是要确保正确配置LDAP连接池.  如果您不熟悉该操作,可以参考 https://docs.oracle.com/javase/jndi/tutorial/ldap/connect/config.html[Java LDAP 文档].
+
+// FIXME:
+// ldap server
+//	embedded (both java and xml)
+//	external
+// authentication
+//	bind
+//	password
+//	roles
+//	search, etc (other APIs)
+
+[[servlet-authentication-ldap-embedded]]
+== 设置嵌入式LDAP服务器
+
+您需要做的第一件事是确保您有一个LDAP服务器来指向您的配置.  为简单起见,通常最好从嵌入式LDAP服务器开始.  Spring Security 支持使用以下任一方法:
+
+* <<servlet-authentication-ldap-unboundid,嵌入式 UnboundID 服务器>>
+* <<servlet-authentication-ldap-apacheds,嵌入式 ApacheDS 服务器>>
+
+在下面的示例中,我们将以下内容作为  `users.ldif`  暴露为类路径资源,以使用用户 `user` 和 `admin` 来初始化嵌入式LDAP服务器,这两个用户的密码均为 `password`.
+
+.users.ldif
+[source,ldif]
+----
+dn: ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: groups
+
+dn: ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: organizationalUnit
+ou: people
+
+dn: uid=admin,ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+cn: Rod Johnson
+sn: Johnson
+uid: admin
+userPassword: password
+
+dn: uid=user,ou=people,dc=springframework,dc=org
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+cn: Dianne Emu
+sn: Emu
+uid: user
+userPassword: password
+
+dn: cn=user,ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: groupOfNames
+cn: user
+uniqueMember: uid=admin,ou=people,dc=springframework,dc=org
+uniqueMember: uid=user,ou=people,dc=springframework,dc=org
+
+dn: cn=admin,ou=groups,dc=springframework,dc=org
+objectclass: top
+objectclass: groupOfNames
+cn: admin
+uniqueMember: uid=admin,ou=people,dc=springframework,dc=org
+----
+
+[[servlet-authentication-ldap-unboundid]]
+=== 嵌入式 UnboundID 服务器
+
+如果您希望使用 https://ldap.com/unboundid-ldap-sdk-for-java/[UnboundID],请指定以下依赖:
+
+.UnboundID Dependencies
+====
+.Maven
+[source,xml,role="primary",subs="verbatim,attributes"]
+----
+<dependency>
+	<groupId>com.unboundid</groupId>
+	<artifactId>unboundid-ldapsdk</artifactId>
+	<version>{unboundid-ldapsdk-version}</version>
+	<scope>runtime</scope>
+</dependency>
+----
+
+.Gradle
+[source,groovy,role="secondary",subs="verbatim,attributes"]
+----
+depenendencies {
+	runtimeOnly "com.unboundid:unboundid-ldapsdk:{unboundid-ldapsdk-version}"
+}
+----
+====
+
+然后,您可以配置嵌入式LDAP服务器
+
+.嵌入式LDAP服务器配置
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+UnboundIdContainer ldapContainer() {
+	return new UnboundIdContainer("dc=springframework,dc=org",
+				"classpath:users.ldif");
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<b:bean class="org.springframework.security.ldap.server.UnboundIdContainer"
+	c:defaultPartitionSuffix="dc=springframework,dc=org"
+	c:ldif="classpath:users.ldif"/>
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun ldapContainer(): UnboundIdContainer {
+    return UnboundIdContainer("dc=springframework,dc=org","classpath:users.ldif")
+}
+----
+====
+
+[[servlet-authentication-ldap-apacheds]]
+=== 嵌入式 ApacheDS 服务器
+
+[NOTE]
+====
+Spring Security 使用不再维护的 ApacheDS1.x.  不幸的是,ApacheDS 2.x 仅发布了里程碑版本,没有稳定版本.  一旦有稳定的ApacheDS 2.x版本可用,我们将考虑进行更新.
+====
+
+如果希望使用 https://directory.apache.org/apacheds/[Apache DS],请指定以下依赖:
+
+.ApacheDS Dependencies
+====
+.Maven
+[source,xml,role="primary",subs="+attributes"]
+----
+<dependency>
+	<groupId>org.apache.directory.server</groupId>
+	<artifactId>apacheds-core</artifactId>
+	<version>{apacheds-core-version}</version>
+	<scope>runtime</scope>
+</dependency>
+<dependency>
+	<groupId>org.apache.directory.server</groupId>
+	<artifactId>apacheds-server-jndi</artifactId>
+	<version>{apacheds-core-version}</version>
+	<scope>runtime</scope>
+</dependency>
+----
+
+.Gradle
+[source,groovy,role="secondary",subs="+attributes"]
+----
+depenendencies {
+	runtimeOnly "org.apache.directory.server:apacheds-core:{apacheds-core-version}"
+	runtimeOnly "org.apache.directory.server:apacheds-server-jndi:{apacheds-core-version}"
+}
+----
+====
+
+然后,您可以配置嵌入式LDAP服务器
+
+.Embedded LDAP Server Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+ApacheDSContainer ldapContainer() {
+	return new ApacheDSContainer("dc=springframework,dc=org",
+				"classpath:users.ldif");
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<b:bean class="org.springframework.security.ldap.server.ApacheDSContainer"
+	c:defaultPartitionSuffix="dc=springframework,dc=org"
+	c:ldif="classpath:users.ldif"/>
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun ldapContainer(): ApacheDSContainer {
+    return ApacheDSContainer("dc=springframework,dc=org", "classpath:users.ldif")
+}
+----
+====
+
+[[servlet-authentication-ldap-contextsource]]
+== LDAP ContextSource
+
+一旦有了LDAP服务器来将您的配置指向,就需要配置 Spring Security 来指向应该用于认证用户的LDAP服务器.  这是通过创建LDAP `ContextSource` 来完成的,该LDAP `ContextSource` 等效于JDBC `DataSource`.
+
+.LDAP Context Source
+====
+.Java
+[source,java,role="primary"]
+----
+ContextSource contextSource(UnboundIdContainer container) {
+	return new DefaultSpringSecurityContextSource("ldap://localhost:53389/dc=springframework,dc=org");
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<ldap-server
+	url="ldap://localhost:53389/dc=springframework,dc=org" />
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+fun contextSource(container: UnboundIdContainer): ContextSource {
+    return DefaultSpringSecurityContextSource("ldap://localhost:53389/dc=springframework,dc=org")
+}
+----
+====
+
+[[servlet-authentication-ldap-authentication]]
+== 认证
+
+Spring Security 的LDAP不支持使用 <<servlet-authentication-userdetailsservice,UserDetailsService>>,因为LDAP绑定身份验证不允许客户端读取密码,甚至不允许散列密码.  这意味着 Spring Security 无法读取密码然后对其进行身份验证.
+
+因此,使用 `LdapAuthenticator` 接口实现了对 LDAP 支持.  `LdapAuthenticator` 还负责检索任何必需的用户属性.  这是因为对属性的权限可能取决于所使用的身份验证类型.  例如,如果以用户身份进行绑定,则可能有必要在用户自己的权限下阅读它们.
+
+Spring Security提供了两个 `LdapAuthenticator` 实现:
+
+* <<servlet-authentication-ldap-bind>>
+* <<servlet-authentication-ldap-pwd>>
+
+[[servlet-authentication-ldap-bind]]
+== 使用绑定身份验证
+
+https://ldap.com/the-ldap-bind-operation/[绑定身份验证] 是使用LDAP身份验证用户的最常用机制.  在绑定身份验证中,用户凭据(即用户名/密码) 将提交给LDAP服务器以对其进行身份验证.
+使用绑定身份验证的优点是不需要将用户的机密信息(即密码) 暴露给客户端,这有助于防止客户端泄露.
+
+绑定身份验证配置的示例可以在下面找到.
+
+.Bind Authentication
+====
+.Java
+[source,java,role="primary",attrs="-attributes"]
+----
+@Bean
+BindAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
+	BindAuthenticator authenticator = new BindAuthenticator(contextSource);
+	authenticator.setUserDnPatterns(new String[] { "uid={0},ou=people" });
+	return authenticator;
+}
+
+@Bean
+LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
+	return new LdapAuthenticationProvider(authenticator);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<ldap-authentication-provider
+	user-dn-pattern="uid={0},ou=people"/>
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+@Bean
+fun authenticator(contextSource: BaseLdapPathContextSource): BindAuthenticator {
+    val authenticator = BindAuthenticator(contextSource)
+    authenticator.setUserDnPatterns(arrayOf("uid={0},ou=people"))
+    return authenticator
+}
+
+@Bean
+fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
+    return LdapAuthenticationProvider(authenticator)
+}
+----
+====
+
+这个简单的示例将通过使用提供的模式替换用户登录名并尝试使用该登录密码将该用户绑定来获取该用户的DN.  如果所有用户都存储在目录中的单个节点下,这样做是可以的.  相反,如果您希望配置 LDAP 搜索过滤器来定位用户,则可以使用以下方法:
+
+.Bind Authentication with Search Filter
+====
+.Java
+[source,java,role="primary",attrs="-attributes"]
+----
+@Bean
+BindAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
+	String searchBase = "ou=people";
+	String filter = "(uid={0})";
+	FilterBasedLdapUserSearch search =
+		new FilterBasedLdapUserSearch(searchBase, filter, contextSource);
+	BindAuthenticator authenticator = new BindAuthenticator(contextSource);
+	authenticator.setUserSearch(search);
+	return authenticator;
+}
+
+@Bean
+LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
+	return new LdapAuthenticationProvider(authenticator);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<ldap-authentication-provider
+		user-search-filter="(uid={0})"
+	user-search-base="ou=people"/>
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+@Bean
+fun authenticator(contextSource: BaseLdapPathContextSource): BindAuthenticator {
+    val searchBase = "ou=people"
+    val filter = "(uid={0})"
+    val search = FilterBasedLdapUserSearch(searchBase, filter, contextSource)
+    val authenticator = BindAuthenticator(contextSource)
+    authenticator.setUserSearch(search)
+    return authenticator
+}
+
+@Bean
+fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
+    return LdapAuthenticationProvider(authenticator)
+}
+----
+====
+
+如果与上面的 `ContextSource` <<servlet-authentication-ldap-contextsource,定义>> 一起使用,它将使用  `+(uid={0})+` 作为过滤器在DN `ou=people,dc=springframework,dc=org` 下执行搜索.
+再次用用户登录名代替过滤器名称中的参数,因此它将搜索 `uid` 属性等于用户名的条目.  如果未提供用户搜索库,则将从根目录执行搜索.
+
+[[servlet-authentication-ldap-pwd]]
+== 使用密码认证
+
+密码比较是将用户提供的密码与存储库中存储的密码进行比较.  可以通过检索password属性的值并在本地对其进行检查来完成此操作,也可以通过执行LDAP "比较" 操作来完成,在该操作中,将提供的密码传递给服务器进行比较,并且永远不会检索到真实的密码值.  如果使用随机盐正确地对密码进行了哈希处理,则无法进行LDAP比较.
+
+.Minimal Password Compare Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+PasswordComparisonAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
+	return new PasswordComparisonAuthenticator(contextSource);
+}
+
+@Bean
+LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
+	return new LdapAuthenticationProvider(authenticator);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<ldap-authentication-provider
+		user-dn-pattern="uid={0},ou=people">
+	<password-compare />
+</ldap-authentication-provider>
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authenticator(contextSource: BaseLdapPathContextSource): PasswordComparisonAuthenticator {
+    return PasswordComparisonAuthenticator(contextSource)
+}
+
+@Bean
+fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
+    return LdapAuthenticationProvider(authenticator)
+}
+----
+====
+
+可以在下面找到带有一些自定义设置的更高级的配置.
+
+.Password Compare Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+PasswordComparisonAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
+	PasswordComparisonAuthenticator authenticator =
+		new PasswordComparisonAuthenticator(contextSource);
+	authenticator.setPasswordAttributeName("pwd"); // <1>
+	authenticator.setPasswordEncoder(new BCryptPasswordEncoder()); // <2>
+	return authenticator;
+}
+
+@Bean
+LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
+	return new LdapAuthenticationProvider(authenticator);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<ldap-authentication-provider
+		user-dn-pattern="uid={0},ou=people">
+	<password-compare password-attribute="pwd"> <!--1-->
+		<password-encoder ref="passwordEncoder" /> <!--2-->
+	</password-compare>
+</ldap-authentication-provider>
+<b:bean id="passwordEncoder"
+	class="org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder" />
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authenticator(contextSource: BaseLdapPathContextSource): PasswordComparisonAuthenticator {
+    val authenticator = PasswordComparisonAuthenticator(contextSource)
+    authenticator.setPasswordAttributeName("pwd") // <1>
+    authenticator.setPasswordEncoder(BCryptPasswordEncoder()) // <2>
+    return authenticator
+}
+
+@Bean
+fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
+    return LdapAuthenticationProvider(authenticator)
+}
+----
+====
+
+<1> 将密码属性指定为 `pwd`
+<2> 使用 `BCryptPasswordEncoder`
+
+
+== LdapAuthoritiesPopulator
+
+Spring Security 的 `LdapAuthoritiesPopulator` 用于确定返回给用户的授权.
+
+.Minimal Password Compare Configuration
+====
+.Java
+[source,java,role="primary",attrs="-attributes"]
+----
+@Bean
+LdapAuthoritiesPopulator authorities(BaseLdapPathContextSource contextSource) {
+	String groupSearchBase = "";
+	DefaultLdapAuthoritiesPopulator authorities =
+		new DefaultLdapAuthoritiesPopulator(contextSource, groupSearchBase);
+	authorities.setGroupSearchFilter("member={0}");
+	return authorities;
+}
+
+@Bean
+LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator, LdapAuthoritiesPopulator authorities) {
+	return new LdapAuthenticationProvider(authenticator, authorities);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<ldap-authentication-provider
+	user-dn-pattern="uid={0},ou=people"
+	group-search-filter="member={0}"/>
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+@Bean
+fun authorities(contextSource: BaseLdapPathContextSource): LdapAuthoritiesPopulator {
+    val groupSearchBase = ""
+    val authorities = DefaultLdapAuthoritiesPopulator(contextSource, groupSearchBase)
+    authorities.setGroupSearchFilter("member={0}")
+    return authorities
+}
+
+@Bean
+fun authenticationProvider(authenticator: LdapAuthenticator, authorities: LdapAuthoritiesPopulator): LdapAuthenticationProvider {
+    return LdapAuthenticationProvider(authenticator, authorities)
+}
+----
+====
+
+== 激活目录
+
+Active Directory 支持其自己的非标准身份验证选项,并且正常使用模式与标准 `LdapAuthenticationProvider` 不太吻合.
+通常,身份验证是使用域用户名(格式为 `user@domain`) 而不是使用LDAP可分辨名称来执行的.  为了简化此操作,Spring Security 3.1 具有一个身份验证提供程序,该身份验证提供程序是针对典型的 Active Directory 设置而定制的.
+
+配置 `ActiveDirectoryLdapAuthenticationProvider` 非常简单.  您只需要提供域名和提供服务器地址的LDAP URL footnote:[也可以使用DNS查找来获取服务器的IP地址.  目前尚不支持此功能,但希望在以后的版本中可用.].  配置示例如下所示:
+
+下面是一个示例配置:
+
+.Example Active Directory Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+ActiveDirectoryLdapAuthenticationProvider authenticationProvider() {
+	return new ActiveDirectoryLdapAuthenticationProvider("example.com", "ldap://company.example.com/");
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<bean id="authenticationProvider"
+        class="org.springframework.security.ldap.authentication.ad.ActiveDirectoryLdapAuthenticationProvider">
+	<constructor-arg value="example.com" />
+	<constructor-arg value="ldap://company.example.com/" />
+</bean>
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authenticationProvider(): ActiveDirectoryLdapAuthenticationProvider {
+    return ActiveDirectoryLdapAuthenticationProvider("example.com", "ldap://company.example.com/")
+}
+----
+====

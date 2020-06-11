@@ -1,0 +1,676 @@
+[[redis]]
+= Redis 支持
+:referenceDir: .
+
+Spring Data 支持的 key-value 存储之一是 Redis. 下面这句话引用自 https://redis.io[Redis] 项目主页:
+
+[quote]
+Redis 是高级键值存储. 它类似于 memcached,但数据集是不易失的,值可以是字符串,就像在 memcached 中一样,也可以是列表,集合和有序集合.
+所有这些数据类型都可以通过原子操作进行操作,以 push/pop 元素, add/remove 元素,包括 union,intersection,集合之间的差异等. Redis 支持不同种类的排序功能.
+
+Spring Data Redis 提供了简单的配置,并可以从 Spring 应用程序访问 Redis. 它提供了与 store 交互的低层和高层抽象,使用户摆脱了基础配置的困扰.
+
+[[redis:requirements]]
+== Redis 要求
+
+Spring Redis 需要 Redis 2.6 或更高版本,Spring Data Redis 与 https://github.com/lettuce-io/lettuce-core[Lettuce] 和 https://github.com/xetorthio/jedis[Jedis] 集成,这是两个流行的 Redis 开源 Java 库.
+
+[[redis:architecture]]
+== Redis 支持高级视图
+
+Redis 提供了几个组件. 对于大多数任务,高级抽象和支持服务是最佳选择. 请注意,您可以随时在视图之间移动. 例如,您可以获得底层连接(甚至本地库)以直接与 Redis 通信.
+
+[[redis:connectors]]
+== 连接到 Redis
+
+使用 Redis 和 Spring 时的首要任务之一是通过IoC容器连接到 store. 为此,需要 Java 连接器(或绑定). 无论选择哪种库,您都只需要使用一组 Spring Data Redis API(在所有连接器上都保持一致):
+使用 `org.springframework.data.redis.connection` 包下的 `RedisConnection` 和 `RedisConnectionFactory` 接口即可自动检索 与 Redis 的活动连接.
+
+[[redis:connectors:connection]]
+=== RedisConnection 和 RedisConnectionFactory
+
+`RedisConnection` 提供了 Redis 通信的核心模块,因为它处理与 Redis 服务端的通信. 它还会自动将底层连接库异常转换为 Spring 的 DAO 异常 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#dao-exceptions[层次结构],以便您可以在不更改任何代码的情况下切换连接器,因为操作语义保持不变.
+
+NOTE: 对于需要本地库API的特殊情况,`RedisConnection` 提供了专用方法(`getNativeConnection`),该方法返回用于通信的原始底层对象.
+
+激活的 `RedisConnection` 对象是通过 `RedisConnectionFactory` 创建的. 另外,工厂还充当 `PersistenceExceptionTranslator` 对象,这意味着一旦声明,它们就可以让您进行透明的异常转换.
+例如,您可以使用 `@Repository` 注解和AOP进行异常转换. 有关更多信息,请参见 Spring Framework 文档中的 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#orm-exception-translation[相关部分].
+
+NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或共享本地连接时).
+
+使用 `RedisConnectionFactory` 的最简单方法是通过IoC容器配置适当的连接器,并将其注入 using 类.
+
+IMPORTANT: 不幸的是,当前,并非所有连接器都支持所有 Redis 功能. 在底层库不支持的 Connection API 上调用方法时,将抛出 `UnsupportedOperationException`.
+
+[[redis:connectors:lettuce]]
+=== 配置 Lettuce 连接器
+
+https://github.com/lettuce-io/lettuce-core[Lettuce] 是一个基于 https://netty.io/[Netty] 的 开源连接器.Spring Data Redis 通过 `org.springframework.data.redis.connection.lettuce` 包提供支持. 以下示例显示了如何创建新的 Lettuce 连接工厂:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    return new LettuceConnectionFactory(new RedisStandaloneConfiguration("server", 6379));
+  }
+}
+----
+
+还可以调整  Lettuce 连接参数.`LettuceConnectionFactory` 创建的所有 `LettuceConnection` 实例并且对于所有非阻塞和非事务操作共享相同的线程安全本地连接. 要每次使用特定连接,请将 `shareNativeConnection` 设置为 `false`.
+如果将 `shareNativeConnection` 设置为 `false`,则还可以将 `LettuceConnectionFactory` 配置为使用 `LettucePool` 来池化阻塞和事务连接或所有连接.
+
+Lettuce 与 Netty 的 https://netty.io/wiki/native-transports.html[native transports] 集成,可让您使用Unix域套接字与Redis通信. 确保包括与您的运行时环境匹配的适当的本地传输依赖. 以下示例显示了如何在 `/var/run/redis.sock` 上为Unix域套接字创建 Lettuce Connection 工厂:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    return new LettuceConnectionFactory(new RedisSocketConfiguration("/var/run/redis.sock"));
+  }
+}
+----
+
+NOTE: Netty 当前支持用于OS本地传输的 epoll(Linux)和 kqueue (BSD/macOS)接口.
+
+[[redis:connectors:jedis]]
+=== 配置Jedis连接器
+
+Jedis 是一个社区驱动的连接器, Spring Data Redis 模块通过 `org.springframework.data.redis.connection.jedis` 包支持. Jedis配置以最简单的形式如下所示:
+
+[source,java]
+----
+@Configuration
+class AppConfig {
+
+  @Bean
+  public JedisConnectionFactory redisConnectionFactory() {
+    return new JedisConnectionFactory();
+  }
+}
+----
+
+但是,对于生产用途,您可能想要调整主机或密码等设置,如以下示例所示:
+
+[source,java]
+----
+@Configuration
+class RedisConfiguration {
+
+  @Bean
+  public JedisConnectionFactory redisConnectionFactory() {
+
+    RedisStandaloneConfiguration config = new RedisStandaloneConfiguration("server", 6379);
+    return new JedisConnectionFactory(config);
+  }
+}
+----
+
+[[redis:write-to-master-read-from-replica]]
+=== 主从复制
+
+Redis 主从复制设置 -- 没有自动故障转移(有关自动故障转移,请参见:<<redis:sentinel, Sentinel>>)允许将数据安全地存储在更多节点上.
+通过使用 <<redis:connectors:lettuce, Lettuce>>,可以将数据写入 Master,然后从副本中读取. 您可以使用 `LettuceClientConfiguration` 设置 读/写策略,如以下示例所示:
+
+[source,java]
+----
+@Configuration
+class WriteToMasterReadFromReplicaConfiguration {
+
+  @Bean
+  public LettuceConnectionFactory redisConnectionFactory() {
+
+    LettuceClientConfiguration clientConfig = LettuceClientConfiguration.builder()
+      .readFrom(SLAVE_PREFERRED)
+      .build();
+
+    RedisStandaloneConfiguration serverConfig = new RedisStandaloneConfiguration("server", 6379);
+
+    return new LettuceConnectionFactory(serverConfig, clientConfig);
+  }
+}
+----
+
+TIP: 对于通过 `INFO` 信息报告非公共地址的环境(例如,在使用AWS时),请使用 `RedisStaticMasterReplicaConfiguration` 而不是 `RedisStandaloneConfiguration`. 请注意,`RedisStaticMasterReplicaConfiguration` 不支持发布/订阅,因为缺少在各个服务器之间传播的 Pub/Sub 消息.
+
+[[redis:sentinel]]
+== Redis Sentinel 支持
+
+为了处理高可用性 Redis,Spring Data Redis 使用 `RedisSentinelConfiguration` 支持 https://redis.io/topics/sentinel[Redis Sentinel],如以下示例所示:
+
+[source,java]
+----
+/**
+ * Jedis
+ */
+@Bean
+public RedisConnectionFactory jedisConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+  .master("mymaster")
+  .sentinel("127.0.0.1", 26379)
+  .sentinel("127.0.0.1", 26380);
+  return new JedisConnectionFactory(sentinelConfig);
+}
+
+/**
+ * Lettuce
+ */
+@Bean
+public RedisConnectionFactory lettuceConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+  .master("mymaster")
+  .sentinel("127.0.0.1", 26379)
+  .sentinel("127.0.0.1", 26380);
+  return new LettuceConnectionFactory(sentinelConfig);
+}
+----
+
+[TIP]
+====
+还可以使用 `PropertySource` 定义 `RedisSentinelConfiguration`,它允许您设置以下属性:
+
+.Configuration Properties
+* `spring.redis.sentinel.master`: 主节点的名称
+* `spring.redis.sentinel.nodes`: 以逗号分隔的 host:port 列表
+* `spring.redis.sentinel.password`: 使用 Redis Sentinel 进行身份验证时要应用的密码
+====
+
+有时,需要与其中一个哨兵进行直接互动. 使用 `RedisConnectionFactory.getSentinelConnection()` 或 `RedisConnection.getSentinelCommands()` 可以访问配置的第一个活动 Sentinel.
+
+[NOTE]
+====
+Sentinel身份验证仅在使用 https://lettuce.io/[Lettuce] 时可用.
+====
+
+[[redis:template]]
+== 通过 RedisTemplate 处理对象
+
+大多数用户可能会使用 RedisTemplate 及其相应的包 `org.springframework.data.redis.core`. 实际上,由于 template 具有丰富的功能,因此它是Redis模块的核心类. 该 template 为 Redis 交互提供了高级抽象.
+尽管 `RedisConnection` 提供了接受和返回二进制值(字节数组)的底层方法,但是 template 负责序列化和连接管理,使用户无需处理此类细节.
+
+此外,该 template 提供了操作视图(根据 Redis 命令 https://redis.io/commands[参考]进行分组),提供了丰富,通用的接口,用于处理特定类型或特定键(通过 KeyBound 接口),如下表所述:
+
+.Operational 视图
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Interface
+|Description
+
+2+^|_Key Type Operations_
+
+|`GeoOperations`
+|Redis 地理空间操作, 例如 `GEOADD`, `GEORADIUS`,...
+
+|`HashOperations`
+|Redis hash 操作
+
+|`HyperLogLogOperations`
+|Redis HyperLogLog 操作, 例如 `PFADD`, `PFCOUNT`,...
+
+|`ListOperations`
+|Redis list 操作
+
+|`SetOperations`
+|Redis set 操作
+
+|`ValueOperations`
+|Redis string (or value) 操作
+
+|`ZSetOperations`
+|Redis zset (or sorted set) 操作
+
+2+^|_Key 绑定 Operations_
+
+|`BoundGeoOperations`
+|Redis key bound geospatial 操作
+
+|`BoundHashOperations`
+|Redis hash key bound 操作
+
+|`BoundKeyOperations`
+|Redis key bound 操作
+
+|`BoundListOperations`
+|Redis list key bound 操作
+
+|`BoundSetOperations`
+|Redis set key bound 操作
+
+|`BoundValueOperations`
+|Redis string (or value) key bound 操作
+
+|`BoundZSetOperations`
+|Redis zset (or sorted set) key bound 操作
+
+|====
+
+配置后,该 template 是线程安全的,并且可以在多个实例之间重用.
+
+`RedisTemplate` 的大多数操作都使用基于 Java 的序列化. 这意味着 template 读写任何对象都将通过 Java 进行序列化和反序列化. 您可以更改 template 上的序列化机制,`Redis` 模块提供了几种实现,这些实现在 `org.springframework.data.redis.serializer` 包中可用.
+有关更多信息,请参见<<redis:serializer>>. 您还可以将任何序列化器设置为 `null`,并通过将 `enableDefaultSerializer` 属性设置为 `false` 来将 RedisTemplate 与原始字节数组一起使用.
+请注意,template 要求所有 key 都不为空. 但是,只要基础序列化器接受这些值,它们就可以为空. 阅读每个序列化器的 Javadoc,以获取更多信息.
+
+对于需要特定 template 视图的情况,请将视图声明为依赖并注入template. 容器自动执行转换,从而消除了  `opsFor[X]`  调用,如以下示例所示:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+  <!-- redis template definition -->
+  <bean id="redisTemplate" class="org.springframework.data.redis.core.RedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
+  ...
+
+</beans>
+----
+
+[source,java]
+----
+public class Example {
+
+  // inject the actual template
+  @Autowired
+  private RedisTemplate<String, String> template;
+
+  // inject the template as ListOperations
+  @Resource(name="redisTemplate")
+  private ListOperations<String, String> listOps;
+
+  public void addLink(String userId, URL url) {
+    listOps.leftPush(userId, url.toExternalForm());
+  }
+}
+----
+
+[[redis:string]]
+== String 的便捷操作
+
+由于 Redis 中存储的键和值通常是 `java.lang.String`,因此 Redis 模块提供了 `RedisConnection` 和 `RedisTemplate` 的两个扩展,分别是 `StringRedisConnection`(及其 `DefaultStringRedisConnection` 实现)和 `StringRedisTemplate`, 这是一种便捷的一站式解决方案 用于密集的String操作.
+除了绑定到字符串键之外,template 和连接还使用下面的 `StringRedisSerializer`,这意味着存储的键和值是人类可读的(假定Redis和您的代码中使用相同的编码). 以下清单显示了一个示例:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+
+  <bean id="stringRedisTemplate" class="org.springframework.data.redis.core.StringRedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
+  ...
+</beans>
+----
+
+[source,java]
+----
+public class Example {
+
+  @Autowired
+  private StringRedisTemplate redisTemplate;
+
+  public void addLink(String userId, URL url) {
+    redisTemplate.opsForList().leftPush(userId, url.toExternalForm());
+  }
+}
+----
+
+与其他 Spring templates 一样,`RedisTemplate` 和 `StringRedisTemplate` 允许您通过 `RedisCallback` 接口直接与 Redis 交互. 此功能直接与 `RedisConnection` 对话,因此可以进行完全控制.
+请注意,当使用 `StringRedisTemplate` 时,回调将接收 `StringRedisConnection` 的实例. 以下示例显示如何使用 `RedisCallback` 接口:
+
+[source,java]
+----
+public void useCallback() {
+
+  redisTemplate.execute(new RedisCallback<Object>() {
+    public Object doInRedis(RedisConnection connection) throws DataAccessException {
+      Long size = connection.dbSize();
+      // Can cast to StringRedisConnection if using a StringRedisTemplate
+      ((StringRedisConnection)connection).set("key", "value");
+    }
+   });
+}
+----
+
+[[redis:serializer]]
+== 序列化器
+
+从框架的角度来看,Redis 中存储的数据仅为字节. 尽管 Redis 本身支持各种类型,但在大多数情况下,它们是指数据的存储方式,而不是其表示的内容. 由用户决定是否将信息转换为字符串或任何其他对象.
+
+在 Spring Data 中,用户(自定义)类型和原始数据之间的转换(反之亦然)由 `org.springframework.data.redis.serializer` 包中的 Redis 处理.
+
+该包中包含两种类型的序列化器,顾名思义,它们负责序列化过程:
+
+* 基于 ``RedisSerializer`` 的双向序列化器.
+* 使用 `RedisElementReader` 和 `RedisElementWriter` 的元素 readers 和 writers.
+
+他们之间的主要区别在于,`RedisSerializer` 主要序列化为 `byte[]`,而 readers 和 writers 则使用 `ByteBuffer`.
+
+有多种实现方式(包括本文档中已经提到的两种):
+
+* `JdkSerializationRedisSerializer`, 默认情况下用于 `RedisCache` 和 `RedisTemplate`.
+* `StringRedisSerializer`.
+
+但是,可以通过 Spring https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#oxm[OXM] 支持或使用 `Jackson2JsonRedisSerializer` 或 `GenericJackson2JsonRedisSerializer` 将 `OxmSerializer` 用于 对象/XML映射,以 https://en.wikipedia.org/wiki/JSON[JSON] 格式存储数据.
+
+请注意,存储格式不仅限于 values. 它可以不受限制地用于 keys,values 或 hashes.
+
+[WARNING]
+====
+默认情况下,`RedisCache` 和 `RedisTemplate` 配置为使用 Java 的序列化机制. Java 的序列化机制允许 payloads 引发的远程代码执行,这些 payloads 利用易受攻击的库和类注入未验证的字节码. 在反序列化步骤中,操纵输入可能导致应用程序中不需要的代码执行. 因此,请勿在不受信任的环境中使用此序列化. 通常,我们强烈建议您使用其他任何消息格式(例如JSON).
+
+如果您担心由 Java 序列化引起的安全漏洞,请考虑在核心JVM级别上使用通用序列化过滤器机制,该机制最初是为 JDK 9 开发的,但后来又移植到 JDK 8、7 和 6:
+
+* https://blogs.oracle.com/java-platform-group/entry/incoming_filter_serialization_data_a[Filter Incoming Serialization Data].
+* https://openjdk.java.net/jeps/290[JEP 290].
+* https://www.owasp.org/index.php/Deserialization_of_untrusted_data[OWASP: Deserialization of untrusted data].
+====
+
+[[redis.hashmappers.root]]
+== Hash 映射
+
+可以通过在 Redis 中使用各种数据结构来存储数据. `Jackson2JsonRedisSerializer` 可以转换  https://en.wikipedia.org/wiki/JSON[JSON] 格式的对象. 理想情况下,json数据作为一个字符创 key 的值. 您可以使用 Redis hash 来实现结构化对象的更复杂的映射.
+Spring Data Redis 提供了各种将数据映射到哈希的策略(取决于用例):
+
+* 通过使用 `HashOperations` 和 <<redis:serializer,serializer>> 进行直接映射
+* 使用 <<redis.repositories>>
+* 使用 `HashMapper` 和 `HashOperations`
+
+=== Hash Mappers
+
+Hash mappers 是将 map 对象 转为 `Map<K,V>` 并返回. HashMapper 一般都与 Redis 哈希 一起使用.
+
+有多种实现方式:
+
+* `BeanUtilsHashMapper` 使用 Spring 的 https://docs.spring.io/spring/docs/{spring-framework-version}/javadoc-api/org/springframework/beans/BeanUtils.html[BeanUtils].
+* `ObjectHashMapper` 使用 <<redis.repositories.mapping>>.
+* <<redis.hashmappers.jackson2,`Jackson2HashMapper`>> 使用 https://github.com/FasterXML/jackson[FasterXML Jackson].
+
+以下示例显示了一种实现哈希映射的方法:
+
+[source,java]
+----
+public class Person {
+  String firstname;
+  String lastname;
+
+  // …
+}
+
+public class HashMapping {
+
+  @Autowired
+  HashOperations<String, byte[], byte[]> hashOperations;
+
+  HashMapper<Object, byte[], byte[]> mapper = new ObjectHashMapper();
+
+  public void writeHash(String key, Person person) {
+
+    Map<byte[], byte[]> mappedHash = mapper.toHash(person);
+    hashOperations.putAll(key, mappedHash);
+  }
+
+  public Person loadHash(String key) {
+
+    Map<byte[], byte[]> loadedHash = hashOperations.entries("key");
+    return (Person) mapper.fromHash(loadedHash);
+  }
+}
+----
+
+[[redis.hashmappers.jackson2]]
+=== Jackson2HashMapper
+
+`Jackson2HashMapper` 通过使用 https://github.com/FasterXML/jackson[FasterXML Jackson] 为域对象提供 Redis 哈希映射. `Jackson2HashMapper` 可以将顶级属性映射为 Hash 字段名称,并且可以选择将结构展平. 简单类型映射到简单值. 复杂类型(嵌套对象,集合,地图等)表示为嵌套JSON.
+
+拼合为所有嵌套属性创建单个哈希条目,并尽可能将复杂类型解析为简单类型.
+
+考虑以下类及其包含的数据结构:
+
+[source,java]
+----
+public class Person {
+  String firstname;
+  String lastname;
+  Address address;
+  Date date;
+  LocalDateTime localDateTime;
+}
+
+public class Address {
+  String city;
+  String country;
+}
+----
+
+映射结果:
+
+.Normal Mapping
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Hash Field
+|Value
+
+|firstname
+|`Jon`
+
+|lastname
+|`Snow`
+
+|address
+|`{ "city" : "Castle Black", "country" : "The North" }`
+
+|date
+|`1561543964015`
+
+|localDateTime
+|`2018-01-02T12:13:14`
+|====
+
+Flat Mapping
+
+.Flat Mapping
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Hash Field
+|Value
+
+|firstname
+|`Jon`
+
+|lastname
+|`Snow`
+
+|address.city
+|`Castle Black`
+
+|address.country
+|`The North`
+
+|date
+|`1561543964015`
+
+|localDateTime
+|`2018-01-02T12:13:14`
+|====
+
+NOTE: Flattening 要求所有属性名称都不得干扰JSON路径. 使用 flattening 时,不支持在 map keys 中使用 点 或方括号或将其用作属性名称. 结果哈希不能映射为一个对象.
+
+NOTE: `java.util.Date` 和 `java.util.Calendar` 用毫秒表示. 假如 `jackson-datatype-jsr310` 在类路径上,JSR-310 Date/Time 类型的将被序列化为他们的 `toString` 形式.
+
+:leveloffset: 2
+include::{referenceDir}/redis-messaging.adoc[]
+
+include::{referenceDir}/redis-streams.adoc[]
+
+include::{referenceDir}/redis-transactions.adoc[]
+
+include::{referenceDir}/pipelining.adoc[]
+
+include::{referenceDir}/redis-scripting.adoc[]
+
+:leveloffset: 1
+[[redis:support]]
+== 支持的类
+
+`org.springframework.data.redis.support` 包供了各种依赖 Redis 的可重用组件. 当前,该包在 Redis 之上包含各种基于JDK的接口实现,例如 https://download.oracle.com/javase/8/docs/api/java/util/concurrent/atomic/package-summary.html[atomic]和 JDK https://download.oracle.com/javase/8/docs/api/java/util/Collection.html[Collections].
+
+通过原子计数器,可以轻松的使 Redis key 递增,而集合则可以轻松管理 Redis key,并最大程度地减少存储风险或API泄漏. 特别是,`RedisSet` 和 `RedisZSet` 接口可轻松访问 Redis 支持的设置操作,例如交集和并集.
+`RedisList` 在 Redis 之上实现 List,Queue 和 Deque 契约(及其等效的阻塞同级),将存储作为 FIFO(先进先出),LIFO(先进先出)或加盖 只需最少的配置即可收集. 以下示例显示了使用 `RedisList` 的bean的配置:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:p="http://www.springframework.org/schema/p" xsi:schemaLocation="
+  http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <bean id="queue" class="org.springframework.data.redis.support.collections.DefaultRedisList">
+    <constructor-arg ref="redisTemplate"/>
+    <constructor-arg value="queue-key"/>
+  </bean>
+
+</beans>
+----
+
+使用 Java 配置 `Deque`:
+
+[source,java]
+----
+public class AnotherExample {
+
+  // injected
+  private Deque<String> queue;
+
+  public void addTag(String tag) {
+    queue.push(tag);
+  }
+}
+----
+
+如前面的示例所示,使用代码与实际的存储实现分离. 实际上,没有迹象表明在下面使用了 Redis. 这使得从开发环境到生产环境的迁移变得透明,并大大提高了可测试性(Redis实施可替换为内存中的实施).
+
+[[redis:support:cache-abstraction]]
+=== 支持 Spring Cache 抽象
+
+NOTE: Changed in 2.0
+
+Spring Redis 通过 `org.springframework.data.redis.cache` 包提供了 Spring https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/integration.html#cache[缓存抽象]的实现. 要将 Redis 用作实现,请将 `RedisCacheManager` 添加到您的配置中,如下所示:
+
+[source,java]
+----
+@Bean
+public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+	return RedisCacheManager.create(connectionFactory);
+}
+----
+
+可以使用 `RedisCacheManagerBuilder` 配置 `RedisCacheManager` 行为,让您设置默认的 `RedisCacheConfiguration`,事务行为和预定义的缓存.
+
+[source,java]
+----
+RedisCacheManager cm = RedisCacheManager.builder(connectionFactory)
+	.cacheDefaults(defaultCacheConfig())
+	.withInitialCacheConfigurations(singletonMap("predefined", defaultCacheConfig().disableCachingNullValues()))
+	.transactionAware()
+	.build();
+----
+
+如前面的示例所示,`RedisCacheManager` 允许在每个缓存的基础上定义配置.
+
+由 `RedisCacheManager` 创建的 `RedisCache` 的行为由 `RedisCacheConfiguration` 定义. 通过该配置,您可以设置 key 到期时间,前缀和 `RedisSerializer` 实现,以实现与二进制存储格式之间的相互转换,如以下示例所示:
+
+[source,java]
+----
+RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+    .entryTtl(Duration.ofSeconds(1))
+	.disableCachingNullValues();
+----
+
+`RedisCacheManager` 默认使用无锁 `RedisCacheWriter` 来读写二进制值. 无锁缓存提高了吞吐量. 缺少条目锁定会导致 `putIfAbsent` 和 `clean` 方法的重叠,非原子性命令重叠,因为这些方法需要将多个命令发送到R edis.
+锁定对方通过设置显式锁定键并检查该键是否存在来防止命令重叠,从而导致其他请求和潜在的命令等待时间.
+
+可以选择如下锁定行为:
+
+[source,java]
+----
+RedisCacheManager cm = RedisCacheManager.build(RedisCacheWriter.lockingRedisCacheWriter())
+	.cacheDefaults(defaultCacheConfig())
+	...
+----
+
+默认情况下,缓存条目的任何 key 都以实际的缓存名称作为前缀,后跟两个冒号. 此行为可以更改为静态前缀和计算前缀.
+
+以下示例显示了如何设置静态前缀:
+
+[source,java]
+----
+// static key prefix
+RedisCacheConfiguration.defaultCacheConfig().prefixKeysWith("( ͡° ᴥ ͡°)");
+
+The following example shows how to set a computed prefix:
+
+// computed key prefix
+RedisCacheConfiguration.defaultCacheConfig().computePrefixWith(cacheName -> "¯\_(ツ)_/¯" + cacheName);
+----
+
+下表列出了 `RedisCacheManager` 的默认设置
+
+.`RedisCacheManager` defaults
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Setting
+|Value
+
+|Cache Writer
+|Non-locking
+
+|Cache Configuration
+|`RedisCacheConfiguration#defaultConfiguration`
+
+|Initial Caches
+|None
+
+|Trasaction Aware
+|No
+|====
+
+下表列出了 `RedisCacheConfiguration` 的默认设置:
+
+.RedisCacheConfiguration defaults
+[width="80%",cols="<1,<2",options="header"]
+|====
+|Key Expiration
+|None
+
+|Cache `null`
+|Yes
+
+|Prefix Keys
+|Yes
+
+|Default Prefix
+|The actual cache name
+
+|Key Serializer
+|`StringRedisSerializer`
+
+|Value Serializer
+|`JdkSerializationRedisSerializer`
+
+|Conversion Service
+|`DefaultFormattingConversionService` with default cache key converters
+|====

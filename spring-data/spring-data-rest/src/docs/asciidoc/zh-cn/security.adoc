@@ -1,0 +1,69 @@
+[[security]]
+= 安全
+:spring-data-rest-root: ../../../../../spring-data-rest/src/
+:spring-security-docs: https://docs.spring.io/spring-security/site/docs/current/reference/htmlsingle
+
+Spring Data REST 与 Spring Security 配合得很好.  本节显示了如何使用方法级安全性保护Spring Data REST服务的示例.
+
+[[security.pre-and-post]]
+== Security 的 `@Pre` 和 `@Post`
+
+Spring Data REST测试套件中的以下示例显示了 Spring Security 的 {spring-security-docs}/#el-pre-post-annotations[PreAuthorization model](最复杂的安全模型) :
+
+.spring-data-rest-tests/spring-data-rest-tests-security/src/test/java/org/springframework/data/rest/tests/security/PreAuthorizedOrderRepository.java
+====
+[source,java]
+----
+
+include::{spring-data-rest-root}/test/java/org/springframework/data/rest/tests/security/PreAuthorizedOrderRepository.java[tag=code]
+----
+
+<1> 该 Spring Security 注解可保护整个存储库.  {spring-security-docs}/#el-common-built-in[Spring Security SpEL 表达式]表示主体在其角色集合中必须具有 `ROLE_USER`.
+<2> 要更改方法级别的设置,必须覆盖方法签名并应用 Spring Security 注解.  在这种情况下,该方法将覆盖存储库级别的设置,并要求用户具有 `ROLE_ADMIN` 才能执行删除.
+====
+
+前面的示例显示了标准的 Spring Data 存储库定义,该定义扩展了 `CrudRepository` 并进行了一些关键更改: 指定特定角色以访问各种方法:
+
+IMPORTANT: Repository 和方法级安全设置不组合. 相反,方法级设置会覆盖存储库级设置.
+
+上一个例子说明了 `CrudRepository` 其实有四个删除方法. 您必须覆盖所有删除方法才能正确保护它.
+
+[[security.secured]]
+== security 的 @Secured
+
+下面的示例显示了 Spring Security 较旧的 @Secured 注解,它完全基于角色:
+
+.spring-data-rest-tests/spring-data-rest-tests-security/src/test/java/org/springframework/data/rest/tests/security/SecuredPersonRepository.java
+
+====
+[source,java]
+----
+include::{spring-data-rest-root}/test/java/org/springframework/data/rest/tests/security/SecuredPersonRepository.java[tag=code]
+----
+
+<1> 这将导致与前面的示例相同的安全检查,但灵活性较低.  它仅允许角色作为限制访问的手段.
+<2> 同样,这表明删除方法需要 `ROLE_ADMIN`.
+====
+
+NOTE: 如果您从一个新项目开始或首先应用 Spring Security,则 `@PreAuthorize` 是推荐的解决方案.  如果您的应用程序的其他部分已经使用 Spring Security 与 `@Secured`,则可以在该路径上继续,而无需重写所有内容.
+
+[[security.enable-method-level]]
+== 启用方法级安全性
+
+要配置方法级别的安全性,以下是 Spring Data REST 的测试套件的简短摘要:
+
+.spring-data-rest-tests/spring-data-rest-tests-security/src/test/java/org/springframework/data/rest/tests/security/SecurityConfiguration.java
+====
+[source,java]
+----
+include::{spring-data-rest-root}/test/java/org/springframework/data/rest/tests/security/SecurityConfiguration.java[tag=code]
+	...
+}
+----
+
+<1> 这是一个Spring配置类.
+<2> 它使用 Spring Security 的 `@EnableGlobalMethodSecurity` 注解来启用  `@Secured` 和 `@Pre`/`@Post` 支持. NOTE: 您不必同时使用. 这种特殊情况用于证明这两个版本与 Spring Data REST 一起工作.
+<3> 该类扩展了 Spring Security 的 `WebSecurityConfigurerAdapter` 用于纯Java配置的安全性
+====
+
+配置类的其余部分未列出,您可以在 Spring Security 参考文档中阅读的 {spring-security-docs}/#hello-web-security-java-configuration[标准做法].

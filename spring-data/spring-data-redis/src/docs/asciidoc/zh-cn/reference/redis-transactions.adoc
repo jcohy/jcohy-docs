@@ -1,0 +1,87 @@
+[[tx]]
+= Redis 事务
+
+Redis通过 `multi`, `exec`, 和 `discard` 命令为 https://redis.io/topics/transactions[事务] 提供支持.  这些操作在 `RedisTemplate` 上可用. 但是,不能保证 `RedisTemplate` 使用相同的连接来执行事务中的所有操作.
+
+当需要在同一连接上执行多个操作时,例如在使用 Redis 事务时,Spring Data Redis 提供了 `SessionCallback` 接口. 下面的示例使用 `multi` 方法:
+
+[source,java]
+----
+//execute a transaction
+List<Object> txResults = redisTemplate.execute(new SessionCallback<List<Object>>() {
+  public List<Object> execute(RedisOperations operations) throws DataAccessException {
+    operations.multi();
+    operations.opsForSet().add("key", "value1");
+
+    // This will contain the results of all operations in the transaction
+    return operations.exec();
+  }
+});
+System.out.println("Number of items added to set: " + txResults.get(0));
+----
+
+`RedisTemplate` 使用其值,哈希键和哈希值序列化程序在返回之前反序列化 `exec` 的所有结果. 还有一个附加的 `exec` 方法,可让您传递自定义的序列化程序以获取事务结果.
+
+include::version-note.adoc[]
+
+[[tx.spring]]
+== @Transactional 支持
+
+默认情况下,事务支持是禁用的,必须通过设置  `setEnableTransactionSupport(true)` 为正在使用的每个 `RedisTemplate` 显式启用. 这样做会强制将当前 `RedisConnection` 绑定到触发 `MULTI` 的当前线程.
+如果事务顺利完成,则调用 `EXEC`. 否则调用 `DISCARD`. 一旦进入 `MULTI`,`RedisConnection` 会将写入操作排队. 所有只读操作(例如 `KEYS`)都通过管道传递到新的(非线程绑定)`RedisConnection`.
+
+以下示例显示如何配置事务管理:
+
+.Configuration enabling Transaction Management
+====
+[source,java]
+----
+@Configuration
+@EnableTransactionManagement                                 <1>
+public class RedisTxContextConfiguration {
+
+  @Bean
+  public StringRedisTemplate redisTemplate() {
+    StringRedisTemplate template = new StringRedisTemplate(redisConnectionFactory());
+    // explicitly enable transaction support
+    template.setEnableTransactionSupport(true);              <2>
+    return template;
+  }
+
+  @Bean
+  public RedisConnectionFactory redisConnectionFactory() {
+    // jedis || Lettuce
+  }
+
+  @Bean
+  public PlatformTransactionManager transactionManager() throws SQLException {
+    return new DataSourceTransactionManager(dataSource());   <3>
+  }
+
+  @Bean
+  public DataSource dataSource() throws SQLException {
+    // ...
+  }
+}
+----
+<1> 配置一个 Spring Context 来启用 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#transaction-declarative[声明式事务管理].
+<2> 通过将连接绑定到当前线程来配置 `RedisTemplate` 参与事务.
+<3> 事务管理需要 `PlatformTransactionManager`. Spring Data Redis 不附带 `PlatformTransactionManager` 实现. 假设您的应用程序使用J DBC,Spring Data Redis 可以使用现有的事务管理器参与事务.
+====
+
+以下示例每个都演示了使用约束:
+
+.Usage Constraints
+====
+[source,java]
+----
+// must be performed on thread-bound connection
+template.opsForValue().set("thing1", "thing2");
+
+// read operation must be executed on a free (not transaction-aware) connection
+template.keys("*");
+
+// returns null as values set within a transaction are not visible
+template.opsForValue().get("thing1");
+----
+====
