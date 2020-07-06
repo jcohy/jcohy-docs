@@ -39,7 +39,9 @@ Actuator 是制造术语,指的是用于移动或控制某物的机械装置. Ac
 == 端点
 通过 Actuator 端点,你可以监控应用程序并与之交互. Spring Boot 包含许多内置端点,也允许你添加自己的端点. 例如,`health` 端点提供基本的应用程序健康信息.
 
-可以 <<production-ready-endpoints-enabling-endpoints, 启用或禁用>>每个端点. 它可以控制当其 bean 存在于应用程序上下文中是否创建端点.
+可以 <<production-ready-endpoints-enabling-endpoints, 启用或禁用>> 每个端点. 它可以控制当其 bean 存在于应用程序上下文中是否创建端点.
+当端点同时启用和公开时,它被视为可用.
+内置端点只有在可用时才会被自动配置.
 要进行远程访问,必须通过 <<production-ready-endpoints-exposing-endpoints,  JMX 或 HTTP 暴露端点>>. 大多数应用程序选择 HTTP 方式,通过端点的 ID 以及 `/actuator` 的前缀映射一个 URL. 例如,默认情况下,`health` 端点映射到 `/actuator/health`.
 
 可以使用以下与技术无关的端点:
@@ -624,11 +626,17 @@ NOTE: 给定 `HealthIndicator` 的标识符是没有 `HealthIndicator` 后缀的
 	management.endpoint.health.status.order=fatal,down,out-of-service,unknown,up
 ----
 
-响应中的 HTTP 状态码反映了整体运行状况 (例如,`UP` 映射到 200,而 `OUT_OF_SERVICE` 和 `DOWN` 映射到 503) . 如果通过 HTTP 访问健康端点,则可能还需要注册自定义状态映射. 例如,以下属性将 `FATAL` 映射到 503 (服务不可用) :
+响应中的 HTTP 状态码反映了整体运行状况 (例如,`UP` 映射到 200,而 `OUT_OF_SERVICE` 和 `DOWN` 映射到 503) .任何未映射的健康状态，包括 "UP"，都映射为 200.
+如果通过 HTTP 访问健康端点,则可能还需要注册自定义状态映射.
+配置自定义映射默认会禁用 "DOWN" 和 "OUT_OF_SERVICE" 映射。
+如果要保留默认映射，则必须在所有自定义映射显式配置它们。
+例如,以下属性将 `FATAL` 映射到 503 (服务不可用) 并保留 "DOWN" 和 "OUT_OF_SERVICE" 的默认映射：:
 
 [source,properties,indent=0,configprops]
 ----
+	management.endpoint.health.status.http-mapping.down=503
 	management.endpoint.health.status.http-mapping.fatal=503
+	management.endpoint.health.status.http-mapping.out-of-service=503
 ----
 
 TIP: 如果需要控制更多,可以定义自己的 `HttpCodeStatusMapper` bean.
@@ -722,7 +730,7 @@ TIP: 必要时,响应式指示器取代常规指示器. 此外,任何未明确�
 	management.endpoint.health.group.custom.roles=admin
 	management.endpoint.health.group.custom.status.order=fatal,up
 	management.endpoint.health.group.custom.status.http-mapping.fatal=500
-
+	management.endpoint.health.group.custom.status.http-mapping.out-of-service=500
 ----
 
 TIP: 如果需要注册自定义 `StatusAggregator` 或 `HttpCodeStatusMapper` Bean以便与该组一起使用,则可以使用 `@Qualifier("groupname")` .
@@ -979,6 +987,8 @@ Jolokia 是一个 JMX-HTTP 桥,它提供了一种访问 JMX bean 的新方式. �
 
 之后可以通过将 `jolokia` 或 `*` 添加到 `management.endpoints.web.exposure.include` 属性来暴露 Jolokia 端点. 最后,你可以在 management HTTP 服务器上使用 `/actuator/jolokia` 访问它.
 
+NOTE: Jolokia 端点将 Jolokia 的 servlet 公开为 actuator endpoint.它特定于运行于 Spring MVC 和 Jersey 的 servlet 环境.该端点在 WebFlux 应用程序中将不可用.
+
 [[production-ready-customizing-jolokia]]
 ==== 自定义 Jolokia
 Jolokia 有许多设置,你可以通过设置 servlet 参数来使用传统方式进行配置. 使用 Spring Boot 时,你可以使用 `application.properties` 文件配置. 请在参数前加上 `management.endpoint.jolokia.config`. 如下所示:
@@ -1027,7 +1037,7 @@ TIP: 要重置日志记录器的特定级别 (并使用默认配置代替) ,可�
 
 [[production-ready-metrics]]
 == 指标
-Spring Boot Actuator 为 Micrometer 提供了依赖管理和自动配置, https://micrometer.io[Micrometer] 是一个支持众多监控系统的应用程序指标门面,包括:
+Spring Boot Actuator 为 Micrometer 提供了依赖管理和自动配置, https://micrometer.io[Micrometer] 是一个支持 {micrometer-docs}[numerous monitoring systems] 的应用程序指标门面,包括:
 
 - <<production-ready-metrics-export-appoptics,AppOptics>>
 - <<production-ready-metrics-export-atlas,Atlas>>

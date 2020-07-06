@@ -1564,7 +1564,7 @@ NOTE: 您可以通过启用 `org.hibernate.SQL` 记录器来输出模式创建. 
 
 [[howto-initialize-a-database-using-spring-jdbc]]
 === 初始化数据库
-Spring Boot可以自动创建数据源的架构 (DDL脚本) 并对其进行初始化 (DML脚本) .  它从标准根类路径位置 (分别为 `schema.sql` 和 `data.sql`) 加载SQL.
+Spring Boot 可以自动创建数据源的架构 (DDL脚本) 并对其进行初始化 (DML脚本) .  它从标准根类路径位置 (分别为 `schema.sql` 和 `data.sql`) 加载SQL.
 另外,Spring Boot处理 `schema-$\{platform}.sql` 和  `data-$\{platform}.sql`  文件 (如果存在) ,其中 `platform` 是 `spring.datasource.platform` 的值.
 这使您可以在必要时切换到特定于数据库的脚本.  例如,您可以选择将其设置为数据库的供应商名称 (`hsqldb`,`h2`,`oracle`,`mysql`,`postgresql` 等) .
 
@@ -1576,11 +1576,21 @@ Spring Boot自动创建嵌入式数据源的架构.  可以使用 `spring.dataso
 ----
 	spring.datasource.initialization-mode=always
 ----
+
+在基于 JPA 的应用程序中,您可以选择让 Hibernate 创建 schema 或使用 `schema.sql`,但您不能两者都做.  如果使用 `schema.sql`,请确保禁用 `spring.jpa.hibernate.ddl-auto`.
+
+[indent=0,subs="verbatim,quotes,attributes"]
+----
+	spring.jpa.hibernate.ddl-auto=none
+----
+
+如果你正在使用 Flyway 或 Liquibase <<spring-boot-features.adoc#howto-use-a-higher-level-database-migration-tool,高级数据库迁移工具>>, 则无法使用 basic SQL 创建和初始化 schema 的脚本。
+在这种情况下，如果存在 `schema.sql` 和 `data.sql` ，它们将被忽略。
+无法使用数据库迁移工具来管理 schema 创建，无法使用 basic SQL 脚本来初始化 schema。
 ====
 
-默认情况下,Spring Boot启用Spring JDBC初始化程序的快速失败功能.  这意味着,如果脚本导致异常,则应用程序将无法启动.  您可以通过设置 `spring.datasource.continue-on-error` 来调整行为.
+默认情况下,Spring Boot 启用 Spring JDBC 初始化程序的快速失败功能.  这意味着,如果脚本导致异常,则应用程序将无法启动.  您可以通过设置 `spring.datasource.continue-on-error` 来调整行为.
 
-NOTE: 在基于JPA的应用程序中,您可以选择让Hibernate创建架构或使用 `schema.sql`,但您不能两者都做.  如果使用 `schema.sql`,请确保禁用 `spring.jpa.hibernate.ddl-auto`.
 
 [[howto-initialize-a-spring-batch-database]]
 === 初始化一个Spring Batch数据库
@@ -1647,7 +1657,7 @@ Flyway支持SQL和Java https://flywaydb.org/documentation/callbacks.html[callbac
 
 默认情况下,Liquibase在您的上下文中自动装配 (`@Primary`) 数据源,并将其用于迁移.  如果需要使用其他数据源,则可以创建一个并将其 `@Bean` 标记为 `@LiquibaseDataSource`.
 如果这样做,并且想要两个数据源,请记住创建另一个数据源并将其标记为 `@Primary`.  另外,您可以通过在外部属性中设置  `spring.liquibase.[url,user,password]` 来使用Liquibase的本机数据源.
-设置 `spring.liquibase.url` 或 `spring.liquibase.user` 足以使Liquibase使用其自己的数据源.  如果未设置这三个属性中的任何一个,则将使用其等效的 `spring.datasource` 属性的值.
+设置 `spring.liquibase.url` 或 `spring.liquibase.user` 足以使 Liquibase 使用其自己的数据源.  如果未设置这三个属性中的任何一个,则将使用其等效的 `spring.datasource` 属性的值.
 
 有关可用设置 (例如上下文,默认架构等) 的详细信息,请参见 {spring-boot-autoconfigure-module-code}/liquibase/LiquibaseProperties.java[`LiquibaseProperties`].
 
@@ -1756,8 +1766,8 @@ NOTE: 设置 `server.error.whitelabel.enabled=false` 可以关闭默认错误页
 
 有关如何在Servlet容器中注册处理程序的详细信息,另请参见 "`<<spring-boot-features.adoc#boot-features-error-handling, 错误处理>>`" 部分.
 
-[[howto-sanitize-sensible-values]]
-=== Sanitize sensible values
+[[howto-sanitize-sensitive-values]]
+=== Sanitize Sensitive Values
 `env` 和 `configprops` 端点返回的信息可能有些敏感,因此默认情况下会清理匹配特定模式的键 (即,它们的值将替换为 `******`) .
 
 可以分别使用 `management.endpoint.env.keys-to-sanitize` 和  `management.endpoint.configprops.keys-to-sanitize` 来定制要使用的模式.
@@ -1765,6 +1775,40 @@ NOTE: 设置 `server.error.whitelabel.enabled=false` 可以关闭默认错误页
 Spring Boot对此类密钥使用明智的默认设置: 例如,对任何以单词 "password", "secret", "key", "token", "vcap_services", "sun.java.command", "uri", "uris", "address"  或 "addresses"  结尾的密钥进行清理.  也可以改用正则表达式,例如 `+*credentials.*+` 来清理任何将单词凭据作为密钥一部分保存的密钥.
 
 如果要清理的任何 key 都是URI格式 (即 `<scheme>://<username>:<password>@<host>:<port>/`) ,则仅清理密码部分.
+
+[[howto-map-health-indicators-to-metrics]]
+=== 映射健康状态
+
+Spring Boot 通过 `Status` 类型反应系统运行状况。 如果要监视或警告特定应用程序的运行状况，可以通过 Micrometer 暴露这些状态。 默认情况下，Spring Boot 使用状态代码 "`up`", "`down`","`out of service`" 和 "`unknown`"。 要暴露这些状态，您需要将这些状态转换为一组数字，以便它们可以与 Micrometer 一起使用。
+
+以下示例显示了一种方法：
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+@Configuration
+public class HealthMetricsConfiguration {
+
+    public HealthMetricsConfiguration(MeterRegistry registry, HealthEndpoint healthEndpoint) {
+        // This example presumes common tags (such as the app) are applied elsewhere
+        Gauge.builder("health", healthEndpoint, this::getStatusCode).strongReference(true).register(registry);
+    }
+
+    private int getStatusCode(HealthEndpoint health) {
+        Status status = health.health().getStatus();
+        if (Status.UP.equals(status)) {
+            return 3;
+        }
+        if (Status.OUT_OF_SERVICE.equals(status)) {
+            return 2;
+        }
+        if (Status.DOWN.equals(status)) {
+            return 1;
+        }
+        return 0;
+    }
+
+}
+----
 
 [[howto-security]]
 == 安全
@@ -1920,7 +1964,7 @@ Gradle用户可以使用 https://plugins.gradle.org/plugin/com.gorylenko.gradle-
 [source,groovy,indent=0]
 ----
 	plugins {
-		id "com.gorylenko.gradle-git-properties" version "1.5.1"
+		id "com.gorylenko.gradle-git-properties" version "2.2.2"
 	}
 ----
 

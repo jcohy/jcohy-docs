@@ -1949,7 +1949,7 @@ For example, you might choose to set it to the vendor name of the database (`hsq
 
 [NOTE]
 ====
-Spring Boot automatically creates the schema of an embedded `DataSource`.
+When only basic SQL scripts are used, Spring Boot automatically creates the schema of an embedded `DataSource`.
 This behavior can be customized by using the configprop:spring.datasource.initialization-mode[] property.
 For instance, if you want to always initialize the `DataSource` regardless of its type:
 
@@ -1957,14 +1957,23 @@ For instance, if you want to always initialize the `DataSource` regardless of it
 ----
 	spring.datasource.initialization-mode=always
 ----
+
+In a JPA-based app, you can choose to let Hibernate create the schema or use `schema.sql`, but you cannot do both.
+Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
+
+[indent=0,subs="verbatim,quotes,attributes"]
+----
+	spring.jpa.hibernate.ddl-auto=none
+----
+
+If you are using a <<spring-boot-features.adoc#howto-use-a-higher-level-database-migration-tool,Higher-level Database Migration Tool>>, like Flyway or Liquibase, you cannot use basic SQL scripts to create and initialize the schema.
+In this situation, if `schema.sql` and `data.sql` are present, they will be ignored.
+It is not possible to use a Database Migration Tool to manage schema creation, and a basic SQL script to initialize it.
 ====
 
 By default, Spring Boot enables the fail-fast feature of the Spring JDBC initializer.
 This means that, if the scripts cause exceptions, the application fails to start.
 You can tune that behavior by setting `spring.datasource.continue-on-error`.
-
-NOTE: In a JPA-based app, you can choose to let Hibernate create the schema or use `schema.sql`, but you cannot do both.
-Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
 
 
 
@@ -2056,6 +2065,13 @@ With that setup, migrations in `dev/db/migration` run only when the `dev` profil
 ==== Execute Liquibase Database Migrations on Startup
 To automatically run Liquibase database migrations on startup, add the `org.liquibase:liquibase-core` to your classpath.
 
+[NOTE]
+====
+When you add the `org.liquibase:liquibase-core` to your classpath, database migrations run by default for both during application startup and before your tests run.
+This behavior can be customized by using the configprop:spring.liquibase.enabled[] property, setting different values in the `main` and `test` configurations.
+It is not possible to use two different ways to initialize the database (e.g. Liquibase for application startup, JPA for test runs).
+====
+
 By default, the master change log is read from `db/changelog/db.changelog-master.yaml`, but you can change the location by setting `spring.liquibase.change-log`.
 In addition to YAML, Liquibase also supports JSON, XML, and SQL change log formats.
 
@@ -2064,7 +2080,7 @@ If you need to use a different `DataSource`, you can create one and mark its `@B
 If you do so and you want two data sources, remember to create another one and mark it as `@Primary`.
 Alternatively, you can use Liquibase's native `DataSource` by setting `spring.liquibase.[url,user,password]` in external properties.
 Setting either `spring.liquibase.url` or `spring.liquibase.user` is sufficient to cause Liquibase to use its own `DataSource`.
-If any of the three properties has not be set, the value of its equivalent `spring.datasource` property will be used.
+If any of the three properties has not been set, the value of its equivalent `spring.datasource` property will be used.
 
 See {spring-boot-autoconfigure-module-code}/liquibase/LiquibaseProperties.java[`LiquibaseProperties`] for details about available settings such as contexts, the default schema, and others.
 
@@ -2208,7 +2224,8 @@ See also the section on "`<<spring-boot-features.adoc#boot-features-error-handli
 
 
 [[howto-sanitize-sensible-values]]
-=== Sanitize sensible values
+[[howto-sanitize-sensitive-values]]
+=== Sanitize Sensitive Values
 Information returned by the `env` and `configprops` endpoints can be somewhat sensitive so keys matching a certain pattern are sanitized by default (i.e. their values are replaced by `+******+`).
 
 The patterns to use can be customized using the `management.endpoint.env.keys-to-sanitize` and `management.endpoint.configprops.keys-to-sanitize` respectively.
@@ -2217,6 +2234,22 @@ Spring Boot uses sensible defaults for such keys: any key ending with the word "
 Additionally, any key that holds the word `credentials` as part of the key is sanitized (configured as a regular expression, i.e. `+*credentials.*+`).
 
 If any of the keys to sanitize are URI format (i.e. `<scheme>://<username>:<password>@<host>:<port>/`), only the password part is sanitized.
+
+
+
+[[howto-map-health-indicators-to-metrics]]
+=== Map Health Indicators to Micrometer Metrics
+Spring Boot health indicators return a `Status` type to indicate the overall system health.
+If you want to monitor or alert on levels of health for a particular application, you can export these statuses as metrics via Micrometer.
+By default, the status codes "`up`", "`down`", "`out of service`" and "`unknown`" are used by Spring Boot.
+To export these, you'll need to convert these states to some set of numbers so that they can be used with a Micrometer `Gauge`.
+
+The follow example shows one way to write such an exporter:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+include::{code-examples}/actuate/metrics/MetricsHealthMicrometerExportExample.java[tag=configuration]
+----
 
 
 
@@ -2420,7 +2453,7 @@ Gradle users can achieve the same result by using the https://plugins.gradle.org
 [source,groovy,indent=0]
 ----
 	plugins {
-		id "com.gorylenko.gradle-git-properties" version "1.5.1"
+		id "com.gorylenko.gradle-git-properties" version "2.2.2"
 	}
 ----
 

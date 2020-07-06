@@ -48,10 +48,10 @@ Actuator endpoints let you monitor and interact with your application.
 Spring Boot includes a number of built-in endpoints and lets you add your own.
 For example, the `health` endpoint provides basic application health information.
 
-Each individual endpoint can be <<production-ready-endpoints-enabling-endpoints, enabled or disabled>>.
-This controls whether or not the endpoint is created and its bean exists in the application context.
-To be remotely accessible an endpoint also has to be <<production-ready-endpoints-exposing-endpoints, exposed via JMX or HTTP>>.
-Most applications choose HTTP, where the ID of the endpoint along with a prefix of `/actuator` is mapped to a URL.
+Each individual endpoint can be <<production-ready-endpoints-enabling-endpoints, enabled or disabled>> and <<production-ready-endpoints-exposing-endpoints, exposed (made remotely accessible) over HTTP or JMX>>.
+An endpoint is considered to be available when it is both enabled and exposed.
+The built-in endpoints will only be auto-configured when they are available.
+Most applications choose exposure via HTTP, where the ID of the endpoint along with a prefix of `/actuator` is mapped to a URL.
 For example, by default, the `health` endpoint is mapped to `/actuator/health`.
 
 The following technology-agnostic endpoints are available:
@@ -751,13 +751,19 @@ To configure the severity order, add the following property to your application 
 	management.endpoint.health.status.order=fatal,down,out-of-service,unknown,up
 ----
 
-The HTTP status code in the response reflects the overall health status (for example, `UP` maps to 200, while `OUT_OF_SERVICE` and `DOWN` map to 503).
+The HTTP status code in the response reflects the overall health status.
+By default, `OUT_OF_SERVICE` and `DOWN` map to 503.
+Any unmapped health statuses, including `UP`, map to 200.
 You might also want to register custom status mappings if you access the health endpoint over HTTP.
-For example, the following property maps `FATAL` to 503 (service unavailable):
+Configuring a custom mapping disables the defaults mappings for `DOWN` and `OUT_OF_SERVICE`.
+If you want to retain the default mappings they must be configured explicitly alongside any custom mappings.
+For example, the following property maps `FATAL` to 503 (service unavailable) and retains the default mappings for `DOWN` and `OUT_OF_SERVICE`:
 
 [source,properties,indent=0,configprops]
 ----
+	management.endpoint.health.status.http-mapping.down=503
 	management.endpoint.health.status.http-mapping.fatal=503
+	management.endpoint.health.status.http-mapping.out-of-service=503
 ----
 
 TIP: If you need more control, you can define your own `HttpCodeStatusMapper` bean.
@@ -861,7 +867,7 @@ It's also possible to override the `show-details` and `roles` properties if requ
 	management.endpoint.health.group.custom.roles=admin
 	management.endpoint.health.group.custom.status.order=fatal,up
 	management.endpoint.health.group.custom.status.http-mapping.fatal=500
-
+	management.endpoint.health.group.custom.status.http-mapping.out-of-service=500
 ----
 
 TIP: You can use `@Qualifier("groupname")` if you need to register custom `StatusAggregator` or `HttpCodeStatusMapper` beans for use with the group.
@@ -1000,6 +1006,8 @@ For example, `health` is exposed as `/actuator/health`.
 
 TIP: Actuator is supported natively with Spring MVC, Spring WebFlux, and Jersey.
 If both Jersey and Spring MVC are available, Spring MVC will be used.
+
+NOTE: Jackson is a required dependency in order to get the correct JSON responses as documented in the API documentation ({spring-boot-actuator-restapi}/html[HTML] or {spring-boot-actuator-restapi}/pdf/spring-boot-actuator-web-api.pdf[PDF]).
 
 
 
@@ -1170,6 +1178,10 @@ For example, with Maven, you would add the following dependency:
 The Jolokia endpoint can then be exposed by adding `jolokia` or `*` to the configprop:management.endpoints.web.exposure.include[] property.
 You can then access it by using `/actuator/jolokia` on your management HTTP server.
 
+NOTE: The Jolokia endpoint exposes Jolokia's servlet as an actuator endpoint.
+As a result, it is specific to servlet environments such as Spring MVC and Jersey.
+The endpoint will not be available in a WebFlux application.
+
 
 
 [[production-ready-customizing-jolokia]]
@@ -1232,7 +1244,7 @@ TIP: To "`reset`" the specific level of the logger (and use the default configur
 
 [[production-ready-metrics]]
 == Metrics
-Spring Boot Actuator provides dependency management and auto-configuration for https://micrometer.io[Micrometer], an application metrics facade that supports numerous monitoring systems, including:
+Spring Boot Actuator provides dependency management and auto-configuration for https://micrometer.io[Micrometer], an application metrics facade that supports {micrometer-docs}[numerous monitoring systems], including:
 
 - <<production-ready-metrics-export-appoptics,AppOptics>>
 - <<production-ready-metrics-export-atlas,Atlas>>

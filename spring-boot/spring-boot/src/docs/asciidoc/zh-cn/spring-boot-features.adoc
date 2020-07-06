@@ -436,7 +436,7 @@ WARNING: `spring.config.name` 和 `spring.config.location` 在程序启动早期
 
 该搜索顺序允许您在一个配置文件中指定默认值,然后有选择地覆盖另一个配置文件中的值. 您可以在 `application.properties` (或您使用 `spring.config.name` 指定的其他文件) 中的某个默认位置为应用程序提供默认值. 之后,在运行时,这些默认值将被自定义位置中的某个文件所覆盖.
 
-NOTE: 如果您使用的是环境变量而不是系统属性,大部分操作系统都不允许使用 . 分隔的键名,但您可以使用下划线来代替 (例如,使用 `SPRING_CONFIG_NAME` 而不是 `spring.config.name`) .
+NOTE: 如果您使用的是环境变量而不是系统属性,大部分操作系统都不允许使用 . 分隔的键名,但您可以使用下划线来代替 (例如,使用 `SPRING_CONFIG_NAME` 而不是 `spring.config.name`) .查看 <<boot-features-external-config-relaxed-binding-from-environment-variables>> 获取更多细节信息.
 
 NOTE: 如果应用程序在容器中运行,则可以使用 JNDI 属性 (`java:comp/env`) 或 servlet 上下文初始化参数来代替环境变量或系统属性. (in `java:comp/env`)
 
@@ -725,7 +725,7 @@ getter 和 setter 通常是必需的,因为绑定是通过标准的 Java Bean �
 
 	import org.springframework.boot.context.properties.ConfigurationProperties;
 	import org.springframework.boot.context.properties.ConstructorBinding;
-	import org.springframework.boot.context.properties.DefaultValue;
+	import org.springframework.boot.context.properties.bind.DefaultValue;
 
 	@ConstructorBinding
 	@ConfigurationProperties("acme")
@@ -780,6 +780,38 @@ getter 和 setter 通常是必需的,因为绑定是通过标准的 Java Bean �
 `@ConstructorBinding` 类的嵌套成员 (例如上例中的 `Security` ) 也将通过其构造函数进行绑定.
 
 可以使用 `@DefaultValue` 指定默认值,并且将应用相同的转换服务将 `String` 值强制为缺少属性的目标类型.
+
+默认情况下，如果没有属性绑定到 `Security`，则 `AcmeProperties` 实例的 `Security` 为 `null`。
+
+如果您希望即使没有绑定任何属性都返回 `Security` 的非空实例，则可以使用空的 `@DefaultValue` 注解来这样做：
+
+[source,java,indent=0]
+----
+	package com.example;
+	import java.net.InetAddress;
+	import java.util.List;
+
+	import org.springframework.boot.context.properties.ConfigurationProperties;
+	import org.springframework.boot.context.properties.ConstructorBinding;
+	import org.springframework.boot.context.properties.bind.DefaultValue;
+
+	@ConstructorBinding
+	@ConfigurationProperties("acme")
+	public class AcmeProperties {
+
+		private final boolean enabled;
+
+		private final InetAddress remoteAddress;
+
+		private final Security security;
+
+		public AcmeProperties(boolean enabled, InetAddress remoteAddress, @DefaultValue Security security) {
+			this.enabled = enabled;
+			this.remoteAddress = remoteAddress;
+			this.security = security;
+		}
+	}
+----
 
 NOTE: 要使用构造函数绑定,必须使用 `@EnableConfigurationProperties` 或配置属性扫描来启用该类.  您不能对通过常规Spring机制创建的bean使用构造函数绑定 (例如 `@Component` bean,通过 `@Bean` 方法创建的bean或使用 `@Import` 加载的bean)
 
@@ -946,8 +978,8 @@ NOTE: 注解的 `prefix` 值必须是 kebab (短横线命名)风格 (小写并�
 | 标准 YAML 列表语法或者逗号分隔值
 
 | 环境变量
-| 大写并且以下划线作为定界符,`_` 不能放在属性名之间使用
-| 数字值两边使用下划线连接,例如 `MY_ACME_1_OTHER = my.acme[1].other`
+| 大写并且以下划线作为定界符,(查看 <<boot-features-external-config-relaxed-binding-from-environment-variables>>).
+| 数字值两边使用下划线连接,例如 `MY_ACME_1_OTHER = my.acme[1].other` (查看 <<boot-features-external-config-relaxed-binding-from-environment-variables>>)`
 
 | 系统属性
 | 驼峰式、短横线式或者下划线式
@@ -955,6 +987,9 @@ NOTE: 注解的 `prefix` 值必须是 kebab (短横线命名)风格 (小写并�
 |===
 
 TIP: 我们建议,属性尽可能以小写的短横线格式存储,比如 `my.property-name=acme`.
+
+[[boot-features-external-config-relaxed-binding-maps]]
+===== 绑定 Maps
 
 当绑定到 `Map` 属性时,如果 `key` 包含除小写字母数字字符或 `-` 以外的任何内容,则需要使用括号表示法来保留原始值. 如果 key 没有使用 `[]` 包裹,则里面的任何非字母数字字符或 `-` 的字符都将被删除. 例如,将以下属性绑定到一个 `Map`:
 
@@ -972,6 +1007,26 @@ TIP: 我们建议,属性尽可能以小写的短横线格式存储,比如 `my.pr
 
 NOTE: 对于YAML文件,方括号需要用引号引起来,以便正确解析 keys.
 
+[[boot-features-external-config-relaxed-binding-from-environment-variables]]
+===== 从环境变量绑定
+
+大多数操作系统在对于环境变量有严格规范。 例如，Linux shell 变量只能包含字母(`a` to `z` or `A` to `Z`)，数字(`0` to `9`)或下划线字符(`_`)。 按照约定，Unix shell 变量也可以用大写字母命名。
+
+Spring Boot 的宽松绑定规则尽可能设计成与这些命名限制兼容。
+
+要将规范形式的属性名称转换为环境变量名称，可以遵循以下规则：
+
+* 使用下划线 (`_`) 替代 (`.`).
+* 删除所有 (`-`).
+* 转换为大写.
+
+例如，配置属性 `spring.main.log-startup-info` 是一个名为 `SPRING_MAIN_LOGSTARTUPINFO` 的环境变量。
+
+NOTE: 下划线不能用于替换属性名称中的中划线。如果您在上面的示例中尝试使用 `SPRING_MAIN_LOG_STARTUP_INFO`，则不会绑定任何值。
+
+当绑定到对象列表时，也可以使用环境变量。 要绑定到列表，元素编号应在变量名称中用下划线括起来。
+
+例如，配置属性 `my.acme[0].other` 使用名为 `MY_ACME_0_OTHER` 的环境变量。
 
 [[boot-features-external-config-complex-type-merge]]
 ==== 合并复杂类型
@@ -1202,7 +1257,7 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 
 | <<boot-features-external-config-relaxed-binding,宽松绑定>>
 | Yes
-| No
+| Limited (see note below)
 
 | <<appendix-configuration-metadata.adoc#configuration-metadata,元数据支持>>
 | Yes
@@ -1213,7 +1268,13 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 | Yes
 |===
 
-如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中. 您应该知道,由于 `@Value` 不支持宽松绑定,因此如果您需要通过环境变量来提供值,它并不是一个好的选择.
+如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中.
+这样做将为您提供结构化，类型安全的对象，您可以将其注入到自己的 bean 中。
+
+如果您确实想使用 `@Value`，我们建议您以规范形式引用属性名称(kebab-case仅使用小写字母),这与 Spring Boot `@ConfigurationProperties` 宽松绑定使用相同的逻辑
+
+例如,`@Value("{demo.item-price}")` 将从 `application.properties` 文件以及 DEMO_ITEMPRICE 环境变量中获取 `demo.item-price` 和 `demo.itemPrice` 形式.
+如果您使用的是 `@Value("{demo.itemPrice}")`，则不会考虑 `demo.item-price` 和 `DEMO_ITEMPRICE` 环境变量。
 
 最后,虽然您可以在 `@Value` 中编写 SpEL 表达式,但来自<<boot-features-external-config-application-property-files,应用程序属性文件>>的此类表达式并不会被处理.
 
@@ -1863,7 +1924,7 @@ Spring Boot 默认选择禁用后缀模式匹配,这意味着像 `"GET /projects
 
 还有其他方法可以处理 HTTP 客户端发送不一致 Accept 请求头问题. 我们可以使用查询参数来确保像 `"GET /projects/spring-boot?format=json"` 这样的请求映射到 `@GetMapping("/projects/spring-boot")`,而不是使用后缀匹配:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-parameter=true
 
@@ -1876,7 +1937,7 @@ Spring Boot 默认选择禁用后缀模式匹配,这意味着像 `"GET /projects
 
 如果您了解相关注意事项并仍希望应用程序使用后缀模式匹配,则需要以下配置:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-suffix-pattern=true
@@ -1884,7 +1945,7 @@ Spring Boot 默认选择禁用后缀模式匹配,这意味着像 `"GET /projects
 
 或者,不打开所有后缀模式,仅打开支持已注册的后缀模式更加安全:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-registered-suffix-pattern=true
@@ -1906,7 +1967,7 @@ Spring MVC 使用一个 `WebBindingInitializer` 为特定的请求初始化 `Web
 Spring Boot 包含了以下的模板引擎的自动配置支持:
 
  * https://freemarker.apache.org/docs/[FreeMarker]
- * http://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_the_markuptemplateengine[Groovy]
+ * https://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_the_markuptemplateengine[Groovy]
  * https://www.thymeleaf.org[Thymeleaf]
  * https://mustache.github.io/[Mustache]
 
@@ -2043,9 +2104,14 @@ NOTE: 如果您注册了一个 `ErrorPage`,它的路径最终由一个 `Filter` 
 
 
 
-[[boot-features-error-handling-websphere]]
-当心: 当部署到 servlet 容器时,Spring Boot 使用其错误页面过滤器会将有错误状态的请求转发到相应的错误页面. 如果尚未提交响应,则只能将请求转发到正确的错误页面.
-默认情况下,WebSphere Application Server 8.0 及更高版本在成功完成 servlet 的 service 方法后提交响应. 您应该将 `com.ibm.ws.webcontainer.invokeFlushAfterService` 设置为 `false` 来禁用此行为.
+[[boot-features-error-handling-war-deployment]]
+===== Error handling in a war deployment
+当部署到 servlet 容器时，Spring Boot 使用其错误页面过滤器会将有错误状态的请求转发到相应的错误页面.这是必需的，因为 Servlet 规范没有提供用于注册错误页面的 API.根据要将 war 文件部署到的容器以及应用程序使用的技术，可能需要一些其他配置.
+
+如果尚未提交响应,则只能将请求转发到正确的错误页面.默认情况下,WebSphere Application Server 8.0 及更高版本在成功完成 servlet 的 service 方法后提交响应. 您应该将 `com.ibm.ws.webcontainer.invokeFlushAfterService` 设置为 `false` 来禁用此行为.
+
+如果您使用的是 `Spring Security`，并且想访问错误页面中的用户 principal 信息，则必须配置 `Spring Security` 过滤器来处理的错误是分发。
+为此，请将 `spring.security.filter.dispatcher-types` 属性配置为 `async, error, forward, request`
 
 [[boot-features-spring-hateoas]]
 ==== Spring HATEOAS
@@ -6142,18 +6208,28 @@ include::{test-examples}/autoconfigure/UserServiceAutoConfigurationTests.java[ta
 
 [[boot-features-custom-starter]]
 === 创建自己的 Starter
-一个完整的 Spring Boot starter 类库可能包含以下组件:
 
-* `autoconfigure` 模块,包含自动配置代码.
-* starter 模块,它提供对 `autoconfigure` 模块依赖关系以及类库和常用的其他依赖关系. 简而言之,添加 starter 应该提供该库开始使用所需的一切.
+一个典型的 Spring Boot 启动器包含用于自动配置和使用的基础技术结构的代码，我们称其为 "acme".
+为了使其易于扩展，可以将命名空间中的许多配置项暴露给环境。
+最后，提供了一个  "starter"  依赖项，以帮助用户尽可能轻松地入门。
 
-TIP: 如果您不想将这两个模块分开,则可以将自动配置代码和依赖关系管理组合在一个模块中.
+具体而言，自定义启动器可以包含以下内容：
+
+* `autoconfigure` 模块,为 "acme" 包含自动配置代码.
+* starter 模块,它为 "acme" 提供对 `autoconfigure` 模块依赖关系以及类库和常用的其他依赖关系. 简而言之,添加 starter 应该提供该库开始使用所需的一切.
+
+完全没有必要将这两个模块分开.
+如果 "acme" 具有多种功能，选项或可选功能，则最好将自动配置分开，这样您可以清楚地表示某些功能是可选的.此外，您还可以制作一个启动器，以提供有关可选的依赖项.
+
+同时，其他人只能依靠 `autoconfigure` 模块来制作自己的具有不同选项的启动器。
+
+如果自动配置相对简单并且不具有可选功能，则将两个模块合并在启动器中绝对是一种选择。
 
 [[boot-features-custom-starter-naming]]
 ==== 命名
 您应该确保为您的 starter 提供一个合适的命名空间. 即使您使用其他 Maven groupId,也不要使用 `spring-boot` 作为模块名称的开头. 我们可能会为您以后自动配置的内容提供官方支持.
 
-根据经验,您应该在 starter 后命名一个组合模块. 例如,假设您正在为 acme 创建一个 starter,并且您将自动配置模块命名为 `acme-spring-boot-autoconfigure`,将 starter 命名为 `acme-spring-boot-starter`. 如果您只有一个组合这两者的模块,请将其命名为 `acme-spring-boot-starter`.
+根据经验,您应该在 starter 后命名一个组合模块. 例如,假设您正在为 acme 创建一个 starter,并且您将自动配置模块命名为 `acme-spring-boot`,将 starter 命名为 `acme-spring-boot-starter`. 如果您只有一个组合这两者的模块,请将其命名为 `acme-spring-boot-starter`.
 
 
 [[boot-features-custom-starter-configuration-keys]]
@@ -6343,7 +6419,7 @@ TIP: 为了使用注解处理器<<appendix-configuration-metadata.adoc#configura
 === 测试
 虽然可以使用 JUnit 4 来测试 Kotlin 代码,但建议使用 JUnit 5. JUnit 5 允许测试类实例化一次,并在所有类的测试中复用. 这使得可以在非静态方法上使用 `@BeforeAll` 和 `@AfterAll` 注解,这非常适合 Kotlin.
 
-JUnit 5是默认的,并且提供了vintage引擎与JUnit 4向后兼容. 如果不使用它,请排除 `org.junit.vintange: junit-vintage-engine`.  您还需要将 {junit5-docs}/#writing-tests-test-instance-lifecycle-changing-default[测试实例生命周期切换为 "per-class"].
+JUnit 5是默认的,并且提供了vintage引擎与JUnit 4向后兼容. 如果不使用它,请排除 `org.junit.vintage: junit-vintage-engine`.  您还需要将 {junit5-docs}/#writing-tests-test-instance-lifecycle-changing-default[测试实例生命周期切换为 "per-class"].
 
 要模拟Kotlin类,建议使用MockK.  如果您需要与Mockito特定的@MockBean和@SpyBean注解相对应的Mockk,则可以使用SpringMockK,它提供类似的@MockkBean和@SpykBean注解.
 

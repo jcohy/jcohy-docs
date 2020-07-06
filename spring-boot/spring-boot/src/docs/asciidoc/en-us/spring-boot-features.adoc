@@ -522,6 +522,7 @@ You can provide default values for your application in `application.properties` 
 These default values can then be overridden at runtime with a different file located in one of the custom locations.
 
 NOTE: If you use environment variables rather than system properties, most operating systems disallow period-separated key names, but you can use underscores instead (for example, configprop:spring.config.name[format=envvar] instead of configprop:spring.config.name[]).
+See <<boot-features-external-config-relaxed-binding-from-environment-variables>> for details.
 
 NOTE: If your application runs in a container, then JNDI properties (in `java:comp/env`) or servlet context initialization parameters can be used instead of, or as well as, environment variables or system properties.
 
@@ -855,7 +856,7 @@ The example in the previous section can be rewritten in an immutable fashion as 
 
 	import org.springframework.boot.context.properties.ConfigurationProperties;
 	import org.springframework.boot.context.properties.ConstructorBinding;
-	import org.springframework.boot.context.properties.DefaultValue;
+	import org.springframework.boot.context.properties.bind.DefaultValue;
 
 	@ConstructorBinding
 	@ConfigurationProperties("acme")
@@ -911,6 +912,37 @@ This means that the binder will expect to find a constructor with the parameters
 Nested members of a `@ConstructorBinding` class (such as `Security` in the example above) will also be bound via their constructor.
 
 Default values can be specified using `@DefaultValue` and the same conversion service will be applied to coerce the `String` value to the target type of a missing property.
+By default, if no properties are bound to `Security`, the `AcmeProperties` instance will contain a `null` value for `security`.
+If you wish you return a non-null instance of `Security` even when no properties are bound to it, you can use an empty `@DefaultValue` annotation to do so:
+
+[source,java,indent=0]
+----
+	package com.example;
+	import java.net.InetAddress;
+	import java.util.List;
+
+	import org.springframework.boot.context.properties.ConfigurationProperties;
+	import org.springframework.boot.context.properties.ConstructorBinding;
+	import org.springframework.boot.context.properties.bind.DefaultValue;
+
+	@ConstructorBinding
+	@ConfigurationProperties("acme")
+	public class AcmeProperties {
+
+		private final boolean enabled;
+
+		private final InetAddress remoteAddress;
+
+		private final Security security;
+
+		public AcmeProperties(boolean enabled, InetAddress remoteAddress, @DefaultValue Security security) {
+			this.enabled = enabled;
+			this.remoteAddress = remoteAddress;
+			this.security = security;
+		}
+	}
+----
+
 
 NOTE: To use constructor binding the class must be enabled using `@EnableConfigurationProperties` or configuration property scanning.
 You cannot use constructor binding with beans that are created by the regular Spring mechanisms (e.g. `@Component` beans, beans created via `@Bean` methods or beans loaded using `@Import`)
@@ -1093,9 +1125,8 @@ NOTE: The `prefix` value for the annotation _must_ be in kebab case (lowercase a
 | Standard YAML list syntax or comma-separated values
 
 | Environment Variables
-| Upper case format with underscore as the delimiter.
-  `_` should not be used within a property name
-| Numeric values surrounded by underscores, such as `MY_ACME_1_OTHER = my.acme[1].other`
+| Upper case format with underscore as the delimiter (see <<boot-features-external-config-relaxed-binding-from-environment-variables>>).
+| Numeric values surrounded by underscores (see <<boot-features-external-config-relaxed-binding-from-environment-variables>>)`
 
 | System properties
 | Camel case, kebab case, or underscore notation
@@ -1104,6 +1135,10 @@ NOTE: The `prefix` value for the annotation _must_ be in kebab case (lowercase a
 
 TIP: We recommend that, when possible, properties are stored in lower-case kebab format, such as `my.property-name=acme`.
 
+
+
+[[boot-features-external-config-relaxed-binding-maps]]
+===== Binding Maps
 When binding to `Map` properties, if the `key` contains anything other than lowercase alpha-numeric characters or `-`, you need to use the bracket notation so that the original value is preserved.
 If the key is not surrounded by `[]`, any characters that are not alpha-numeric or `-` are removed.
 For example, consider binding the following properties to a `Map`:
@@ -1121,6 +1156,32 @@ For example, consider binding the following properties to a `Map`:
 The properties above will bind to a `Map` with `/key1`, `/key2` and `key3` as the keys in the map.
 
 NOTE: For YAML files, the brackets need to be surrounded by quotes for the keys to be parsed properly.
+
+
+[[boot-features-external-config-relaxed-binding-from-environment-variables]]
+===== Binding from Environment Variables
+Most operating systems impose strict rules around the names that can be used for environment variables.
+For example, Linux shell variables can contain only letters (`a` to `z` or `A` to `Z`), numbers (`0` to `9`) or the underscore character (`_`).
+By convention, Unix shell variables will also have their names in UPPERCASE.
+
+Spring Boot's relaxed binding rules are, as much as possible, designed to be compatible with these naming restrictions.
+
+To convert a property name in the canonical-form to an environment variable name you can follow these rules:
+
+* Replace dots (`.`) with underscores (`_`).
+* Remove any dashes (`-`).
+* Convert to uppercase.
+
+For example, the configuration property `spring.main.log-startup-info` would be an environment variable named `SPRING_MAIN_LOGSTARTUPINFO`.
+
+NOTE: Underscores cannot be used to replace the dashes in property names.
+If you attempt to use `SPRING_MAIN_LOG_STARTUP_INFO` with the example above, no value will be bound.
+
+Environment variables can also be used when binding to object lists.
+To bind to a `List`, the element number should be surrounded with underscores in the variable name.
+
+For example, the configuration property `my.acme[0].other` would use an environment variable named `MY_ACME_0_OTHER`.
+
 
 
 [[boot-features-external-config-complex-type-merge]]
@@ -1387,7 +1448,7 @@ The following table summarizes the features that are supported by `@Configuratio
 
 | <<boot-features-external-config-relaxed-binding,Relaxed binding>>
 | Yes
-| No
+| Limited (see note below)
 
 | <<appendix-configuration-metadata.adoc#configuration-metadata,Meta-data support>>
 | Yes
@@ -1399,7 +1460,12 @@ The following table summarizes the features that are supported by `@Configuratio
 |===
 
 If you define a set of configuration keys for your own components, we recommend you group them in a POJO annotated with `@ConfigurationProperties`.
-You should also be aware that, since `@Value` does not support relaxed binding, it is not a good candidate if you need to provide the value by using environment variables.
+Doing so will provide you with structured, type-safe object that you can inject into your own beans.
+
+If you do want to use `@Value`, we recommend that you refer to property names using their canonical form (kebab-case using only lowercase letters).
+This will allow Spring Boot to use the same logic as it does when relaxed binding `@ConfigurationProperties`.
+For example, `@Value("{demo.item-price}")` will pick up `demo.item-price` and `demo.itemPrice` forms from the `application.properties` file, as well as `DEMO_ITEMPRICE` from the system environment.
+If you used `@Value("{demo.itemPrice}")` instead, `demo.item-price` and `DEMO_ITEMPRICE` would not be considered.
 
 Finally, while you can write a `SpEL` expression in `@Value`, such expressions are not processed from <<boot-features-external-config-application-property-files,application property files>>.
 
@@ -1442,7 +1508,7 @@ You could also specify it on the command line by using the following switch: `--
 The configprop:spring.profiles.active[] property follows the same ordering rules as other properties: The highest `PropertySource` wins.
 This means that you can specify active profiles in `application.properties` and then *replace* them by using the command line switch.
 
-Sometimes, it is useful to have profil-specific properties that *add* to the active profiles rather than replace them.
+Sometimes, it is useful to have profile-specific properties that *add* to the active profiles rather than replace them.
 The configprop:spring.profiles.include[] property can be used to unconditionally add active profiles.
 The `SpringApplication` entry point also has a Java API for setting additional profiles (that is, on top of those activated by the configprop:spring.profiles.active[] property).
 See the `setAdditionalProfiles()` method in {spring-boot-module-api}/SpringApplication.html[SpringApplication].
@@ -2200,7 +2266,7 @@ Nowadays, Content Negotiation is much more reliable.
 There are other ways to deal with HTTP clients that don't consistently send proper "Accept" request headers.
 Instead of using suffix matching, we can use a query parameter to ensure that requests like `"GET /projects/spring-boot?format=json"` will be mapped to `@GetMapping("/projects/spring-boot")`:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-parameter=true
 
@@ -2211,9 +2277,10 @@ Instead of using suffix matching, we can use a query parameter to ensure that re
 	spring.mvc.contentnegotiation.media-types.markdown=text/markdown
 ----
 
+Suffix pattern matching is deprecated and will be removed in a future release.
 If you understand the caveats and would still like your application to use suffix pattern matching, the following configuration is required:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-suffix-pattern=true
@@ -2221,7 +2288,7 @@ If you understand the caveats and would still like your application to use suffi
 
 Alternatively, rather than open all suffix patterns, it's more secure to just support registered suffix patterns:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-registered-suffix-pattern=true
@@ -2248,7 +2315,7 @@ Also, many other templating engines include their own Spring MVC integrations.
 Spring Boot includes auto-configuration support for the following templating engines:
 
  * https://freemarker.apache.org/docs/[FreeMarker]
- * http://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_the_markuptemplateengine[Groovy]
+ * https://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_the_markuptemplateengine[Groovy]
  * https://www.thymeleaf.org[Thymeleaf]
  * https://mustache.github.io/[Mustache]
 
@@ -2405,11 +2472,19 @@ Note that the default `FilterRegistrationBean` does not include the `ERROR` disp
 
 
 
-[[boot-features-error-handling-websphere]]
-CAUTION:When deployed to a servlet container, Spring Boot uses its error page filter to forward a request with an error status to the appropriate error page.
-The request can only be forwarded to the correct error page if the response has not already been committed.
+[[boot-features-error-handling-war-deployment]]
+===== Error handling in a war deployment
+When deployed to a servlet container, Spring Boot uses its error page filter to forward a request with an error status to the appropriate error page.
+This is necessary as the Servlet specification does not provide an API for registering error pages.
+Depending on the container that you are deploying your war file to and the technologies that your application uses, some additional configuration may be required.
+
+The error page filter can only forward the request to the correct error page if the response has not already been committed.
 By default, WebSphere Application Server 8.0 and later commits the response upon successful completion of a servlet's service method.
 You should disable this behavior by setting `com.ibm.ws.webcontainer.invokeFlushAfterService` to `false`.
+
+If you are using Spring Security and want to access the principal in an error page, you must configure Spring Security's filter to be invoked on error dispatches.
+To do so, set the `spring.security.filter.dispatcher-types` property to `async, error, forward, request`.
+
 
 
 
@@ -2926,7 +3001,7 @@ When running a Spring Boot application that uses an embedded servlet container (
 [[boot-features-reactive-server]]
 === Embedded Reactive Server Support
 Spring Boot includes support for the following embedded reactive web servers: Reactor Netty, Tomcat, Jetty, and Undertow.
-Most developers use the appropriate "Starter" to obtain a fully configured instance.
+Most developers use the appropriate “Starter” to obtain a fully configured instance.
 By default, the embedded server listens for HTTP requests on port 8080.
 
 
@@ -7422,13 +7497,22 @@ include::{test-examples}/autoconfigure/UserServiceAutoConfigurationTests.java[ta
 
 [[boot-features-custom-starter]]
 === Creating Your Own Starter
-A full Spring Boot starter for a library may contain the following components:
+A typical Spring Boot starter contains code to auto-configure and customize the infrastructure of a given technology, let's call that "acme".
+To make it easily extensible, a number of configuration keys in a dedicated namespace can be exposed to the environment.
+Finally, a single "starter" dependency is provided to help users get started as easily as possible.
 
-* The `autoconfigure` module that contains the auto-configuration code.
-* The `starter` module that provides a dependency to the `autoconfigure` module as well as the library and any additional dependencies that are typically useful.
+Concretely, a custom starter can contain the following:
+
+* The `autoconfigure` module that contains the auto-configuration code for "acme".
+* The `starter` module that provides a dependency to the `autoconfigure` module as well as "acme" and any additional dependencies that are typically useful.
 In a nutshell, adding the starter should provide everything needed to start using that library.
 
-TIP: You may combine the auto-configuration code and the dependency management in a single module if you do not need to separate those two concerns.
+This separation in two modules is in no way necessary.
+If "acme" has several flavours, options or optional features, then it is better to separate the auto-configuration as you can clearly express the fact some features are optional.
+Besides, you have the ability to craft a starter that provides an opinion about those optional dependencies.
+At the same time, others can rely only on the `autoconfigure` module and craft their own starter with different opinions.
+
+If the auto-configuration is relatively straightforward and does not have optional feature, merging the two modules in the starter is definitely an option.
 
 
 
@@ -7439,7 +7523,7 @@ Do not start your module names with `spring-boot`, even if you use a different M
 We may offer official support for the thing you auto-configure in the future.
 
 As a rule of thumb, you should name a combined module after the starter.
-For example, assume that you are creating a starter for "acme" and that you name the auto-configure module `acme-spring-boot-autoconfigure` and the starter `acme-spring-boot-starter`.
+For example, assume that you are creating a starter for "acme" and that you name the auto-configure module `acme-spring-boot` and the starter `acme-spring-boot-starter`.
 If you only have one module that combines the two, name it `acme-spring-boot-starter`.
 
 
@@ -7685,7 +7769,7 @@ JUnit 5 enables a test class to be instantiated once and reused for all of the c
 This makes it possible to use `@BeforeClass` and `@AfterClass` annotations on non-static methods, which is a good fit for Kotlin.
 
 JUnit 5 is the default and the vintage engine is provided for backward compatibility with JUnit 4.
-If you don't use it, exclude `org.junit.vintange:junit-vintage-engine`.
+If you don't use it, exclude `org.junit.vintage:junit-vintage-engine`.
 You also need to {junit5-docs}/#writing-tests-test-instance-lifecycle-changing-default[switch test instance lifecycle to "per-class"].
 
 To mock Kotlin classes, https://mockk.io/[MockK] is recommended.
