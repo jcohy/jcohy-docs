@@ -68,6 +68,27 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
 ----
 ====
 
+In addition to the `HttpSecurity.oauth2Client()` DSL, XML configuration is also supported.
+
+The following code shows the complete configuration options available in the <<nsa-oauth2-client, security namespace>>:
+
+.OAuth2 Client XML Configuration Options
+====
+[source,xml]
+----
+<http>
+	<oauth2-client client-registration-repository-ref="clientRegistrationRepository"
+				   authorized-client-repository-ref="authorizedClientRepository"
+				   authorized-client-service-ref="authorizedClientService">
+		<authorization-code-grant
+				authorization-request-repository-ref="authorizationRequestRepository"
+				authorization-request-resolver-ref="authorizationRequestResolver"
+				access-token-response-client-ref="accessTokenResponseClient"/>
+	</oauth2-client>
+</http>
+----
+====
+
 The `OAuth2AuthorizedClientManager` is responsible for managing the authorization (or re-authorization) of an OAuth 2.0 Client, in collaboration with one or more `OAuth2AuthorizedClientProvider`(s).
 
 The following code shows an example of how to register an `OAuth2AuthorizedClientManager` `@Bean` and associate it with an `OAuth2AuthorizedClientProvider` composite that provides support for the `authorization_code`, `refresh_token`, `client_credentials` and `password` authorization grant types:
@@ -294,6 +315,8 @@ The primary responsibilities include:
 
 * Authorizing (or re-authorizing) an OAuth 2.0 Client, using an `OAuth2AuthorizedClientProvider`.
 * Delegating the persistence of an `OAuth2AuthorizedClient`, typically using an `OAuth2AuthorizedClientService` or `OAuth2AuthorizedClientRepository`.
+* Delegating to an `OAuth2AuthorizationSuccessHandler` when an OAuth 2.0 Client has been successfully authorized (or re-authorized).
+* Delegating to an `OAuth2AuthorizationFailureHandler` when an OAuth 2.0 Client fails to authorize (or re-authorize).
 
 An `OAuth2AuthorizedClientProvider` implements a strategy for authorizing (or re-authorizing) an OAuth 2.0 Client.
 Implementations will typically implement an authorization grant type, eg. `authorization_code`, `client_credentials`, etc.
@@ -326,6 +349,10 @@ public OAuth2AuthorizedClientManager authorizedClientManager(
 	return authorizedClientManager;
 }
 ----
+
+When an authorization attempt succeeds, the `DefaultOAuth2AuthorizedClientManager` will delegate to the `OAuth2AuthorizationSuccessHandler`, which (by default) will save the `OAuth2AuthorizedClient` via the `OAuth2AuthorizedClientRepository`.
+In the case of a re-authorization failure, eg. a refresh token is no longer valid, the previously saved `OAuth2AuthorizedClient` will be removed from the `OAuth2AuthorizedClientRepository` via the `RemoveAuthorizedClientOAuth2AuthorizationFailureHandler`.
+The default behaviour may be customized via `setAuthorizationSuccessHandler(OAuth2AuthorizationSuccessHandler)` and `setAuthorizationFailureHandler(OAuth2AuthorizationFailureHandler)`.
 
 The `DefaultOAuth2AuthorizedClientManager` is also associated with a `contextAttributesMapper` of type `Function<OAuth2AuthorizeRequest, Map<String, Object>>`, which is responsible for mapping attribute(s) from the `OAuth2AuthorizeRequest` to a `Map` of attributes to be associated to the `OAuth2AuthorizationContext`.
 This can be useful when you need to supply an `OAuth2AuthorizedClientProvider` with required (supported) attribute(s), eg. the `PasswordOAuth2AuthorizedClientProvider` requires the resource owner's `username` and `password` to be available in `OAuth2AuthorizationContext.getAttributes()`.
@@ -372,6 +399,36 @@ private Function<OAuth2AuthorizeRequest, Map<String, Object>> contextAttributesM
 		}
 		return contextAttributes;
 	};
+}
+----
+
+The `DefaultOAuth2AuthorizedClientManager` is designed to be used *_within_* the context of a `HttpServletRequest`.
+When operating *_outside_* of a `HttpServletRequest` context, use `AuthorizedClientServiceOAuth2AuthorizedClientManager` instead.
+
+A _service application_ is a common use case for when to use an `AuthorizedClientServiceOAuth2AuthorizedClientManager`.
+Service applications often run in the background, without any user interaction, and typically run under a system-level account instead of a user account.
+An OAuth 2.0 Client configured with the `client_credentials` grant type can be considered a type of service application.
+
+The following code shows an example of how to configure an `AuthorizedClientServiceOAuth2AuthorizedClientManager` that provides support for the `client_credentials` grant type:
+
+[source,java]
+----
+@Bean
+public OAuth2AuthorizedClientManager authorizedClientManager(
+		ClientRegistrationRepository clientRegistrationRepository,
+		OAuth2AuthorizedClientService authorizedClientService) {
+
+	OAuth2AuthorizedClientProvider authorizedClientProvider =
+			OAuth2AuthorizedClientProviderBuilder.builder()
+					.clientCredentials()
+					.build();
+
+	AuthorizedClientServiceOAuth2AuthorizedClientManager authorizedClientManager =
+			new AuthorizedClientServiceOAuth2AuthorizedClientManager(
+					clientRegistrationRepository, authorizedClientService);
+	authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider);
+
+	return authorizedClientManager;
 }
 ----
 
@@ -484,7 +541,7 @@ One of those extended parameters is the `prompt` parameter.
 [NOTE]
 OPTIONAL. Space delimited, case sensitive list of ASCII string values that specifies whether the Authorization Server prompts the End-User for reauthentication and consent. The defined values are: none, login, consent, select_account
 
-The following example shows how to implement an `OAuth2AuthorizationRequestResolver` that customizes the Authorization Request for `oauth2Login()`, by including the request parameter `prompt=consent`.
+The following example shows how to configure the `DefaultOAuth2AuthorizationRequestResolver` with a `Consumer<OAuth2AuthorizationRequest.Builder>` that customizes the Authorization Request for `oauth2Login()`, by including the request parameter `prompt=consent`.
 
 [source,java]
 ----
@@ -503,72 +560,32 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 			.oauth2Login(oauth2 -> oauth2
 				.authorizationEndpoint(authorization -> authorization
 					.authorizationRequestResolver(
-					    new CustomAuthorizationRequestResolver(
-					            this.clientRegistrationRepository)    <1>
+						authorizationRequestResolver(this.clientRegistrationRepository)
 					)
 				)
 			);
 	}
-}
 
-public class CustomAuthorizationRequestResolver implements OAuth2AuthorizationRequestResolver {
-	private final OAuth2AuthorizationRequestResolver defaultAuthorizationRequestResolver;
-
-	public CustomAuthorizationRequestResolver(
+	private OAuth2AuthorizationRequestResolver authorizationRequestResolver(
 			ClientRegistrationRepository clientRegistrationRepository) {
 
-		this.defaultAuthorizationRequestResolver =
+		DefaultOAuth2AuthorizationRequestResolver authorizationRequestResolver =
 				new DefaultOAuth2AuthorizationRequestResolver(
 						clientRegistrationRepository, "/oauth2/authorization");
+		authorizationRequestResolver.setAuthorizationRequestCustomizer(
+				authorizationRequestCustomizer());
+
+		return  authorizationRequestResolver;
 	}
 
-	@Override
-	public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
-		OAuth2AuthorizationRequest authorizationRequest =
-				this.defaultAuthorizationRequestResolver.resolve(request);  <2>
-
-		return authorizationRequest != null ?   <3>
-				customAuthorizationRequest(authorizationRequest) :
-				null;
-	}
-
-	@Override
-	public OAuth2AuthorizationRequest resolve(
-			HttpServletRequest request, String clientRegistrationId) {
-
-		OAuth2AuthorizationRequest authorizationRequest =
-				this.defaultAuthorizationRequestResolver.resolve(
-				    request, clientRegistrationId);    <2>
-
-		return authorizationRequest != null ?   <3>
-				customAuthorizationRequest(authorizationRequest) :
-				null;
-	}
-
-	private OAuth2AuthorizationRequest customAuthorizationRequest(
-			OAuth2AuthorizationRequest authorizationRequest) {
-
-		Map<String, Object> additionalParameters =
-				new LinkedHashMap<>(authorizationRequest.getAdditionalParameters());
-		additionalParameters.put("prompt", "consent");  <4>
-
-		return OAuth2AuthorizationRequest.from(authorizationRequest)    <5>
-				.additionalParameters(additionalParameters) <6>
-				.build();
+	private Consumer<OAuth2AuthorizationRequest.Builder> authorizationRequestCustomizer() {
+		return customizer -> customizer
+					.additionalParameters(params -> params.put("prompt", "consent"));
 	}
 }
 ----
-<1> Configure the custom `OAuth2AuthorizationRequestResolver`
-<2> Attempt to resolve the `OAuth2AuthorizationRequest` using the `DefaultOAuth2AuthorizationRequestResolver`
-<3> If an `OAuth2AuthorizationRequest` was resolved than return a customized version else return `null`
-<4> Add custom parameters to the existing `OAuth2AuthorizationRequest.additionalParameters`
-<5> Create a copy of the default `OAuth2AuthorizationRequest` which returns an `OAuth2AuthorizationRequest.Builder` for further modifications
-<6> Override the default `additionalParameters`
 
-[TIP]
-`OAuth2AuthorizationRequest.Builder.build()` constructs the `OAuth2AuthorizationRequest.authorizationRequestUri`, which represents the complete Authorization Request URI including all query parameters using the `application/x-www-form-urlencoded` format.
-
-For the simple use case, where the additional request parameter is always the same for a specific provider, it can be added directly in the `authorization-uri`.
+For the simple use case, where the additional request parameter is always the same for a specific provider, it may be added directly in the `authorization-uri` property.
 
 For example, if the value for the request parameter `prompt` is always `consent` for the provider `okta`, than simply configure as follows:
 
@@ -584,24 +601,19 @@ spring:
 ----
 
 The preceding example shows the common use case of adding a custom parameter on top of the standard parameters.
-Alternatively, if your requirements are more advanced, than you can take full control in building the Authorization Request URI by simply overriding the `OAuth2AuthorizationRequest.authorizationRequestUri` property.
+Alternatively, if your requirements are more advanced, you can take full control in building the Authorization Request URI by simply overriding the `OAuth2AuthorizationRequest.authorizationRequestUri` property.
 
-The following example shows a variation of the `customAuthorizationRequest()` method from the preceding example, and instead overrides the `OAuth2AuthorizationRequest.authorizationRequestUri` property.
+[TIP]
+`OAuth2AuthorizationRequest.Builder.build()` constructs the `OAuth2AuthorizationRequest.authorizationRequestUri`, which represents the Authorization Request URI including all query parameters using the `application/x-www-form-urlencoded` format.
+
+The following example shows a variation of `authorizationRequestCustomizer()` from the preceding example, and instead overrides the `OAuth2AuthorizationRequest.authorizationRequestUri` property.
 
 [source,java]
 ----
-private OAuth2AuthorizationRequest customAuthorizationRequest(
-		OAuth2AuthorizationRequest authorizationRequest) {
-
-	String customAuthorizationRequestUri = UriComponentsBuilder
-			.fromUriString(authorizationRequest.getAuthorizationRequestUri())
-			.queryParam("prompt", "consent")
-			.build(true)
-			.toUriString();
-
-	return OAuth2AuthorizationRequest.from(authorizationRequest)
-			.authorizationRequestUri(customAuthorizationRequestUri)
-			.build();
+private Consumer<OAuth2AuthorizationRequest.Builder> authorizationRequestCustomizer() {
+	return customizer -> customizer
+				.authorizationRequestUri(uriBuilder -> uriBuilder
+					.queryParam("prompt", "consent").build());
 }
 ----
 
@@ -655,8 +667,17 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
     }
 }
 ----
-====
 
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-client>
+		<authorization-code-grant authorization-request-repository-ref="authorizationRequestRepository"/>
+	</oauth2-client>
+</http>
+----
+====
 
 ===== Requesting an Access Token
 
@@ -738,6 +759,16 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
         }
     }
 }
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-client>
+		<authorization-code-grant access-token-response-client-ref="accessTokenResponseClient"/>
+	</oauth2-client>
+</http>
 ----
 ====
 

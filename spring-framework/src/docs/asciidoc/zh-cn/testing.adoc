@@ -240,6 +240,7 @@ Spring框架提供以下Spring特定的注解集合,你可以在单元和集成�
 * <<spring-testing-annotation-contexthierarchy, `@ContextHierarchy`>>
 * <<spring-testing-annotation-activeprofiles, `@ActiveProfiles`>>
 * <<spring-testing-annotation-testpropertysource,`@TestPropertySource`>>
+* <<spring-testing-annotation-dynamicpropertysource,`@DynamicPropertySource`>>
 * <<spring-testing-annotation-dirtiescontext, `@DirtiesContext`>>
 * <<spring-testing-annotation-testexecutionlisteners, `@TestExecutionListeners`>>
 * <<spring-testing-annotation-commit, `@Commit`>>
@@ -531,8 +532,6 @@ NOTE: `@ActiveProfiles` 默认为继承激活的在超类声明的 bean definiti
 
 `@TestPropertySource` 是一个用于为集成测试加载 `ApplicationContext` 时配置属性文件的位置和增加到 `Environment` 中的 `PropertySources` 集中的内联属性的类级别的注解.
 
-测试属性源比那些从系统环境或者Java系统属性以及通过 `@PropertySource` 或者编程方式声明方式增加的属性源具有更高的优先级. 而且,内联属性比从资源路径加载的属性具有更高的优先级.
-
 下面的例子展示了如何从类路径中声明属性文件.
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
@@ -583,6 +582,61 @@ NOTE: `@ActiveProfiles` 默认为继承激活的在超类声明的 bean definiti
 <1> 声明 `timezone` 和 `port` 属性.
 
 有关示例和更多详细信息,请参见<<testcontext-ctx-management-property-sources,具有测试属性源的上下文配置>> .
+
+[[spring-testing-annotation-dynamicpropertysource]]
+===== `@DynamicPropertySource`
+
+`@DynamicPropertySource` 是方法级别的注解，可用于注册动态属性，在集成测试加载 `ApplicationContext` 时，将动态属性添加到 `Environment` 的 `PropertySources` 集中。 当您不预先知道属性的值时，例如，如果属性是由外部资源管理的，例如由 https://www.testcontainers.org/[Testcontainers] 项目管理的容器，则动态属性很有用。
+
+下面的示例演示如何注册动态属性：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	class MyIntegrationTests {
+
+		static MyExternalServer server = // ...
+
+		@DynamicPropertySource // <1>
+		static void dynamicProperties(DynamicPropertyRegistry registry) { // <2>
+			registry.add("server.port", server::getPort); // <3>
+		}
+
+		// tests ...
+	}
+----
+<1> 使用  `@DynamicPropertySource` 注解一个 `static` 方法.
+<2> 接收 `DynamicPropertyRegistry` 作为参数.
+<3> 注册一个动态的延迟加载的 `server.port` 属性.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	class MyIntegrationTests {
+
+		companion object {
+
+			@JvmStatic
+			val server: MyExternalServer = // ...
+
+			@DynamicPropertySource // <1>
+			@JvmStatic
+			fun dynamicProperties(registry: DynamicPropertyRegistry) { // <2>
+				registry.add("server.port", server::getPort) // <3>
+			}
+		}
+
+		// tests ...
+	}
+----
+<1> 使用  `@DynamicPropertySource` 注解一个 `static` 方法.
+<2> 接收 `DynamicPropertyRegistry` 作为参数.
+<3> 注册一个动态的延迟加载的 `server.port` 属性.
+
+查看 <<testcontext-ctx-management-dynamic-property-sources>> 获取更多的细节.
+
 
 [[spring-testing-annotation-dirtiescontext]]
 ===== `@DirtiesContext`
@@ -2035,6 +2089,7 @@ NOTE: 仅当 `ApplicationContext` 已加载时才发布这些事件.
 * <<testcontext-ctx-management-inheritance,上下文配置继承>>
 * <<testcontext-ctx-management-env-profiles,使用环境配置文件进行上下文配置>>
 * <<testcontext-ctx-management-property-sources,具有测试属性源的上下文配置>>
+* <<testcontext-ctx-management-dynamic-property-sources,具有动态属性源的上下文配置>>
 * <<testcontext-ctx-management-web,加载 `WebApplicationContext`>>
 * <<testcontext-ctx-management-caching,上下文缓存>>
 * <<testcontext-ctx-management-ctx-hierarchies,上下文层次结构>>
@@ -3078,7 +3133,8 @@ The following example sets two inlined properties:
 
 ====== 优先顺序
 
-测试属性源的优先级高于从操作系统环境,Java系统属性或应用程序通过使用 `@PropertySource` 声明性地或以编程方式添加的属性源中加载的属性.  因此,测试属性源可用于选择性覆盖系统和应用程序属性源中定义的属性.  此外,内联属性比从资源位置加载的属性具有更高的优先级.
+测试属性的优先级高于操作系统环境，Java 系统属性或应用程序通过使用 `@PropertySource` 以声明式或者编程式的方法添加的属性源中定义的属性。 因此,测试属性源可用于选择性覆盖系统和应用程序属性源中定义的属性.
+此外，内联属性比从资源位置加载的属性具有更高的优先级。 但是请注意，通过 <<testcontext-ctx-management-dynamic-property-sources, `@DynamicPropertySource`>> 注册的属性比通过 `@TestPropertySource` 加载的属性具有更高的优先级。
 
 在下一个示例中, `timezone` 和  `port` 属性以及在 `"/test.properties"` 中定义的任何属性都将覆盖在系统和应用程序属性源中定义的具有相同名称的所有属性.  此外,如果 `"/test.properties"` 文件定义了 `timezone` 和  `port`  属性,则这些条目将被使用 `properties` 属性声明的内联属性所覆盖.  以下示例显示如何在文件和内联中指定属性:
 
@@ -3180,6 +3236,68 @@ The following example sets two inlined properties:
 		// ...
 	}
 ----
+
+[[testcontext-ctx-management-dynamic-property-sources]]
+===== 具有动态属性源的上下文配置
+
+从 Spring Framework 5.2.5 开始，`TestContext` 框架通过 `@DynamicPropertySource` 注解提供对动态属性的支持。 此注解可用于集成测试， 集成测试中加载的 `ApplicationContext` 需要将具有动态属性的值添加到 `Environment` 的 `PropertySources` 集中。
+
+NOTE: `@DynamicPropertySource` 注解及其支持的基础结构涉及之初的目的是使 https://www.testcontainers.org/[Testcontainers] 的测试中的属性易于暴露于 Spring 集成测试。
+但是，此功能也可以 `ApplicationContext` 生命周期之外的外部资源一起使用。
+
+在类级别应用 <<testcontext-ctx-management-property-sources,`@TestPropertySource`>> 注解则相反，必须将 `@DynamicPropertySource` 应用于接受单个 `DynamicPropertyRegistry` 参数的静态方法，该参数用于向环境添加键值对。 值是动态的，并通过 `Supplier` 提供，只有在解析属性后才调用该 `Supplier`。
+通常，方法引用用于提供值，如以下示例所示，该示例使用 `Testcontainers` 项目在 Spring `ApplicationContext` 外部管理 Redis 容器。 通过 `redis.host` 和 `redis.port` 属性，测试的 `ApplicationContext` 中的组件可以使用托管 Redis 容器的IP地址和端口。
+这些属性可以通过 Spring 的环境抽象来访问，也可以直接注入到 Spring 管理的组件中，例如分别通过 `@Value("${redis.host}")` 和 `@Value("${redis.port}")`。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(/* ... */)
+	@Testcontainers
+	class ExampleIntegrationTests {
+
+		@Container
+		static RedisContainer redis = new RedisContainer();
+
+		@DynamicPropertySource
+		static void redisProperties(DynamicPropertyRegistry registry) {
+			registry.add("redis.host", redis::getContainerIpAddress);
+			registry.add("redis.port", redis::getMappedPort);
+		}
+
+		// tests ...
+
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(/* ... */)
+	@Testcontainers
+	class ExampleIntegrationTests {
+
+		companion object {
+
+			@Container
+			@JvmStatic
+			val redis: RedisContainer = RedisContainer()
+
+			@DynamicPropertySource
+			@JvmStatic
+			fun redisProperties(registry: DynamicPropertyRegistry) {
+				registry.add("redis.host", redis::getContainerIpAddress)
+				registry.add("redis.port", redis::getMappedPort)
+			}
+		}
+
+		// tests ...
+
+	}
+----
+
+====== 优先顺序
+
+动态属性的优先级高于从 `@TestPropertySource` 加载的属性，操作系统的环境，Java 系统属性或应用程序通过使用 `@PropertySource` 声明性地或以编程方式添加的属性。 因此，动态属性可用于有选择地覆盖通过 `@TestPropertySource`，系统属性源和应用程序属性源加载的属性。
 
 [[testcontext-ctx-management-web]]
 ===== 加载 `WebApplicationContext`
@@ -3371,7 +3489,7 @@ The following example sets two inlined properties:
 * `locations` (from `@ContextConfiguration`)
 * `classes` (from `@ContextConfiguration`)
 * `contextInitializerClasses` (from `@ContextConfiguration`)
-* `contextCustomizers` (from `ContextCustomizerFactory`)
+* `contextCustomizers` (from `ContextCustomizerFactory`)-这包括 `@DynamicPropertySource` 方法以及 Spring Boot 的各种功能测试支持，例如 `@MockBean` 和 `@SpyBean`。
 * `contextLoader` (from `@ContextConfiguration`)
 * `parent` (from `@ContextHierarchy`)
 * `activeProfiles` (from `@ActiveProfiles`)

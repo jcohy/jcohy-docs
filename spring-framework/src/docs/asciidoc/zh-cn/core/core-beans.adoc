@@ -639,6 +639,14 @@ NOTE: 在 Spring 文档中, "`factory bean`" 是指在 Spring 容器中通过
 <<beans-factory-class-static-factory-method,静态>> 工厂方法 创建对象的bean.
 相比之下,`FactoryBean` (注意大小写) 是指 Spring 特定的 <<beans-factory-extension-factorybean, `FactoryBean` >>.
 
+[[beans-factory-type-determination]]
+==== 确定Bean的运行时类型
+
+想要确定 Bean 运行时的类型并不简单，在 bean 元数据定义中只是一个初始类引用，可能会因为声明的工厂方法组合或者 `FactoryBean` 而造成不用的运行时类型，或者在创建 bean 的
+实例不设置 工厂方法（通过指定的 "factory-bean" 名称解析）。此外，AOP 代理可以将 bean 的实例和基于接口的代理一起包装为目标 bean 的实际类型（仅是其实现的接口）。
+
+找出指定 bean 的实际运行时类型的推荐方法是通过 `BeanFactory.getType` 指定 bean 的名称，这需要考虑到大小写并且和 `BeanFactory.getBean` 调用对象返回相同的 bean 名称
+
 [[beans-dependencies]]
 == 依赖
 
@@ -3687,7 +3695,8 @@ JSR 330 的 `@Inject` 注解代替本节中包含的示例中的Spring的 `@Auto
 
 [NOTE]
 ====
-从Spring Framework 4.3开始,如果目标bean仅定义一个构造函数,则不再需要 `@Autowired` 构造函数. 如果有多个构造函数可用,则至少有一个必须注解 `@Autowired` 以让容器知道它使用的是哪个
+从 Spring Framework 4.3 开始,如果目标 bean 仅定义一个构造函数,则不再需要 `@Autowired` 构造函数. 如果有多个构造函数可用并且没有 primary/default 构造器,则至少有一个必须注解 `@Autowired` 以让容器知道它使用的是哪个。
+可以查阅 <<beans-autowired-annotation-constructor-resolution, 构造函数解析>> 的讨论获取更多细节.
 ====
 
 您还可以将 `@Autowired` 注解应用于 _传统_ setter方法,如以下示例所示:
@@ -3926,12 +3935,16 @@ JSR 330 的 `@Inject` 注解代替本节中包含的示例中的Spring的 `@Auto
 
 如果不需要的方法(或在多个参数的情况下,其中一个依赖) 不可用,则根本不会调用该方法.  在这种情况下,完全不需要填充非必需字段,而将其默认值保留在适当的位置.
 
-构造函数和工厂方法参数注入是一种特殊情况,因为由于Spring的构造函数解析算法可能会处理多个构造函数,因此 `@Autowired` 中的 `required` 属性的含义有所不同.  默认情况下,需要构造函数和工厂方法参数,但是在单构造函数场景中有一些特殊规则,
+[[beans-autowired-annotation-constructor-resolution]]
+
+构造函数和工厂方法参数注入是一种特殊情况,因为由于 Spring 的构造函数解析算法可能会处理多个构造函数,因此 `@Autowired` 中的 `required` 属性的含义有所不同.  默认情况下,需要构造函数和工厂方法参数,但是在单构造函数场景中有一些特殊规则,
 例如,如果没有可用的匹配bean,则多元素注入点(数组,集合,映射) 解析为空实例.  这允许一种通用的实现模式,其中所有依赖都可以在唯一的多参数构造函数中声明-例如,声明为没有 `@Autowired` 注解的单个公共构造函数.
 
 [NOTE]
 ====
-每个类仅可以有一个带  `@Autowired` 注解,并将 `required` 属性设置为 `true` 的构造函数,但是可以注解多个非必需的构造函数. 在这种情况下,每个项都会是候选者,而Spring使用的是最贪婪的构造函数.  这个构造函数的依赖关系可以得到满足,那就是具有最多参数的构造函数.
+每个类仅可以有一个带  `@Autowired` 注解,并将 `required` 属性设置为 `true` 的构造函数,但是可以注解多个构造函数. 在这种情况下,它们都必须声明 `required = false` 才能被
+被视为自动装配的候选对象（类似于XML中的 `autowire = constructor`）。而 Spring 使用的是最贪婪的构造函数.这个构造函数的依赖关系可以得到满足,那就是具有最多参数的构造函数.同样，如果一个类
+声明了多个构造函数，但是没有一个用 `@Autowired` 注解，然后将使用 primary/default 构造函数（如果存在）。如果一个类仅声明一个构造函数，即使没有注解，也将始终使用它。请注意带注解的构造函数不必是 public 的。
 
 推荐使用 `@Required` 注解来代替 `@Autowired` 的 `required` 属性,`required` 属性表示该属性不是自动装配必需的,如果该属性不能被自动装配.
 则该属性会被忽略.  另一方面, `@Required` 会强制执行通过容器支持的任何方式来设置属性.  如果没有值被注入的话,会引发相应的异常.

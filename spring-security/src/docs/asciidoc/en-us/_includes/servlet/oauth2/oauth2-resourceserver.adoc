@@ -77,12 +77,12 @@ So long as this scheme is indicated, Resource Server will attempt to process the
 
 Given a well-formed JWT, Resource Server will:
 
-1. Validate its signature against a public key obtained from the `jwks_url` endpoint during startup and matched against the JWTs header
-2. Validate the JWTs `exp` and `nbf` timestamps and the JWTs `iss` claim, and
+1. Validate its signature against a public key obtained from the `jwks_url` endpoint during startup and matched against the JWT
+2. Validate the JWT's `exp` and `nbf` timestamps and the JWT's `iss` claim, and
 3. Map each scope to an authority with the prefix `SCOPE_`.
 
 [NOTE]
-As the authorization server makes available new keys, Spring Security will automatically rotate the keys used to validate the JWT tokens.
+As the authorization server makes available new keys, Spring Security will automatically rotate the keys used to validate JWTs.
 
 The resulting `Authentication#getPrincipal`, by default, is a Spring Security `Jwt` object, and `Authentication#getName` maps to the JWT's `sub` property, if one is present.
 
@@ -208,6 +208,9 @@ Methods on the `oauth2ResourceServer` DSL will also override or replace auto con
 
 For example, the second `@Bean` Spring Boot creates is a `JwtDecoder`, which decodes `String` tokens into validated instances of `Jwt`:
 
+
+.JWT Decoder
+====
 [source,java]
 ----
 @Bean
@@ -215,6 +218,7 @@ public JwtDecoder jwtDecoder() {
     return JwtDecoders.fromIssuerLocation(issuerUri);
 }
 ----
+====
 
 [NOTE]
 Calling `{security-api-url}org/springframework/security/oauth2/jwt/JwtDecoders.html#fromIssuerLocation-java.lang.String-[JwtDecoders#fromIssuerLocation]` is what invokes the Provider Configuration or Authorization Server Metadata endpoint in order to derive the JWK Set Uri.
@@ -222,6 +226,39 @@ Calling `{security-api-url}org/springframework/security/oauth2/jwt/JwtDecoders.h
 If the application doesn't expose a `JwtDecoder` bean, then Spring Boot will expose the above default one.
 
 And its configuration can be overridden using `jwkSetUri()` or replaced using `decoder()`.
+
+Or, if you're not using Spring Boot at all, then both of these components - the filter chain and a `JwtDecoder` can be specified in XML.
+
+The filter chain is specified like so:
+
+.Default JWT Configuration
+====
+.Xml
+[source,xml,role="primary"]
+----
+<http>
+    <intercept-uri pattern="/**" access="authenticated"/>
+    <oauth2-resource-server>
+        <jwt decoder-ref="jwtDecoder"/>
+    </oauth2-resource-server>
+</http>
+----
+====
+
+And the `JwtDecoder` like so:
+
+.JWT Decoder
+====
+.Xml
+[source,xml,role="primary"]
+----
+<bean id="jwtDecoder"
+        class="org.springframework.security.oauth2.jwt.JwtDecoders"
+        factory-method="fromIssuerLocation">
+    <constructor-arg value="${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}"/>
+</bean>
+----
+====
 
 [[oauth2resourceserver-jwt-jwkseturi-dsl]]
 ==== Using `jwkSetUri()`
@@ -267,6 +304,17 @@ class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
         }
     }
 }
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/**" access="authenticated"/>
+    <oauth2-resource-server>
+        <jwt jwk-set-uri="https://idp.example.com/.well-known/jwks.json"/>
+    </oauth2-resource-server>
+</http>
 ----
 ====
 
@@ -316,6 +364,17 @@ class DirectlyConfiguredJwtDecoder : WebSecurityConfigurerAdapter() {
         }
     }
 }
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/**" access="authenticated"/>
+    <oauth2-resource-server>
+        <jwt decoder-ref="myCustomDecoder"/>
+    </oauth2-resource-server>
+</http>
 ----
 ====
 
@@ -541,6 +600,18 @@ class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
     }
 }
 ----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/contacts/**" access="hasAuthority('SCOPE_contacts')"/>
+    <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
+    <oauth2-resource-server>
+        <jwt jwk-set-uri="https://idp.example.org/.well-known/jwks.json"/>
+    </oauth2-resource-server>
+</http>
+----
 ====
 
 Or similarly with method security:
@@ -558,15 +629,19 @@ However, there are a number of circumstances where this default is insufficient.
 For example, some authorization servers don't use the `scope` attribute, but instead have their own custom attribute.
 Or, at other times, the resource server may need to adapt the attribute or a composition of attributes into internalized authorities.
 
-To this end, the DSL exposes `jwtAuthenticationConverter()`:
+To this end, the DSL exposes `jwtAuthenticationConverter()`, which is responsible for converting a `Jwt` into an `Authentication`.
 
-.Authorities Extractor Configuration
+As part of its configuration, we can supply a subsidiary converter to go from `Jwt` to a `Collection` of granted authorities.
+Let's say that that your authorization server communicates authorities in a custom claim called `authorities`.
+In that case, you can configure the claim that `JwtAuthenticationConverter` should inspect, like so:
+
+.Authorities Claim Configuration
 ====
 .Java
 [source,java,role="primary"]
 ----
 @EnableWebSecurity
-public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
+public class CustomAuthoritiesClaimName extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
             .authorizeRequests(authorize -> authorize
@@ -574,71 +649,89 @@ public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
             )
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> jwt
-                    .jwtAuthenticationConverter(grantedAuthoritiesExtractor())
+                    .jwtAuthenticationConverter(jwtAuthenticationConverter())
                 )
             );
     }
 }
 
-Converter<Jwt, AbstractAuthenticationToken> grantedAuthoritiesExtractor() {
-    JwtAuthenticationConverter jwtAuthenticationConverter =
-            new JwtAuthenticationConverter();
+JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+    grantedAuthoritiesConverter.setAuthoritiesClaimName("authorities");
 
-    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter
-            (new GrantedAuthoritiesExtractor());
-
+    JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
     return jwtAuthenticationConverter;
 }
 ----
 
-.Kotlin
-[source,kotlin,role="secondary"]
+.Xml
+[source,xml,role="secondary"]
 ----
-@EnableWebSecurity
-class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
-        http {
-            authorizeRequests {
-                authorize(anyRequest, authenticated)
-            }
-            oauth2ResourceServer {
-                jwt {
-                    jwtAuthenticationConverter = grantedAuthoritiesExtractor()
-                }
-            }
-        }
-    }
+<http>
+    <intercept-uri pattern="/contacts/**" access="hasAuthority('SCOPE_contacts')"/>
+    <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
+    <oauth2-resource-server>
+        <jwt jwk-set-uri="https://idp.example.org/.well-known/jwks.json"
+                jwt-authentication-converter-ref="jwtAuthenticationConverter"/>
+    </oauth2-resource-server>
+</http>
 
-    private fun grantedAuthoritiesExtractor(): JwtAuthenticationConverter {
-        val jwtAuthenticationConverter = JwtAuthenticationConverter()
-        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(GrantedAuthoritiesExtractor())
-        return jwtAuthenticationConverter
-    }
-}
+<bean id="jwtAuthenticationConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter">
+    <property name="jwtGrantedAuthoritiesConverter" ref="jwtGrantedAuthoritiesConverter"/>
+</bean>
+
+<bean id="jwtGrantedAuthoritiesConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter">
+    <property name="authoritiesClaimName" value="authorities"/>
+</bean>
 ----
 ====
 
-which is responsible for converting a `Jwt` into an `Authentication`.
-As part of its configuration, we can supply a subsidiary converter to go from `Jwt` to a `Collection` of granted authorities.
+You can also configure the authority prefix to be different as well.
+Instead of prefixing each authority with `SCOPE_`, you can change it to `ROLE_` like so:
 
-That final converter might be something like `GrantedAuthoritiesExtractor` below:
-
-[source,java]
+.Authorities Prefix Configuration
+====
+.Java
+[source,java,role="primary"]
 ----
-static class GrantedAuthoritiesExtractor
-        implements Converter<Jwt, Collection<GrantedAuthority>> {
+JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+    grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
 
-    public Collection<GrantedAuthority> convert(Jwt jwt) {
-        Collection<?> authorities = (Collection<?>)
-                jwt.getClaims().getOrDefault("mycustomclaim", Collections.emptyList());
-
-        return authorities.stream()
-                .map(Object::toString)
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toList());
-    }
+    JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+    return jwtAuthenticationConverter;
 }
 ----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/contacts/**" access="hasAuthority('SCOPE_contacts')"/>
+    <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
+    <oauth2-resource-server>
+        <jwt jwk-set-uri="https://idp.example.org/.well-known/jwks.json"
+                jwt-authentication-converter-ref="jwtAuthenticationConverter"/>
+    </oauth2-resource-server>
+</http>
+
+<bean id="jwtAuthenticationConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter">
+    <property name="jwtGrantedAuthoritiesConverter" ref="jwtGrantedAuthoritiesConverter"/>
+</bean>
+
+<bean id="jwtGrantedAuthoritiesConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter">
+    <property name="authorityPrefix" value="ROLE_"/>
+</bean>
+----
+====
+
+Or, you can remove the prefix altogether by calling `JwtGrantedAuthoritiesConverter#setAuthorityPrefix("")`.
 
 For more flexibility, the DSL supports entirely replacing the converter with any class that implements `Converter<Jwt, AbstractAuthenticationToken>`:
 
@@ -695,9 +788,19 @@ Adding a check for the `aud` claim is simple with the `OAuth2TokenValidator` API
 
 [source,java]
 ----
-public class AudienceValidator implements OAuth2TokenValidator<Jwt> {
-    OAuth2Error error = new OAuth2Error("invalid_token", "The required audience is missing", null);
+OAuth2TokenValidator<Jwt> audienceValidator() {
+    return new JwtClaimValidator<List<String>>(AUD, aud -> aud.contains("messaging"));
+}
+----
 
+Or, for more control you can implement your own `OAuth2TokenValidator`:
+
+[source,java]
+----
+static class AudienceValidator implements OAuth2TokenValidator<Jwt> {
+    OAuth2Error error = new OAuth2Error("custom_code", "Custom error message", null);
+
+    @Override
     public OAuth2TokenValidatorResult validate(Jwt jwt) {
         if (jwt.getAudience().contains("messaging")) {
             return OAuth2TokenValidatorResult.success();
@@ -705,6 +808,12 @@ public class AudienceValidator implements OAuth2TokenValidator<Jwt> {
             return OAuth2TokenValidatorResult.failure(error);
         }
     }
+}
+
+// ...
+
+OAuth2TokenValidator<Jwt> audienceValidator() {
+    return new AudienceValidator();
 }
 ----
 
@@ -717,7 +826,7 @@ JwtDecoder jwtDecoder() {
     NimbusJwtDecoder jwtDecoder = (NimbusJwtDecoder)
         JwtDecoders.fromIssuerLocation(issuerUri);
 
-    OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator();
+    OAuth2TokenValidator<Jwt> audienceValidator = audienceValidator();
     OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuerUri);
     OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
 
@@ -1054,6 +1163,40 @@ If the application doesn't expose a `OpaqueTokenIntrospector` bean, then Spring 
 
 And its configuration can be overridden using `introspectionUri()` and `introspectionClientCredentials()` or replaced using `introspector()`.
 
+Or, if you're not using Spring Boot at all, then both of these components - the filter chain and a `OpaqueTokenIntrospector` can be specified in XML.
+
+The filter chain is specified like so:
+
+.Default Opaque Token Configuration
+====
+.Xml
+[source,xml,role="primary"]
+----
+<http>
+    <intercept-uri pattern="/**" access="authenticated"/>
+    <oauth2-resource-server>
+        <opaque-token introspector-ref="opaqueTokenIntrospector"/>
+    </oauth2-resource-server>
+</http>
+----
+====
+
+And the `OpaqueTokenIntrospector` like so:
+
+.Opaque Token Introspector
+====
+.Xml
+[source,xml,role="primary"]
+----
+<bean id="opaqueTokenIntrospector"
+        class="org.springframework.security.oauth2.server.resource.introspection.NimbusOpaqueTokenIntrospector">
+    <constructor-arg value="${spring.security.oauth2.resourceserver.opaquetoken.introspection_uri}"/>
+    <constructor-arg value="${spring.security.oauth2.resourceserver.opaquetoken.client_id}"/>
+    <constructor-arg value="${spring.security.oauth2.resourceserver.opaquetoken.client_secret}"/>
+</bean>
+----
+====
+
 [[oauth2resourceserver-opaque-introspectionuri-dsl]]
 ==== Using `introspectionUri()`
 
@@ -1100,6 +1243,17 @@ class DirectlyConfiguredIntrospectionUri : WebSecurityConfigurerAdapter() {
         }
     }
 }
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<bean id="opaqueTokenIntrospector"
+        class="org.springframework.security.oauth2.server.resource.introspection.NimbusOpaqueTokenIntrospector">
+    <constructor-arg value="https://idp.example.com/introspect"/>
+    <constructor-arg value="client"/>
+    <constructor-arg value="secret"/>
+</bean>
 ----
 ====
 
@@ -1150,6 +1304,17 @@ class DirectlyConfiguredIntrospector : WebSecurityConfigurerAdapter() {
     }
 }
 ----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/**" access="authenticated"/>
+    <oauth2-resource-server>
+        <opaque-token introspector-ref="myCustomIntrospector"/>
+    </oauth2-resource-server>
+</http>
+----
 ====
 
 This is handy when deeper configuration, like <<oauth2resourceserver-opaque-authorization-extraction,authority mapping>>, <<oauth2resourceserver-opaque-jwt-introspector,JWT revocation>>, or <<oauth2resourceserver-opaque-timeouts,request timeouts>>, is necessary.
@@ -1178,7 +1343,11 @@ When this is the case, Resource Server will attempt to coerce these scopes into 
 
 This means that to protect an endpoint or method with a scope derived from an Opaque Token, the corresponding expressions should include this prefix:
 
-```java
+.Authorization Opaque Token Configuration
+====
+.Java
+[source,java,role="primary"]
+----
 @EnableWebSecurity
 public class MappedAuthorities extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
@@ -1191,7 +1360,20 @@ public class MappedAuthorities extends WebSecurityConfigurerAdapter {
             .oauth2ResourceServer(OAuth2ResourceServerConfigurer::opaqueToken);
     }
 }
-```
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <intercept-uri pattern="/contacts/**" access="hasAuthority('SCOPE_contacts')"/>
+    <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
+    <oauth2-resource-server>
+        <opaque-token introspector-ref="opaqueTokenIntrospector"/>
+    </oauth2-resource-server>
+</http>
+----
+====
 
 Or similarly with method security:
 
@@ -1422,8 +1604,7 @@ AuthenticationManagerResolver<HttpServletRequest> tokenAuthenticationManagerReso
     OpaqueTokenAuthenticationProvider opaqueToken = opaqueToken();
 
     return request -> {
-        String token = bearerToken.resolve(request);
-        if (isAJwt(token)) {
+        if (useJwt(request)) {
             return jwt::authenticate;
         } else {
             return opaqueToken::authenticate;
@@ -1432,9 +1613,14 @@ AuthenticationManagerResolver<HttpServletRequest> tokenAuthenticationManagerReso
 }
 ----
 
+NOTE: The implementation of `useJwt(HttpServletRequest)` will likely depend on custom request material like the path.
+
 And then specify this `AuthenticationManagerResolver` in the DSL:
 
-[source,java]
+.Authentication Manager Resolver
+====
+.Java
+[source,java,role="primary"]
 ----
 http
     .authorizeRequests(authorize -> authorize
@@ -1444,6 +1630,15 @@ http
         .authenticationManagerResolver(this.tokenAuthenticationManagerResolver)
     );
 ----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server authentication-manager-resolver-ref="tokenAuthenticationManagerResolver"/>
+</http>
+----
+====
 
 [[oauth2resourceserver-multitenancy]]
 === Multi-tenancy
@@ -1462,7 +1657,10 @@ In each case, there are two things that need to be done and trade-offs associate
 
 One way to differentiate tenants is by the issuer claim. Since the issuer claim accompanies signed JWTs, this can be done with the `JwtIssuerAuthenticationManagerResolver`, like so:
 
-[source,java]
+.Multitenancy Tenant by JWT Claim
+====
+.Java
+[source,java,role="primary"]
 ----
 JwtIssuerAuthenticationManagerResolver authenticationManagerResolver = new JwtIssuerAuthenticationManagerResolver
     ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo");
@@ -1475,6 +1673,25 @@ http
         .authenticationManagerResolver(authenticationManagerResolver)
     );
 ----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server authentication-manager-resolver-ref="authenticationManagerResolver"/>
+</http>
+
+<bean id="authenticationManagerResolver"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtIssuerAuthenticationManagerResolver">
+    <constructor-arg>
+        <list>
+            <value>https://idp.example.org/issuerOne</value>
+            <value>https://idp.example.org/issuerTwo</value>
+        </list>
+    </constructor-arg>
+</bean>
+----
+====
 
 This is nice because the issuer endpoints are loaded lazily.
 In fact, the corresponding `JwtAuthenticationProvider` is instantiated only when the first request with the corresponding issuer is sent.
@@ -1651,7 +1868,10 @@ This, however, can be customized in a couple of ways.
 For example, you may have a need to read the bearer token from a custom header.
 To achieve this, you can wire a `HeaderBearerTokenResolver` instance into the DSL, as you can see in the following example:
 
-[source,java]
+.Custom Bearer Token Header
+====
+.Java
+[source,java,role="primary"]
 ----
 http
     .oauth2ResourceServer(oauth2 -> oauth2
@@ -1659,11 +1879,28 @@ http
     );
 ----
 
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server bearer-token-resolver-ref="bearerTokenResolver"/>
+</http>
+
+<bean id="bearerTokenResolver"
+        class="org.springframework.security.oauth2.server.resource.web.HeaderBearerTokenResolver">
+    <constructor-arg value="x-goog-iap-jwt-assertion"/>
+</bean>
+----
+====
+
 ==== Reading the Bearer Token from a Form Parameter
 
 Or, you may wish to read the token from a form parameter, which you can do by configuring the `DefaultBearerTokenResolver`, as you can see below:
 
-[source,java]
+.Form Parameter Bearer Token
+====
+.Java
+[source,java,role="primary"]
 ----
 DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
 resolver.setAllowFormEncodedBodyParameter(true);
@@ -1673,9 +1910,23 @@ http
     );
 ----
 
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server bearer-token-resolver-ref="bearerTokenResolver"/>
+</http>
+
+<bean id="bearerTokenResolver"
+        class="org.springframework.security.oauth2.server.resource.web.HeaderBearerTokenResolver">
+    <property name="allowFormEncodedBodyParameter" value="true"/>
+</bean>
+----
+====
+
 === Bearer Token Propagation
 
-Now that you're in possession of a bearer token, it might be handy to pass that to downstream services.
+Now that you're resource server has validated the token, it might be handy to pass it to downstream services.
 This is quite simple with `{security-api-url}org/springframework/security/oauth2/server/resource/web/reactive/function/client/ServletBearerExchangeFilterFunction.html[ServletBearerExchangeFilterFunction]`, which you can see in the following example:
 
 [source,java]
@@ -1719,12 +1970,12 @@ this.rest.get()
 In this case, the filter will fall back and simply forward the request onto the rest of the web filter chain.
 
 [NOTE]
-Unlike the https://docs.spring.io/spring-security/site/docs/current-SNAPSHOT/api/org/springframework/security/oauth2/client/web/reactive/function/client/ServletOAuth2AuthorizedClientExchangeFilterFunction.html[OAuth 2.0 Client filter function], this filter function makes no attempt to renew the token, should it be expired.
+Unlike the {security-api-url}org/springframework/security/oauth2/client/web/reactive/function/client/ServletOAuth2AuthorizedClientExchangeFilterFunction.html[OAuth 2.0 Client filter function], this filter function makes no attempt to renew the token, should it be expired.
 To obtain this level of support, please use the OAuth 2.0 Client filter.
 
 ==== `RestTemplate` support
 
-There is no dedicated support for `RestTemplate` at the moment, but you can achieve propagation quite simply with your own interceptor:
+There is no `RestTemplate` equivalent for `ServletBearerExchangeFilterFunction` at the moment, but you can propagate the request's bearer token quite simply with your own interceptor:
 
 [source,java]
 ----
@@ -1746,5 +1997,39 @@ RestTemplate rest() {
 	    return execution.execute(request, body);
 	});
 	return rest;
+}
+----
+
+
+[NOTE]
+Unlike the {security-api-url}org/springframework/security/oauth2/client/OAuth2AuthorizedClientManager.html[OAuth 2.0 Authorized Client Manager], this filter interceptor makes no attempt to renew the token, should it be expired.
+To obtain this level of support, please create an interceptor using the <<oauth2client,OAuth 2.0 Authorized Client Manager>>.
+
+[[oauth2resourceserver-bearertoken-failure]]
+=== Bearer Token Failure
+
+A bearer token may be invalid for a number of reasons. For example, the token may no longer be active.
+
+In these circumstances, Resource Server throws an `InvalidBearerTokenException`.
+Like other exceptions, this results in an OAuth 2.0 Bearer Token error response:
+
+[source,http request]
+----
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error_code="invalid_token", error_description="Unsupported algorithm of none", error_uri="https://tools.ietf.org/html/rfc6750#section-3.1"
+----
+
+Additionally, it is published as an `AuthenticationFailureBadCredentialsEvent`, which you can <<servlet-events,listen for in your application>> like so:
+
+[source,java]
+----
+@Component
+public class FailureEvents {
+	@EventListener
+    public void onFailure(AuthenticationFailureEvent failure) {
+		if (badCredentials.getAuthentication() instanceof BearerTokenAuthenticationToken) {
+		    // ... handle
+        }
+    }
 }
 ----

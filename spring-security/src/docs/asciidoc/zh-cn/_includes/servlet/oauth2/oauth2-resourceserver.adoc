@@ -80,13 +80,13 @@ Authorization: Bearer some-token-value # Resource Server will process this
 
 
 1. 在启动期间根据从 `jwks_url` 端点获取并与JWTs标头匹配的公钥验证其签名
-2. 验证JWT的 `exp` 和 `nbf` 时间戳以及JWT的 `iss` 声明,以及
+2. 验证JWT的 `exp` 和 `nbf` 时间戳以及 JWT 的 `iss` 声明,以及
 3. 将每个范围映射到具有前缀 `SCOPE_` 的权限.
 
 [NOTE]
-当授权服务器提供新的密钥时,Spring Security将自动旋转用于验证JWT令牌的密钥.
+当授权服务器提供新的密钥时,Spring Security 将自动旋转用于验证 JWTs 令牌的密钥.
 
-默认情况下,生成的  `Authentication#getPrincipal` 是Spring Security `Jwt` 对象,并且  `Authentication#getName` 映射到JWT的 `sub` 属性 (如果存在) .
+默认情况下,生成的  `Authentication#getPrincipal` 是 Spring Security `Jwt` 对象,并且  `Authentication#getName` 映射到JWT的 `sub` 属性 (如果存在) .
 
 从这里,考虑跳到:
 
@@ -627,19 +627,20 @@ public List<Message> getMessages(...) {}
 [[oauth2resourceserver-jwt-authorization-extraction]]
 ==== 手动提取权限
 
-但是,在许多情况下,此默认设置不足.
-例如,某些授权服务器不使用 `scope` 属性,而是使用自己的自定义属性.
-或者,在其他时候,资源服务器可能需要将属性或属性组成调整为内部化的权限.
+但是,在许多情况下,此默认设置不足.例如,某些授权服务器不使用 `scope` 属性,而是使用自己的自定义属性.或者,在其他时候,资源服务器可能需要将属性或属性组成调整为内部化的权限.
 
-为此,DSL暴露了 `jwtAuthenticationConverter()`:
+为此,DSL暴露了 `jwtAuthenticationConverter()` ,负责将 `Jwt` 转换为 `Authentication`:
 
-.Authorities Extractor Configuration
+作为其配置的一部分，作为其配置的一部分,我们可以提供一个辅助转换器,从 `Jwt` 到授权的 `Collection`.。 假设您的授权服务器在称为授权的自定义声明中传达了授权。
+在这种情况下，您可以配置 `JwtAuthenticationConverter` 应该检查的声明，如下所示：
+
+.Authorities Claim Configuration
 ====
 .Java
 [source,java,role="primary"]
 ----
 @EnableWebSecurity
-public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
+public class CustomAuthoritiesClaimName extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
             .authorizeRequests(authorize -> authorize
@@ -647,46 +648,59 @@ public class DirectlyConfiguredJwkSetUri extends WebSecurityConfigurerAdapter {
             )
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> jwt
-                    .jwtAuthenticationConverter(grantedAuthoritiesExtractor())
+                    .jwtAuthenticationConverter(jwtAuthenticationConverter())
                 )
             );
     }
 }
 
-Converter<Jwt, AbstractAuthenticationToken> grantedAuthoritiesExtractor() {
-    JwtAuthenticationConverter jwtAuthenticationConverter =
-            new JwtAuthenticationConverter();
+JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+    grantedAuthoritiesConverter.setAuthoritiesClaimName("authorities");
 
-    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter
-            (new GrantedAuthoritiesExtractor());
-
+    JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
     return jwtAuthenticationConverter;
 }
 ----
-
-.Kotlin
-[source,kotlin,role="secondary"]
+.Xml
+[source,xml,role="secondary"]
 ----
-@EnableWebSecurity
-class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
-        http {
-            authorizeRequests {
-                authorize(anyRequest, authenticated)
-            }
-            oauth2ResourceServer {
-                jwt {
-                    jwtAuthenticationConverter = grantedAuthoritiesExtractor()
-                }
-            }
-        }
-    }
+<http>
+    <intercept-uri pattern="/contacts/**" access="hasAuthority('SCOPE_contacts')"/>
+    <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
+    <oauth2-resource-server>
+        <jwt jwk-set-uri="https://idp.example.org/.well-known/jwks.json"
+                jwt-authentication-converter-ref="jwtAuthenticationConverter"/>
+    </oauth2-resource-server>
+</http>
 
-    private fun grantedAuthoritiesExtractor(): JwtAuthenticationConverter {
-        val jwtAuthenticationConverter = JwtAuthenticationConverter()
-        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(GrantedAuthoritiesExtractor())
-        return jwtAuthenticationConverter
-    }
+<bean id="jwtAuthenticationConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter">
+    <property name="jwtGrantedAuthoritiesConverter" ref="jwtGrantedAuthoritiesConverter"/>
+</bean>
+
+<bean id="jwtGrantedAuthoritiesConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter">
+    <property name="authoritiesClaimName" value="authorities"/>
+</bean>
+----
+====
+
+您还可以将权限前缀配置为不同。 您可以像这样将其更改为 `ROLE_` 而不是在每个权限前面加上 `SCOPE_`：
+
+.Authorities Prefix Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+    grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
+
+    JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+    return jwtAuthenticationConverter;
 }
 ----
 
@@ -698,39 +712,23 @@ class DirectlyConfiguredJwkSetUri : WebSecurityConfigurerAdapter() {
     <intercept-uri pattern="/messages/**" access="hasAuthority('SCOPE_messages')"/>
     <oauth2-resource-server>
         <jwt jwk-set-uri="https://idp.example.org/.well-known/jwks.json"
-                jwt-authentication-converter-ref="grantedAuthoritiesExtractor"/>
+                jwt-authentication-converter-ref="jwtAuthenticationConverter"/>
     </oauth2-resource-server>
 </http>
 
-<bean id="grantedAuthoritiesExtractor"
+<bean id="jwtAuthenticationConverter"
         class="org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter">
-    <property name="jwtGrantedAuthoritiesConverter">
-        <bean class="my.custom.GrantedAuthoritiesConverter"/>
-    </property>
+    <property name="jwtGrantedAuthoritiesConverter" ref="jwtGrantedAuthoritiesConverter"/>
+</bean>
+
+<bean id="jwtGrantedAuthoritiesConverter"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter">
+    <property name="authorityPrefix" value="ROLE_"/>
 </bean>
 ----
 ====
 
-负责将 `Jwt` 转换为 `Authentication`. 作为其配置的一部分,我们可以提供一个辅助转换器,从 `Jwt` 到授权的 `Collection`.
-
-最终的转换器可能类似于下面的 `GrantedAuthoritiesExtractor`:
-
-[source,java]
-----
-static class GrantedAuthoritiesExtractor
-        implements Converter<Jwt, Collection<GrantedAuthority>> {
-
-    public Collection<GrantedAuthority> convert(Jwt jwt) {
-        Collection<?> authorities = (Collection<?>)
-                jwt.getClaims().getOrDefault("mycustomclaim", Collections.emptyList());
-
-        return authorities.stream()
-                .map(Object::toString)
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toList());
-    }
-}
-----
+或者，可以通过调用 `JwtGrantedAuthoritiesConverter#setAuthorityPrefix("")` 来完全删除该前缀。
 
 为了获得更大的灵活性,DSL支持使用实现  `Converter<Jwt, AbstractAuthenticationToken>` 的任何类完全替换该转换器:
 
@@ -791,7 +789,7 @@ OAuth2TokenValidator<Jwt> audienceValidator() {
 }
 ----
 
-Or, for more control you can implement your own `OAuth2TokenValidator`:
+或者，为了获得更多控制权，您可以实现自己的 `OAuth2TokenValidator`:
 
 [source,java]
 ----
@@ -1175,7 +1173,7 @@ public OpaqueTokenIntrospector introspector() {
 ----
 ====
 
-And the `OpaqueTokenIntrospector` like so:
+`OpaqueTokenIntrospector` :
 
 .Opaque Token Introspector
 ====
@@ -1606,6 +1604,8 @@ AuthenticationManagerResolver<HttpServletRequest> tokenAuthenticationManagerReso
 }
 ----
 
+NOTE: `useJwt(HttpServletRequest)` 的实现可能取决于诸如路径之类的自定义请求。.
+
 然后在DSL中指定此 `AuthenticationManagerResolver`:
 
 .Authentication Manager Resolver
@@ -1958,7 +1958,7 @@ this.rest.get()
 
 ==== `RestTemplate` 支持
 
-目前尚无对 `RestTemplate` 的专门支持,但您可以使用自己的拦截器非常简单地实现传播:
+目前尚无对 `ServletBearerExchangeFilterFunction` 的 `RestTemplate` 的专门支持,但您可以使用自己的拦截器非常简单地实现传播:
 
 [source,java]
 ----

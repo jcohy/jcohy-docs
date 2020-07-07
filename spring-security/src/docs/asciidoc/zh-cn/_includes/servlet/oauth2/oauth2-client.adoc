@@ -67,6 +67,27 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
 ----
 ====
 
+除了 `HttpSecurity.oauth2Client()` DSL外，还支持 XML 配置。
+
+以下代码显示了 <<nsa-oauth2-client, security namespace>> 中可用的完整配置选项:
+
+.OAuth2 Client XML Configuration Options
+====
+[source,xml]
+----
+<http>
+	<oauth2-client client-registration-repository-ref="clientRegistrationRepository"
+				   authorized-client-repository-ref="authorizedClientRepository"
+				   authorized-client-service-ref="authorizedClientService">
+		<authorization-code-grant
+				authorization-request-repository-ref="authorizationRequestRepository"
+				authorization-request-resolver-ref="authorizationRequestResolver"
+				access-token-response-client-ref="accessTokenResponseClient"/>
+	</oauth2-client>
+</http>
+----
+====
+
 `OAuth2AuthorizedClientManager` 负责与一个或多个 `OAuth2AuthorizedClientProvider` 协作管理OAuth 2.0客户端的授权 (或重新授权) .
 
 以下代码显示了一个示例,该示例说明如何注册 `OAuth2AuthorizedClientManager` `@Bean` 并将其与 `OAuth2AuthorizedClientProvider` 组合关联,该组合提供对 `authorization_code`,`refresh_token`,`client_credentials` 和  `password`  授权类型的支持:
@@ -282,6 +303,8 @@ Spring Boot 2.x自动配置在 `ApplicationContext` 中注册了 `OAuth2Authoriz
 
 * 使用 `OAuth2AuthorizedClientProvider` 授权 (或重新授权) OAuth 2.0客户端.
 * 通常使用 `OAuth2AuthorizedClientService` 或 `OAuth2AuthorizedClientRepository` 委托 `OAuth2AuthorizedClient` 的持久性.
+* 成功授权（或重新授权）OAuth 2.0客户端后，委派给 `OAuth2AuthorizationSuccessHandler`
+* 当OAuth 2.0客户端无法授权（或重新授权）时，委派给 `OAuth2AuthorizationFailureHandler`
 
 `OAuth2AuthorizedClientProvider` 实施用于授权 (或重新授权) OAuth 2.0客户端的策略.  实施通常将实施授权类型,例如.  `authorization_code`, `client_credentials` 等.
 
@@ -313,6 +336,10 @@ public OAuth2AuthorizedClientManager authorizedClientManager(
 	return authorizedClientManager;
 }
 ----
+
+当尝试授权成功时，`DefaultOAuth2AuthorizedClientManager` 将委派给 `OAuth2AuthorizationSuccessHandler`，后者（默认情况下）将通过 `OAuth2AuthorizedClientRepository` 保存 `OAuth2AuthorizedClient`。
+在重新授权失败的情况下，例如 刷新令牌不再有效，先前保存的 `OAuth2AuthorizedClient` 将通过 `RemoveAuthorizedClientOAuth2AuthorizationFailureHandler` 从 `OAuth2AuthorizedClientRepository` 中删除。
+可以通过 `setAuthorizationSuccessHandler(OAuth2AuthorizationSuccessHandler)`  和  `setAuthorizationFailureHandler(OAuth2AuthorizationFailureHandler)` 自定义默认行为。
 
 `DefaultOAuth2AuthorizedClientManager` 也与类型为 `Function<OAuth2AuthorizeRequest, Map<String, Object>>` 的 `contextAttributesMapper` 关联,后者负责将属性从 `OAuth2AuthorizeRequest` 映射到要与 `OAuth2AuthorizationContext` 关联的属性的映射.
 当您需要为 `OAuth2AuthorizedClientProvider` 提供必需的 (受支持的) 属性时,这很有用.  `PasswordOAuth2AuthorizedClientProvider` 要求资源所有者的用户名和密码在 `OAuth2AuthorizationContext.getAttributes()` 中可用.
@@ -362,6 +389,32 @@ private Function<OAuth2AuthorizeRequest, Map<String, Object>> contextAttributesM
 }
 ----
 
+`DefaultOAuth2AuthorizedClientManager` 设计为在 `HttpServletRequest` 上下文中使用。 在 `HttpServletRequest` 上下文之外进行操作时，请改用 `AuthorizedClientServiceOAuth2AuthorizedClientManager`。
+
+服务应用程序是何时使用 `AuthorizedClientServiceOAuth2AuthorizedClientManager` 的常见用例。 服务应用程序通常在后台运行，没有任何用户交互，并且通常在系统级帐户而不是用户帐户下运行。 配置为 `client_credentials` 授予类型的 O​​Auth 2.0 客户端可以视为服务应用程序的类型。
+
+下面的代码显示了一个示例如何配置 `AuthorizedClientServiceOAuth2AuthorizedClientManager` 的示例，该 `ManagerManager` 提供对 `client_credentials` 授予类型的支持：
+
+[source,java]
+----
+@Bean
+public OAuth2AuthorizedClientManager authorizedClientManager(
+		ClientRegistrationRepository clientRegistrationRepository,
+		OAuth2AuthorizedClientService authorizedClientService) {
+
+	OAuth2AuthorizedClientProvider authorizedClientProvider =
+			OAuth2AuthorizedClientProviderBuilder.builder()
+					.clientCredentials()
+					.build();
+
+	AuthorizedClientServiceOAuth2AuthorizedClientManager authorizedClientManager =
+			new AuthorizedClientServiceOAuth2AuthorizedClientManager(
+					clientRegistrationRepository, authorizedClientService);
+	authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider);
+
+	return authorizedClientManager;
+}
+----
 
 [[oauth2Client-auth-grant-support]]
 === 授权类型支持
@@ -371,7 +424,7 @@ private Function<OAuth2AuthorizeRequest, Map<String, Object>> contextAttributesM
 ==== Authorization Code  (授权码)
 
 [NOTE]
-有关 https://tools.ietf.org/html/rfc6749#section-1.3.1[Authorization Code] 的更多详细信息,请参考OAuth 2.0授权框架.
+有关 https://tools.ietf.org/html/rfc6749#section-1.3.1[Authorization Code] 的更多详细信息,请参考 OAuth 2.0 授权框架.
 
 
 ===== 获取授权
@@ -466,7 +519,7 @@ spring:
 [NOTE]
 可选的.  用空格分隔的,区分大小写的ASCII字符串值列表,用于指定授权服务器是否提示终端用户进行重新认证和同意.  定义的值是: none, login, consent, select_account
 
-以下示例显示了如何实现 `OAuth2AuthorizationRequestResolver`,该 `OAuth2AuthorizationRequestResolver` 通过包含请求参数  `prompt=consent` 来定制 `oauth2Login()` 的授权请求.
+以下示例显示如何通过使用 `Consumer<OAuth2AuthorizationRequest.Builder>` 来配置 `DefaultOAuth2AuthorizationRequestResolver`，该 `Consumer<OAuth2AuthorizationRequest.Builder>` 通过包括请求参数  `prompt=consent` 来定制  `oauth2Login()` 的授权请求。
 
 [source,java]
 ----
@@ -485,70 +538,30 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 			.oauth2Login(oauth2 -> oauth2
 				.authorizationEndpoint(authorization -> authorization
 					.authorizationRequestResolver(
-					    new CustomAuthorizationRequestResolver(
-					            this.clientRegistrationRepository)    <1>
+						authorizationRequestResolver(this.clientRegistrationRepository)
 					)
 				)
 			);
 	}
-}
 
-public class CustomAuthorizationRequestResolver implements OAuth2AuthorizationRequestResolver {
-	private final OAuth2AuthorizationRequestResolver defaultAuthorizationRequestResolver;
-
-	public CustomAuthorizationRequestResolver(
+	private OAuth2AuthorizationRequestResolver authorizationRequestResolver(
 			ClientRegistrationRepository clientRegistrationRepository) {
 
-		this.defaultAuthorizationRequestResolver =
+		DefaultOAuth2AuthorizationRequestResolver authorizationRequestResolver =
 				new DefaultOAuth2AuthorizationRequestResolver(
 						clientRegistrationRepository, "/oauth2/authorization");
+		authorizationRequestResolver.setAuthorizationRequestCustomizer(
+				authorizationRequestCustomizer());
+
+		return  authorizationRequestResolver;
 	}
 
-	@Override
-	public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
-		OAuth2AuthorizationRequest authorizationRequest =
-				this.defaultAuthorizationRequestResolver.resolve(request);  <2>
-
-		return authorizationRequest != null ?   <3>
-				customAuthorizationRequest(authorizationRequest) :
-				null;
-	}
-
-	@Override
-	public OAuth2AuthorizationRequest resolve(
-			HttpServletRequest request, String clientRegistrationId) {
-
-		OAuth2AuthorizationRequest authorizationRequest =
-				this.defaultAuthorizationRequestResolver.resolve(
-				    request, clientRegistrationId);    <2>
-
-		return authorizationRequest != null ?   <3>
-				customAuthorizationRequest(authorizationRequest) :
-				null;
-	}
-
-	private OAuth2AuthorizationRequest customAuthorizationRequest(
-			OAuth2AuthorizationRequest authorizationRequest) {
-
-		Map<String, Object> additionalParameters =
-				new LinkedHashMap<>(authorizationRequest.getAdditionalParameters());
-		additionalParameters.put("prompt", "consent");  <4>
-
-		return OAuth2AuthorizationRequest.from(authorizationRequest)    <5>
-				.additionalParameters(additionalParameters) <6>
-				.build();
+	private Consumer<OAuth2AuthorizationRequest.Builder> authorizationRequestCustomizer() {
+		return customizer -> customizer
+					.additionalParameters(params -> params.put("prompt", "consent"));
 	}
 }
 ----
-<1> 配置自定义 `OAuth2AuthorizationRequestResolver`
-<2> 尝试使用 `DefaultOAuth2AuthorizationRequestResolver` 解析 `OAuth2AuthorizationRequest`
-<3> 如果 `OAuth2AuthorizationRequest` 已解决,则返回自定义版本,否则返回 `null`
-<4> 将自定义参数添加到现有的 `OAuth2AuthorizationRequest.additionalParameters`
-<5> 创建默认 `OAuth2AuthorizationRequest` 的副本,该副本将返回 `OAuth2AuthorizationRequest.Builder` 以进行进一步修改
-<6> 覆盖默认的 `AdditionalParameters`
-
-[TIP]
-`OAuth2AuthorizationRequest.Builder.build()` 构造 `OAuth2AuthorizationRequest.authorizationRequestUri`,它表示完整的授权请求 `URI`,包括使用 `application/x-www-form-urlencoded` 格式的所有查询参数.
 
 对于简单的用例,对于特定的提供者,附加请求参数始终相同,可以将其直接添加到 `authorization-uri` 中.
 
@@ -567,22 +580,18 @@ spring:
 
 前面的示例显示了在标准参数之上添加自定义参数的常见用例.  或者,如果您的要求更高,则可以通过简单地覆盖 `OAuth2AuthorizationRequest.authorizationRequestUri` 属性来完全控制构建授权请求 `URI`.
 
-以下示例显示了 `customAuthorizationRequest()` 方法与上一示例的不同形式,而是覆盖了 `OAuth2AuthorizationRequest.authorizationRequestUri` 属性.
+[TIP]
+`OAuth2AuthorizationRequest.Builder.build()` 构造 `OAuth2AuthorizationRequest.authorizationRequestUri`,它表示完整的授权请求 `URI`,包括使用 `application/x-www-form-urlencoded` 格式的所有查询参数.
+
+
+以下示例显示了 `authorizationRequestCustomizer()` 方法与上一示例的不同形式,而是覆盖了 `OAuth2AuthorizationRequest.authorizationRequestUri` 属性.
 
 [source,java]
 ----
-private OAuth2AuthorizationRequest customAuthorizationRequest(
-		OAuth2AuthorizationRequest authorizationRequest) {
-
-	String customAuthorizationRequestUri = UriComponentsBuilder
-			.fromUriString(authorizationRequest.getAuthorizationRequestUri())
-			.queryParam("prompt", "consent")
-			.build(true)
-			.toUriString();
-
-	return OAuth2AuthorizationRequest.from(authorizationRequest)
-			.authorizationRequestUri(customAuthorizationRequestUri)
-			.build();
+private Consumer<OAuth2AuthorizationRequest.Builder> authorizationRequestCustomizer() {
+	return customizer -> customizer
+				.authorizationRequestUri(uriBuilder -> uriBuilder
+					.queryParam("prompt", "consent").build());
 }
 ----
 
@@ -635,6 +644,16 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
         }
     }
 }
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-client>
+		<authorization-code-grant authorization-request-repository-ref="authorizationRequestRepository"/>
+	</oauth2-client>
+</http>
 ----
 ====
 
@@ -697,7 +716,6 @@ public class OAuth2ClientSecurityConfig extends WebSecurityConfigurerAdapter {
 	}
 }
 ----
-
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
@@ -715,8 +733,16 @@ class OAuth2ClientSecurityConfig : WebSecurityConfigurerAdapter() {
     }
 }
 ----
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-client>
+		<authorization-code-grant access-token-response-client-ref="accessTokenResponseClient"/>
+	</oauth2-client>
+</http>
+----
 ====
-
 
 [[oauth2Client-refresh-token-grant]]
 ==== 刷新Token

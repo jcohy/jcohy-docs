@@ -61,18 +61,18 @@ Spring Framework的事务管理支持改变了关于企业Java应用程序何时
 
 通常,只有当应用程序需要处理跨多个资源的事务时,才需要应用程序服务器的JTA功能,这对许多应 用程序来说并不是必需的. 许多高端应用程序使用单个高度可伸缩的数据库(例如Oracle RAC) .  独立的事务管理器(例如 https://www.atomikos.com/[Atomikos Transactions]  和 http://jotm.objectweb.org/[JOTM]) 是其他选择.  当然,您可能需要其他应用 程序服务器功能,例如Java消息服务(JMS) 和Java EE连接器体系结构(JCA) .
 
-Spring Framework使您可以选择何时将应用程序扩展到完全加载的应用程序服务器.  使用EJB CMT或JTA 的唯一替代方法是使用本地事务(例如JDBC连接上的代码) 编写代码,并且如果您需要在全局容器管理 的事务中运行代码,则会面临大量的返工.  使用Spring Framework,只需要更改配置文件中的一些bean 定义(而不是代码) .
+Spring Framework使您可以选择何时将应用程序扩展到完全加载的应用程序服务器.  使用EJB CMT或JTA 的唯一替代方法是使用本地事务(例如JDBC连接上的代码) 编写代码,并且如果您需要在全局容器管理 的事务中运行代码,则会面临大量的返工.  使用 Spring Framework,只需要更改配置文件中的一些bean 定义(而不是代码) .
 ****
 
 [[transaction-strategies]]
-=== 理解Spring Framework的事务抽象化
+=== 理解 Spring Framework 的事务抽象化
 
-Spring事务抽象的关键是事务策略的概念. 事务策略由 `org.springframework.transaction.PlatformTransactionManager` 接口定义,如下所示:
+Spring 事务抽象的关键是事务策略的概念. 事务策略由 `TransactionManager` 定义,特别是用于命令式事务管理的 `org.springframework.transaction.PlatformTransactionManager` 接口和用于响应式事务管理的 `org.springframework.transaction.ReactiveTransactionManager` 接口。 以下清单显示了 `PlatformTransactionManager` API的定义：如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	public interface PlatformTransactionManager {
+	public interface PlatformTransactionManager extends TransactionManager {
 
 		TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException;
 
@@ -84,7 +84,7 @@ Spring事务抽象的关键是事务策略的概念. 事务策略由 `org.spring
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	interface PlatformTransactionManager {
+	interface PlatformTransactionManager : TransactionManager {
 
 		@Throws(TransactionException::class)
 		fun getTransaction(definition: TransactionDefinition): TransactionStatus
@@ -104,6 +104,38 @@ Spring事务抽象的关键是事务策略的概念. 事务策略由 `org.spring
 
 `getTransaction(..)` 方法返回 `TransactionStatus` 对象,它具体取决于 `TransactionDefinition` 参数.  如果当前调用的堆栈中存在匹配的事务,则返回的 `TransactionStatus` 可能表示新事务或可表示现有事务.  后一种情况的含义是,与Java EE事务上下文一样,`TransactionStatus` 与执行线程相关联.
 
+从 Spring Framework 5.2 开始，Spring 还提供了一个抽象的事务管理用于使用响应式类型或 Kotlin 协程的响应式应用程序。 下列清单显示了由 `org.springframework.transaction.ReactiveTransactionManager` 定义的事务策略:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public interface ReactiveTransactionManager extends TransactionManager {
+
+		Mono<ReactiveTransaction> getReactiveTransaction(TransactionDefinition definition) throws TransactionException;
+
+		Mono<Void> commit(ReactiveTransaction status) throws TransactionException;
+
+		Mono<Void> rollback(ReactiveTransaction status) throws TransactionException;
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	interface ReactiveTransactionManager : TransactionManager {
+
+		@Throws(TransactionException::class)
+		fun getReactiveTransaction(definition: TransactionDefinition): Mono<ReactiveTransaction>
+
+		@Throws(TransactionException::class)
+		fun commit(status: ReactiveTransaction): Mono<Void>
+
+		@Throws(TransactionException::class)
+		fun rollback(status: ReactiveTransaction): Mono<Void>
+	}
+----
+
+响应式事务管理主要是服务提供商接口(SPI)，尽管您可以从应用程序代码中以 <<transaction-programmatic-rtm, 编程>> 方式使用它。 但由于 `ReactiveTransactionManager` 是接口，因此可以根据需要轻松对其进行模拟或存根。
+
 `TransactionDefinition` 接口规定:
 
 * 传播: 通常,在事务范围内执行的所有代码都在该事务中运行.  但是,如果在事务上下文已存在时执行事务方法,则可以指定代码的执行行为.
@@ -119,43 +151,47 @@ Spring事务抽象的关键是事务策略的概念. 事务策略由 `org.spring
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	public interface TransactionStatus extends SavepointManager {
+	public interface TransactionStatus extends TransactionExecution, SavepointManager, Flushable {
 
+		@Override
 		boolean isNewTransaction();
 
 		boolean hasSavepoint();
 
+		@Override
 		void setRollbackOnly();
 
+		@Override
 		boolean isRollbackOnly();
 
 		void flush();
 
+		@Override
 		boolean isCompleted();
 	}
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	interface TransactionStatus : SavepointManager {
+	interface TransactionStatus : TransactionExecution, SavepointManager, Flushable {
 
-		fun isNewTransaction(): Boolean
+		override fun isNewTransaction(): Boolean
 
 		fun hasSavepoint(): Boolean
 
-		fun setRollbackOnly()
+		override fun setRollbackOnly()
 
-		fun isRollbackOnly(): Boolean
+		override fun isRollbackOnly(): Boolean
 
 		fun flush()
 
-		fun isCompleted(): Boolean
+		override fun isCompleted(): Boolean
 	}
 ----
 
-无论您是在Spring中选择声明式还是程序化事务管理,定义正确的 `PlatformTransactionManager` 实现都是绝对必要的.  您通常通过依赖注入来定义此实现.
+无论您是在 Spring 中选择声明式还是程序化事务管理,定义正确的 `TransactionManager` 实现都是绝对必要的.  您通常通过依赖注入来定义此实现.
 
-`PlatformTransactionManager` 实现通常需要了解它们工作的环境: JDBC,JTA,Hibernate等.  以下示例显示了如何定义本地 `PlatformTransactionManager` 实现(在本例中,使用普通JDBC) .
+`TransactionManager` 实现通常需要了解它们工作的环境: JDBC,JTA,Hibernate 等.  以下示例显示了如何定义本地 `PlatformTransactionManager` 实现(在本例中,使用普通 JDBC) .
 
 你可以通过创建一个类似与以下内容的bean来定义一个JDBC `DataSource`:
 
@@ -247,7 +283,7 @@ NOTE: 	如果您使用JTA,那么无论您使用何种数据访问技术,无论�
 === 事务和资源同步
 
 现在应该清楚如何创建不同的事务管理器以及它们如何链接到需要与事务同步的相关资源(例如, 将 `DataSourceTransactionManager` 连接到JDBC `DataSource`,`HibernateTransactionManager` 连接到Hibernate `SessionFactory` 等等) .
-本节描述应用程序代码(直接或间接使用诸如JDBC,Hibernate或JPA之类的持久化API) 如何确保正确创建,重用和清理这些资源.  本节还讨论了如何(可选) 通过相关的 `PlatformTransactionManager` 触发事务同步.
+本节描述应用程序代码(直接或间接使用诸如 JDBC,Hibernate 或 JPA 之类的持久化 API) 如何确保正确创建,重用和清理这些资源.  本节还讨论了如何(可选) 通过相关的 `TransactionManager` 触发事务同步.
 
 
 [[tx-resource-synchronization-high]]
@@ -305,12 +341,15 @@ Spring Framework的声明式事务管理类似于EJB CMT,因为您可以将事�
 [[tx-decl-explained]]
 ==== 理解Spring Framework的声明式事务的实现
 
-仅仅通过 `@Transactional` 注解告诉您注解您的类是不够的,将 `@EnableTransactionManagement` 添加到您的配置中,并期望您 了解它是如何工作的.  为了更深入地理解,本节解释了在发生与事务相关的问题时Spring Framework的声明式事务基础结构的内部工作原理.
+仅仅通过 `@Transactional` 注解告诉您注解您的类是不够的,将 `@EnableTransactionManagement` 添加到您的配置中,并期望您 了解它是如何工作的.  为了更深入地理解,本节解释了在发生与事务相关的问题时 Spring Framework 的声明式事务基础结构的内部工作原理.
 
-关于Spring Framework的声明式事务支持,最重要的概念是<<core.adoc#aop-understanding-aop-proxies, 通过AOP代理>>启用此支持,并且事务性 的通知由元数据(当前基于XML或基于注解) 驱动.
-AOP与事务元数据的组合产生一个AOP代理,该代理使用 `TransactionInterceptor` 和适当的 `PlatformTransactionManager` 实现来驱动方法调用事务.
+关于 Spring Framework 的声明式事务支持,最重要的概念是<<core.adoc#aop-understanding-aop-proxies, 通过AOP代理>>启用此支持,并且事务性 的通知由元数据(当前基于XML或基于注解) 驱动.
+AOP与事务元数据的组合产生一个AOP代理,该代理使用 `TransactionInterceptor` 和适当的 `TransactionManager` 实现来驱动方法调用事务.
 
 NOTE: Spring AOP在<<core.adoc#aop,AOP部分>>介绍.
+
+Spring Framework 的 `TransactionInterceptor` 为命令式和响应式编程模型提供事务管理。 拦截器通过检查方法返回类型来检测所需的事务管理风格。 返回诸如 `Publisher` 或 Kotlin `Flow`（或它们的子类型）之类的响应式的方法符合响应式事务管理的条件。
+所有其他返回类型（包括 `void`）都将代码路径用于命令式事务管理。
 
 以下图像显示了在事务代理上调用方法的概念视图:
 
@@ -463,7 +502,7 @@ image::images/tx.png[]
 			<property name="password" value="tiger"/>
 		</bean>
 
-		<!-- similarly, don't forget the PlatformTransactionManager -->
+		<!-- similarly, don't forget the TransactionManager -->
 		<bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
 			<property name="dataSource" ref="dataSource"/>
 		</bean>
@@ -474,9 +513,9 @@ image::images/tx.png[]
 ----
 
 查看以上配置,它假定你要创建一个具有事务属性的服务对象,`fooService` bean, 要应用的事务语义在 `<tx:advice/>` 标签中定义. `<tx:advice/>` 中的定义为:  所有方法中,以 `get` 开始的方法,将在只读事务的上下文中执行,其他方法将在默认的事务语义下执行”.
-`<tx:advice/>` 标签的 `transaction-manager` 的属性用来设置驱动事务的 `PlatformTransactionManager` 的名称. (在本例中为 `txManager` bean)
+`<tx:advice/>` 标签的 `transaction-manager` 的属性用来设置驱动事务的 `TransactionManager` 的名称. (在本例中为 `txManager` bean)
 
-TIP: 如果要连接的 `PlatformTransactionManager` 的bean名称具有名称 `transactionManager`,则可以省略事务通知(`<tx:advice/>`)  中的 `transaction-manager` 属性.  如果要连接的 `PlatformTransactionManager` bean具有任何其他名称, 则必须显式使用 `transaction-manager` 属性进行指定,如上例所示.
+TIP: 如果要连接的 `TransactionManager` 的bean名称具有名称 `transactionManager`,则可以省略事务通知(`<tx:advice/>`)  中的 `transaction-manager` 属性.  如果要连接的 `TransactionManager` bean具有任何其他名称, 则必须显式使用 `transaction-manager` 属性进行指定,如上例所示.
 
 `<aop:config/>` 定义确保txAdvice bean定义的事务性的通知在程序中的适当位置执行. 首先,定义一个切入点,该切入点与 `FooService` 接口(`fooServiceOperation`) 中定义的任何操作的执行相匹配. 然后使用通知者将切入点与 `txAdvice` 相关联.
 结果表明,在执行 `fooServiceOperation` 时,将运行txAdvice定义的通知.
@@ -523,7 +562,7 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 	}
 ----
 
-运行前面程序的输出应该类似于以下内容(为清楚起见,LogFJ输出和DefaultFooService类的insertFoo(..) 方法抛出的UnsupportedOperationException中的堆栈跟踪已被截断) :
+运行前面程序的输出应该类似于以下内容(为清楚起见,LogFJ 输出和 `DefaultFooService` 类的 `insertFoo(..)` 方法抛出的 `UnsupportedOperationException` 堆栈跟踪已被截断) :
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -555,6 +594,114 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 	at Boot.main(Boot.java:11)
 ----
 
+要使用响应式事务管理，代码必须使用响应式风格。
+
+NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类型是否是响应式.
+
+下面的代码使用以前的 `FooService` 的修改版本，但是这次代码使用了响应类型:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// the reactive service interface that we want to make transactional
+
+	package x.y.service;
+
+	public interface FooService {
+
+		Flux<Foo> getFoo(String fooName);
+
+		Publisher<Foo> getFoo(String fooName, String barName);
+
+		Mono<Void> insertFoo(Foo foo);
+
+		Mono<Void> updateFoo(Foo foo);
+
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// the reactive service interface that we want to make transactional
+
+	package x.y.service
+
+	interface FooService {
+
+		fun getFoo(fooName: String): Flow<Foo>
+
+		fun getFoo(fooName: String, barName: String): Publisher<Foo>
+
+		fun insertFoo(foo: Foo) : Mono<Void>
+
+		fun updateFoo(foo: Foo) : Mono<Void>
+	}
+----
+
+以下示例显示了上述接口的实现:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	package x.y.service;
+
+	public class DefaultFooService implements FooService {
+
+		@Override
+		public Flux<Foo> getFoo(String fooName) {
+			// ...
+		}
+
+		@Override
+		public Publisher<Foo> getFoo(String fooName, String barName) {
+			// ...
+		}
+
+		@Override
+		public Mono<Void> insertFoo(Foo foo) {
+			// ...
+		}
+
+		@Override
+		public Mono<Void> updateFoo(Foo foo) {
+			// ...
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	package x.y.service
+
+	class DefaultFooService : FooService {
+
+		override fun getFoo(fooName: String): Flow<Foo> {
+			// ...
+		}
+
+		override fun getFoo(fooName: String, barName: String): Publisher<Foo> {
+			// ...
+		}
+
+		override fun insertFoo(foo: Foo): Mono<Void> {
+			// ...
+		}
+
+		override fun updateFoo(foo: Foo): Mono<Void> {
+			// ...
+		}
+	}
+----
+
+强制性和响应式事务管理对事务边界和事务属性定义共享语义。强制性事务和响应式事务之间的主要区别在于后者的延迟性质。 `TransactionInterceptor` 用事务运算符修饰返回的响应类型，以开始和清理事务。 因此，调用事务响应式方法将实际的事务管理推迟到激活响应式类型的处理的响应类型。
+
+响应式事务管理的另一方面涉及数据转义，这是编程模型的自然结果。
+
+成功终止方法后，从事务方法返回命令性事务的方法返回值，以使部分计算的结果不会逃脱方法的关闭。
+
+响应式事务方法返回一个响应式包装器类型，该类型表示一个计算序列以及一个开始和完成计算的承诺。
+
+当事务正在进行但不一定完成时， `Publisher` 可以发出数据。 因此，依赖于成功完成整个事务的方法需要确保完成并缓冲调用代码中的结果。
 
 [[transaction-declarative-rolling-back]]
 ==== 回滚声明式事务
@@ -675,7 +822,7 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 			</tx:attributes>
 		</tx:advice>
 
-		<!-- other transaction infrastructure beans such as a PlatformTransactionManager omitted... -->
+		<!-- other transaction infrastructure beans such as a TransactionManager omitted... -->
 
 	</beans>
 ----
@@ -730,7 +877,7 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 			</tx:attributes>
 		</tx:advice>
 
-		<!-- other transaction infrastructure beans such as a PlatformTransactionManager omitted... -->
+		<!-- other transaction infrastructure beans such as a TransactionManager omitted... -->
 
 	</beans>
 ----
@@ -875,7 +1022,7 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持Spring使用自
 		<bean id="fooService" class="x.y.service.DefaultFooService"/>
 
 		<!-- enable the configuration of transactional behavior based on annotations -->
-		<tx:annotation-driven transaction-manager="txManager"/><!-- a PlatformTransactionManager is still required --> <1>
+		<tx:annotation-driven transaction-manager="txManager"/><!-- a TransactionManager is still required --> <1>
 
 		<bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
 			<!-- (this dependency is defined somewhere else) -->
@@ -888,7 +1035,60 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持Spring使用自
 ----
 <1> 使bean实例使用事务.
 
-TIP: 如果要连接的 `PlatformTransactionManager` 的bean名称具有名称 `transactionManager`,则可以省略 `<tx:annotation-driven/>` 标记中的 `transaction-manager` 属性.  如果要依赖注入的 `PlatformTransactionManager` bean具有任何其他名称,则必须使用 `transaction-manager` 属性,如上例所示.
+TIP: 如果要连接的 `TransactionManager` 的bean名称具有名称 `transactionManager`,则可以省略 `<tx:annotation-driven/>` 标记中的 `transaction-manager` 属性.  如果要依赖注入的 `TransactionManager` bean具有任何其他名称,则必须使用 `transaction-manager` 属性,如上例所示.
+
+相对于命令式，响应式事务方法使用响应式返回类型，如下所示：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// the reactive service class that we want to make transactional
+	@Transactional
+	public class DefaultFooService implements FooService {
+
+		Publisher<Foo> getFoo(String fooName) {
+			// ...
+		}
+
+		Mono<Foo> getFoo(String fooName, String barName) {
+			// ...
+		}
+
+		Mono<Void> insertFoo(Foo foo) {
+			// ...
+		}
+
+		Mono<Void> updateFoo(Foo foo) {
+			// ...
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// the reactive service class that we want to make transactional
+	@Transactional
+	class DefaultFooService : FooService {
+
+		override fun getFoo(fooName: String): Flow<Foo> {
+			// ...
+		}
+
+		override fun getFoo(fooName: String, barName: String): Mono<Foo> {
+			// ...
+		}
+
+		override fun insertFoo(foo: Foo): Mono<Void> {
+			// ...
+		}
+
+		override fun updateFoo(foo: Foo): Mono<Void> {
+			// ...
+		}
+	}
+----
+
+请注意，对于返回的  `Publisher`，在响应流取消信号方面有一些特殊注意事项。 有关更多详细信息，请参见 <<tx-prog-operator-cancel>> 部分。 有关更多详细信息，请 "使用 TransactionOperator"
 
 .方法可见性与 `@Transactional`
 ****
@@ -1036,8 +1236,8 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 [[tx-multiple-tx-mgrs-with-attransactional]]
 ===== `@Transactional` 的多事务管理
 
-大多数Spring应用程序只需要一个事务管理器,但在某些情况下,您可能需要在单个应用程序中使用多个独立的事务管理器.  您可以使用 `@Transactional` 注解的 `value` 属性来选择性地指定要使用的 `PlatformTransactionManager` 的标识.
-这可以是bean名称或事务管理器bean的限定符值. 例如,使用限定符表示法,您可以将以下Java代码 与应用程序上下文中的以下事务管理器bean声明组合在一起:
+大多数 Spring 应用程序只需要一个事务管理器,但在某些情况下,您可能需要在单个应用程序中使用多个独立的事务管理器.  您可以使用 `@Transactional` 注解的 `value` 和 `transactionManager` 属性来选择性地指定要使用的 `TransactionManager` 的标识.
+这可以是 bean 名称或事务管理器 bean 的限定符值. 例如,使用限定符表示法,您可以将以下 Java 代码 与应用程序上下文中的以下事务管理器bean声明组合在一起:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1049,6 +1249,9 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 
 		@Transactional("account")
 		public void doSomething() { ... }
+
+        @Transactional("reactive-account")
+		public Mono<Void> doSomethingReactive() { ... }
 	}
 ----
 [source,kotlin,indent=0,subs="verbatim",role="secondary"]
@@ -1063,6 +1266,11 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 
 		@Transactional("account")
 		fun doSomething() {
+			// ...
+		}
+
+		@Transactional("reactive-account")
+		fun doSomethingReactive(): Mono<Void> {
 			// ...
 		}
 	}
@@ -1083,14 +1291,19 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 			...
 			<qualifier value="account"/>
 		</bean>
+
+		<bean id="transactionManager3" class="org.springframework.data.r2dbc.connectionfactory.R2dbcTransactionManager">
+			...
+			<qualifier value="reactive-account"/>
+		</bean>
 ----
 
-在这个例子中,`TransactionalService` 上的两个方法在单独的事务管理器下运行,由 `order` 和 `account` 限定符区分.  如果未找到特定限定符的 `PlatformTransactionManager` bean,则仍将使用默认的 `<tx:annotation-driven>` 目标bean名称 `transactionManager`.
+在这个例子中,`TransactionalService` 上的各个方法在单独的事务管理器下运行,由 `order` 和 `account` 和 `reactive-account` 限定符区分.  如果未找到特定限定符的 `TransactionManager` bean,则仍将使用默认的 `<tx:annotation-driven>` 目标bean名称 `transactionManager`.
 
 [[tx-custom-attributes]]
-===== 自定义注解
+===== 自定义组合注解
 
-如果您发现在许多不同方法上重复使用与 `@Transactional` 相同的属性, <<core.adoc#beans-meta-annotations, Spring的元注解支持>> 允许您为特定用例定义自定义注解.  例如,请思考以下注解定义:
+如果您发现在许多不同方法上重复使用与 `@Transactional` 相同的属性, <<core.adoc#beans-meta-annotations, Spring 的元注解支持>> 允许您为特定用例定义自定义组合注解.  例如,请思考以下注解定义:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1377,7 +1590,7 @@ NOTE: 本章不涉及详细解释AOP(除非它适用于事务) .  有关AOP配�
 			</tx:attributes>
 		</tx:advice>
 
-		<!-- other <bean/> definitions such as a DataSource and a PlatformTransactionManager here -->
+		<!-- other <bean/> definitions such as a DataSource and a TransactionManager here -->
 
 	</beans>
 ----
@@ -1428,12 +1641,12 @@ NOTE: 使用此切面时,必须注解实现类(或该类中的方法或两者) ,
 [[transaction-programmatic]]
 === 编程式事务管理
 
-Spring Framework提供了两种编程式事务管理,通过使用:
+Spring Framework 提供了两种编程式事务管理,通过使用:
 
-* `TransactionTemplate`.
-* 直接使用 `PlatformTransactionManager`.
+* `TransactionTemplate` 或 `TransactionalOperator`.
+* 直接使用 `TransactionManager`.
 
-Spring团队通常建议使用 `TransactionTemplate` 进行程序化事务管理.  第二种方法类似于使用JTA UserTransaction API,尽管异常处理不那么麻烦.
+Spring 团队通常建议对于命令式使用 `TransactionTemplate` 进行程序化事务管理.对于响应式推荐使用 `TransactionalOperator`,   第二种方法类似于使用JTA UserTransaction API,尽管异常处理不那么麻烦.
 
 [[tx-prog-template]]
 ==== 使用 `TransactionTemplate`
@@ -1592,6 +1805,136 @@ NOTE: 如下面的示例所示,使用 `TransactionTemplate` 绝对将您与Sprin
 
 最后,`TransactionTemplate` 类的实例是线程安全的,因为实例不保持任何会话状态.  但是,`TransactionTemplate` 实例会保持配置状态.  因此,虽然许多类可以共享 `TransactionTemplate` 的单个实例, 但如果类需要使用具有不同设置的 `TransactionTemplate`(例如,不同的隔离级别) ,则需要创建两个不同的 `TransactionTemplate` 实例.
 
+[[tx-prog-operator]]
+==== Using the `TransactionOperator`
+
+`TransactionOperator` 遵循类似于其他响应式操作的设计。 它使用一种回调方法（使应用程序代码不必进行样板获取和释放事务性资源），并生成意向驱动的代码，因为您的代码仅专注于您要执行的操作。
+
+NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与 Spring 的事务基础结构和 API 结合。 程序化事务管理是否适合您的开发需求是您必须自己做的决定。
+
+必须在事务上下文中执行并且显式使用 `TransactionOperator` 的应用程序代码类似于下一个示例：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class SimpleService implements Service {
+
+		// single TransactionOperator shared amongst all methods in this instance
+		private final TransactionalOperator transactionalOperator;
+
+		// use constructor-injection to supply the ReactiveTransactionManager
+		public SimpleService(ReactiveTransactionManager transactionManager) {
+			this.transactionOperator = TransactionalOperator.create(transactionManager);
+		}
+
+		public Mono<Object> someServiceMethod() {
+
+			// the code in this method executes in a transactional context
+
+            Mono<Object> update = updateOperation1();
+
+			return update.then(resultOfUpdateOperation2).as(transactionalOperator::transactional);
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// use constructor-injection to supply the ReactiveTransactionManager
+	class SimpleService(transactionManager: ReactiveTransactionManager) : Service {
+
+		// single TransactionalOperator shared amongst all methods in this instance
+		private val transactionalOperator = TransactionalOperator.create(transactionManager)
+
+		suspend fun someServiceMethod() = transactionalOperator.executeAndAwait<Any?> {
+			updateOperation1()
+			resultOfUpdateOperation2()
+		}
+	}
+----
+
+`TransactionalOperator` 可以以两种方式使用:
+
+* 使用 Project Reactor 类型的操作符样式 (`mono.as(transactionalOperator::transactional)`)
+* 其他所有情况的回调样式 (`transactionalOperator.execute(TransactionCallback<T>)`)
+
+回调中的代码可以通过在提供的 `ReactiveTransaction` 对象上调用 `setRollbackOnly()` 方法来回滚事务，如下所示：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	transactionalOperator.execute(new TransactionCallback<>() {
+
+		public Mono<Object> doInTransaction(ReactiveTransaction status) {
+			return updateOperation1().then(updateOperation2)
+						.doOnError(SomeBusinessException.class, e -> status.setRollbackOnly());
+			}
+		}
+	});
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	transactionalOperator.execute(object : TransactionCallback() {
+
+		override fun doInTransactionWithoutResult(status: ReactiveTransaction) {
+			updateOperation1().then(updateOperation2)
+						.doOnError(SomeBusinessException.class, e -> status.setRollbackOnly())
+		}
+	})
+----
+
+[[tx-prog-operator-cancel]]
+===== 取消信号
+
+在 Reactive Streams 中，`Subscriber` 可以取消其 `Subscription` 并终止其 `Publisher`。 Project Reactor 以及其他库中的操作，例如 `next()`，`take(long)`, `timeout(Duration)` 等，都可以发出取消操作。 没有办法知道取消的原因，无论是由于错误还是仅仅是出于进一步消费的兴趣，
+并且在 5.2 版本中，`TransactionalOperator` 默认在取消时提交事务。 在 5.3 版本中，此行为将更改，并且取消事务回滚以创建可靠的确定性结果。 因此，重要的是要考虑 `Publisher` 下游使用的运算符。 特别是在 `Flux` 或其他多值 `Publisher` 的情况下，全部输出必须消耗以允许事务完成。
+
+[[tx-prog-operator-settings]]
+===== 指定事务设置
+
+您可以为 `TransactionalOperator` 指定事务设置（例如传播模式，隔离级别，超时等）。 默认情况下，`TransactionalOperator` 实例具有<<transaction-declarative-txadvice-settings,默认的事务设置>>。 以下示例显示了针对特定 `TransactionalOperator` 的事务设置的自定义：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class SimpleService implements Service {
+
+		private final TransactionalOperator transactionalOperator;
+
+		public SimpleService(ReactiveTransactionManager transactionManager) {
+			DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
+
+			// the transaction settings can be set here explicitly if so desired
+			definition.setIsolationLevel(TransactionDefinition.ISOLATION_READ_UNCOMMITTED);
+			definition.setTimeout(30); // 30 seconds
+			// and so forth...
+
+			this.transactionalOperator = TransactionalOperator.create(transactionManager, definition);
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class SimpleService(transactionManager: ReactiveTransactionManager) : Service {
+
+		private val definition = DefaultTransactionDefinition().apply {
+			// the transaction settings can be set here explicitly if so desired
+			isolationLevel = TransactionDefinition.ISOLATION_READ_UNCOMMITTED
+			timeout = 30 // 30 seconds
+			// and so forth...
+		}
+		private val transactionalOperator = TransactionalOperator(transactionManager, definition)
+	}
+----
+
+[[transaction-programmatic-tm]]
+==== 使用 `TransactionManager`
+
+以下各节说明命令式和响应式事务管理器的用法。
+
+
 [[transaction-programmatic-ptm]]
 ==== 使用 `PlatformTransactionManager`
 
@@ -1635,7 +1978,46 @@ NOTE: 如下面的示例所示,使用 `TransactionTemplate` 绝对将您与Sprin
 	txManager.commit(status)
 ----
 
+[[transaction-programmatic-rtm]]
+===== Using the `ReactiveTransactionManager`
 
+使用响应式事务时，可以直接使用 `org.springframework.transaction.ReactiveTransactionManager` 来管理事务。 因此，请通过 bean 引用将您使用的 `ReactiveTransactionManager` 的实现传递给 bean。 然后，通过使用 `TransactionDefinition` 和 `ReactiveTransaction` 对象，可以启动事务，回滚和提交。 以下示例显示了如何执行此操作：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	DefaultTransactionDefinition def = new DefaultTransactionDefinition();
+	// explicitly setting the transaction name is something that can be done only programmatically
+	def.setName("SomeTxName");
+	def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+
+	Mono<ReactiveTransaction> reactiveTx = txManager.getReactiveTransaction(def);
+
+	reactiveTx.flatMap(status -> {
+
+		Mono<Object> tx = ...; // execute your business logic here
+
+		return tx.then(txManager.commit(status))
+				.onErrorResume(ex -> txManager.rollback(status).then(Mono.error(ex)));
+	});
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val def = DefaultTransactionDefinition()
+	// explicitly setting the transaction name is something that can be done only programmatically
+	def.setName("SomeTxName")
+	def.propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRED
+
+	val reactiveTx = txManager.getReactiveTransaction(def)
+	reactiveTx.flatMap { status ->
+
+		val tx = ... // execute your business logic here
+
+		tx.then(txManager.commit(status))
+				.onErrorResume { ex -> txManager.rollback(status).then(Mono.error(ex)) }
+	}
+----
 
 [[tx-decl-vs-prog]]
 === 在编程式和声明式事务管理之间进行选择
@@ -2008,7 +2390,7 @@ NOTE: 应始终将 `DataSource` 配置为Spring IoC容器中的bean.  在第一�
 ----
 	String lastName = this.jdbcTemplate.queryForObject(
 			"select last_name from t_actor where id = ?",
-			new Object[]{1212L}, String.class);
+			String.class, 1212L);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -2023,17 +2405,15 @@ NOTE: 应始终将 `DataSource` 配置为Spring IoC容器中的bean.  在第一�
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	Actor actor = this.jdbcTemplate.queryForObject(
+	Actor actor = jdbcTemplate.queryForObject(
 			"select first_name, last_name from t_actor where id = ?",
-			new Object[]{1212L},
-			new RowMapper<Actor>() {
-				public Actor mapRow(ResultSet rs, int rowNum) throws SQLException {
-					Actor actor = new Actor();
-					actor.setFirstName(rs.getString("first_name"));
-					actor.setLastName(rs.getString("last_name"));
-					return actor;
-				}
-			});
+			(resultSet, rowNum) -> {
+				Actor newActor = new Actor();
+				newActor.setFirstName(resultSet.getString("first_name"));
+				newActor.setLastName(resultSet.getString("last_name"));
+				return newActor;
+			},
+			1212L);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -2052,13 +2432,11 @@ NOTE: 应始终将 `DataSource` 配置为Spring IoC容器中的bean.  在第一�
 ----
 	List<Actor> actors = this.jdbcTemplate.query(
 			"select first_name, last_name from t_actor",
-			new RowMapper<Actor>() {
-				public Actor mapRow(ResultSet rs, int rowNum) throws SQLException {
-					Actor actor = new Actor();
-					actor.setFirstName(rs.getString("first_name"));
-					actor.setLastName(rs.getString("last_name"));
-					return actor;
-				}
+			(resultSet, rowNum) -> {
+				Actor actor = new Actor();
+				actor.setFirstName(resultSet.getString("first_name"));
+				actor.setLastName(resultSet.getString("last_name"));
+				return actor;
 			});
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -2068,38 +2446,31 @@ NOTE: 应始终将 `DataSource` 配置为Spring IoC容器中的bean.  在第一�
 			Actor(rs.getString("first_name"), rs.getString("last_name"))
 ----
 
-如果最后两个代码片段实际存在于同一个应用程序中,那么删除两个 `RowMapper` 匿名内部类中重复的代码段并将他们提取到一个单类 (通常是 `static` 嵌套类) ,当需要时通过DAO方法引用它.  例如,最好重写前面的代码片段,如下所示:
+如果最后两个代码片段实际存在于同一个应用程序中,那么删除两个 `RowMapper` lambda 表达式中重复的代码段并将他们提取到一个字段 ,当需要时通过 DAO 方法引用它.  例如,最好重写前面的代码片段,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
+	private final RowMapper<Actor> actorRowMapper = (resultSet, rowNum) -> {
+		Actor actor = new Actor();
+		actor.setFirstName(resultSet.getString("first_name"));
+		actor.setLastName(resultSet.getString("last_name"));
+		return actor;
+	};
+
 	public List<Actor> findAllActors() {
-		return this.jdbcTemplate.query( "select first_name, last_name from t_actor", new ActorMapper());
-	}
-
-	private static final class ActorMapper implements RowMapper<Actor> {
-
-		public Actor mapRow(ResultSet rs, int rowNum) throws SQLException {
-			Actor actor = new Actor();
-			actor.setFirstName(rs.getString("first_name"));
-			actor.setLastName(rs.getString("last_name"));
-			return actor;
-		}
+		return this.jdbcTemplate.query( "select first_name, last_name from t_actor", actorRowMapper);
 	}
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	fun findAllActors(): List<Actor> {
-		return jdbcTemplate.query("select first_name, last_name from t_actor", ActorMapper())
+	val actorMapper = RowMapper<Actor> { rs: ResultSet, rowNum: Int ->
+		Actor(rs.getString("first_name"), rs.getString("last_name"))
 	}
 
-	class ActorMapper : RowMapper<Actor> {
-
-		override fun mapRow(rs: ResultSet, rowNum: Int) = Actor(
-				rs.getString("first_name"),
-				rs.getString("last_name"))
-		}
+	fun findAllActors(): List<Actor> {
+		return jdbcTemplate.query("select first_name, last_name from t_actor", actorMapper)
 	}
 ----
 
@@ -2148,13 +2519,13 @@ NOTE: 应始终将 `DataSource` 配置为Spring IoC容器中的bean.  在第一�
 .Java
 ----
 	this.jdbcTemplate.update(
-			"delete from actor where id = ?",
+			"delete from t_actor where id = ?",
 			Long.valueOf(actorId));
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	jdbcTemplate.update("delete from actor where id = ?", actorId.toLong())
+	jdbcTemplate.update("delete from t_actor where id = ?", actorId.toLong())
 ----
 
 [[jdbc-JdbcTemplate-examples-other]]
@@ -2754,15 +3125,11 @@ class RunAQuery(dataSource: DataSource) {
 	final String name = "Rob";
 
 	KeyHolder keyHolder = new GeneratedKeyHolder();
-	jdbcTemplate.update(
-		new PreparedStatementCreator() {
-			public PreparedStatement createPreparedStatement(Connection connection) throws SQLException {
-				PreparedStatement ps = connection.prepareStatement(INSERT_SQL, new String[] {"id"});
-				ps.setString(1, name);
-				return ps;
-			}
-		},
-		keyHolder);
+	jdbcTemplate.update(connection -> {
+		PreparedStatement ps = connection.prepareStatement(INSERT_SQL, new String[] { "id" });
+		ps.setString(1, name);
+		return ps;
+	}, keyHolder);
 
 	// keyHolder.getKey() now contains the generated key
 ----
@@ -2947,7 +3314,7 @@ NOTE: 除非必须调用已经存在的代码并传递标准JDBC `DataSource` �
 ==== 使用 `JdbcTemplate` 进行基础的批处理操作
 
 您可以通过实现特殊接口 `BatchPreparedStatementSetter` 的两个方法来完成 `code>JdbcTemplate` 批处理, 并将该实现作为 `batchUpdate` 方法调用中的第二个参数传递.  您可以使用 `getBatchSize` 方法提供当前批次的大小.
-您可以使用 `setValues` 方法设置预准备语句的参数值.  此方法您在 `getBatchSize` 调用中指定的次数.  以下示例根据列表中的条目更新 `actor` 表,并将整个列表用作批处理:
+您可以使用 `setValues` 方法设置预准备语句的参数值.  此方法您在 `getBatchSize` 调用中指定的次数.  以下示例根据列表中的条目更新 `t_actor` 表,并将整个列表用作批处理:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -3137,12 +3504,10 @@ API会有所不同,具体取决于您是否使用命名参数.  对于命名参�
 					"update t_actor set first_name = ?, last_name = ? where id = ?",
 					actors,
 					100,
-					new ParameterizedPreparedStatementSetter<Actor>() {
-						public void setValues(PreparedStatement ps, Actor argument) throws SQLException {
-							ps.setString(1, argument.getFirstName());
-							ps.setString(2, argument.getLastName());
-							ps.setLong(3, argument.getId().longValue());
-						}
+					(PreparedStatement ps, Actor actor) -> {
+						ps.setString(1, actor.getFirstName());
+						ps.setString(2, actor.getLastName());
+						ps.setLong(3, actor.getId().longValue());
 					});
 			return updateCounts;
 		}
@@ -4410,16 +4775,14 @@ NOTE: 传递许多值时要小心. JDBC标准不保证您可以为 `in` 列表�
 		public TestItemStoredProcedure(DataSource dataSource) {
 			// ...
 			declareParameter(new SqlOutParameter("item", OracleTypes.STRUCT, "ITEM_TYPE",
-				new SqlReturnType() {
-					public Object getTypeValue(CallableStatement cs, int colIndx, int sqlType, String 	) throws SQLException {
-						STRUCT struct = (STRUCT) cs.getObject(colIndx);
-						Object[] attr = struct.getAttributes();
-						TestItem item = new TestItem();
-						item.setId(((Number) attr[0]).longValue());
-						item.setDescription((String) attr[1]);
-						item.setExpirationDate((java.util.Date) attr[2]);
-						return item;
-					}
+				(CallableStatement cs, int colIndx, int sqlType, String typeName) -> {
+					STRUCT struct = (STRUCT) cs.getObject(colIndx);
+					Object[] attr = struct.getAttributes();
+					TestItem item = new TestItem();
+					item.setId(((Number) attr[0]).longValue());
+					item.setDescription((String) attr[1]);
+					item.setExpirationDate((java.util.Date) attr[2]);
+					return item;
 				}));
 			// ...
 		}
