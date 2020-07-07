@@ -346,8 +346,8 @@ bean definition files through an `importBeans` directive.
 === Using the Container
 
 The `ApplicationContext` is the interface for an advanced factory capable of maintaining
-a registry of different beans and their dependencies. By using the method `T getBean(String
-name, Class<T> requiredType)`, you can retrieve instances of your beans.
+a registry of different beans and their dependencies. By using the method
+`T getBean(String name, Class<T> requiredType)`, you can retrieve instances of your beans.
 
 The `ApplicationContext` lets you read bean definitions and access them, as the following
 example shows:
@@ -849,12 +849,29 @@ This approach shows that the factory bean itself can be managed and configured t
 dependency injection (DI). See <<beans-factory-properties-detailed,Dependencies and
 Configuration in Detail>>.
 
-NOTE: In Spring documentation, "`factory bean`" refers to a bean that is configured in the
-Spring container and that creates objects through an
+NOTE: In Spring documentation, "`factory bean`" refers to a bean that is configured in
+the Spring container and that creates objects through an
 <<beans-factory-class-instance-factory-method,instance>> or
 <<beans-factory-class-static-factory-method,static>> factory method. By contrast,
 `FactoryBean` (notice the capitalization) refers to a Spring-specific
-<<beans-factory-extension-factorybean, `FactoryBean` >>.
+<<beans-factory-extension-factorybean, `FactoryBean` >> implementation class.
+
+
+[[beans-factory-type-determination]]
+==== Determining a Bean's Runtime Type
+
+The runtime type of a specific bean is non-trivial to determine. A specified class in
+the bean metadata definition is just an initial class reference, potentially combined
+with a declared factory method or being a `FactoryBean` class which may lead to a
+different runtime type of the bean, or not being set at all in case of an instance-level
+factory method (which is resolved via the specified `factory-bean` name instead).
+Additionally, AOP proxying may wrap a bean instance with an interface-based proxy with
+limited exposure of the target bean's actual type (just its implemented interfaces).
+
+The recommended way to find out about the actual runtime type of a particular bean is
+a `BeanFactory.getType` call for the specified bean name. This takes all of the above
+cases into account and returns the type of object that a `BeanFactory.getBean` call is
+going to return for the same bean name.
 
 
 
@@ -874,9 +891,9 @@ application where objects collaborate to achieve a goal.
 === Dependency Injection
 
 Dependency injection (DI) is a process whereby objects define their dependencies
-(that is, the other objects with which they work) only through constructor arguments, arguments
-to a factory method, or properties that are set on the object instance after it is
-constructed or returned from a factory method. The container then injects those
+(that is, the other objects with which they work) only through constructor arguments,
+arguments to a factory method, or properties that are set on the object instance after
+it is constructed or returned from a factory method. The container then injects those
 dependencies when it creates the bean. This process is fundamentally the inverse (hence
 the name, Inversion of Control) of the bean itself controlling the instantiation
 or location of its dependencies on its own by using direct construction of classes or
@@ -4799,10 +4816,12 @@ You can apply the `@Autowired` annotation to constructors, as the following exam
 
 [NOTE]
 ====
-As of Spring Framework 4.3, an `@Autowired` annotation on such a constructor is
-no longer necessary if the target bean defines only one constructor to begin with.
-However, if several constructors are available, at least one must be annotated 
-with `@Autowired` in order to instruct the container which one to use.
+As of Spring Framework 4.3, an `@Autowired` annotation on such a constructor is no longer
+necessary if the target bean defines only one constructor to begin with. However, if
+several constructors are available and there is no primary/default constructor, at least
+one of the constructors must be annotated with `@Autowired` in order to instruct the
+container which one to use. See the discussion on
+<<beans-autowired-annotation-constructor-resolution, constructor resolution>> for details.
 ====
 
 You can also apply the `@Autowired` annotation to _traditional_ setter methods,
@@ -5069,7 +5088,9 @@ non-required (i.e., by setting the `required` attribute in `@Autowired` to `fals
 
 A non-required method will not be called at all if its dependency (or one of its
 dependencies, in case of multiple arguments) is not available. A non-required field will
-not get populated at all in such case, leaving its default value in place.
+not get populated at all in such cases, leaving its default value in place.
+
+[[beans-autowired-annotation-constructor-resolution]]
 
 Injected constructor and factory method arguments are a special case since the `required`
 attribute in `@Autowired` has a somewhat different meaning due to Spring's constructor
@@ -5085,21 +5106,24 @@ without an `@Autowired` annotation.
 ====
 Only one constructor of any given bean class may declare `@Autowired` with the `required`
 attribute set to `true`, indicating _the_ constructor to autowire when used as a Spring
-bean. Furthermore, if the `required` attribute is set to `true`, only a single
-constructor may be annotated with `@Autowired`. If multiple _non-required_ constructors
-declare the annotation, they will be considered as candidates for autowiring. The
-constructor with the greatest number of dependencies that can be satisfied by matching
+bean. As a consequence, if the `required` attribute is left at its default value `true`,
+only a single constructor may be annotated with `@Autowired`. If multiple constructors
+declare the annotation, they will all have to declare `required=false` in order to be
+considered as candidates for autowiring (analogous to `autowire=constructor` in XML).
+The constructor with the greatest number of dependencies that can be satisfied by matching
 beans in the Spring container will be chosen. If none of the candidates can be satisfied,
-then a primary/default constructor (if present) will be used. If a class only declares a
-single constructor to begin with, it will always be used, even if not annotated. An
+then a primary/default constructor (if present) will be used. Similarly, if a class
+declares multiple constructors but none of them is annotated with `@Autowired`, then a
+primary/default constructor (if present) will be used. If a class only declares a single
+constructor to begin with, it will always be used, even if not annotated. Note that an
 annotated constructor does not have to be public.
 
 The `required` attribute of `@Autowired` is recommended over the deprecated `@Required`
 annotation on setter methods. Setting the `required` attribute to `false` indicates that
 the property is not required for autowiring purposes, and the property is ignored if it
 cannot be autowired. `@Required`, on the other hand, is stronger in that it enforces the
-property to be set by any means supported by the container, and if no value is defined, a
-corresponding exception is raised.
+property to be set by any means supported by the container, and if no value is defined,
+a corresponding exception is raised.
 ====
 
 Alternatively, you can express the non-required nature of a particular dependency
@@ -5453,7 +5477,7 @@ references do not participate in regular candidate selection and are therefore i
 particular never primary. On the contrary, they always end up as lowest precedence.
 In practice, you should use self references as a last resort only (for example, for
 calling other methods on the same instance through the bean's transactional proxy).
-Consider factoring out the effected methods to a separate delegate bean in such a scenario.
+Consider factoring out the affected methods to a separate delegate bean in such a scenario.
 Alternatively, you can use `@Resource`, which may obtain a proxy back to the current bean
 by its unique name.
 
@@ -6818,7 +6842,7 @@ beans of prototype scope. For other scopes, the factory method only ever sees th
 injection point that triggered the creation of a new bean instance in the given scope
 (for example, the dependency that triggered the creation of a lazy singleton bean).
 You can use the provided injection point metadata with semantic care in such scenarios.
-The following example shows how to do use `InjectionPoint`:
+The following example shows how to use `InjectionPoint`:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
