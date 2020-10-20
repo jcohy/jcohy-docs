@@ -558,6 +558,207 @@ dependencies {
 
 这样做的结果是，将所有 `groovy-POM` 中的所有编译和运行时范围依赖项都添加到测试运行时类路径中，而仅将编译范围依赖项添加到测试编译类路径中。 与其他作用域的依赖关系将被忽略。
 
+===== 声明仓库
+
+Gradle 允许您从任何与 Maven 兼容或与 Ivy 兼容的存储库中检索已声明的依赖项。 与 Maven 不同，它没有默认存储库，因此您必须声明至少一个。
+为了具有与 Maven 构建相同的行为，只需在 Gradle 构建中配置 Maven Central，如下所示：
+
+
+Example 3. Configuring the build to use Maven Central
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Groovy
+----
+repositories {
+    mavenCentral()
+}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+repositories {
+    mavenCentral()
+}
+----
+
+您还可以使用 `repositories {}` 块来配置自定义存储库，如 <<dependency-declaring-maven-repositories,存储库类型>>一章中所述。
+
+最后，Gradle 允许您解决对 <<dependency-declaring-local-maven-repositories,本地Maven缓存/存储库>>的依赖关系。 这有助于 Gradle 构建与 Maven 构建进行互操作，但是如果您不需要这种互操作性，则不应该使用该技术。
+如果要通过文件系统共享已发布的工件，请考虑使用 `file://` URL 配置 <<dependency-declaring-maven-repositories,自定义 Maven 存储库>>。
+
+您可能还对了解 Gradle 自己的 <<dependency-declaring-dependency-cache,依赖缓存>>感兴趣，该缓存比 Maven 的行为更可靠，并且可以被多个并发的 Gradle 进程安全地使用。
+
+===== 控制依赖版本
+
+传递依赖项的存在意味着您可以轻松地在依赖关系图中最终获得同一依赖项的多个版本。 默认情况下，Gradle 会在图中选择依赖项的最新版本，但这并不总是正确的解决方案。
+因此，它提供了几种机制来控制解析给定依赖项的哪个版本。
+
+在每个项目的基础上，您可以使用：
+
+* <<dependency-transitive-dependencies-constraints-transitive-dependencies,依赖约束>>
+* <<upgrading-migrating-maven-migrating-using-boms,Bills of materials (Maven BOMs)>>
+* <<dependency-transitive-dependencies-overriding-transitive-dependency-version,覆盖传递版本>>
+
+在 <<dependency-transitive-dependencies-upgrading,控制依赖传递>>一章中列出了更多专门的选项。
+
+如果要确保多项目构建中所有项目的版本一致性，类似于 Maven 中的 `<dependencyManagement>` 块的工作方式，则可以使用 <<plugins-java-platform>>。 这允许您声明一组可以应用于多个项目的依赖项约束。
+您甚至可以将平台发布为 Maven BOM 或使用 Gradle 的元数据格式发布。 有关如何执行此操作的更多信息，请参见插件页面，尤其是在 <<plugins-java-platform-consuming,使用平台部分>>，以了解如何将平台应用于同一构建中的其他项目。
+
+===== 排除依赖传递
+
+Maven 构建使用排除项将不需要的依赖项（或不需要的依赖项版本）保留在依赖关系图之外。 您可以使用 Gradle 做同样的事情，但这不一定是正确的事情。 Gradle 提供了其他一些选项，这些选项可能更适合给定的情况，因此您确实需要了解为什么要适当地设置排除项。
+
+如果您出于与版本无关的原因要排除依赖项，请查看 <<dependency-transitive-dependencies-excluding-transitive-dependencies,排除依赖传递>> 中的部分。 它显示了如何将排除项附加到整个配置（通常是最合适的解决方案）或依赖项。 您甚至可以轻松地将排除应用于所有配置。
+
+如果您对控制实际解决依赖关系的版本更感兴趣，请参阅上一节。
+
+===== 处理可选的依赖
+
+关于可选依赖关系，您可能会遇到两种情况:
+
+* 一些传递依赖被声明为可选的
+* 您希望在项目发布的 POM 中将一些直接依赖项声明为可选的
+
+对于第一种情况，Gradle 的行为与 Maven 相同，只是忽略了声明为可选的任何传递依赖。 如果相同的依存关系在依存关系图中的其他位置显示为非可选，则无法解析它们并且对所选版本没有影响。
+
+至于将依赖项发布为可选内容，Gradle 提供了一个更丰富的模型，称为 <<dependency-libraries-modeling-feature-variants-optional-dependencies,功能变量>>，该模型可以让您声明库提供的“可选功能”。
+
+[[upgrading-migrating-maven-migrating-using-boms]]
+==== 使用物料清单  (bills of materials:BOMs)
+
+Maven 允许您通过在具有 `pom` 打包类型的 POM 文件的 `<dependencyManagement>` 部分内定义依赖项来共享依赖项约束。 然后可以将这种特殊类型的 POM（物料清单）导入其他 POM 中，以便您在项目中拥有一致的库版本。
+
+Gradle 可以通过基于 https://docs.gradle.org/current/dsl/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:platform(java.lang.Object)[platform()] 和 https://docs.gradle.org/current/dsl/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:platform(java.lang.Object)[forcedPlatform()]方法的特殊依赖项语法，将此类 BOM 用于相同的目的。 您只需以常规方式声明依赖项，然后将依赖项标识符包装在适当的方法中，如  "imports"  Spring Boot 依赖项 BOM 的示例所示：
+
+Example 4. Importing a BOM in a Gradle build
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Groovy
+----
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:1.5.8.RELEASE') // <1>
+
+    implementation 'com.google.code.gson:gson' // <2>
+    implementation 'dom4j:dom4j'
+}
+----
+<1> 应用Spring Boot Dependencies BOM
+<2> 添加依赖项，该依赖项的版本由该BOM表定义
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+dependencies {
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:1.5.8.RELEASE"))  // <1>
+
+    implementation("com.google.code.gson:gson")  // <2>
+    implementation("dom4j:dom4j")
+}
+----
+<1> 应用Spring Boot Dependencies BOM
+<2> 添加依赖项，该依赖项的版本由该BOM表定义
+
+您可以在有关从 Maven BOM <<dependency-transitive-dependencies-importing-maven-boms,导入版本建议>>的部分中了解有关此功能以及 `platform()` 和 `forcedPlatform()` 之间的区别的更多信息。
+
+[TIP]
+====
+您可以使用此功能将来自任何依赖项的 POM 的 `<dependencyManagement>` 信息应用于 Gradle 构建，即使那些没有 `pom` 打包类型的信息也是如此。 `platform()` 和 `forcedPlatform()` 都将忽略在 `<dependencies>` 块中声明的所有依赖项。
+====
+
+==== 多项目迁移 (项目聚合)
+
+Maven 的多模块构建与 Gradle 的 <<authoring-multi-project-builds,多项目构建>>很好地映射。 尝试相应的示例，以了解如何设置基本的多项目Gradle构建。
+
+要迁移多模块 Maven 构建，只需执行以下步骤：
+
+. 创建一个与根POM的 `<modules>` 块匹配的设置脚本。
++
+例如，以下 `<modules>` 块：
++
+[source,xml]
+----
+<modules>
+    <module>simple-weather</module>
+    <module>simple-webapp</module>
+</modules>
+----
++
+可以通过在设置脚本中添加以下行来迁移：
++
+Example 5. Declaring which projects are part of the build
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Groovy
+----
+rootProject.name = 'simple-multi-module' // <1>
+
+include 'simple-weather', 'simple-webapp' // <2>
+----
+<1> 设置整个项目的名称
+<2> 配置两个子项目作为此构建的一部分
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+rootProject.name = "simple-multi-module" // <1>
+
+include("simple-weather", "simple-webapp") // <2>
+----
+<1> 设置整个项目的名称
+<2> 配置两个子项目作为此构建的一部分
++
+Gradle 项目的输出
++
+[source,groovy]
+----
+> gradle projects
+
+------------------------------------------------------------
+Root project
+------------------------------------------------------------
+
+Root project 'simple-multi-module'
++--- Project ':simple-weather'
+\--- Project ':simple-webapp'
+
+To see a list of the tasks of a project, run gradle <project-path>:tasks
+For example, try running gradle :simple-weather:tasks
+----
+
+. 用 <<dependency-learning-declaring-dependencies,项目依赖>>替换跨模块依赖项。
+. 使用 <<authoring-multi-project-convention-plugins,约定插件>>复制项目继承。
+
+这基本上涉及创建一个根项目构建脚本，该脚本将共享配置注入到适当的子项目中。
+
+===== 跨项目共享版本
+
+如果要复制在根 POM 文件的 `dependencyManagement` 部分中声明的依赖版本的 Maven 模式，最好的方法是利用 `java-platform` Plugin 。 您将需要为此添加一个专用项目，并在构建的常规项目中使用它。
+有关此模式的更多详细信息，请 <<plugins-java-platform,参见文档>>。
+
+[[upgrading-migrating-maven-migrating-profiles-properties]]
+==== 迁移 Maven 配置文件和属性
+
+Maven 允许您使用各种属性对构建进行参数化。 一些是项目模型的只读属性，其他是用户在 POM 中定义的属性。 它甚至允许您将系统属性视为项目属性。
+
+Gradle 具有类似的项目属性系统，尽管它可以区分项目属性和系统属性。 例如，您可以在以下位置定义属性：
+
+* the build script
+* 根目录的 `gradle.properties`
+* `$HOME/.gradle` 目录的 `gradle.properties`
+
+这些不是唯一的选择，因此，如果您有兴趣了解有关如何以及在何处定义属性的更多信息，请查阅 <<running-environment,构建环境>> 一章。
+
+您需要了解的一项重要行为是，在构建脚本和一个外部属性文件中定义了相同的属性时会发生什么：构建脚本值优先。 总是。 幸运的是，您可以模仿配置文件的概念以提供可覆盖的默认值。
+
+这使我们进入了 Maven 配置文件。 这些是根据环境，目标平台或任何其他类似因素启用和禁用不同配置的方法。 从逻辑上讲，它们仅是有限的 "if" 语句。 而且由于 Gradle 具有更强大的声明条件的方法，因此不需要正式支持配置文件（依赖项的POM中除外）。 如您所见，通过将条件与辅助构建脚本结合使用，您可以轻松获得相同的行为。
+
+假设您根据环境有不同的部署设置：本地开发（默认），测试环境和生产。 要添加类似配置文件的行为，您首先要在项目根目录中为每个环境创建构建脚本：`profile-default.gradle, profile-test.gradle` 和 `profile-prod.gradle`。 然后，您可以根据自己选择的 <<running-environment-project-properties,项目属性>>有条件地应用这些概要文件脚本之一。
+
+下面的示例演示了使用名为 `buildProfile` 的项目属性和配置文件脚本的基本技术，这些脚本仅初始化名为 `message` 的 <<authoring-write-scripts-extra-properties,额外项目属性>>：
+
+Example 6. Mimicking the behavior of Maven profiles in Gradle
+
+
+
+
+
 [[upgrading-migrating-maven-migrating-plugins]]
 ==== Migrating common plugins
 
@@ -573,8 +774,7 @@ dependencies {
 [[upgrading-migrating-maven-migrating-Configuring-integration-tests]]
 ==== Configuring integration tests
 
-[[upgrading-migrating-maven-migrating-using-boms]]
-==== Using bills of materials (BOMs)
+
 
 [[upgrading-migrating-maven-test]]
 ==== 配置集成和功能测试
