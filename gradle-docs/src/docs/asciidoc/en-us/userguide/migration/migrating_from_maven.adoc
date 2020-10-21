@@ -13,194 +13,161 @@
 // limitations under the License.
 
 [[migrating_from_maven]]
-= Migrating Builds From Apache Maven
+= 从 Apache Maven 迁移到 Gradle 构建
 
-TIP: Suffering from slow Maven builds? https://gradle.com/training/build-cache-deep-dive/?bid=docs-migrating-maven[Register here] for our Build Cache training session to learn how Gradle Enterprise can speed up Maven builds by up to 90%.
+TIP: 使用慢的 Maven 构建？ 在 https://gradle.com/training/build-cache-deep-dive/?bid=docs-migrating-maven[此处注册] 以参加我们的构建缓存培训课程，以了解 Gradle Enterprise 如何将 Maven 构建速度提高多达90％。
 
-https://maven.apache.org[Apache Maven] is a build tool for Java and other JVM-based projects that's in widespread use, and so people that want to use Gradle often have to migrate an existing Maven build.
-This guide will help with such a migration by explaining the differences and similarities between the two tools' models and providing steps that you can follow to ease the process.
+https://maven.apache.org[Apache Maven] 是用于 Java 和其他基于 JVM 的项目的构建工具，这些项目已被广泛使用，因此想要使用 Gradle 的人们通常必须迁移现有的 Maven 构建。
+本指南将通过解释这两种工具的模型之间的差异和相似之处，并提供可简化操作的步骤来帮助进行这种迁移。
 
-Converting a build can be scary, but you don't have to do it alone.
-You can search docs, forums, and StackOverflow from link:https://gradle.org/help[help.gradle.org] or reach out to the link:https://discuss.gradle.org/c/help-discuss[Gradle community on the forums] if you get stuck.
+转化一种构建方式听起来可能会很吓人，但您不必独自完成。您可以从 link:https://gradle.org/help[help.gradle.org] 搜索文档，论坛和 StackOverflow，或者在遇到麻烦时访问 link:https://discuss.gradle.org/c/help-discuss[Gradle 社区论坛]。
 
 [[migmvn:making_a_case]]
-== Making a case for migration
+== 进行迁移
 
-The primary differences between Gradle and Maven are flexibility, performance, user experience, and dependency management.
-A visual overview of these aspects is available in the link:https://gradle.org/maven-vs-gradle[Maven vs Gradle feature comparison].
+Gradle 和 Maven 之间的主要区别是灵活性，性能，用户体验和依赖管理。 link:https://gradle.org/maven-vs-gradle[Maven 与 Gradle 功能比较中] 提供了这些方面的直观概述。
 
-Since Gradle 3.0, Gradle has invested heavily in making Gradle builds much faster, with features such as link:https://blog.gradle.org/introducing-gradle-build-cache[build caching], link:https://blog.gradle.org/incremental-compiler-avoidance[compile avoidance], and an improved incremental Java compiler.
-Gradle is now 2-10x faster than Maven for the vast majority of projects, even without using a build cache.
-In-depth performance comparison and business cases for switching from Maven to Gradle can be found link:https://gradle.org/gradle-vs-maven-performance/[here].
+自 Gradle 3.0 以来，Gradle 投入了大量资金，以使 Gradle 的构建速度更快，并具有 link:https://blog.gradle.org/introducing-gradle-build-cache[构建缓存]，link:https://blog.gradle.org/incremental-compiler-avoidance[增量编译]和改进的增量 Java 编译器等功能。 对于大多数项目，即使不使用构建缓存，Gradle 的速度也比 Maven 快 2-10 倍。 从此处可以进行深入的 link:https://gradle.org/gradle-vs-maven-performance/[性能比较] 和从 Maven 切换到 Gradle 的业务案例。
 
 [[migmvn:general_guidelines]]
-== General guidelines
+== 一般准则
 
-Gradle and Maven have fundamentally different views on how to build a project.
-Gradle provides a flexible and extensible build model that delegates the actual work to a <<what_is_gradle#the_core_model_is_based_on_tasks,_graph of task dependencies_>>.
-Maven uses a model of fixed, linear phases to which you can attach goals (the things that do the work).
-This may make migrating between the two seem intimidating, but migrations can be surprisingly easy because Gradle follows many of the same conventions as Maven -- such as the <<java_plugin#sec:java_project_layout,standard project structure>> -- and its dependency management works in a similar way.
 
-Here we lay out a series of steps for you to follow that will help facilitate the migration of any Maven build to Gradle:
+Gradle 和 Maven 对如何构建项目有根本不同的看法。 Gradle 提供了一种灵活且可扩展的构建模型，该模型将实际工作委托给 <<what_is_gradle#the_core_model_is_based_on_tasks,任务依赖关系图>>。 Maven 使用固定的线性阶段模型，可以在其中附加目标（完成工作的事物）。
+这可能会使两者之间的迁移看起来令人生畏，但迁移也许会出奇的容易，因为 Gradle 遵循许多与 Maven 相同的约定（例如 <<java_plugin#sec:java_project_layout,标准项目结构>>），并且其依赖管理以类似的方式工作。
 
-TIP: Keep the old Maven build and new Gradle build side by side.
-You know the Maven build works, so you should keep it until you are confident that the Gradle build produces all the same artifacts and otherwise does what you need.
-This also means that users can try the Gradle build without getting a new copy of the source tree.
+在这里，我们列出了一系列步骤供您参阅，这将有助于促进将任何 Maven 构建移植到 Gradle：
 
- . link:https://scans.gradle.com#maven[Create a build scan for the Maven build].
+TIP: 保留旧的 Maven 构建和新的 Gradle 构建。 您知道 Maven 构建可以工作，因此您应该保留它，直到确信 Gradle 构建可以生成所有相同的工件，然后再做您需要的事情。 这也意味着用户无需获取复制源码即可尝试 Gradle 构建。
+
+ . link:https://scans.gradle.com#maven[为 Maven 构建创建构建扫描].
 +
-A build scan will make it easier to visualize what's happening in your existing Maven build.
-For Maven builds, you'll be able to see the project structure, what plugins are being used, a timeline of the build steps, and more.
-Keep this handy so you can compare it to the Gradle build scans you get while converting the project.
+构建扫描提供一种可视化的界面使您能够了解 Maven 构建中发生的情况。 对于 Maven 构建，您将能够查看项目结构，正在使用的插件，构建步骤的时间表等等。
+以便您可以将其与转换项目时获得的 Gradle 构建扫描进行比较。
 +
-. Develop a mechanism to verify that the two builds produce the same artifacts
+. 开发一种机制来验证两个构建产生相同的工件
 +
-This is a vitally important step to ensure that your deployments and tests don't break.
-Even small changes, such as the contents of a manifest file in a JAR, can cause problems.
-If your Gradle build produces the same output as the Maven build, this will give you and others confidence in switching over and make it easier to implement the big changes that will provide the greatest benefits.
+这是确保您的部署和测试连续的至关重要的一步。 即使是很小的更改，例如 JAR 中清单文件的内容，也会引起问题。 如果您的 Gradle 构建生成的输出与 Maven 构建生成的输出相同，
+您可以放心的切换了
 +
-This doesn't mean that you need to verify every artifact at every stage, although doing so can help you quickly identify the source of a problem.
-You can just focus on the critical output such as final reports and the artifacts that are published or deployed.
+这并不意味着您需要在每个阶段都验证每个工件，尽管这样做可以帮助您快速确定问题的根源。 您可以只关注关键输出，例如最终报告以及已发布或部署的工件。
 +
-You will need to factor in some inherent differences in the build output that Gradle produces compared to Maven.
-Generated POMs will contain only the information needed for consumption and they will use `<compile>` and `<runtime>` scopes correctly for that scenario.
-You might also see differences in the order of files in archives and of files on classpaths.
-Most differences will be benign, but it's worth identifying them and verifying that they are OK.
- . <<migmvn:automatic_conversion,Run an automatic conversion>>
+与 Maven 相比，您需要考虑 Gradle 产生的构建输出中的某些固有差异。 生成的 POM 将仅包含消耗所需的信息，并且它们将针对该方案正确使用 `<compile>` 和 `<runtime>` 作用域。
+您可能还会看到存档中文件和类路径中文件顺序的差异。 大多数差异都是良性的，但值得识别它们并确认它们是可以的。
+ . <<migmvn:automatic_conversion,执行自动转换>>
 +
-This will create all the Gradle build files you need, even for <<migmvn:multimodule_builds,multi-module builds>>.
-For simpler Maven projects, the Gradle build will be ready to run!
- . link:https://scans.gradle.com[Create a build scan for the Gradle build].
+这将创建您需要的所有 Gradle 构建文件，即使对于 <<migmvn:multimodule_builds,多模块构建>>也是如此。 对于更简单的 Maven 项目，Gradle 构建可以运行.
+ . link:https://scans.gradle.com[为 Gradle 构建创建构建扫描].
 +
-A build scan will make it easier to visualize what's happening in the build.
-For Gradle builds, you'll be able to see the project structure, the dependencies (regular and inter-project ones), what plugins are being used and the console output of the build.
+通过构建扫描，可以更轻松地查看构建中发生的情况。 对于 Gradle 构建，您将能够查看项目结构，依赖项（常规和项目间的依赖关系），正在使用的插件以及构建的控制台输出。
 +
-Your build may fail at this point, but that's ok; the scan will still run. Compare the build scan for the Gradle build to the one for the Maven build and continue down this list to troubleshoot the failures.
+此时您的构建可能会失败，但是没关系；扫描仍将运行。将Gradle构建的构建扫描与Maven构建的构建扫描进行比较，然后继续执行此列表以排除故障。
 +
-We recommend that you regularly generate build scans during the migration to help you identify and troubleshoot problems.
-If you want, you can also use a Gradle build scan to identify opportunities to https://guides.gradle.org/performance/[improve the performance of the build], after all performance is a big reason for switching to Gradle in the first place.
+我们建议您在迁移过程中定期生成构建扫描，以帮助您确定问题并排除故障。 如果您愿意，您还可以使用 Gradle 构建扫描来确定 https://guides.gradle.org/performance/[提高构建性能] 的机会，毕竟，性能首先是切换到 Gradle 的一个重要原因。
  . <<migmvn:migrating_deps,Verify your dependencies and fix any problems>>
  . <<migmvn:integration_tests,Configure integration and functional tests>>
 +
-Many tests can simply be migrated by configuring an extra source set.
-If you are using a third-party library, such as http://docs.fitnesse.org/FrontPage[FitNesse], look to see whether  there is a suitable community plugin available on the https://plugins.gradle.org/[Gradle Plugin Portal].
- . Replace Maven plugins with Gradle equivalents
+通过配置额外的 source set，可以简单地迁移许多测试。 如果您使用的是第三方库（例如 http://docs.fitnesse.org/FrontPage[FitNesse]），请查看 https://plugins.gradle.org/[Gradle Plugin Portal] 上是否有合适的社区插件。
+ . 用 Gradle 插件替换等效的 Maven 插件
 +
-In the case of <<migmvn:common_plugins,popular plugins>>, Gradle often has an equivalent plugin that you can use.
-You might also find that you can <<migmvn:unnecessary_plugins,replace a plugin with built-in Gradle functionality>>.
-As a last resort, you may need to reimplement a Maven plugin <<migmvn:custom_plugins,via your own custom plugins and task types>>.
+对于 <<migmvn:common_plugins,流行的插件>>，Gradle 经常有一个等效的插件供您使用。 您可能还会发现可以用 <<migmvn:unnecessary_plugins,内置的 Gradle 功能替换插件>>。
+作为最后的选择，您可能需要通过自己的 <<migmvn:custom_plugins,自定义插件和任务类型>>重新实现 Maven 插件。
 
-The rest of this chapter looks in more detail at specific aspects of migrating a build from Maven to Gradle.
+本章的其余部分更详细地介绍了将构建从 Maven 迁移到 Gradle 的具体方面。
 
 [[migmvn:build_lifecycle]]
-== Understanding the build lifecycle
+== 了解构建生命周期
 
-Maven builds are based around the concept of https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html[_build lifecycles_] that consist of a set of fixed phases.
-This can prove an impediment for users migrating to Gradle because its build lifecycle is <<build_lifecycle#build_lifecycle,something different>>, although it's important to understand how Gradle builds fit into the structure of initialization, configuration, and execution phases.
-Fortunately, Gradle has a feature that can mimic Maven's phases: <<more_about_tasks#sec:lifecycle_tasks,_lifecycle tasks_>>.
+Maven 构建的 https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html[构建生命周期] 由一组固定阶段组成。
+这可能会成为用户迁移到 Gradle 的障碍，因为它的构建生命周期和 Gradle <<build_lifecycle#build_lifecycle,有所不同>>，尽管了解 Gradle 的构建方式如何适合初始化，配置和执行阶段的结构很重要。
+幸运的是，Gradle 具有可以模仿 Maven 各个阶段的功能的<<more_about_tasks#sec:lifecycle_tasks,生命周期的任务>>。
 
-These allow you to define your own "lifecycles" by creating no-action tasks that simply depend on the tasks you're interested in.
-And to make the transition to Gradle easier for Maven users, the <<base_plugin#sec:base_tasks,Base Plugin>> -- applied by all the JVM language plugins like the <<java_library_plugin#java_library_plugin,Java Library Plugin>> -- provides a set of lifecycle tasks that correspond to the main Maven phases.
+这些使您可以通过创建仅依赖于您感兴趣的任务的无操作任务来定义自己的“生命周期”。并且为了使 Maven 用户更轻松地过渡到 Gradle，<<base_plugin#sec:base_tasks,Base 插件>> - 由所有 JVM 语言应用 <<java_library_plugin#java_library_plugin,Java Library 插件>>之类的插件提供了一组与主要 Maven 阶段相对应的生命周期任务。
 
-Here is a list of some of the main Maven phases and the Gradle tasks that they map to:
+这是一些主要的 Maven 阶段以及它们映射到的 Gradle 任务的列表：
 
 `clean`::
-Use the `clean` task provided by the Base Plugin.
+使用 Base 插件提供的 `clean` 任务.
 
 `compile`::
-Use the `classes` task provided by the <<java_plugin.adoc#sec:java_tasks,Java Plugin>> and other JVM language plugins.
-This compiles all classes for all source files of all languages and also performs <<migmvn:filtering_resources,resource filtering>> via the `processResources` task.
+使用 <<java_plugin.adoc#sec:java_tasks,Java 插件>>提供的 `classes` 任务和其他 JVM 语言插件。这将编译所有语言的所有源文件的所有类，并通过 `processResources` 任务执行 <<migmvn:filtering_resources,资源过滤>>。
 
 `test`::
-Use the `test` task provided by the Java Plugin.
-It runs just the unit tests, or more specifically, the tests that make up the <<java_plugin.adoc#source_sets,`test` source set>>.
+使用 Java 插件提供的 `test` 任务.它仅运行单元测试，或更具体地说，运行组成  <<java_plugin.adoc#source_sets,`test` source set>> 的测试。
 
 `package`::
-Use the `assemble` task provided by the Base Plugin.
-This builds whatever is the appropriate package for the project, for example a JAR for Java libraries or a WAR for traditional Java webapps.
+使用 Base 插件提供的 `assemble` 任务.这将构建适合该项目的任何软件包，例如 Java 库的 JAR 或传统 Java Webapp 的 WAR。
 
 `verify`::
-Use the `check` task provided by the Base Plugin.
-This runs all verification tasks that are attached to it, which typically includes the unit tests, any static analysis tasks -- such as <<checkstyle_plugin#checkstyle_plugin,Checkstyle>> -- and others.
-If you want to include integration tests, you will have to <<migmvn:integration_tests,configure these manually>>, which is a simple process.
+使用 Base 插件提供的 `check` 任务.这将运行所有附加的验证任务，通常包括单元测试，静态分析任务（如 <<checkstyle_plugin#checkstyle_plugin,Checkstyle>>）和其他任务。
+如果要包括集成测试，则必须 <<migmvn:integration_tests,手动配置>>这些，这是一个简单的过程。
 
 `install`::
-Use the `publishToMavenLocal` task provided by the <<publishing_maven#publishing_maven:tasks,Maven Publish Plugin>>.
+使用 <<publishing_maven#publishing_maven:tasks, Maven Publish 插件>> 提供的 `publishToMavenLocal` 任务.
 +
-Note that Gradle builds don't require you to "install" artifacts as you have access to more appropriate features like <<declaring_dependencies.adoc#sub:project_dependencies,inter-project dependencies>> and <<composite_builds#,composite builds>>.
-You should only use `publishToMavenLocal` for interoperating with Maven builds.
+请注意，Gradle 构建不需要您 "install" 工件，因为您可以使用更合适的功能，例如 <<declaring_dependencies.adoc#sub:project_dependencies,项目间依赖关系>> 和 <<composite_builds#,组合构建>> 。 您只应使用 `publishToMavenLocal` 与 `Maven` 构建进行互操作。
 +
-Gradle also allows you to resolve dependencies against the local Maven cache, as described in the <<migmvn:declaring_repos,Declaring repositories>> section.
+Gradle 还允许您解决对本地 Maven 缓存的依赖关系，如 <<migmvn:declaring_repos,声明仓库>>部分中所述。
 
 `deploy`::
-Use the `publish` task provided by the <<publishing_maven#publishing_maven:tasks,Maven Publish Plugin>> -- making sure you switch from the older Maven Plugin (ID: `maven`) if your build is using that one.
-This will publish your package to all configured publication repositories.
-There are also other tasks that allow you to publish to a single repository even when multiple ones are defined.
+使用 <<publishing_maven#publishing_maven:tasks, Maven Publish 插件>> 提供的 `publish` 任务 - 确保您的构建使用的是旧版本的 Maven 插件(ID: `maven`) 。 这会将您的程序包发布到所有已配置的发布存储库。
+还有其他一些任务，即使定义了多个资源，也可以将其发布到单个资源库。
 +
-Note that the Maven Publish Plugin does not publish *source and Javadoc JARs* _by default_, but this can easily be activated as explained in <<building_java_projects.adoc#sec:java_packaging,the guide for building java projects>>.
+请注意，默认情况下，Maven Publish Plugin 不会发布源代码和 Javadoc JAR，但是可以按照 <<building_java_projects.adoc#sec:java_packaging,构建 Java 项目>>的指南中的说明轻松激活它。
 
 [[migmvn:automatic_conversion]]
-== Performing an automatic conversion
+== 执行自动转换
 
-Gradle's <<build_init_plugin#build_init_plugin,`init` task>> is typically used to create a new skeleton project, but you can also use it to convert an existing Maven build to Gradle automatically.
-Once Gradle is <<installation#installation,installed on your system>>, all you have to do is run the command
+Gradle 的  <<build_init_plugin#build_init_plugin,`init` task>> 通常用于创建新的骨架项目，但是您也可以使用它将现有的 Maven 构建自动转换为 Gradle。在系统上 <<installation#installation,安装>> Gradle 之后，只需执行以下命令
 
 [listing.terminal]
 ----
 > gradle init
 ----
 
-from the root project directory and let Gradle do its thing.
-That basically consists of parsing the existing POMs and generating the corresponding Gradle build scripts.
-Gradle will also create a settings script if you're migrating a <<multi_project_builds#multi_project_builds,multi-project build>>.
+从根项目目录，并让 Gradle 做它的事情。 这基本上包括解析现有的 POM 并生成相应的 Gradle 构建脚本。 如果您要迁移 <<multi_project_builds#multi_project_builds,构建多项目>>，Gradle 还将创建一个 settings 脚本。
 
-You'll find that the new Gradle build includes the following:
+您会发现新的Gradle构建包括以下内容：
 
- * All the custom repositories that are specified in the POM
- * Your external and inter-project dependencies
- * The appropriate plugins to build the project (limited to one or more of the <<publishing_maven.adoc#,Maven Publish>>, <<java_plugin.adoc#,Java>> and <<war_plugin.adoc#,War>> Plugins)
+ * POM 中指定的所有自定义存储库
+ * 您的外部和项目间依赖
+ * 用于构建项目的适当插件（仅限于 <<publishing_maven.adoc#,Maven Publish>>，<<java_plugin.adoc#,Java>> 和 <<war_plugin.adoc#,War>> 插件中的一个或多个）
 
-See the <<build_init_plugin#sec:pom_maven_conversion,Build Init Plugin chapter>> for a complete list of the automatic conversion features.
+有关自动转换功能的完整列表，请参见 <<build_init_plugin#sec:pom_maven_conversion,Build Init 插件>>一章。
 
-One thing to bear in mind is that assemblies are not automatically converted.
-They aren't necessarily problematic to convert, but you will need to do some manual work.
-Options include:
+要记住的一件事是有些组件不会自动转换。它们转换时可能有问题，您需要做一些手工工作。选项包括：
 
- * Using the <<distribution_plugin#distribution_plugin,Distribution Plugin>>
- * Using the <<java_library_distribution_plugin#java_library_distribution_plugin,Java Library Distribution Plugin>>
- * Using the <<application_plugin#application_plugin,Application Plugin>>
- * <<working_with_files#sec:creating_archives_example,Creating custom archive tasks>>
- * Using a suitable community plugin from the https://plugins.gradle.org/[Gradle Plugin Portal]
+ * 使用 <<distribution_plugin#distribution_plugin,Distribution Plugin>>
+ * 使用 <<java_library_distribution_plugin#java_library_distribution_plugin,Java Library Distribution Plugin>>
+ * 使用 <<application_plugin#application_plugin,Application Plugin>>
+ * <<working_with_files#sec:creating_archives_example,创建自定义 archive tasks>>
+ * 从 https://plugins.gradle.org/[Gradle 插件网站] 使用合适的社区插件
 
-If your Maven build does not have many plugins or much in the way of customisation, you can simply run
+如果您的 Maven 构建没有使用大量的插件或者自定义的方式，则只需运行
 
 [listing.terminal]
 ----
 > gradle build
 ----
 
-once the migration has completed.
-This will run the tests and produce the required artifacts without any extra intervention on your part.
+迁移完成后。这将运行测试并产生所需的工件，而您无需任何额外的干预。
 
 [[migmvn:migrating_deps]]
-== Migrating dependencies
+== 迁移依赖
 
-Gradle's dependency management system is more flexible than Maven's, but it still supports the same concepts of repositories, declared dependencies, scopes (<<declaring_dependencies.adoc#sec:what-are-dependency-configurations,dependency configurations>> in Gradle), and transitive dependencies.
-In fact, Gradle works perfectly with Maven-compatible repositories, which makes it easy to migrate your dependencies.
+Gradle 的依赖关系管理系统比 Maven 的依赖项管理系统更灵活，但是它仍然支持相同的存储库，声明的依赖关系，作用域（Gradle 中的 <<declaring_dependencies.adoc#sec:what-are-dependency-configurations,依赖关系配置>>）和可传递依赖关系的概念。
+实际上，Gradle 与 Maven 兼容的存储库完美配合，这使得迁移依赖关系变得容易。
 
-NOTE: One notable difference between the two tools is in how they manage version conflicts. Maven uses a "closest" match algorithm, whereas Gradle picks the newest.
-Don't worry though, you have a lot of control over which versions are selected, as documented in <<dependency_constraints.adoc#,Managing Transitive Dependencies>>.
+NOTE: 两种工具之间的一个显着区别是它们如何管理版本冲突。 Maven 使用 "最接近" 的匹配算法，而 Gradle 选择 最新 的匹配算法。 不过，请放心，您可以控制选择哪个版本，如 <<dependency_constraints.adoc#,管理依赖传递>>中所述。
 
-Over the following sections, we will show you how to migrate the most common elements of a Maven build's dependency management information.
+在以下各节中，我们将向您展示如何迁移 Maven 构建的依赖管理信息中最常见的元素。
 
 [[migmvn:declaring_deps]]
-=== Declaring dependencies
+=== 声明依赖
 
-Gradle uses the same dependency identifier components as Maven: group ID, artifact ID and version.
-It also supports classifiers.
-So all you need to do is substitute the identifier information for a dependency into Gradle's syntax, which is described in the <<declaring_dependencies#,Declaring Dependencies>> chapter.
+Gradle 使用与 Maven 相同的依赖标识符组件：group ID, artifact ID 和 version.。 它还支持 classifiers。 因此，您所需要做的就是将标识符的依赖信息替换为 Gradle 的语法，这在 <<declaring_dependencies#,声明依赖项>> 一章中进行了介绍。
 
-For example, consider this Maven-style dependency on Log4J:
+例如，Log4J 使用 Maven 风格的依赖关系：
 
 [source,xml]
 ----
@@ -213,60 +180,50 @@ For example, consider this Maven-style dependency on Log4J:
 </dependencies>
 ----
 
-This dependency would look like the following in a Gradle build script:
+在 Gradle 构建脚本中，这种依赖关系如下所示：
 
 .Declaring a simple compile-time dependency
 ====
 include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[tags=compile-dependencies]"]
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=compile-dependencies]"]
 ====
-<1> Attaches version 1.2.12 of Log4J to the `implementation` configuration (scope)
+<1> 将 Log4J 版本 `1.2.12` 舔加到  `implementation` 配置（作用域）
 
-The string identifier takes the Maven values of `groupId`, `artifactId` and `version`, although Gradle refers to them as `group`, `module` and `version`.
+字符串标识符采用 Maven 的 `groupId`，`artifactId` 和 `version` 值，尽管 Gradle 将它们称为 `group`, `module` 和 `version`。
 
-The above example raises an obvious question: what is that `implementation` configuration?
-It's one of the standard dependency configurations provided by the <<java_plugin#tab:configurations,Java Plugin>> and is often used as a substitute for Maven's default `compile` scope.
+上面的示例提出了一个明显的问题：该 `implementation` 配置是什么？ 它是 <<java_plugin#tab:configurations,Java 插件>>提供的标准依赖配置之一，通常用于替代 Maven 的默认 `compile` 范围
 
-Several of the differences between Maven's scopes and Gradle's standard configurations come down to Gradle distinguishing between the dependencies required to build a module and the dependencies required to build a module that depends on it.
-Maven makes no such distinction, so published POMs typically include dependencies that consumers of a library don't actually need.
+Maven 的作用域与 Gradle 的标准配置之间的几个区别归结为 Gradle 区分了构建模块所需的依赖性和构建依赖于该模块的模块所需的依赖性。 Maven 没有这种区别，因此已发布的 POM 通常包括库的使用者实际上不需要的依赖项。
 
-Here are the main Maven dependency scopes and how you should deal with their migration:
+以下是主要的 Maven 依赖范围以及如何处理它们的迁移：
 
 `compile`::
-Gradle has two configurations that can be used in place of the `compile` scope: `implementation` and `api`.
-The former is available to any project that applies the Java Plugin, while `api` is only available to projects that specifically apply the <<java_library_plugin#java_library_plugin,Java Library Plugin>>.
+Gradle 具有两种可用于代替 `compile` 作用域的配置： `implementation`  和 `api`。 前者适用于所有应用 Java 插件的项目，而 api 仅适用于专门应用 <<java_library_plugin#java_library_plugin,Java Library Plugin>>的项目。
 
 +
-In most cases you should simply use the `implementation` configuration, particularly if you're building an application or webapp.
-But if you're building a library, you can learn about which dependencies should be declared using `api` in the section on <<building_java_projects#sec:building_java_libraries,Building Java libraries>>.
-Even more information on the differences between `api` and `implementation` is provided in the Java Library Plugin chapter linked above.
+在大多数情况下，您应该只使用 `implementation`  配置，尤其是在构建应用程序或网络应用程序时。 但是，如果您要构建库，则可以在构建 Java 库部分中了解使用 `api` 声明哪些依赖项。
+上面链接的 <<building_java_projects#sec:building_java_libraries,Java 库插件>> 一章提供了有关 `api` 和 `implementation`  之间区别的更多信息。
 
 `runtime`::
-Use the `runtimeOnly` configuration.
+使用 `runtimeOnly` 配置
 
 `test`::
-Gradle distinguishes between those dependencies that are required to _compile_ a project's tests and those that are only needed to _run_ them.
+Gradle 区分了 _compile_  项目测试所需的那些依赖项和仅  _run_  它们所需的那些依赖项。
 +
-Dependencies required for test compilation should be declared against the `testImplementation` configuration.
-Those that are only required for running the tests should use `testRuntimeOnly`.
+应针对 `testImplementation` 配置声明测试编译所需的依赖关系。仅运行测试所需的那些应该使用 `testRuntimeOnly`。
 
 `provided`::
-Use the `compileOnly` configuration.
+使用 `compileOnly` 配置。
 +
-Note that the <<war_plugin#sec:war_dependency_management,War Plugin>> adds `providedCompile` and `providedRuntime` dependency configurations.
-These behave slightly differently from `compileOnly` and simply ensure that those dependencies aren't packaged in the WAR file.
-However, the dependencies are included on runtime and test runtime classpaths, so use these configurations if that's the behavior you need.
+请注意，<<war_plugin#sec:war_dependency_management,War 插件>>添加了 `provideCompile` 和 `providerRuntime` 依赖项配置。 它们的行为与 `compileOnly` 略有不同，只需确保 WAR 文件中没有打包这些依赖项即可。
+但是，依赖项包括在运行时和测试运行时类路径中，因此，如果需要，请使用这些配置。
 
 `import`::
-The `import` scope is mostly used within `<dependencyManagement>` blocks and applies solely to POM-only publications.
-Read the section on <<migmvn:using_boms,Using bills of materials>> to learn more about how to replicate this behavior.
+`import` 主用于主要在 `<dependencyManagement>` 块中使用，并且仅适用于仅 POM 的发布。 阅读有关 <<migmvn:using_boms,使用物料清单>>的部分，以了解有关如何复制此行为的更多信息。
 +
-You can also specify a regular dependency on a POM-only publication.
-In this case, the dependencies declared in that POM are treated as normal transitive dependencies of the build.
+您还可以指定对 POM-only 的发布的常规依赖性。 在这种情况下，在该 POM 中声明的依赖关系将被视为构建的常规传递依赖关系。
 +
-For example, imagine you want to use the `groovy-all` POM for your tests.
-It's a POM-only publication that has its own dependencies listed inside a `<dependencies>` block.
-The appropriate configuration in the Gradle build looks like this:
+例如，假设您想在测试中使用 `groovy-all` 的POM。这是仅支持POM的出版物，在 `<dependencies>` 块中列出了自己的依赖项。 Gradle 构建中的适当配置如下所示：
 +
 .Consuming a POM-only dependency
 ====
@@ -274,15 +231,13 @@ include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[t
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=pom-dependencies]"]
 ====
 +
-The result of this will be that all `compile` and `runtime` scope dependencies in the `groovy-all` POM get added to the test runtime classpath, while only the `compile` scope dependencies get added to the test compilation classpath.
-Dependencies with other scopes will be ignored.
+这样做的结果是，将所有 `groovy-POM` 中的所有  `compile` 和 `runtime` 作用域依赖项都添加到测试运行时类路径中，而仅将 `compile` 作用域依赖添加到测试编译类路径中。 与其他作用域的依赖关系将被忽略。
 
 [[migmvn:declaring_repos]]
-=== Declaring repositories
+=== 声明仓库
 
-Gradle allows you to retrieve declared dependencies from any Maven-compatible or Ivy-compatible repository.
-Unlike Maven, it has no default repository and so you have to declare at least one.
-In order to have the same behavior as your Maven build, just configure <<declaring_repositories.adoc#sub:maven_central,Maven Central>> in your Gradle build, like this:
+Gradle 允许您从任何与 Maven 兼容或与 Ivy 兼容的存储库中检索已声明的依赖项。 与 Maven 不同，它没有默认存储库，因此您必须声明至少一个。
+为了具有与 Maven 构建相同的行为，只需在 Gradle 构建中配置 <<declaring_repositories.adoc#sub:maven_central,Maven Central>>，如下所示：
 
 .Configuring the build to use Maven Central
 ====
@@ -290,93 +245,81 @@ include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[t
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=repositories]"]
 ====
 
-You can also use the `repositories {}` block to configure custom repositories, as described in the <<declaring_repositories.adoc#sec:maven_repo,Repository Types>> chapter.
+您还可以使用 `repositories {}` 块来配置自定义存储库，如 <<declaring_repositories.adoc#sec:maven_repo,存储库类型>>一章中所述。
 
-Lastly, Gradle allows you to resolve dependencies against the <<declaring_repositories.adoc#sub:maven_local,local Maven cache/repository>>.
-This helps Gradle builds interoperate with Maven builds, but it shouldn't be a technique that you use if you don't need that interoperability.
-If you want to share published artifacts via the filesystem, consider configuring a <<declaring_repositories.adoc#sec:maven_repo,custom Maven repository>> with a `file://` URL.
+最后，Gradle 允许您解决对 <<declaring_repositories.adoc#sub:maven_local,本地Maven缓存/存储库>>的依赖关系。 这有助于 Gradle 构建与 Maven 构建进行互操作，但是如果您不需要这种互操作性，则不应该使用该技术。
+如果要通过文件系统共享已发布的工件，请考虑使用 `file://` URL 配置 <<declaring_repositories.adoc#sec:maven_repo,自定义 Maven 存储库>>。
 
-You might also be interested in learning about Gradle's own <<dependency_resolution.adoc#sec:dependency_cache,dependency cache>>, which behaves more reliably than Maven's and can be used safely by multiple concurrent Gradle processes.
+您可能还对了解 Gradle 自己的 <<dependency_resolution.adoc#sec:dependency_cache,依赖缓存>>感兴趣，该缓存比 Maven 的行为更可靠，并且可以被多个并发的 Gradle 进程安全地使用。
 
 [[migmvn:controlling_dep_versions]]
-=== Controlling dependency versions
+=== 控制依赖版本
 
-The existence of transitive dependencies means that you can very easily end up with multiple versions of the same dependency in your dependency graph.
-By default, Gradle will pick the newest version of a dependency in the graph, but that's not always the right solution.
-That's why it provides several mechanisms for controlling which version of a given dependency is resolved.
+传递依赖项的存在意味着您可以轻松地在依赖关系图中最终获得同一依赖项的多个版本。 默认情况下，Gradle 会在图中选择依赖项的最新版本，但这并不总是正确的解决方案。
+因此，它提供了几种机制来控制解析给定依赖项的哪个版本。
 
-On a per-project basis, you can use:
+在每个项目的基础上，您可以使用：
 
- * <<dependency_constraints.adoc#sec:adding-constraints-transitive-deps,Dependency constraints>>
+ * <<dependency_constraints.adoc#sec:adding-constraints-transitive-deps,Dependency constraints(依赖约束)>>
  * <<migmvn:using_boms,Bills of materials>> (Maven BOMs)
- * <<dependency_downgrade_and_exclude.adoc#sec:enforcing_dependency_version,Overriding transitive versions>>
+ * <<dependency_downgrade_and_exclude.adoc#sec:enforcing_dependency_version,Overriding transitive versions(覆盖版本传递)>>
 
-There are even more, specialized options listed in the <<dependency_constraints.adoc#,controlling transitive dependencies>> chapter.
+在 <<dependency_constraints.adoc#,控制依赖传递>>一章中列出了更多专门的选项。
 
-If you want to ensure consistency of versions across all projects in a multi-project build, similar to how the `<dependencyManagement>` block in Maven works, you can use the <<java_platform_plugin#java_platform_plugin,Java Platform Plugin>>.
-This allows you declare a set of dependency constraints that can be applied to multiple projects.
-You can even publish the platform as a Maven BOM or using Gradle's metadata format.
-See the plugin page for more information on how to do that, and in particular the section on <<java_platform_plugin#sec:java_platform_consumption,Consuming platforms>> to see how you can apply a platform to other projects in the same build.
-
+如果要确保多项目构建中所有项目的版本一致性，类似于 Maven 中的 `<dependencyManagement>` 块的工作方式，则可以使用 <<java_platform_plugin#java_platform_plugin,Java Platform Plugin>>。 这允许您声明一组可以应用于多个项目的依赖项约束。
+您甚至可以将平台发布为 Maven BOM 或使用 Gradle 的元数据格式发布。 有关如何执行此操作的更多信息，请参见插件页面，尤其是在 <<java_platform_plugin#sec:java_platform_consumption,Consuming platforms>>，以了解如何将平台应用于同一构建中的其他项目。
 
 [[migmvn:excluding_deps]]
-=== Excluding transitive dependencies
+=== 排除依赖传递
 
-Maven builds use exclusions to keep unwanted dependencies -- or unwanted _versions_ of dependencies -- out of the dependency graph.
-You can do the same thing with Gradle, but that's not necessarily the _right_ thing to do.
-Gradle provides other options that may be more appropriate for a given situation, so you really need to understand _why_ an exclusion is in place to migrate it properly.
+Maven 构建使用排除项将不需要的依赖项（或不需要的依赖项版本）保留在依赖关系图之外。 您可以使用 Gradle 做同样的事情，但这不一定是正确的事情。 Gradle 提供了其他一些选项，这些选项可能更适合给定的情况，因此您确实需要了解为什么要适当地设置排除项。
 
-If you want to exclude a dependency for reasons unrelated to versions, then check out the section on <<dependency_downgrade_and_exclude.adoc#sec:excluding-transitive-deps>>.
-It shows you how to attach an exclusion either to an entire configuration (often the most appropriate solution) or to a dependency.
-You can even easily apply an exclusion to all configurations.
+如果您出于与版本无关的原因要排除依赖项，请查看 <<dependency_downgrade_and_exclude.adoc#sec:excluding-transitive-deps,排除依赖传递>> 中的部分。 它显示了如何将排除项附加到整个配置（通常是最合适的解决方案）或依赖项。 您甚至可以轻松地将排除应用于所有配置。
 
-If you're more interested in controlling which version of a dependency is actually resolved, see the previous section.
+如果您对控制实际解决依赖关系的版本更感兴趣，请参阅上一节。
 
 [[migmvn:optional_deps]]
-=== Handling optional dependencies
+=== 处理可选的依赖
 
-You are likely to encounter two situations regarding optional dependencies:
+关于可选依赖关系，您可能会遇到两种情况:
 
- * Some of your transitive dependencies are declared as optional
- * You want to declare some of your direct dependencies as optional in your project's published POM
+ * 一些传递依赖被声明为可选的
+ * 您希望在项目发布的 POM 中将一些直接依赖项声明为可选的
 
-For the first scenario, Gradle behaves the same way as Maven and simply ignores any transitive dependencies that are declared as optional.
-They are not resolved and have no impact on the versions selected if the same dependencies appear elsewhere in the dependency graph as non-optional.
 
-As for publishing dependencies as optional, Gradle provides a richer model called <<feature_variants#feature_variants, feature variants>>, which will let you declare the "optional features" your library provides.
+对于第一种情况，Gradle 的行为与 Maven 相同，只是忽略了声明为可选的任何传递依赖。 如果相同的依存关系在依存关系图中的其他位置显示为非可选，则无法解析它们并且对所选版本没有影响。
+
+至于将依赖项发布为可选内容，Gradle 提供了一个更丰富的模型，称为 <<feature_variants#feature_variants,功能变量>>，该模型可以让您声明库提供的 "可选功能"。
 
 [[migmvn:using_boms]]
-== Using bills of materials (BOMs)
+== Using bills of materials (BOMs:物料清单)
 
-Maven allows you to share dependency constraints by defining dependencies inside a `<dependencyManagement>` section of a POM file that has a packaging type of `pom`.
-This special type of POM (a BOM) can then be imported into other POMs so that you have consistent library versions across your projects.
+Maven 允许您通过在具有 `pom` 打包类型的 POM 文件的 `<dependencyManagement>` 部分内定义依赖项来共享依赖项约束。 然后可以将这种特殊类型的 POM（物料清单）导入其他 POM 中，以便您在项目中拥有一致的库版本。
 
-Gradle can use such BOMs for the same purpose, using a special dependency syntax based on link:{groovyDslPath}/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:platform(java.lang.Object)[platform()] and link:{groovyDslPath}/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:enforcedPlatform(java.lang.Object)[enforcedPlatform()] methods.
-You simply declare the dependency in the normal way, but wrap the dependency identifier in the appropriate method, as shown in this example that "imports" the Spring Boot Dependencies BOM:
+Gradle 可以通过基于 link:{groovyDslPath}/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:platform(java.lang.Object)[platform()] 和 link:{groovyDslPath}/org.gradle.api.artifacts.dsl.DependencyHandler.html#org.gradle.api.artifacts.dsl.DependencyHandler:enforcedPlatform(java.lang.Object)[enforcedPlatform()]  方法的特殊依赖项语法，将此类 BOM 用于相同的目的。 您只需以常规方式声明依赖项，然后将依赖项标识符包装在适当的方法中，如  "imports"  Spring Boot 依赖项 BOM 的示例所示：
 
 .Importing a BOM in a Gradle build
 ====
 include::sample[dir="snippets/mavenMigration/importBom/groovy",files="build.gradle[tags=bom]"]
 include::sample[dir="snippets/mavenMigration/importBom/kotlin",files="build.gradle.kts[tags=bom]"]
 ====
-<1> Applies the Spring Boot Dependencies BOM
-<2> Adds a dependency whose version is defined by that BOM
+<1> 应用 Spring Boot Dependencies BOM
+<2> 添加依赖项，该依赖项的版本由该BOM表定义
 
-You can learn more about this feature and the difference between `platform()` and `enforcedPlatform()` in the section on <<platforms.adoc#sub:bom_import,importing version recommendations from a Maven BOM>>.
+您可以在有关从 Maven BOM <<platforms.adoc#sub:bom_import,导入版本建议>>的部分中了解有关此功能以及 `platform()` 和 `forcedPlatform()` 之间的区别的更多信息。
 
-NOTE: You can use this feature to apply the `<dependencyManagement>` information from any dependency's POM to the Gradle build, even those that don't have a packaging type of `pom`. Both `platform()` and `enforcedPlatform()` will ignore any dependencies declared in the `<dependencies>` block.
+NOTE: 您可以使用此功能将来自任何依赖项的 POM 的 `<dependencyManagement>` 信息应用于 Gradle 构建，即使那些没有 `pom` 打包类型的信息也是如此。 `platform()` 和 `forcedPlatform()` 都将忽略在 `<dependencies>` 块中声明的所有依赖项。
 
 [[migmvn:multimodule_builds]]
-== Migrating multi-module builds (project aggregation)
+== 多项目迁移 (项目聚合)
 
-Maven's multi-module builds map nicely to Gradle's <<multi_project_builds#multi_project_builds,multi-project builds>>.
-Try the corresponding link:../samples/sample_jvm_multi_project_build.html[sample] to see how a basic multi-project Gradle build is set up.
+Maven 的多模块构建与 Gradle 的 <<multi_project_builds#multi_project_builds,多项目构建>>很好地映射。 尝试 link:../samples/sample_jvm_multi_project_build.html[sample] 的示例，以了解如何设置基本的多项目 Gradle 构建。
 
-To migrate a multi-module Maven build, simply follow these steps:
+要迁移多模块 Maven 构建，只需执行以下步骤：
 
- 1. Create a settings script that matches the `<modules>` block of the root POM.
+ 1. 创建一个与根POM的 `<modules>` 块匹配的设置脚本。
 +
-For example, this `<modules>` block:
+例如，以下 `<modules>` 块：
 +
 [source,xml]
 ----
@@ -386,78 +329,66 @@ For example, this `<modules>` block:
 </modules>
 ----
 +
-can be migrated by adding the following line to the settings script:
+可以通过在设置脚本中添加以下行来迁移：
 +
 .Declaring which projects are part of the build
 ====
 include::sample[dir="snippets/mavenMigration/multiModule/groovy",files="settings.gradle"]
 include::sample[dir="snippets/mavenMigration/multiModule/kotlin",files="settings.gradle.kts"]
 ====
-<1> Sets the name of the overall project
-<2> Configures two subprojects as part of this build
+<1> 设置整个项目的名称
+<2> 配置两个子项目作为此构建的一部分
 +
-.Output of **`gradle projects`**
+. **`gradle projects`** 输出
 ----
 > gradle projects
 include::{snippetsPath}/mavenMigration/multiModule/tests/projects.out[]
 ----
- 2. Replace cross-module dependencies with <<declaring_dependencies.adoc#sub:project_dependencies,project dependencies>>.
- 3. Replicate project inheritance with <<sharing_build_logic_between_subprojects#sec:convention_plugins,convention plugins>>.
+ 2. 用 <<declaring_dependencies.adoc#sub:project_dependencies,项目依赖>> 替换跨模块依赖项.
+ 3. 使用 <<sharing_build_logic_between_subprojects#sec:convention_plugins,约定插件>>复制项目继承.
 +
-This basically involves creating a root project build script that injects shared configuration into the appropriate subprojects.
+这基本上涉及创建一个根项目构建脚本，该脚本将共享配置注入到适当的子项目中。
 
 [[migmvn:sub:sharing-versions]]
-=== Sharing versions across projects
+=== 跨项目共享版本
 
-If you want to replicate the Maven pattern of having dependency versions declared in the `dependencyManagement` section of the root POM file, the best approach is to leverage the `java-platform` plugin.
-You will need to add a dedicated project for this and consume it in the regular projects of your build.
-See <<java_platform_plugin.adoc#,the documentation>> for more details on this pattern.
+如果要复制在根 POM 文件的 `dependencyManagement` 部分中声明的依赖版本的 Maven 模式，最好的方法是利用 `java-platform` Plugin 。 您将需要为此添加一个专用项目，并在构建的常规项目中使用它。
+有关此模式的更多详细信息，请 <<java_platform_plugin.adoc#,参见文档>>。
 
 [[migmvn:profiles_and_properties]]
-== Migrating Maven profiles and properties
+== 迁移 Maven 配置文件和属性
 
-Maven allows you parameterize builds using properties of various sorts.
-Some are read-only properties of the project model, others are user-defined in the POM.
-It even allows you to treat system properties as project properties.
+Maven 允许您使用各种属性对构建进行参数化。 一些是项目模型的只读属性，其他是用户在 POM 中定义的属性。 它甚至允许您将系统属性视为项目属性。
 
-Gradle has a similar system of project properties, although it differentiates between those and system properties.
-You can, for example, define properties in:
+Gradle 具有类似的项目属性系统，尽管它可以区分项目属性和系统属性。 例如，您可以在以下位置定义属性：
 
 * the build script
-* a `gradle.properties` file in the root project directory
-* a `gradle.properties` file in the `$HOME/.gradle` directory
+* 根目录的 `gradle.properties`
+* `$HOME/.gradle` 目录的 `gradle.properties`
 
-Those aren't the only options, so if you are interested in finding out more about how and where you can define properties, check out the <<build_environment#build_environment,Build Environment>> chapter.
+这些不是唯一的选择，因此，如果您有兴趣了解有关如何以及在何处定义属性的更多信息，请查阅 <<build_environment#build_environment,构建环境>> 一章。
 
-One important piece of behavior you need to be aware of is what happens when the same property is defined in both the build script and one of the external properties files: the build script value takes precedence.
-Always.
-Fortunately, you can mimic the concept of profiles to provide overridable default values.
+您需要了解的一项重要行为是，在构建脚本和一个外部属性文件中定义了相同的属性时会发生什么：构建脚本值优先。 总是。 幸运的是，您可以模仿配置文件的概念以提供可覆盖的默认值。
 
-Which brings us on to Maven profiles.
-These are a way to enable and disable different configurations based on environment, target platform, or any other similar factor.
-Logically, they are nothing more than limited ‘if' statements.
-And since Gradle has much more powerful ways to declare conditions, it does not need to have formal support for profiles (except in the POMs of dependencies).
-You can easily get the same behavior by combining conditions with secondary build scripts, as you'll see.
+这使我们进入了 Maven 配置文件。 这些是根据环境，目标平台或任何其他类似因素启用和禁用不同配置的方法。 从逻辑上讲，它们仅是有限的 "if" 语句。 而且由于 Gradle 具有更强大的声明条件的方法，因此不需要正式支持配置文件（依赖项的POM中除外）。 如您所见，通过将条件与辅助构建脚本结合使用，您可以轻松获得相同的行为。
 
-Let's say you have different deployment settings depending on the environment: local development (the default), a test environment, and production.
-To add profile-like behavior, you first create build scripts for each environment in the project root: `profile-default.gradle`, `profile-test.gradle`, and `profile-prod.gradle`.
-You can then conditionally apply one of those profile scripts based on a <<build_environment#sec:project_properties,project property>> of your own choice.
+假设您根据环境有不同的部署设置：本地开发（默认），测试环境和生产。 要添加类似配置文件的行为，您首先要在项目根目录中为每个环境创建构建脚本：`profile-default.gradle`, `profile-test.gradle` 和 `profile-prod.gradle`。 然后，您可以根据自己选择的 <<build_environment#sec:project_properties,项目属性>>有条件地应用这些概要文件脚本之一。
 
-The following example demonstrates the basic technique using a project property called `buildProfile` and profile scripts that simply initialize an <<writing_build_scripts#sec:extra_properties,extra project property>> called `message`:
+下面的示例演示了使用名为 `buildProfile` 的项目属性和配置文件脚本的基本技术，这些脚本仅初始化名为 `message` 的 <<writing_build_scripts#sec:extra_properties,额外项目属性>>：
 
 .Mimicking the behavior of Maven profiles in Gradle
 ====
 include::sample[dir="snippets/mavenMigration/profiles/groovy",files="build.gradle;profile-default.gradle;profile-test.gradle;profile-prod.gradle"]
 include::sample[dir="snippets/mavenMigration/profiles/kotlin",files="build.gradle.kts;profile-default.gradle.kts;profile-test.gradle.kts;profile-prod.gradle.kts"]
 ====
-<1> Checks for the existence of (Groovy) or binds (Kotlin) the `buildProfile` project property
-<2> Applies the appropriate profile script, using the value of `buildProfile` in the script filename
-<3> Prints out the value of the `message` extra project property
-<4> Initializes the `message` extra project property, whose value can then be used in the main build script
+<1> 检查是否存在（Groovy）或绑定（Kotlin）`buildProfile` 项目属性
+<2> 使用脚本文件名中的 `buildProfile` 值应用适当的配置文件脚本
+<3> 打印出  `message`  额外项目属性的值
+<4> 初始化 `message` 额外项目属性，然后可以在主构建脚本中使用其值
 
-With this setup in place, you can activate one of the profiles by passing a value for the project property you're using -- `buildProfile` in this case:
+完成此设置后，您可以通过传递您所使用的项目属性的值来激活其中一个配置文件-在这种情况下为 `buildProfile`：
 
-.Output of **`gradle greeting`**
+. **`gradle greeting`** 输出
 ----
 > gradle greeting
 include::{snippetsPath}/mavenMigration/profiles/tests/greeting-default.out[]
@@ -468,28 +399,21 @@ include::{snippetsPath}/mavenMigration/profiles/tests/greeting-default.out[]
 include::{snippetsPath}/mavenMigration/profiles/tests/greeting-test.out[]
 ----
 
-You're not limited to checking project properties.
-You could also check environment variables, the JDK version, the OS the build is running on, or anything else you can imagine.
+您不仅限于检查项目属性。 您还可以检查环境变量，JDK 版本，运行内部版本的OS或您可以想象的任何其他内容。
+要记住的一件事是，高级条件语句使构建更难以理解和维护，类似于它们使面向对象的代码复杂化的方式。 配置文件也是如此。 Gradle 提供了许多更好的方法来避免广泛使用 Maven 经常需要的配置文件，例如，
+通过配置彼此不同的多个任务。 请参阅由 <<publishing_maven#publishing_maven:tasks,Maven Publish Plugin>> 创建的 `publish__PubName__PublicationTo__RepoName__Repository` 任务。
 
-One thing to bear in mind is that high level condition statements make builds harder to understand and maintain, similar to the way they complicate object-oriented code.
-The same applies to profiles.
-Gradle offers you many better ways to avoid the extensive use of profiles that Maven often requires, for example by configuring multiple tasks that are variants of one another.
-See the `publish__PubName__PublicationTo__RepoName__Repository` tasks created by the <<publishing_maven#publishing_maven:tasks,Maven Publish Plugin>>.
-
-For a lengthier discussion on working with Maven profiles in Gradle, look no further than https://blog.gradle.org/maven-pom-profiles[this blog post].
-
+有关在 Gradle 中使用 Maven 概要文件的冗长讨论，请参阅 https://blog.gradle.org/maven-pom-profiles[此博客文章]。
 
 [[migmvn:filtering_resources]]
-== Filtering resources
+== 资源过滤
 
-Maven has a phase called `process-resources` that has the goal `resources:resources` bound to it by default.
-This gives the build author an opportunity to perform variable substitution on various files, such as web resources, packaged properties files, etc.
+Maven 有一个称为 `process-resources` 的阶段，该阶段具有 `resources:resources`：默认情况下绑定到它的资源。 这为构建作者提供了对各种文件（例如 Web 资源，打包的属性文件等）执行变量替换的机会。
 
-The Java plugin for Gradle provides a `processResources` task to do the same thing.
-This is a link:{groovyDslPath}/org.gradle.api.tasks.Copy.html[Copy] task that copies files from the configured resources directory -- `src/main/resources` by default -- to an output directory.
-And as with any `Copy` task, you can configure it to perform <<working_with_files#filtering_files,file filtering>>, <<working_with_files#sec:renaming_files,renaming>>, and <<working_with_files#sec:filtering_files,content filtering>>.
+Gradle 的 Java 插件提供了 `processResources` 任务来执行相同的操作。 这是一个 link:{groovyDslPath}/org.gradle.api.tasks.Copy.html[Copy] 任务，可将文件从配置的资源目录（默认情况下为 `src/main/resources`）复制到输出目录。
+与任何 `Copy` 任务一样，您可以对其进行配置以执行 <<working_with_files#filtering_files,文件过滤>>，<<working_with_files#sec:renaming_files,重命名>>和 <<working_with_files#sec:filtering_files,内容过滤>>。
 
-As an example, here's a configuration that treats the source files as https://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_simpletemplateengine[Groovy `SimpleTemplateEngine`] templates, providing `version` and `buildNumber` properties to those templates:
+例如，以下配置将源文件视为 https://docs.groovy-lang.org/docs/next/html/documentation/template-engines.html#_simpletemplateengine[Groovy `SimpleTemplateEngine`] 模板，并为这些模板提供了 `version` 和 `buildNumber` 属性：
 
 .Filtering the content of resources via the `processResources` task
 ====
@@ -497,29 +421,24 @@ include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[t
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=process-resources]"]
 ====
 
-See the API docs for link:{javadocPath}/org/gradle/api/file/CopySpec.html[CopySpec] to see all the options available to you.
-
+请参阅 link:{javadocPath}/org/gradle/api/file/CopySpec.html[CopySpec] 的 API 文档以查看所有可用选项。
 
 [[migmvn:integration_tests]]
-== Configuring integration tests
+== 配置集成测试
 
-Many Maven builds incorporate integration tests of some sort, which Maven supports through an extra set of phases: `pre-integration-test`, `integration-test`, `post-integration-test`, and `verify`.
-It also uses the Failsafe plugin in place of Surefire so that failed integration tests don't automatically fail the build (because you may need to clean up resources, such as a running application server).
+许多 Maven 构建都包含某种形式的集成测试，Maven 通过额外的一组阶段来支持这些 `pre-integration-test`, `integration-test`, `post-integration-test`, and `verify`.
+它还使用 Failsafe 插件代替 Surefire，以便失败的集成测试不会自动使构建失败（因为您可能需要清理资源，例如正在运行的应用程序服务器）。
 
-This behavior is easy to replicate in Gradle with source sets, as explained in our chapter on <<java_testing#sec:configuring_java_integration_tests,Testing in Java & JVM projects>>.
-You can then configure a clean-up task, such as one that shuts down a test server for example, to always run after the integration tests regardless of whether they succeed or fail using link:{groovyDslPath}/org.gradle.api.Task.html#org.gradle.api.Task:finalizedBy(java.lang.Object++[]++)[Task.finalizedBy()].
+正如我们在  <<java_testing#sec:configuring_java_integration_tests,Java & JVM 项目测试>>一章中所解释的那样，这种行为很容易在带有源集的 Gradle 中复制。 然后，您可以使用 link:{groovyDslPath}/org.gradle.api.Task.html#org.gradle.api.Task:finalizedBy(java.lang.Object++[]++)[Task.finalizedBy()] 将清理任务（例如，关闭测试服务器的清理任务）配置为始终在集成测试之后运行，而不管它们是否成功。
 
-If you really don't want your integration tests to fail the build, then you can use the link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:ignoreFailures[Test.ignoreFailures] setting described in the <<java_testing#sec:test_execution,Test execution>> section of the Java testing chapter.
+如果您确实不希望集成测试使构建失败，那么可以使用 Java 测试一章的 <<java_testing#sec:test_execution,Test execution>> 部分中描述的 link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:ignoreFailures[Test.ignoreFailures] 设置。
 
-Source sets also give you a lot of flexibility on where you place the source files for your integration tests.
-You can easily keep them in the same directory as the unit tests or, more preferably, in a separate source directory like `src/integTest/java`.
-To support other types of tests, you just add more source sets and link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] tasks!
+Source sets 还为您在集成测试中放置源文件的位置提供了很大的灵活性。 您可以轻松地将它们保存在与单元测试相同的目录中，或更优选地，保存在单独的源目录中，例如 `src/integTest/java`。 为了支持其他类型的测试，您只需添加更多的 source sets 和 link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] 任务！
 
 [[migmvn:common_plugins]]
-== Migrating common plugins
+== 迁移常用插件
 
-Maven and Gradle share a common approach of extending the build through plugins.
-Although the plugin systems are very different beneath the surface, they share many feature-based plugins, such as:
+Maven 和 Gradle 共享一种通过插件扩展构建的通用方法。 尽管表面上的插件系统有很大不同，但是它们共享许多基于功能的插件，例如：
 
 * Shade/Shadow
 * Jetty
@@ -527,8 +446,7 @@ Although the plugin systems are very different beneath the surface, they share m
 * JaCoCo
 * AntRun (see further down)
 
-Why does this matter? Because many plugins rely on standard Java conventions, so migration is just a matter of replicating the configuration of the Maven plugin in Gradle.
-As an example, here's a simple Maven Checkstyle plugin configuration:
+为什么这么重要？ 因为许多插件都依赖于标准 Java 约定，所以迁移仅是在 Gradle 中复制 Maven 插件的配置即可。 例如，这是一个简单的 Maven Checkstyle 插件配置：
 
 [source,xml]
 ----
@@ -557,8 +475,8 @@ As an example, here's a simple Maven Checkstyle plugin configuration:
 ...
 ----
 
-Everything outside of the configuration block can safely be ignored when migrating to Gradle.
-In this case, the corresponding Gradle configuration looks like the following:
+迁移到 Gradle 时，可以安全地忽略配置块之外的所有内容。
+在这种情况下，相应的Gradle配置如下所示：
 
 .Configuring the Gradle Checkstyle Plugin
 ====
@@ -566,8 +484,7 @@ include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[t
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=checkstyle]"]
 ====
 
-The Checkstyle tasks are automatically added as dependencies of the `check` task, which also includes `test`.
-If you want to ensure that Checkstyle runs before the tests, then just specify an ordering with the mustRunAfter() method:
+Checkstyle 任务会自动添加为 `check` 任务的依赖项，其中也包括 `test`。 如果要确保Checkstyle在测试之前运行，则只需使用 mustRunAfter() 方法指定顺序：
 
 .Controlling when the `checkstyle` task runs
 ====
@@ -575,18 +492,13 @@ include::sample[dir="snippets/mavenMigration/basic/groovy",files="build.gradle[t
 include::sample[dir="snippets/mavenMigration/basic/kotlin",files="build.gradle.kts[tags=depends-on]"]
 ====
 
-As you can see, the Gradle configuration is often much shorter than the Maven equivalent.
-You also have a much more flexible execution model since you are no longer constrained by Maven's fixed phases.
+如您所见，Gradle 配置通常比 Maven 等效配置短得多。 您还拥有一个更加灵活的执行模型，因为您不再受 Maven 固定阶段的约束。
 
-While migrating a project from Maven, don't forget about source sets.
-These often provide a more elegant solution for handling integration tests or generated sources than Maven can provide, so you should factor them into your migration plans.
+从 Maven 迁移项目时，请不要忘记  source sets。 与 Maven 相比，它们通常为处理集成测试或生成的源提供了更优雅的解决方案，因此您应将它们纳入迁移计划中。
 
+=== Ant 目标
 
-=== Ant goals
-
-Many Maven builds rely on the AntRun plugin to customize the build without the overhead of implementing a custom Maven plugin.
-Gradle has no equivalent plugin because Ant is a first-class citizen in Gradle builds, via the `ant` object.
-For example, you can use Ant's Echo task like this:
+许多 Maven 构建依赖于 AntRun 插件来自定义构建，而无需实现自定义Maven插件的开销。 Gradle 没有等效的插件，因为 Ant 通过 `ant` 对象是 Gradle 构建中的一等公民。 例如，您可以像这样使用 Ant 的 Echo 任务：
 
 .Invoking Ant tasks
 ====
@@ -594,54 +506,43 @@ include::sample[dir="snippets/mavenMigration/ant/groovy",files="build.gradle"]
 include::sample[dir="snippets/mavenMigration/ant/kotlin",files="build.gradle.kts"]
 ====
 
-Even Ant properties and filesets are supported natively.
-To learn more, see <<ant#ant,Using Ant from Gradle>>.
+本机还支持Ant属性和文件集。 要了解更多信息，请参阅 <<ant#ant,在 Gradle 中使用 Ant>>。
 
 [TIP]
 ====
-It may be simpler and cleaner to just <<custom_tasks#custom_tasks,create custom task types>> to replace the work that Ant is doing for you. You can then more readily benefit from <<more_about_tasks#sec:up_to_date_checks,incremental build>> and other useful Gradle features.
+仅创建 <<custom_tasks#custom_tasks,自定义任务类型>>来替换Ant为您所做的工作可能更简单，更简洁。 然后，您可以更轻松地从 <<more_about_tasks#sec:up_to_date_checks,增量构建>>和其他有用的 Gradle 功能中受益。
 ====
 
-
 [[migmvn:unnecessary_plugins]]
-== Understanding which plugins you don't need
+== 了解您不需要哪些插件
 
-It's worth remembering that Gradle builds are typically easier to extend and customize than Maven ones.
-In this context, that means you may not need a Gradle plugin to replace a Maven one.
-For example, the Maven Enforcer plugin allows you to control dependency versions and environmental factors, but these things can easily be configured in a normal Gradle build script.
-
+值得记住的是，Gradle 版本通常比 Maven 版本更易于扩展和自定义。 在这种情况下，这意味着您可能不需要 Gradle 插件来替换 Maven。 例如，Maven Enforcer 插件允许您控制依赖项版本和环境因素，
+但是可以在常规 Gradle 构建脚本中轻松配置这些内容。
 
 [[migmvn:custom_plugins]]
-== Dealing with uncommon and custom plugins
+== 处理不常见和自定义的插件
 
-You may come across Maven plugins that have no counterpart in Gradle, particularly if you or someone in your organisation has written a custom plugin.
-Such cases rely on you understanding how Gradle (and potentially Maven) works, because you will usually have to write your own plugin.
+您可能会遇到在 Gradle 中没有对应版本的 Maven 插件，特别是如果您或组织中的某人已编写了自定义插件。 这种情况取决于您了解 Gradle（以及可能的 Maven）的工作方式，因为您通常必须编写自己的插件。
 
-For the purposes of migration, there are two key types of Maven plugins:
+为了进行迁移，Maven 插件有两种主要类型：
 
-* Those that use the Maven project object.
-* Those that don't.
+* 那些使用 Maven project 对象的对象。
+* 那些没有。
 
-Why is this important? Because if you use one of the latter, you can trivially reimplement it as a <<custom_tasks#custom_tasks,custom Gradle task type>>.
-Simply define task inputs and outputs that correspond to the mojo parameters and convert the execution logic into a task action.
+为什么这很重要？ 因为如果使用后者之一，则可以轻松地将其重新实现为 <<custom_tasks#custom_tasks,自定义 Gradle 任务类型>>。 只需定义与 mojo 参数相对应的任务输入和输出，然后将执行逻辑转换为任务动作即可。
 
-If a plugin depends on the Maven project, then you will have to rewrite it.
-Don't start by considering how the Maven plugin works, but look at what problem it is trying to solve.
-Then try to work out how to solve that problem in Gradle.
-You'll probably find that the two build models are different enough that "transcribing" Maven plugin code into a Gradle plugin just won't be effective.
-On the plus side, the plugin is likely to be much easier to write than the original Maven one because Gradle has a much richer build model and API.
+如果插件依赖于 Maven 项目，那么您将不得不重写它。 不要先考虑 Maven 插件的工作原理，而要看看它正在尝试解决什么问题。 然后尝试解决如何在 Gradle 中解决该问题。
+您可能会发现这两个构建模型之间的差异足以使Maven插件代码  "transcribing"  到 Gradle 插件中才有效。 从好的方面来说，该插件可能比原始的 Maven 插件更容易编写，因为 Gradle 具有更丰富的构建模型和API。
 
-If you do need to implement custom logic, either via build scripts or plugins, check out the https://gradle.org/guides/?q=Plugin%20Development[Guides related to plugin development].
-Also be sure to familiarize yourself with Gradle's link:{groovyDslPath}/[Groovy DSL Reference], which provides comprehensive documentation on the API that you'll be working with.
-It details the standard configuration blocks (and the objects that back them), the core types in the system (`Project`, `Task`, etc.), and the standard set of task types.
-The main entry point is the link:{groovyDslPath}/org.gradle.api.Project.html[Project] interface as that's the top-level object that backs the build scripts.
+如果确实需要通过构建脚本或插件来实现自定义逻辑，请查看与 https://gradle.org/guides/?q=Plugin%20Development[插件开发相关的指南]。 另外，请务必熟悉 Gradle 的 link:{groovyDslPath}/[Groovy DSL Reference]，该参考提供了有关您将使用的 API 的全面文档。
+它详细介绍了标准配置块（以及支持它们的对象），系统中的核心类型（`Project`, `Task` 等）以及任务类型的标准集。 主要的入口点是 link:{groovyDslPath}/org.gradle.api.Project.html[Project] 接口，它是支持构建脚本的顶级对象。
 
-== Further reading
+== 进一步阅读
 
-This chapter has covered the major topics that are specific to migrating Maven builds to Gradle. All that remain are a few other areas that may be useful during or after a migration:
+本章涵盖了将 Maven 构建迁移到 Gradle 的主要主题。 剩下的就是迁移期间或迁移之后可能有用的其他一些方面：
 
- * Learn how to configure Gradle's <<build_environment#build_environment,build environment>>, including the JVM settings used to run it
- * Learn how to <<organizing_gradle_projects#organizing_gradle_projects,structure your builds effectively>>
- * <<logging#logging,Configure Gradle's logging>> and use it from your builds
+ * 了解如何配置 Gradle 的 <<build_environment#build_environment,构建环境>>，包括用于运行 Gradle 的 JVM 设置
+ * 了解如何 <<organizing_gradle_projects#organizing_gradle_projects,有效构建构建>>
+ * <<logging#logging,配置 Gradle 的日志>> 并在您的构建中使用
 
-As a final note, this guide has only touched on a few of Gradle's features and we encourage you to learn about the rest from the other chapters of the user manual and from our link:../samples/index.html[step-by-step samples].
+最后，本指南仅涉及 Gradle 的一些功能，我们鼓励您从用户手册的其他章节以及 link:../samples/index.html[step-by-step samples] 中了解其余内容。
