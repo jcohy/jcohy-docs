@@ -1,7 +1,7 @@
 [[faq]]
-= FAQ, Best Practices, and "How do I...?"
+= FAQ,最佳实践,以及 "我如何...?"
 
-This section covers the following content:
+本节涵盖以下内容:
 
 * <<faq.wrap-blocking>>
 * <<faq.chain>>
@@ -12,11 +12,9 @@ This section covers the following content:
 * <<faq.mdc>>
 
 [[faq.wrap-blocking]]
-== How Do I Wrap a Synchronous, Blocking Call?
+== 如何包装一个同步阻塞的调用?
 
-It is often the case that a source of information is synchronous and blocking.
-To deal with such sources in your Reactor applications, apply the following
-pattern:
+很多时候，信息源是同步和阻塞的。在 Reactor 中，我们用以下方式处理这种信息源:
 
 ====
 [source,java]
@@ -26,35 +24,25 @@ Mono blockingWrapper = Mono.fromCallable(() -> { <1>
 });
 blockingWrapper = blockingWrapper.subscribeOn(Schedulers.boundedElastic()); <3>
 ----
-<1> Create a new `Mono` by using `fromCallable`.
-<2> Return the asynchronous, blocking resource.
-<3> Ensure each subscription happens on a dedicated single-threaded worker
-from `Schedulers.boundedElastic()`.
+<1> 使用 `fromCallable` 方法生成一个 `Mono`；
+<2> 返回同步、阻塞的资源；
+<3> 使用 `Schedulers.boundedElastic()` 确保对每一个订阅来说运行在一个专门的线程上。
 ====
 
-You should use a `Mono`, because the source returns one value. You should use
-`Schedulers.boundedElastic`, because it creates a dedicated thread to wait for the
-blocking resource without impacting other non-blocking processing, while also ensuring
-that there is a limit to the amount of threads that can be created, and blocking tasks
-that can be enqueued and deferred during a spike.
+因为调用返回一个值，所以你应该使用 `Mono`。你应该使用 `Schedulers.boundedElastic` 因为它会创建一个专门的线程来等待阻塞的调用返回。同时还确保可以创建的线程数量和可以在高峰期间被排队和推迟。
 
-Note that `subscribeOn` does not subscribe to the `Mono`. It specifies what
-kind of `Scheduler` to use when a subscribe call happens.
+注意 `subscribeOn` 方法并不会 "订阅" 这个 `Mono`。它只是指定了订阅操作使用哪个 `Scheduler`。
 
 [[faq.chain]]
-== I Used an Operator on my `Flux` but it Doesn't Seem to Apply. What Gives?
+== 用在 `Flux` 上的操作符好像没起作用，为啥?
 
-Make sure that the variable you `.subscribe()` to has been affected by the
-operators you think should have been applied to it.
+请确认你确实对调用 `.subscribe()` 的发布者应用了这个操作符。
 
-Reactor operators are decorators. They return a different instance that wraps
-the source sequence and add behavior. That is why the preferred way of using
-operators is to _chain_ the calls.
+Reactor 的操作符是装饰器(decorators)。它们会返回一个不同的(发布者)实例， 这个实例对上游序列进行了包装并增加了一些的处理行为。所以，最推荐的方式是将操作符 "串" 起来。
 
-Compare the following two examples:
+对比下边的两个例子:
 
-
-.without chaining (incorrect)
+.没有串起来(不正确的)
 ====
 [source,java]
 ----
@@ -65,7 +53,7 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 <1> The mistake is here. The result is not attached to the `flux` variable.
 ====
 
-.without chaining (correct)
+.串起来(正确的)
 ====
 [source,java]
 ----
@@ -75,9 +63,9 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 ----
 ====
 
-The following sample is even better (because it is simpler):
+以下示例甚至更好(因为它更简单):
 
-.with chaining (best)
+.串起来(最好的)
 ====
 [source,java]
 ----
@@ -88,7 +76,7 @@ Flux<String> secrets = Flux
 ----
 ====
 
-The first version outputs the following:
+第一个例子的输出:
 
 ====
 [source]
@@ -98,7 +86,7 @@ Received: chain
 ----
 ====
 
-The two other versions output the expected values, as follows:
+后两个例子的输出:
 
 ====
 [source]
@@ -109,9 +97,9 @@ Received: *****
 ====
 
 [[faq.monoThen]]
-== My `Mono` `zipWith` or `zipWhen` is never called
+== `Mono` `zipWith/zipWhen` 没有被调用
 
-Consider the following example:
+例子:
 
 ====
 [source,java]
@@ -122,29 +110,20 @@ myMethod.process("a") // this method returns Mono<Void>
 ----
 ====
 
-If the source `Mono` is either `empty` or a `Mono<Void>` (a `Mono<Void>` is
-empty for all intents and purposes), some combinations are never called.
+如果源 `Mono` 为空或是一个 `Mono<Void>`(`Mono<Void>` 通常用于 `empty` 的场景)， 下边的组合操作就不会被调用。
 
-This is the typical case for any transformer such as the `zip` static method or
-the `zipWith` `zipWhen` operators, which (by definition) need an element from each
-source to produce their output.
+这是任何数据转换都有可能发生的典型情况，例如 `zip` 静态方法或 `zipWith` `zipWhen` 运算符，根据定义，这些操作符依赖于数据元素来转换为输出的元素。
 
-Using data-suppressing operators on sources of `zip` is thus problematic.
-Examples of data-suppressing operators include `then()`, `thenEmpty(Publisher<Void>)`,
-`ignoreElements()` and `ignoreElement()`, and `when(Publisher...)`.
+因此，在 `zip` 源上使用 data-suppressing 操作符是有问题的。  data-suppressing 的示例包括 `then()`, `thenEmpty(Publisher<Void>)`,
+`ignoreElements()` 和 `ignoreElement()`, 和 `when(Publisher...)`.
 
-Similarly, operators that use a `Function<T,?>` to tune their behavior, such as `flatMap`,
-need at least one element to be emitted for the `Function` to have a chance
-to apply. Applying these on an empty (or `<Void>`) sequence nevers produce an element.
+同样，使用 `Function<T,?>`  来调整其行为的操作符(例如 `flatMap`)需要至少发出一个元素，该函数才有机会应用。 将它们应用于空(或 `<Void>`)序列永远不会产生元素。
 
-You can use `.defaultIfEmpty(T)` and `.switchIfEmpty(Publisher<T>)` to
-replace an empty sequence of `T` with a default value or a fallback `Publisher<T>` (respectively),
-which could help avoid some of these situations. Note that this does not apply to
-`Flux<Void>`/`Mono<Void>` sources, as you can only switch to another `Publisher<Void>`,
-which is still guaranteed to be empty. The following example uses `defaultIfEmpty`:
+你可以使用 `.defaultIfEmpty(T)` 和 `.switchIfEmpty(Publisher<T>)` 将空序列替换为包含 `T` 类型缺省值的 `Publisher<T>` 序列(而不是 `Void` 序列)， 从而可以避免类似的情况出现。
+请注意，这不适用于 `Flux<Void>`/`Mono<Void>` 源，因为您只能切换到另一个 `Publisher<Void>`，但仍保证为空。 以下示例使用 `defaultIfEmpty`:
 
 
-.use `defaultIfEmpty` before `zipWhen`
+.在 `zipWhen` 之前使用  `defaultIfEmpty`
 ====
 [source,java]
 ----
@@ -156,30 +135,21 @@ myMethod.emptySequenceForKey("a") // this method returns empty Mono<String>
 ====
 
 [[faq.retryWhen]]
-== How to Use `retryWhen` to Emulate `retry(3)`?
+== 如何用 `retryWhen` 来实现 `retry(3)` 的效果?
 
-The `retryWhen` operator can be quite complex. Hopefully the following snippet of code
-can help you understand how it works by attempting to emulate a simpler
-`retry(3)`:
+`retryWhen` 方法比较复杂，希望下边的一段模拟 `retry(3)` 的代码能够帮你更好地理解它的工作方式:
 
 include::snippetRetryWhenRetry.adoc[]
 
 [[faq.exponentialBackoff]]
-== How can I use `retryWhen` for Exponential Backoff?
+== 如何使用 `retryWhen` 进行 exponential backoff?
 
-Exponential backoff produces retry attempts with a growing delay between each
-of the attempts, so as not to overload the source systems and risk an all-out
-crash. The rationale is that, if the source produces an error, it is already in
-an unstable state and is not likely to immediately recover from it. So blindly
-retrying immediately is likely to produce yet another error and add to the
-instability.
+Exponential backoff 的意思是进行的多次重试之间的间隔越来越长， 从而避免对源系统造成过载，甚至宕机。基本原理是，如果源产生了一个错误， 那么已经是处于不稳定状态，可能不会立刻复原。
+所以，如果立刻就重试可能会产生另一个错误， 导致源更加不稳定。
 
-Since `3.3.4.RELEASE`, Reactor comes with a builder for such a retry, to be used with `Flux#retryWhen`: `Retry.backoff`.
+从 `3.3.4.RELEASE` 开始，Reactor 附带了用于此类重试的构建器，可与 `Flux#retryWhen`:`Retry.backoff` 一起使用。
 
-The following example showcases a simple use of the builder, with hooks logging message right before
-and after the retry attempt delays.
-It delays retries and increases the delay between each attempt (pseudocode:
-delay = attempt number * 100 milliseconds):
+以下示例展示了构建器的简单用法，在重试尝试延迟之前和之后，hook 都记录了消息，每次重试的间隔都会递增 (伪代码: delay = attempt number * 100 milliseconds):
 
 ====
 [source,java]
@@ -197,14 +167,13 @@ Flux.<String>error(new IllegalStateException("boom"))
 				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
 		);
 ----
-<1> We will log the time of errors emitted by the source and count them.
-<2> We configure an exponential backoff retry with at most 3 attempts and no jitter.
-<3> We also log the time at which the retry happens.
-<4> By default an `Exceptions.retryExhausted` exception would be thrown, with the last `failure()` as a cause.
-Here we customize that to directly emit the cause as `onError`.
+<1> 记录错误出现的时间；
+<2> 我们配置了重试 3 次的效果。
+<3> 我们还会记录重试发生的时间。
+<4> 默认情况下，将抛出 `Exceptions.retryExhausted`  异常，并以最后一个  `failure()` 为异常原因。 在这里，我们将其自定义为直接原因并作为 `onError` 发出。
 ====
 
-When subscribed to, this fails and terminates after printing out the following:
+订阅后，它将失败并在打印出以下内容后终止:
 
 ====
 ----
@@ -216,20 +185,17 @@ java.lang.IllegalArgumentException at 18:02:29.663
 retried at 18:02:29.964 <3>
 java.lang.IllegalArgumentException at 18:02:29.964
 ----
-<1> First retry after about 100ms
-<2> Second retry after about 200ms
-<3> Third retry after about 300ms
+<1> 第一次重试延迟大约 100ms
+<2> 第二次重试延迟大约 200ms
+<3> 第三次重试延迟大约 300ms
 ====
 
 [[faq.thread-affinity-publishon]]
-== How Do I Ensure Thread Affinity when I Use `publishOn()`?
+== 如何使用 `publishOn()` 确保线程 Affinity ?
 
-As described in <<schedulers,Schedulers>>, `publishOn()` can be used to switch
-execution contexts. The `publishOn` operator influences the threading context
-where the rest of the operators in the chain below it run, up to a new
-occurrence of `publishOn`. So the placement of `publishOn` is significant.
+如  <<schedulers,Schedulers>> 所述，`publishOn()` 可以用来切换执行线程。 `publishOn` 能够影响到其之后的操作符的执行线程，直到有新的 `publishOn` 出现。 所以 `publishOn` 的位置很重要。
 
-Consider the following example:
+考虑下面的例子:
 
 ====
 [source,java]
@@ -243,46 +209,35 @@ processor.publishOn(scheduler1)
 ----
 ====
 
-The `transform` function in `map()` is
-run on a worker of `scheduler1`, and the `processNext` method in
-`doOnNext()` is run on a worker of `scheduler2`. Each subscription gets
-its own worker, so all elements pushed to the corresponding subscriber are published
-on the same `Thread`.
+比如下边的例子， `map()` 中的 `transform` 方法是在 `scheduler1` 的一个工作线程上执行的， 而 `doOnNext()` 中的 `processNext` 方法是在 `scheduler2` 的一个工作线程上执行的。
 
-You can use single-threaded schedulers to ensure thread affinity for different stages in the
-chain or for different subscribers.
+可能用于
 
+您可以使用单线程的调度器来确保对不同阶段的任务或不同的订阅者确保线程关联性。
 
 [[faq.mdc]]
-== What Is a Good Pattern for Contextual Logging? (MDC)
-Most logging frameworks allow contextual logging, letting users store variables that are reflected in the logging pattern, generally by way of a `Map` called the MDC ("Mapped Diagnostic Context").
-This is one of the most recurring use of `ThreadLocal` in Java, and as a consequence this pattern assumes that the code being logged is tied in a one-to-one relationship with a `Thread`.
+== 是你是上下文日志记录的最好模式? (MDC)
 
-That might have been a safe assumption to make before Java 8, but with the advent of functional programming elements in the Java language things have changed a bit...
+大多数日志框架都允许进行上下文日志记录，用户通过一个 `Map` 记录日志中的变量,通常称为 MDC(“映射的诊断上下文”) 。 这是 Java 中 `ThreadLocal` 的最经常使用的方法之一，因此，此模式假定所记录的代码与 Thread 是一对一关系。
 
-Let's take the example of a API that was imperative and used the template method pattern, then switches to a more functional style.
-With the template method pattern, inheritance was at play. Now in its more functional approach, higher order functions are passed to define the "steps" of the algorithm.
-Things are now more declarative than imperative, and that frees the library to make decisions about where each step should run.
-For instance, knowing which steps of the underlying algorithm can be parallelized, the library can use an `ExecutorService` to execute some of the steps in parallel.
+在 Java 8 之前，这可能是一个安全的假设，但是随着 Java 语言中函数式编程的出现，事情发生了一些变化...
 
-One concrete example of such a functional API is the `Stream` API introduced in Java 8 and its `parallel()` flavor.
-Logging with a MDC in a parallel `Stream` is not a free lunch: one need to ensure the MDC is captured and reapplied in each step.
+让我们模板方法模式的 API 为例，然后切换到更具函数式的样式。 使用模板方法模式，继承就发挥了作用。 现在，在函数式的方法中，传递了更高阶的函数来定义算法的 "步骤"。
+现在，事情比声明式命令更具声明性，这使库可以自由决定每个步骤应该在哪里运行。 例如，知道基础算法的哪些步骤可以并行化，该库可以使用 `ExecutorService` 并行执行某些步骤。
 
-The functional style enables such optimizations, because each step is thread-agnostic and referentially transparent, but it can break the MDC assumption of a single `Thread`.
-The most idiomatic way of ensuring any kind of contextual information is accessible to all stages would be to pass that context around through the composition chain.
-During the development of Reactor we encountered the same general class of problem, and we wanted to avoid this very hands-down and explicit approach.
-This is why the `Context` was introduced: it propagates through the execution chain as long as `Flux` and `Mono` are used as the return value, by letting stages (operators) peek at the `Context` of their downstream stage.
-So instead of using `ThreadLocal`, Reactor offers this map-like object that is tied to a `Subscription` and not a `Thread`.
+这种功能性API的一个具体示例是Java 8中引入的Stream API及其parallel()风格。 在并行Stream中使用MDC记录不是免费的午餐:需要确保在每个步骤中都捕获并重新应用MDC。
 
-Now that we've established that MDC "just working" is not the best assumption to make in a declarative API, how can we perform contextualized log statements in relation to events in a Reactive Stream (`onNext`, `onError`, and `onComplete`)?
+函数式风格可实现此类优化，因为每个步骤都是线程不可知的，并且引用是透明的，但是它可能会破坏单个线程的 MDC 假设。 确保所有阶段都可以访问任何种类的上下文信息的最惯用的方法是将整个上下文传递给整个组合链。
+在 Reactor 的开发过程中，我们遇到了相同的一般问题，因此我们希望避免这种不实际的，明确的方法。 这就是引入 `Context` 的原因:只要让阶段(运算符)窥视下游阶段的 `Context`，只要它将 `Flux` 和 `Mono` 用作返回值，
+它就会在执行链中传播。 因此，Reactor 提供了此类似于 `Map` 的对象，该对象与 `Subscription` 而非 `Thread` 绑定，而不是使用 `ThreadLocal`。
 
-This entry of the FAQ offers a possible intermediate solution when one wants to log in relation to these signals in a straightforward and explicit manner.
-Make sure to read the <<context>> section beforehand, and especially how a write must happen towards the bottom of the operator chain for operators above it to see it.
+既然我们已经确定 MDC 并不是在声明性 API 中做出的最佳假设，那么如何在响应式流(`onNext`，`onError` 和 `onComplete`)中与事件相关地执行上下文化的日志语句?
 
-To get contextual information from the `Context` to the MDC, the simplest way is to wrap logging statements in a `doOnEach` operator with a little bit of boilerplate code.
-This boilerplate depends on both the logging framework/abstraction of your choice and the information you want to put in the MDC, so it has to be in your codebase.
+当人们想要以直接和明确的方式登录这些信号时，FAQ 的此项提供了一种可能的中间解决方案。 确保事先阅读  <<context>> 部分，尤其是如何在操作符链的底部进行写操作，以使上方的操作符可以看到它。
 
-The following is an example of such a helper function around a single MDC variable and focused on logging `onNext` events, using Java 9 enhanced `Optional` API:
+要从 `Context` 到 MDC 获取上下文信息，最简单的方法是使用一点样板代码将日志记录语句包装在 `doOnEach` 操作符中。 该样板取决于您选择的日志记录框架/摘要以及要放入 MDC 中的信息，因此它必须在您的代码库中。
+
+以下是使用 Java 9 增强的 `Optional` API 围绕单个 MDC 变量的此类帮助器函数的示例，并着重于记录 `onNext` 事件:
 
 ====
 [source,java]
@@ -301,20 +256,18 @@ public static <T> Consumer<Signal<T>> logOnNext(Consumer<T> logStatement) {
 	};
 }
 ----
-<1> `doOnEach` signals include `onComplete` and `onError`. In this example we're only interested in logging `onNext`
-<2> We will extract one interesting value from the Reactor `Context` (see the <<context.api>> section)
-<3> We use the `MDCCloseable` from SLF4J 2 in this example, allowing try-with-resource syntax for automatic cleanup of the MDC after the log statement is executed
-<4> Proper log statement is provided by the caller as a `Consumer<T>` (consumer of the onNext value)
-<5> In case the expected key wasn't set in the `Context` we use the alternative path where nothing is put in the MDC
+<1> `doOnEach` 信号包括 `onComplete` 和 `onError`。 在此示例中，我们仅对 `onNext` 感兴趣。
+<2> 我们将从Reactor `Context` 中提取一个有趣的值(请参见  <<context.api>> 部分)
+<3> 在此示例中，我们使用 SLF4J 2 中的 `MDCCloseable`，允许在使用 log 语句后使用 try-with-source 语法自动清除 MDC。
+<4> 调用者以 `Consumer<T>` 的形式提供正确的日志语句(使用 onNext 值)
+<5> 如果未在 `Context` 中设置预期的密钥，我们将使用替代路径，即在 MDC 中不添加任何内容
 ====
 
-Using this boilerplate code ensures that we are good citizens with the MDC: we set a key right before we execute a logging statement and remove it immediately after.
-There is no risk of polluting the MDC for subsequent logging statements.
+使用此样板代码可确保我们是MDC的良好公民:我们在执行日志记录语句之前立即设置了密钥，并在之后立即将其删除。 不会为后续的日志记录语句污染MDC。
 
-Of course, this is a suggestion. You might be interested in extracting multiple values from the `Context` or in logging things in case of `onError`.
-You might want to create additional helper methods for these cases or craft a single method that makes use of additional lambdas to cover more ground.
+当然，这是一个建议。 您可能对从 `Context` 中提取多个值或在 `onError` 的情况下记录事件感兴趣。 您可能想要为这些情况创建其他辅助方法，或设计一个利用其他 lambda 覆盖更多区域的方法。
 
-In any case, the usage of the preceding helper method could look like the following reactive web controller:
+无论如何，前面的辅助方法的用法可能类似于以下反应式 Web 控制器:
 
 ====
 [source,java]
@@ -334,9 +287,9 @@ public Flux<Restaurant> byPrice(@RequestParam Double maxPrice, @RequestHeader(re
 <3> We write the value from the header to the `Context` using the chosen key `CONTEXT_KEY`.
 ====
 
-In this configuration, the `restaurantService` can emit its data on a shared thread, yet the logs will still reference the correct `X-UserId` for each request.
+在这种配置中，`restaurantService` 可以在共享线程上发出其数据，但是日志仍将为每个请求引用正确的 `X-UserId`。
 
-For completeness, we can also see what an error-logging helper could look like:
+为了完整起见，我们还可以看到错误记录助手的外观:
 
 ====
 [source,java]
@@ -357,9 +310,9 @@ public static Consumer<Signal<?>> logOnError(Consumer<Throwable> errorLogStateme
 ----
 ====
 
-Nothing much has changed, except for the fact that we check that the `Signal` is effectively an `onError`, and that we provide said error (a `Throwable`) to the log statement lambda.
+除了我们检查 Signal 实际上是 `onError` 并向日志语句 lambda 提供上述错误(`Throwable`)这一事实之外，其他任何事情都没有改变。
 
-Applying this helper in the controller is very similar to what we've done before:
+在控制器中应用此辅助程序与我们之前所做的非常相似:
 
 ====
 [source,java]
