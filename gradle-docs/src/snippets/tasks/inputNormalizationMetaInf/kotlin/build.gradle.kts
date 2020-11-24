@@ -20,7 +20,8 @@ normalization {
         }
     }
 }
-// end::ignore-metainf-manifest[]
+
+// end::ignore-metainf-properties[]
 
 // tag::ignore-metainf-manifest[]
 normalization {
@@ -30,7 +31,7 @@ normalization {
         }
     }
 }
-// end::ignore-metainf-completely[]
+// end::ignore-metainf-manifest[]
 
 // tag::ignore-metainf-completely[]
 normalization {
