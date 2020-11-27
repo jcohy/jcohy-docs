@@ -14,100 +14,69 @@
 
 
 [[configuration_and_execution]]
-= Configuration time and execution time
+= 配置时间和执行时间
 
-<<build_lifecycle.adoc#sec:build_phases,Build phases>> describes the phases of every Gradle build.
-Let's zoom into the configuration and execution phases of a multi-project build.
-Configuration here means evaluating the build script file of a project, which includes downloading all plugins and build script dependencies.
-By default, the configuration of all projects happens before any task is executed.
-This means that when a single task, from a single project is requested, _all_ projects of a multi-project build are configured first.
-The reason every project needs to be configured is to support the flexibility of accessing and changing any part of the Gradle project model.
-
+<<build_lifecycle.adoc#sec:build_phases,构建阶段>>章节中描述了每个 Gradle 构建的阶段。让我们放大多项目构建的配置和执行阶段。 这里的配置意味着评估项目的构建脚本文件，包括下载所有插件和构建脚本依赖。
+默认情况下，所有项目的配置都在执行任何任务之前进行。 这意味着当请求来自单个项目的单个任务时，将首先配置多项目构建的所有项目。
+需要配置每个项目的原因是为了支持访问和更改 Gradle 项目模型的任何部分的灵活性。
 
 [[sec:parallel_execution]]
-== Parallel project execution
+== 并行项目执行
 
-With more and more CPU cores available on developer desktops and CI servers, it is important that Gradle is able to fully utilise these processing resources.
-More specifically, parallel execution attempts to:
+随着开发人员桌面和 CI 服务器上越来越多的CPU内核可用，Gradle 能够充分利用这些处理资源非常重要。更具体地说，尝试并行执行：
 
-* Reduce total build time for a multi-project build where execution is IO bound or otherwise does not consume all available CPU resources.
-* Provide faster feedback for execution of small projects without awaiting completion of other projects.
+* 在多项目构建中尽量减少执行受 IO 约束或消耗可用 CPU 资源
+* 为小型项目的执行提供更快的反馈，而无需等待其他项目的完成。
 
-Although Gradle already offers parallel test execution via link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#setMaxParallelForks-int-[Test.setMaxParallelForks(int)] the feature described in this section is parallel execution at a project level.
+尽管 Gradle 已经通过 link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#setMaxParallelForks-int-[Test.setMaxParallelForks(int)] 提供了并行测试执行，但本节中介绍的功能是在项目级别上并行执行。
 
-Parallel project execution allows the separate projects in a decoupled multi-project build to be executed in parallel (see also <<#sec:decoupled_projects,Decoupled projects>>).
-While parallel execution does not strictly require decoupling at configuration time, the long-term goal is to provide a powerful set of features that will be available for fully decoupled projects.
-Such features include:
+并行项目执行允许并行执行已解耦的多项目构建中的各个项目（另请参见 <<#sec:decoupled_projects,项目解耦>>）。 尽管并行执行并不严格要求在配置时进行解耦，但长期目标是提供一套功能强大的功能，
+这些功能可用于完全解耦的项目。 这些功能包括：
 
-* <<#sec:configuration_on_demand,Configuration on-demand>>.
-* Configuration of projects in parallel.
-* Re-use of configuration for unchanged projects.
-* Project-level up-to-date checks.
-* Using pre-built artifacts in the place of building dependent projects.
+* <<#sec:configuration_on_demand,按需配置>>.
+* 并行配置项目。
+* 对未更改的项目重复使用配置。
+* 项目级别的最新检查
+* 使用预先构建的工件代替构建依赖项目。
 
-
-How does parallel execution work? First, you need to tell Gradle to use parallel mode.
-You can use the <<command_line_interface.adoc#sec:command_line_performance,`--parallel` command line argument>> or configure your build environment (<<build_environment.adoc#sec:gradle_configuration_properties,Gradle properties>>).
-Unless you provide a specific number of parallel threads, Gradle attempts to choose the right number based on available CPU cores.
-Every parallel worker exclusively owns a given project while executing a task.
-Task dependencies are fully supported and parallel workers will start executing upstream tasks first.
-Bear in mind that the alphabetical ordering of decoupled tasks, as can be seen during sequential execution, is not guaranteed in parallel mode.
-In other words, in parallel mode tasks will run as soon as their dependencies complete _and a task worker is available to run them_, which may be earlier than they would start during a sequential build.
-You should make sure that task dependencies and task inputs/outputs are declared correctly to avoid ordering issues.
+并行执行如何工作？ 首先，您需要告诉 Gradle 使用并行模式。 您可以使用  <<command_line_interface.adoc#sec:command_line_performance,`--parallel` 命令行参数>> 或配置构建环境（<<build_environment.adoc#sec:gradle_configuration_properties,Gradle properties>>）。
+除非您提供特定数量的并行线程，否则Gradle会尝试根据可用的CPU内核选择正确的数量。 每个并行工作者在执行任务时都专有拥有一个给定的项目。 
+完全支持任务依赖关系，并行工作者将首先开始执行上游任务。 请记住，在并行模式下不能保证解耦任务的字母顺序（在顺序执行期间可以看到）。
+换句话说，在并行模式下，任务将在它们的依赖关系完成后立即运行，并且有任务运行器可以运行它们，这可能早于在顺序构建期间开始的任务。 您应确保正确声明了任务依赖性和任务 inputs/outputs，以避免出现排序问题。
 
 [[sec:decoupled_projects]]
-== Decoupled Projects
+== 项目解耦
 
-Gradle allows any project to access any other project during both the configuration and execution phases.
-While this provides a great deal of power and flexibility to the build author, it also limits the flexibility that Gradle has when building those projects.
-For instance, this effectively prevents Gradle from correctly building multiple projects in parallel, configuring only a subset of projects, or from substituting a pre-built artifact in place of a project dependency.
+Gradle 允许任何项目在配置和执行阶段都可以访问任何其他项目。 尽管这为构建作者提供了强大的功能和灵活性，但同时也限制了 Gradle 在构建这些项目时所具有的灵活性。 例如，这有效地阻止了 Gradle 并行正确地构建多个项目，仅配置项目的子集或替代了预先构建的工件来代替项目依赖项。
 
-Two projects are said to be _decoupled_ if they do not directly access each other's project model.
-Decoupled projects may only interact in terms of declared dependencies: <<declaring_dependencies.adoc#sub:project_dependencies,project dependencies>> and/or <<tutorial_using_tasks.adoc#sec:task_dependencies,task dependencies>>.
-Any other form of project interaction (i.e. by modifying another project object or by reading a value from another project object) causes the projects to be coupled.
-The consequence of coupling during the configuration phase is that if gradle is invoked with the 'configuration on demand' option, the result of the build can be flawed in several ways.
-The consequence of coupling during execution phase is that if gradle is invoked with the parallel option, one project task runs too late to influence a task of a project building in parallel.
-Gradle does not attempt to detect coupling and warn the user, as there are too many possibilities to introduce coupling.
+如果两个项目不直接访问彼此的项目模型，则据说它们是分离的。 解耦的项目只能根据声明的依赖项进行交互： <<declaring_dependencies.adoc#sub:project_dependencies,project dependencies>> and/or <<tutorial_using_tasks.adoc#sec:task_dependencies,task dependencies>>。
+任何其他形式的项目交互（即通过修改另一个项目对象或通过从另一个项目对象读取值）都会导致项目耦合。 在配置阶段进行耦合的结果是，如果使用 'configuration on demand' 调用 gradle，则构建结果可能会以多种方式存在缺陷。 
+在执行阶段进行耦合的结果是，如果使用 parallel 选项调用 gradle，则一个项目任务会运行得太晚而无法影响并行构建项目的任务。 Gradle 不会尝试检测耦合并警告用户，因为引入耦合的可能性太多。
 
-A very common way for projects to be coupled is by using <<sharing_build_logic_between_subprojects#sec:convention_plugins_vs_cross_configuration,configuration injection>>.
-It may not be immediately apparent, but using key Gradle features like the `allprojects` and `subprojects` keywords automatically cause your projects to be coupled.
-This is because these keywords are used in a `build.gradle` file, which defines a project.
-Often this is a “root project” that does nothing more than define common configuration, but as far as Gradle is concerned this root project is still a fully-fledged project, and by using `allprojects` that project is effectively coupled to all other projects.
-Coupling of the root project to subprojects does not impact 'configuration on demand', but using the `allprojects` and `subprojects` in any subproject's `build.gradle` file will have an impact.
+耦合项目的一种非常常见的方式是使用 <<sharing_build_logic_between_subprojects#sec:convention_plugins_vs_cross_configuration,配置注入>>。 这可能不会立即显现出来，但是使用关键的 Gradle 功能（例如 `allprojects` 和 `subprojects` 关键字）会自动使您的项目耦合。
+这是因为这些关键字在定义项目的 `build.gradle` 文件中使用。 通常，这是一个 “root project”，只不过定义了通用配置，但就 Gradle 而言，该根项目仍然是一个成熟的项目，通过使用 `allprojects`，该项目可以有效地耦合到所有其他项目。
+根项目与子项目的耦合不会影响 'configuration on demand'，但是在任何子项目的 `build.gradle` 文件中使用 `allprojects` 和 `subprojects` 都会产生影响。
 
-This means that using any form of shared build script logic or configuration injection (`allprojects`, `subprojects`, etc.) will cause your projects to be coupled.
-As we extend the concept of project decoupling and provide features that take advantage of decoupled projects, we will also introduce new features to help you to solve common use cases (like configuration injection) without causing your projects to be coupled.
+这意味着使用任何形式的共享构建脚本逻辑或配置注入（`allprojects`, `subprojects` 等）将导致您的项目耦合。 随着我们扩展项目解耦的概念并提供利用解耦项目的功能，我们还将引入新功能，以帮助您解决常见的用例（例如配置注入），而不会导致您的项目被耦合。
 
-In order to make good use of cross project configuration without running into issues for parallel and 'configuration on demand' options, follow these recommendations:
+为了充分利用跨项目配置，而又不会遇到并行和 'configuration on demand' 选项的问题，请遵循以下建议：
 
-* Avoid a subproject's build script referencing other subprojects; preferring cross configuration from the root project.
-* Avoid changing the configuration of other projects at execution time.
-
+* 避免子项目的构建脚本引用其他子项目；首选从根项目进行交叉配置。
+* 避免在执行时更改其他项目的配置。
 
 [[sec:configuration_on_demand]]
-== Configuration on demand
+== 按需配置
 
-The _Configuration injection_ feature and access to the complete project model are possible because every project is configured before the execution phase.
-Yet, this approach may not be the most efficient in a very large multi-project build.
-There are Gradle builds with a hierarchy of hundreds of subprojects.
-The configuration time of huge multi-project builds may become noticeable.
+配置注入功能和对完整项目模型的访问是可能的，因为每个项目都在执行阶段之前进行了配置。 但是，这种方法在大型多项目构建中可能不是最有效的。 有Gradle构建，其中包含数百个子项目的层次结构。 庞大的多项目构建的配置时间可能会变得很明显。
 
-Configuration on demand attempts to configure only projects that are relevant for requested tasks, i.e. it only executes the build script file of projects that are participating in the build.
-This way, the configuration time of a large multi-project build can be reduced.
+按需配置尝试仅配置与所请求任务相关的项目，即，它仅执行参与构建的项目的构建脚本文件。 这样，可以减少大型多项目构建的配置时间。
 
-The configuration on demand feature is incubating, so not every build is guaranteed to work correctly.
-The feature should work very well for multi-project builds that have <<#sec:decoupled_projects,decoupled projects>>.
-In “configuration on demand” mode, projects are configured as follows:
+按需配置功能正在不断发展，因此，并非所有构建版本都能保证正常运行。 对于已 <<#sec:decoupled_projects,解耦项目>>的多项目构建，该功能应该可以很好地工作。 在 “configuration on demand” 模式下，项目配置如下：
 
-* The root project is always configured.
-* The project in the directory where the build is executed is also configured, but only when Gradle is executed without any tasks.
-This way the default tasks behave correctly when projects are configured on demand.
-* The standard project dependencies are supported and makes relevant projects configured.
-If project A has a compile dependency on project B then building A causes configuration of both projects.
-* The task dependencies declared via task path are supported and cause relevant projects to be configured.
-Example: `someTask.dependsOn(":some-other-project:someOtherTask")`
-* A task requested via task path from the command line (or Tooling API) causes the relevant project to be configured.
-For example, building 'project-a:project-b:someTask' causes configuration of project-b.
+* 始终配置根项目。
+* 也只在执行 Gradle 而没有任何任务的情况下配置执行构建的目录中的项目。这样，当按需配置项目时，默认任务将正确运行。
+* 支持标准项目依赖，并配置了相关项目。如果项目A对项目B具有编译依赖性，则构建A会导致两个项目的配置。
+* 支持通过任务路径声明的任务依赖性，并导致配置相关项目。示例: `someTask.dependsOn(":some-other-project:someOtherTask")`
+* 通过任务路径从命令行（或Tooling API）请求的任务会导致配置相关项目。例如，构建 'project-a:project-b:someTask' 导致配置project-b。
 
-To configure on demand with every build run see <<build_environment.adoc#sec:gradle_configuration_properties,Gradle properties>>.
-To configure on demand just for a given build, see <<command_line_interface.adoc#sec:command_line_performance,command-line performance-oriented options>>.
+要在每次构建运行时按需配置，请参阅 <<build_environment.adoc#sec:gradle_configuration_properties,Gradle properties>>。 要仅针对给定的构建按需配置，请参阅 <<command_line_interface.adoc#sec:command_line_performance,command-line performance-oriented options>>。
