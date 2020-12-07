@@ -1,257 +1,217 @@
-= Understanding dependency resolution
+= 了解依赖解析
 
-This chapter covers the way dependency resolution works _inside_ Gradle.
-After covering how you can declare <<declaring_repositories.adoc#,repositories>> and <<declaring_dependencies.adoc#,dependencies>>, it makes sense to explain how these declarations come together during dependency resolution.
+本章介绍了 Gradle 内部依赖解析的工作方式。 在介绍了如何声明 <<declaring_repositories.adoc#,repositories>> 和 <<declaring_dependencies.adoc#,dependencies>>之后，有必要解释在依赖解析期间这些声明如何组合在一起。
 
-Dependency resolution is a process that consists of two phases, which are repeated until the dependency graph is complete:
+依赖性解析是一个由两个阶段组成的过程，将重复执行两个阶段，直到完成依赖性图为止：
 
-* When a new dependency is added to the graph, perform conflict resolution to determine which version should be added to the graph.
-* When a specific dependency, that is a module with a version, is identified as part of the graph, retrieve its metadata so that its dependencies can be added in turn.
+* 将新的依存关系添加到图后，请执行冲突解决方案以确定应将哪个版本添加到图。
+* 当特定的依赖（即具有版本的模块）被标识为图形的一部分时，请检索其元数据，以便可以依次添加其依赖。
 
-The following section will describe what Gradle identifies as conflict and how it can resolve them automatically.
-After that, the retrieval of metadata will be covered, explaining how Gradle can <<#sec:how-gradle-downloads-deps,follow dependency links>>.
+以下部分将介绍 Gradle 识别为冲突的内容以及如何自动解决冲突。 之后，将介绍元数据的检索，解释 <<#sec:how-gradle-downloads-deps,Gradle 如何遵循依赖链接>> 。
 
 [[sec:conflict-resolution]]
-== How Gradle handles conflicts?
+== Gradle 如何处理冲突?
 
-When doing dependency resolution, Gradle handles two types of conflicts:
+执行依赖解析时，Gradle处理两种类型的冲突:
 
-Version conflicts::
-That is when two or more dependencies require a given dependency but with different versions.
+版本冲突::
+那是当两个或多个依赖需要给定的依赖但版本不同时。
 
-Implementation conflicts::
-That is when the dependency graph contains module that provide the same implementation, or capability in Gradle terminology.
+Implementation 冲突::
+那就是当依赖图包含在 Gradle 术语中提供相同实现或功能的模块时。.
 
-The following sections will explain in detail how Gradle attempts to resolve these conflicts.
+以下各节将详细说明 Gradle 如何尝试解决这些冲突。.
 
-The dependency resolution process is highly customizable to meet enterprise requirements.
-For more information, see the chapter on <<dependency_constraints.adoc#,Controlling transitive dependencies>>.
+依赖性解析过程可以高度自定义以满足企业需求。 有关更多信息，请参见 <<dependency_constraints.adoc#,控制依赖传递>>。
 
 [[sec:version-conflict]]
-== Version conflict resolution
+== 解决版本冲突
 
-A version conflict occurs when two components:
+当两个组件发生版本冲突:
 
-* Depend on the same module, let's say `com.google.guava:guava`
-* But on different versions, let's say `20.0` and `25.1-android`
-** Our project itself depends on `com.google.guava:guava:20.0`
-** Our project also depends on `com.google.inject:guice:4.2.2` which itself depends on `com.google.guava:guava:25.1-android`
+* 取决于同一模块，假设 `com.google.guava:guava`
+* 但是在不同的版本上，例如 `20.0` 和 `25.1-android`
+** 我们的项目本身取决于 `com.google.guava:guava:20.0`
+** 我们的项目还依赖 `com.google.inject:guice:4.2.2` 本身依赖 `com.google.guava:guava:25.1-android`
 
 [[sub:resolution-strategy]]
-=== Resolution strategy
+=== 解决策略
 
-Given the conflict above, there exist multiple ways to handle it, either by selecting a version or failing the resolution.
-Different tools that handle dependency management have different ways of handling these type of conflicts.
+鉴于上述冲突，可以通过选择版本或通过失败的解决方法来解决。 处理依赖性管理的不同工具具有处理此类冲突的不同方法.
 
 [NOTE]
 ====
-https://maven.apache.org/[Apache Maven] uses a nearest first strategy.
+https://maven.apache.org/[Apache Maven] 使用最接近的优先策略。
 
-Maven will take the _shortest_ path to a dependency and use that version.
-In case there are multiple paths of the same length, the first one wins.
+Maven 将采用最短路径获得依赖并使用该版本。 如果有多个相同长度的路径，则第一个获胜。
 
-This means that in the example above, the version of `guava` will be `20.0` because the direct dependency is _closer_ than the `guice` dependency.
+这意味着在上面的示例中，`guava` 的版本将为  `20.0` ，因为直接依赖性比 `guice` 依赖性更近。
 
-The main drawback of this method is that it is ordering dependent.
-Keeping order in a very large graph can be a challenge.
-For example, what if the new version of a dependency ends up having its own dependency declarations in a different order than the previous version?
+这种方法的主要缺点是依赖于顺序。 在很大的图中保持顺序可能是一个挑战。 例如，如果新版本的依赖最终以不同于先前版本的顺序拥有其自己的依赖声明，该怎么办？.
 
-With Maven, this could have unwanted impact on resolved versions.
+使用 Maven，这可能会对解析的版本产生不良影响。
 ====
 
 [NOTE]
 ====
-https://ant.apache.org/ivy/[Apache Ivy] is a very flexible dependency management tooling.
-It offers the possibility to customize dependency resolution, including conflict resolution.
+https://ant.apache.org/ivy/[Apache Ivy] 是一种非常灵活的依赖管理工具。 它提供了自定义依赖解决方案（包括冲突解决方案）的可能性。
 
-This flexibility comes with the price of making it hard to reason about.
+这种灵活性伴随着难以推理的代价。
 ====
 
-Gradle will consider _all_ requested versions, wherever they appear in the dependency graph.
-Out of these versions, it will select the _highest_ one.
+Gradle 将考虑所有请求的版本，无论它们出现在依赖图中的何处。 在这些版本中，它将选择最高的版本。.
 
-As you have seen, Gradle supports a concept of <<rich_versions.adoc#,rich version declaration>>, so what is the highest version depends on the way versions were declared:
+如您所见，Gradle 支持 <<rich_versions.adoc#,rich version declaration>> 的概念，因此最高版本取决于版本声明的方式：
 
-* If no ranges are involved, then the highest version that is not rejected will be selected.
-** If a version declared as `strictly` is lower than that version, selection will fail.
-* If ranges are involved:
-** If there is a non range version that falls within the specified ranges or is higher than their upper bound, it will be selected.
-** If there are only ranges, the highest _existing_ version of the range with the highest upper bound will be selected.
-** If a version declared as `strictly` is lower than that version, selection will fail.
+* 如果不涉及范围，则将选择不被拒绝的最高版本。
+** 如果声明为严格低于该版本的版本，则选择将失败。
+* 如果涉及范围：
+** 如果有非范围版本落入指定范围内或高于其上限，则将选择该版本。
+** 如果仅存在范围，则将选择具有最高上限的范围的现有最高版本。
+** 如果声明为 `strictly` 低于该版本的版本，则选择将失败。
 
-Note that in the case where ranges come into play, Gradle requires metadata to determine which versions do exist for the considered range.
-This causes an intermediate lookup for metadata, as described in <<#sec:how-gradle-downloads-deps>>.
+请注意，在范围起作用的情况下，Gradle 需要元数据来确定对于所考虑范围确实存在哪些版本。 如 <<#sec:how-gradle-downloads-deps>> ？中所述，这将导致对元数据的中间查找。
 
 [[sec:implementation-conflict]]
-== Implementation conflict resolution
+== 解决实现冲突
 
-Gradle uses variants and capabilities to identify what a module _provides_.
+Gradle 使用变体和功能来识别模块提供的功能。
 
-This is a unique feature that deserves its <<variant_model.adoc#,own chapter>> to understand what it means and enables.
+这是一个独特的功能，值得一章以了解其含义和功能。
 
-A conflict occurs the moment two modules either:
+两个模块之一发生冲突时：
 
-* Attempt to select incompatible variants,
-* Declare the same capability
+* 尝试选择不兼容的变体，
 
-Learn more about handling these type of conflicts in <<dependency_capability_conflict.adoc#sub:selecting-between-candidates,Selecting between candidates>>.
+* 声明相同的功能
+
+在 <<dependency_capability_conflict.adoc#sub:selecting-between-candidates,Selecting between candidates>> 中了解有关处理此类冲突的更多信息。 .
 
 [[sec:how-gradle-downloads-deps]]
-== How Gradle retrieves dependency metadata?
+== Gradle 如何检索依​​赖元数据？
 
-Gradle requires metadata about the modules included in your dependency graph.
-That information is required for two main points:
+Gradle需要有关依赖图中包含的模块的元数据。 该信息是两点所必需的：:
 
-* Determine the existing versions of a module when the declared version is dynamic.
-* Determine the dependencies of the module for a given version.
+* 当声明的版本是动态的时，确定模块的现有版本。
+* 确定给定版本的模块依赖性。
 
-=== Discovering versions
+=== 发现版本
 
-Faced with a dynamic version, Gradle needs to identify the concrete matching versions:
+面对动态版本，Gradle需要确定具体的匹配版本:
 
-* Each repository is inspected, Gradle does not stop on the first one returning some metadata.
-When multiple are defined, they are inspected _in the order they were added_.
-* For Maven repositories, Gradle will use the `maven-metadata.xml` which provides information about the available versions.
-* For Ivy repositories, Gradle will resort to directory listing.
+* 检查每个仓库，Gradle 不会在第一个返回某些元数据的站点上停止。 定义多个时，将按照添加顺序对其进行检查。.
+* 对于Maven仓库，Gradle 将使用 `maven-metadata.xml` 提供有关可用版本的信息.
+* 对于 Ivy 仓库, Gradle 将重排序目录列表.
 
-This process results in a list of candidate versions that are then matched to the dynamic version expressed.
-At this point, <<#sub:resolution-strategy,version conflict resolution>> is resumed.
+此过程将生成候选版本列表，这些候选版本然后与表示的动态版本匹配。 此时，将恢复 <<#sub:resolution-strategy,version conflict resolution>>。
 
-Note that Gradle caches the version information, more information can be found in the section <<dynamic_versions.adoc#sec:controlling-dynamic-version-caching,Controlling dynamic version caching>>.
+请注意，Gradle 会缓存版本信息，有关更多信息，请参见 <<dynamic_versions.adoc#sec:controlling-dynamic-version-caching,控制动态版本缓存一节>> 。
 
-=== Obtaining module metadata
+=== 获取 module 元数据
 
-Given a required dependency, with a version, Gradle attempts to resolve the dependency by searching for the module the dependency points at.
+给定所需的依赖（带有版本），Gradle 尝试通过搜索依赖指向的模块来解决依赖.
 
-* Each repository is inspected in order.
-** Depending on the type of repository, Gradle looks for metadata files describing the module (`.module`, `.pom` or `ivy.xml` file) or directly for artifact files.
-** Modules that have a module metadata file (`.module`, `.pom` or `ivy.xml` file) are preferred over modules that have an artifact file only.
-** Once a repository returns a _metadata_ result, following repositories are ignored.
-* Metadata for the dependency is retrieved and parsed, if found
-** If the module metadata is a POM file that has a parent POM declared, Gradle will recursively attempt to resolve each of the parent modules for the POM.
-* All of the artifacts for the module are then requested from the _same repository_ that was chosen in the process above.
-* All of that data, including the repository source and potential misses are then stored in the <<#sec:dependency_cache>>.
+* 依次检查每个仓库
+** 根据仓库的类型，Gradle 会查找描述模块的元数据文件(`.module`, `.pom` or `ivy.xml` file) 或直接查找 artifacts 文件.
+** 具有模块元数据文件 (`.module`, `.pom` or `ivy.xml` file) 的模块优于仅具有 artifacts 文件的模块。
+** 仓库返回元数据结果后，以下仓库将被忽略。
+* 如果找到依赖的元数据，则将对其进行检索和解析
+** 如果模块元数据是声明了父 POM 的 POM 文件，则 Gradle 将递归地尝试为 POM 解析每个父模块
+* 然后，从上述过程中选择的同一仓库中请求模块的所有 artifacts 。
+* 然后，所有这些数据，包括仓库源和潜在的丢失都将存储在 <<#sec:dependency_cache>> 中.
 
 [NOTE]
 ====
-The penultimate point above is what can make the integration with <<declaring_repositories.adoc#sec:case-for-maven-local,Maven Local>> problematic.
-As it is a cache for Maven, it will sometimes miss some artifacts of a given module.
-If Gradle is sourcing such a module from Maven Local, it will consider the missing artifacts to be missing altogether.
+上面的倒数第二点是使与 Maven Local 集成的问题。 因为它是 Maven 的缓存，所以有时会丢失给定模块的一些 artifacts 。 如果 Gradle 从 <<declaring_repositories.adoc#sec:case-for-maven-local,Maven Local>> 获取这样的模块，它会认为丢失的 artifacts 完全丢失了。。
 ====
 
-=== Repository disabling
+=== 禁用仓库
 
-When Gradle fails to retrieve information from a repository, it will disable it for the duration of the build and fail all dependency resolution.
+当Gradle无法从仓库中检索信息时，它将在构建期间禁用它，并使所有依赖解析失败。
 
-That last point is important for reproducibility.
-If the build was allowed to continue, ignoring the faulty repository, subsequent builds could have a different result once the repository is back online.
+最后一点对于可重复性很重要。 如果允许继续构建而忽略有问题的仓库，则一旦仓库重新联机，后续的构建可能会有不同的结果。
 
 [[sub:http-retries]]
-==== HTTP Retries
+==== HTTP 重试
 
-Gradle will make several attempts to connect to a given repository before disabling it.
-If connection fails, Gradle will retry on certain errors which have a chance of being transient, increasing the amount of time waiting between each retry.
+在禁用某个仓库之前，Gradle 会进行几次尝试。 如果连接失败，Gradle 将重试某些可能会被瞬态发生的错误，从而增加每次重试之间的等待时间。
 
-Blacklisting happens when the repository cannot be contacted, either because of a permanent error or because the maximum retries was reached.
+当由于永久错误或由于达到最大重试次数而无法联系仓库时，就会发生黑名单。.
 
 [[sec:dependency_cache]]
-== The Dependency Cache
+== 缓存依赖
 
-Gradle contains a highly sophisticated dependency caching mechanism, which seeks to minimise the number of remote requests made in dependency resolution, while striving to guarantee that the results of dependency resolution are correct and reproducible.
+Gradle 包含一个高度复杂的依赖缓存机制，它寻求最小化依赖解析中产生的远程请求的数量，同时努力保证依赖解析的结果是正确的和可复制的。
 
-The Gradle dependency cache consists of two storage types located under `GRADLE_USER_HOME/caches`:
+Gradle 依赖缓存由位于 `GRADLE_USER_HOME/caches` 下的两种存储类型组成:
 
-* A file-based store of downloaded artifacts, including binaries like jars as well as raw downloaded meta-data like POM files and Ivy files.
-The storage path for a downloaded artifact includes the SHA1 checksum, meaning that 2 artifacts with the same name but different content can easily be cached.
-* A binary store of resolved module metadata, including the results of resolving dynamic versions, module descriptors, and artifacts.
+* 基于文件的下载 artifacts 的存储，包括二进制文件（如 jars）以及原始下载的元数据（如 POM 文件和 Ivy 文件）。 下载的 artifacts 的存储路径包括 SHA1  checksums ，这意味着可以轻松地缓存 2 个名称相同但内容不同的 artifacts 。
+* 解析的模块元数据的二进制存储，包括解析动态版本，模块描述符和 artifacts 的结果
 
-The Gradle cache does not allow the local cache to hide problems and create other mysterious and difficult to debug behavior.
-Gradle enables reliable and reproducible enterprise builds with a focus on bandwidth and storage efficiency.
+Gradle 缓存不允许本地缓存隐藏问题并创建其他神秘且难以调试的行为。 Gradle 专注于带宽和存储效率，可实现可靠且可复制的企业构建。.
 
 [[sub:cache_metadata]]
-=== Separate metadata cache
+=== 独立的元数据缓存
 
-Gradle keeps a record of various aspects of dependency resolution in binary format in the metadata cache.
-The information stored in the metadata cache includes:
+Gradle 在元数据缓存中以二进制格式记录了依赖解决方案各个方面的记录。 存储在元数据缓存中的信息包括：:
 
-* The result of resolving a dynamic version (e.g. `1.+`) to a concrete version (e.g. `1.2`).
-* The resolved module metadata for a particular module, including module artifacts and module dependencies.
-* The resolved artifact metadata for a particular artifact, including a pointer to the downloaded artifact file.
-* The _absence_ of a particular module or artifact in a particular repository, eliminating repeated attempts to access a resource that does not exist.
+* 将动态版本 (e.g. `1.+`) 解析为具体版本  (e.g. `1.2`) 的结果.
+* 特定模块的已解析模块元数据，包括模块 artifacts 和模块依赖性.
+* 特定 artifacts 的已解析 artifacts 元数据，包括指向下载的 artifacts 文件的指针.
+* 特定仓库中不存在特定模块或 artifacts ，从而消除了重复访问不存在的资源的尝试.
 
-Every entry in the metadata cache includes a record of the repository that provided the information as well as a timestamp that can be used for cache expiry.
+元数据缓存中的每个条目都包括提供信息的仓库记录以及可用于缓存过期的时间戳.
 
 [[sub:cache_repository_independence]]
-=== Repository caches are independent
+=== 仓库缓存是独立的
 
-As described above, for each repository there is a separate metadata cache.
-A repository is identified by its URL, type and layout.
-If a module or artifact has not been previously resolved from _this repository_, Gradle will attempt to resolve the module against the repository.
-This will always involve a remote lookup on the repository, however in many cases <<#sub:cache_artifact_reuse,no download will be required>>.
+如上所述，对于每个仓库，都有一个单独的元数据缓存。 仓库由其 URL，类型和布局标识。 如果以前未从此仓库解析过模块或 artifacts ，则 Gradle 将尝试根据仓库解析模块。 这将始终涉及在仓库上进行远程查找，但是在许多情况下，不需要下载。
 
-Dependency resolution will fail if the required artifacts are not available in any repository specified by the build, even if the local cache has a copy of this artifact which was retrieved from a different repository.
-Repository independence allows builds to be isolated from each other in an advanced way that no build tool has done before.
-This is a key feature to create builds that are reliable and reproducible in any environment.
+如果所需的 artifacts 在构建指定的任何仓库中都不可用，则依赖解析将失败，即使本地缓存具有从其他仓库检索到的该 artifacts 的副本，也是如此。 仓库独立性允许构建以以前没有构建工具完成的高级方式彼此隔离。 这是创建可在任何环境下可靠且可复制的内部版本的关键功能。
 
 [[sub:cache_artifact_reuse]]
-=== Artifact reuse
+=== 重用 artifacts 
 
-Before downloading an artifact, Gradle tries to determine the checksum of the required artifact by downloading the sha file associated with that artifact.
-If the checksum can be retrieved, an artifact is not downloaded if an artifact already exists with the same id and checksum.
-If the checksum cannot be retrieved from the remote server, the artifact will be downloaded (and ignored if it matches an existing artifact).
+在下载 artifacts 之前，Gradle 会尝试通过下载与该 artifacts 关联的 sha 文件来确定所需 artifacts 的 checksums 。 如果可以检索 checksums ，那么如果已经存在具有相同 ID 和 checksums 的 artifacts ，则不会下载 artifacts 。 如果无法从远程服务器检索 checksums ，则将下载 artifacts （如果它与现有 artifacts 匹配，则将被忽略）。
 
-As well as considering artifacts downloaded from a different repository, Gradle will also attempt to reuse artifacts found in the local Maven Repository.
-If a candidate artifact has been downloaded by Maven, Gradle will use this artifact if it can be verified to match the checksum declared by the remote server.
+除了考虑从其他仓库下载的 artifacts 外，Gradle 还将尝试重用在本地 Maven 仓库中找到的 artifacts 。 如果 Maven 已下载了候选 artifacts ，则 Gradle 将使用此 artifacts ，前提是可以对其进行验证以匹配远程服务器声明的 checksums 。
 
 [[sub:cache_checksum_storage]]
-=== Checksum based storage
+=== 基于 checksums 的存储
 
-It is possible for different repositories to provide a different binary artifact in response to the same artifact identifier.
-This is often the case with Maven SNAPSHOT artifacts, but can also be true for any artifact which is republished without changing its identifier.
-By caching artifacts based on their SHA1 checksum, Gradle is able to maintain multiple versions of the same artifact.
-This means that when resolving against one repository Gradle will never overwrite the cached artifact file from a different repository.
-This is done without requiring a separate artifact file store per repository.
+响应相同的 artifacts 标识符，不同的仓库可能会提供不同的二进制 artifacts 。 Maven SNAPSHOT  artifacts 通常是这种情况，但对于在不更改其标识符的情况下重新发布的任何 artifacts 也是如此。 
+通过基于 artifacts 的 SHA1  checksums 缓存 artifacts ，Gradle 能够维护同一 artifacts 的多个版本。 这意味着在针对一个仓库进行解析时，Gradle 绝不会覆盖来自其他仓库的缓存 artifacts 文件。 无需在每个仓库中单独存放 artifacts 文件即可完成此操作。
 
 [[sub:cache_locking]]
-=== Cache Locking
+=== 缓存锁定
 
-The Gradle dependency cache uses file-based locking to ensure that it can safely be used by multiple Gradle processes concurrently.
-The lock is held whenever the binary metadata store is being read or written, but is released for slow operations such as downloading remote artifacts.
+Gradle 依赖缓存使用基于文件的锁定来确保可以被多个 Gradle 进程同时安全地使用。 每当读取或写入二进制元数据存储时，都会保留该锁，但是会为缓慢的操作（例如下载远程 artifacts ）而释放该锁。
 
-This concurrent access is only supported if the different Gradle processes can communicate together. This is usually _not the case_ for containerized builds.
+仅当不同的 Gradle 进程可以一起通信时，才支持此并发访问。 对于容器化版本，通常不是这种情况。
 
 [[sub:cache_cleanup]]
-==== Cache Cleanup
+==== 缓存清理
 
-Gradle keeps track of which artifacts in the dependency cache are accessed.
-Using this information, the cache is periodically (at most every 24 hours) scanned for artifacts that have not been used for more than 30 days.
-Obsolete artifacts are then deleted to ensure the cache does not grow indefinitely.
+Gradle 跟踪访问依赖缓存中的哪些 artifacts 。 使用此信息，定期（最多每 24 小时）扫描缓存，以查找未使用超过 30 天的 artifacts 。 然后删除过时的 artifacts ，以确保高速缓存不会无限期增长。
 
 [[sub:ephemeral-ci-cache]]
-== Dealing with ephemeral builds
+== 处理临时构建
 
-It's a common practice to run builds in ephemeral containers.
-A container is typically spawned to only execute a single build before it is destroyed.
-This can become a practical problem when a build depends on a lot of dependencies which each container has to re-download.
-To help with this scenario, Gradle provides a couple of options:
+在临时容器中运行构建是一种常见的做法。 通常会产生一个容器，以便在销毁它之前仅执行一个构建。 当构建依赖于每个容器必须重新下载的许多依赖时，这可能会成为一个实际问题。 为了帮助解决这种情况，Gradle 提供了两个选项:
 
 - <<sub:cache_copy,copying the dependency cache>> into each container
 - <<sub:shared-readonly-cache,sharing a read-only dependency cache>> between multiple containers
 
 [[sub:cache_copy]]
-=== Copying and reusing the cache
+=== 复制和重用缓存
 
-The dependency cache, both the file and metadata parts, are fully encoded using relative paths.
-This means that it is perfectly possible to copy a cache around and see Gradle benefit from it.
+依赖缓存（文件和元数据部分）都使用相对路径进行了完全编码。 这意味着完全有可能在附近复制缓存并从Gradle中受益。.
 
-The path that can be copied is `$GRADLE_HOME/caches/modules-<version>`.
-The only constraint is placing it using the same structure at the destination, where the value of `GRADLE_HOME` can be different.
+可以复制的路径是 `$GRADLE_HOME/caches/modules-<version>`。唯一的约束是在目的地使用相同的结构，其中 `GRADLE_HOME` 的值可以不同。
 
-Do not copy the `*.lock` or `gc.properties` files if they exist.
+不要复制 `*.lock` 或 `gc.properties` 文件(如果存在的话)。
 
-Note that creating the cache and consuming it should be done using compatible Gradle version, as shown in the table below.
-Otherwise, the build might still require some interactions with remote repositories to complete missing information, which might be available in a different version.
-If multiple incompatible Gradle versions are in play, all should be used when seeding the cache.
+注意，创建和使用缓存应该使用兼容的 Gradle 版本，如下表所示。否则，构建可能仍然需要与远程仓库进行一些交互，以完成丢失的信息，这些信息可能在不同版本中可用。 如果正在使用多个不兼容的 Gradle 版本，则在 seeding 缓存时应使用所有版本。
 
 .Dependency cache compatibility
 [%header%autowidth,compact]
@@ -264,26 +224,20 @@ If multiple incompatible Gradle versions are in play, all should be used when se
 |===
 
 [[sub:shared-readonly-cache]]
-=== Sharing the dependency cache with other Gradle instances
+=== 与其他 Gradle 实例共享依赖缓存
 
-Instead of <<sub:cache_copy,copying the dependency cache into each container>>, it's possible to mount a shared, read-only directory that will act as a dependency cache for all containers.
-This cache, unlike the classical dependency cache, is accessed without locking, making it possible for multiple builds to read from the cache concurrently. It's important that the read-only cache
-is not written to when other builds may be reading from it.
+不必将依赖缓存<<sub:cache_copy,复制到每个容器中>>，而是可以挂载一个共享的只读目录，该目录将充当所有容器的依赖缓存。 与传统的依赖高速缓存不同，此高速缓存无需锁定即可访问，从而可以从高速缓存中同时读取多个版本。
+重要的是，当其他版本可能正在从中读取只读缓存时，请勿将其写入。
 
-When using the shared read-only cache, Gradle looks for dependencies (artifacts or metadata) in both the writable cache in the local Gradle user home directory and the shared read-only cache.
-If a dependency is present in the read-only cache, it will not be downloaded.
-If a dependency is missing from the read-only cache, it will be downloaded and added to the writable cache.
-In practice, this means that the writable cache will only contain dependencies that are unavailable in the read-only cache.
+使用共享只读缓存时，Gradle 会在本地 Gradle 用户主目录中的可写缓存和共享只读缓存中查找依赖（ artifacts 或元数据）。 如果只读缓存中存在依赖，则不会下载该依赖。 如果只读缓存中缺少依赖，它将被下载并添加到可写缓存中。 实际上，这意味着可写缓存将仅包含只读缓存中不可用的依赖。
 
-The read-only cache should be sourced from a Gradle dependency cache that already contains some of the required dependencies.
-The cache can be incomplete; however, an empty shared cache will only add overhead.
+只读缓存应从已包含某些必需依赖的 Gradle 依赖缓存中获取。 缓存可能不完整； 但是，空的共享缓存只会增加开销。
 
-NOTE: The shared read-only dependency cache is an incubating feature.
+NOTE: 共享的只读依赖缓存是一个孵化功能。
 
-The first step in using a shared dependency cache is to create one by copying of an existing _local_ cache.
-For this you need to follow the <<sub:cache_copy,instructions above>>.
+使用共享依赖缓存的第一步是通过复制现有本地缓存​​来创建一个缓存。 为此，您需要按照 <<sub:cache_copy,上面的说明进行操作>>。
 
-Then set the `GRADLE_RO_DEP_CACHE` environment variable to point to the directory containing the cache:
+然后将 `GRADLE_RO_DEP_CACHE` 环境变量设置为指向包含缓存的目录：
 
 ----
 $GRADLE_RO_DEP_CACHE
@@ -296,22 +250,20 @@ $GRADLE_HOME
    |-- ...
 ----
 
-In a CI environment, it's a good idea to have one build which "seeds" a Gradle dependency cache, which is then _copied_ to a different directory.
-This directory can then be used as the read-only cache for other builds.
-You shouldn't use an existing Gradle installation cache as the read-only cache, because this directory may contain locks and may be modified by the seeding build.
+在CI环境中，最好有一个构建来 "seeds" Gradle依赖缓存，然后将其复制到另一个目录。 然后，该目录可用作其他版本的只读缓存。 您不应将现有的 Gradle 安装缓存用作只读缓存，因为该目录可能包含锁，并且可能由主版本修改。
 
 [[sec:programmatic_api]]
-== Accessing the resolution result programmatically
+== 以编程方式访问解析结果
 
-While most users only need access to a "flat list" of files, there are cases where it can be interesting to reason on a _graph_ and get more information about the resolution result:
+尽管大多数用户只需要访问文件的“固定列表”，但是在某些情况下，在图上进行推理并获得有关解析结果的更多信息可能会很有趣:
 
-- for tooling integration, where a model of the dependency graph is required
-- for tasks generating a visual representation (image, `.dot` file, ...) of a dependency graph
-- for tasks providing diagnostics (similar to the `dependencyInsight` task)
-- for tasks which need to perform dependency resolution at execution time (e.g, download files on demand)
+- 用于工具集成，其中需要依赖图的模型
+- 用于生成依赖图的可视表示形式 (image, `.dot` file, ...)  的任务
+- 用于提供诊断的任务（类似于 `dependencyInsight` 任务）
+- 适用于需要在执行时执行依赖解析的任务（例如，按需下载文件）
 
-For those use cases, Gradle provides lazy, thread-safe APIs, accessible by calling the link:{javadocPath}/org/gradle/api/artifacts/Configuration.html#getIncoming--[Configuration.getIncoming()] method:
+对于这些用例，Gradle 提供了惰性的，线程安全的 API，可通过调用 link:{javadocPath}/org/gradle/api/artifacts/Configuration.html#getIncoming--[Configuration.getIncoming()] 方法进行访问：
 
-- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getResolutionResult--[ResolutionResult API] gives access to a resolved dependency graph, whether the resolution was successful or not.
-- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getArtifacts--[artifacts API] provides a simple access to the resolved artifacts, untransformed, but with lazy download of artifacts (they would only be downloaded on demand).
-- the link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#artifactView-org.gradle.api.Action-[artifact view API] provides an advanced, filtered view of artifacts, possibly <<artifact_transforms.adoc#sec:abm_artifact_transforms,transformed>>.
+- 无论解析成功与否,link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getResolutionResult--[ResolutionResult API] 都可以访问已解析的依赖图。.
+- link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#getArtifacts--[artifacts API] 提供了对未转换但未转换的 artifacts 的简单访问，但是具有 artifacts 的延迟下载（它们只能按需下载）。
+- link:{javadocPath}/org/gradle/api/artifacts/ResolvableDependencies.html#artifactView-org.gradle.api.Action-[artifact view API] 一个高级的、过滤过的 artifacts 视图(可能是已 <<artifact_transforms.adoc#sec:abm_artifact_transforms,transformed>> 的) .
