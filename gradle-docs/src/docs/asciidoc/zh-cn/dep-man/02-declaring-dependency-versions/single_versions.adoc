@@ -1,81 +1,88 @@
 [[single-version-declarations]]
-= Declaring Versions and Ranges
+= 声明版本范围
 
-The simplest version declaration is a _simple string_ representing the version to use.
-Gradle supports different ways of declaring a version string:
+最简单的声明版本的方式就是使用 version 字符串表示，Gradle 支持不同的方式来声明版本字符串：:
 
-* An exact version: e.g. `1.3`, `1.3.0-beta3`, `1.0-20150201.131010-1`
-* A Maven-style version range: e.g. `[1.0,)`, `[1.1, 2.0)`, `(1.2, 1.5]`
-** The `[` and `]` symbols indicate an inclusive bound; `(` and `)` indicate an exclusive bound.
-** When the upper or lower bound is missing, the range has no upper or lower bound.
-** The symbol `]` can be used instead of `(` for an exclusive lower bound, and `[` instead of `)` for exclusive upper bound. e.g `]1.0, 2.0[`
-* A _prefix_ version range: e.g. `1.+`, `1.3.+`
-** Only versions exactly matching the portion before the `+` are included.
-** The range `+` on it's own will include any version.
-* A `latest-status` version: e.g. `latest.integration`, `latest.release`
-** Will match the highest versioned module with the specified status. See link:{javadocPath}/org/gradle/api/artifacts/ComponentMetadata.html#getStatus--[ComponentMetadata.getStatus()].
-* A Maven `SNAPSHOT` version identifier: e.g. `1.0-SNAPSHOT`, `1.4.9-beta1-SNAPSHOT`
+* 确定的版本: e.g. `1.3`, `1.3.0-beta3`, `1.0-20150201.131010-1`
+* Maven 风格的声明: e.g. `[1.0,)`, `[1.1, 2.0)`, `(1.2, 1.5]`
+** `[` and `]` 符号表示版本范围; `(` and `)` 表示界限
+** 缺少上限或下限时，范围没有上限或下限。
+** 可以使用符号 `]`  代表 `(` 表示下限, 使用 `[` 代替 `)` 表示上限. 例如 `]1.0, 2.0[`
+* 版本前缀范围: e.g. `1.+`, `1.3.+`
+** 仅包括与 `+` 之前的版本匹配.
+** `+` 本身将包含任何版本.
+* `latest-status` 版本: e.g. `latest.integration`, `latest.release`
+** 将版本最高的模块与指定状态匹配 link:{javadocPath}/org/gradle/api/artifacts/ComponentMetadata.html#getStatus--[ComponentMetadata.getStatus()].
+* Maven `SNAPSHOT` 版本标识符: e.g. `1.0-SNAPSHOT`, `1.4.9-beta1-SNAPSHOT`
 
 [NOTE]
 ====
-Gradle 6.5 supports an alternate, opt-in, behaviour for version ranges.
+Gradle 6.5支持版本范围的备用选择加入行为。
 
-When an upper bound excludes a version, it also acts as a prefix exclude.
-This means that `[1.0, 2.0[` will also exclude all versions starting with `2.0` that are smaller than `2.0`.
+当上限排除版本时，它还充当前缀排除。 这意味着 `[1.0, 2.0[` 也将排除所有以 `2.0` 开头且小于 `2.0` 的版本。 例如，该范围中不再包括 `2.0-dev1` 或 `2.0-SNAPSHOT` 之类的版本。
+This means that  will also exclude all versions starting with `2.0` that are smaller than `2.0`.
 For example versions like `2.0-dev1` or `2.0-SNAPSHOT` are no longer included in the range.
 
-Activating the feature preview `VERSION_ORDERING_V2` in `settings.gradle(.kts)` enables this change:
+在  `settings.gradle(.kts)` 中激活预览功能 `VERSION_ORDERING_V2`:
 ```
 enableFeaturePreview("VERSION_ORDERING_V2")
 ```
 
-This change will become the default in Gradle 7.0.
+此项更改将成为 Gradle 7.0 中的默认设置.
 ====
 
-== Version ordering
+== Version 排序
 
-Versions have an implicit ordering. Version ordering is used to:
+版本具有隐式排序。 版本排序用于:
 
-* Determine if a particular version is included in a range.
-* Determine which version is 'newest' when performing conflict resolution.
+* 确定范围内是否包括特定版本。.
+* 解决冲突时，确定哪个版本是“最新的”.
 
-Versions are ordered based on the following rules:
+版本根据以下规则排序:
 
-* Each version is split into it's constituent "parts":
-** The characters `[. - _ +]` are used to separate the different "parts" of a version.
-** Any part that contains both digits and letters is split into separate parts for each: `1a1 == 1.a.1`
-** Only the parts of a version are compared. The actual separator characters are not significant: `1.a.1 == 1-a+1 == 1.a-1 == 1a1`
-* The equivalent parts of 2 versions are compared using the following rules:
-** If both parts are numeric, the highest numeric value is **higher**: `1.1` < `1.2`
-** If one part is numeric, it is considered **higher** than the non-numeric part: `1.a` < `1.1`
-** If both are not numeric, the parts are compared **alphabetically, case-sensitive**: `1.A` < `1.B` < `1.a` < `1.b`
-** A version with an extra numeric part is considered **higher** than a version without: `1.1` < `1.1.0`
-** A version with an extra non-numeric part is considered **lower** than a version without: `1.1.a` < `1.1`
-* Certain string values have special meaning for the purposes of ordering:
-** The string `dev` is consider **lower** than any other string part: `1.0-dev` < `1.0-alpha` < `1.0-rc`.
-** The strings `rc`, `release` and `final` are considered **higher** than any other string part (sorted in that order): `1.0-zeta` < `1.0-rc` < `1.0-release` < `1.0-final` < `1.0`.
-** The string `SNAPSHOT` has **no special meaning**, and is sorted alphabetically like any other string part: `1.0-alpha` < `1.0-SNAPSHOT` < `1.0-zeta` < `1.0-rc` < `1.0`.
-** Numeric snapshot versions have **no special meaning**, and are sorted like any other numeric part: `1.0` < `1.0-20150201.121010-123` < `1.1`.
+* 每个版本由不同部分组成 "parts":
+** `[. - _ +]` 用于分隔版本的不同 "parts".
+** 同时包含数字和字母的部分都将分为以下各部分: `1a1 == 1.a.1`
+** 仅比较版本的各个部分。实际的分隔符并不重要: `1.a.1 == 1-a+1 == 1.a-1 == 1a1`
+* 使用以下规则比较2个版本的相同部分:
+** 如果两个部分都是数字，则最高数值较高: `1.1` < `1.2`
+** 如果一个部分是数字部分，则认为它高于非数字部分: `1.a` < `1.1`
+** 如果两者都不是数字，则按字母顺序比较零件，区分大小写: `1.A` < `1.B` < `1.a` < `1.b`
+** 具有额外数​​字部分的版本被认为高于没有以下内容的版本: `1.1` < `1.1.0`
+** 具有额外的非数字部分的版本被认为低于没有以下版本的版本: `1.1.a` < `1.1`
+* 某些字符串值出于排序目的具有特殊含义:
+** `dev` 认为低于任何其他字符串部分: `1.0-dev` < `1.0-alpha` < `1.0-rc`.
+** `rc`, `release` and `final` 被认为高于任何其他字符串部分（按该顺序排序）: `1.0-zeta` < `1.0-rc` < `1.0-release` < `1.0-final` < `1.0`.
+** `SNAPSHOT` 没有特殊含义，并且像其他字符串部分一样按字母顺序排序: `1.0-alpha` < `1.0-SNAPSHOT` < `1.0-zeta` < `1.0-rc` < `1.0`.
+** 数值快照版本没有特殊含义，其排序方式与任何其他数值部分一样: `1.0` < `1.0-20150201.121010-123` < `1.1`.
 
 [NOTE]
 ====
-Gradle 6.5 supports an alternate, opt-in, version ordering scheme which special cases more suffixes:
+Gradle 6.5 支持替代的，选择加入的版本排序方案，在特殊情况下，它们具有更多后缀:
 
-* The string `SNAPSHOT` will be ordered higher than `rc`: `1.0-RC` < `1.0-SNAPSHOT` < `1.0`
-* The string `GA` will be ordered next to `FINAL` and `RELEASE`, in alphabetical order: `1.0-RC` < `1.0-FINAL` < `1.0-GA` < `1.0-RELEASE` < `1.0`
-* The string `SP` will be ordered higher than `RELEASE`, it remains however lower than an unqualified version, limiting its use to versioning schemes using either `FINAL`, `GA` or `RELEASE`: `1.0-RELEASE` < `1.0-SP1` < `1.0`
+：1.0-RC <1.0-SNAPSHOT <1.0
 
-Activating the feature preview `VERSION_ORDERING_V2` in `settings.gradle(.kts)` enables this set of changes:
+：1.0-RC <1.0-FINAL <1.0-GA <1.0-RELEASE <1.0
+
+：1.0-RELEASE <1.0-SP1 <1.0
+
+
+
+* 字符串 `SNAPSHOT` 的顺序应高于 `rc`: `1.0-RC` < `1.0-SNAPSHOT` < `1.0`
+* 字符串 `GA` 将按字母顺序在 `FINAL` 和 `RELEASE` 旁边排序: `1.0-RC` < `1.0-FINAL` < `1.0-GA` < `1.0-RELEASE` < `1.0`
+* 字符串 `SP` 的排序将高于 `RELEASE`，但仍低于未限定的版本，将其使用限制为使用 `FINAL`，`GA` 或 `RELEASE` 的版本控制方案 `FINAL`, `GA` or `RELEASE`: `1.0-RELEASE` < `1.0-SP1` < `1.0`
+
+在  `settings.gradle(.kts)` 中激活预览功能 `VERSION_ORDERING_V2`:
 ```
 enableFeaturePreview("VERSION_ORDERING_V2")
 ```
 
-These changes will become the default in Gradle 7.0.
+此项更改将成为 Gradle 7.0 中的默认设置.
 ====
 
-== Simple version declaration semantics
+== 简单的版本声明语义
 
-When you declare a version using the short-hand notation, for example:
+使用缩写符号声明版本时，例如:
 
 .A simple declaration
 ====
@@ -83,9 +90,9 @@ include::{snippets-dir}/dependencyManagement/declaringDependencies-concreteVersi
 include::{snippets-dir}/dependencyManagement/declaringDependencies-concreteVersion/kotlin/build.gradle.kts[tags=required-version]
 ====
 
-Then the version is considered a <<rich_versions.adoc#sec:required-version,required version>> which means that it should _minimally_ be `1.7.15` but can be upgraded by the engine (optimistic upgrade).
+然后将该版本视为必需版本，这意味着它至少应为 `1.7.15`，但可以由引擎进行升级（乐观升级）。
 
-There is, however, a shorthand notation for <<rich_versions.adoc#sec:strict-version,strict versions>>, using the `!!` notation:
+但是，对于 <<rich_versions.adoc#sec:required-version,required version>>，使用 `!!` 来表示：
 
 .Shorthand notation for strict dependencies
 ====
@@ -93,21 +100,19 @@ include::{snippets-dir}/dependencyManagement/declaringDependencies-concreteVersi
 include::{snippets-dir}/dependencyManagement/declaringDependencies-concreteVersion/kotlin/build.gradle.kts[tags=strict-shorthand]
 ====
 
-A strict version _cannot be upgraded_ and overrides whatever transitive dependencies originating from this dependency provide.
-It is recommended to use ranges for strict versions.
+严格版本无法升级，并且会覆盖源自此依赖项提供的任何传递性依赖项。建议对严格版本使用范围。
 
-The notation `[1.7, 1.8[!!1.7.25` above is equivalent to:
+上面的符号 `[1.7, 1.8[!!1.7.25` 等效于:
 
 * strictly `[1.7, 1.8[`
 * prefer `1.7.25`
 
-which means that the engine **must** select a version between 1.7 (included) and 1.8 (excluded), and that if no other component in the graph needs a different version, it should _prefer_ `1.7.25`.
+这意味着引擎必须在 1.7（包括）和 1.8（排除）之间选择一个版本，并且如果图中的其他组件都不需要其他版本，则它应该首选 `1.7.25`。
 
 [[sec:declaring_without_version]]
-== Declaring a dependency without version
+== 声明没有版本的依赖
 
-A recommended practice for larger projects is to declare dependencies without versions and use <<dependency_constraints.adoc#sec:adding-constraints-transitive-deps,dependency constraints>> for version declaration.
-The advantage is that dependency constraints allow you to manage versions of all dependencies, including transitive ones, in one place.
+对于较大的项目，建议的做法是声明没有版本的依赖，并将 <<dependency_constraints.adoc#sec:adding-constraints-transitive-deps,dependency constraints>> 用于版本声明。 优势在于，依赖约束使您可以在一处管理所有依赖的版本，包括可传递的依赖。
 
 .Declaring a dependency without version
 ====
