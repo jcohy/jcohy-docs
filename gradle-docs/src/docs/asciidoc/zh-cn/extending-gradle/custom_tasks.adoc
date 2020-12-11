@@ -13,39 +13,41 @@
 // limitations under the License.
 
 [[custom_tasks]]
-= Developing Custom Gradle Task Types
+= 开发自定义 Gradle 任务类型
 
-Gradle supports two types of task. One such type is the simple task, where you define the task with an action closure. We have seen these in <<tutorial_using_tasks.adoc#tutorial_using_tasks,Build Script Basics>>. For this type of task, the action closure determines the behaviour of the task. This type of task is good for implementing one-off tasks in your build script.
+Gradle 支持两种类型的任务。 其中一种类型是 simple task，其中使用 action 闭包定义任务。 我们已经在 <<tutorial_using_tasks.adoc#tutorial_using_tasks,Build Script Basics>> 中看到了这些。
+对于这种类型的任务，action 闭包确定任务的行为。 这种类型的任务非常适合在构建脚本中实现一次性任务。
 
-The other type of task is the enhanced task, where the behaviour is built into the task, and the task provides some properties which you can use to configure the behaviour. We have seen these in <<more_about_tasks.adoc#more_about_tasks,Authoring Tasks>>. Most Gradle plugins use enhanced tasks. With enhanced tasks, you don't need to implement the task behaviour as you do with simple tasks. You simply declare the task and configure the task using its properties. In this way, enhanced tasks let you reuse a piece of behaviour in many different places, possibly across different builds.
+任务的另一种类型是增强型任务，其中行为内置于任务中，并且该任务提供了一些可用于配置行为的属性。 我们已经在  <<more_about_tasks.adoc#more_about_tasks,Authoring Tasks>> 中看到了这些。
+大多数 Gradle 插件使用增强的任务。 使用增强型任务，您无需像处理简单任务那样实现任务行为。 您只需声明任务并使用其属性配置任务。 通过这种方式，增强型的任务使您可以在许多不同的地方（可能跨不同的构建）重用某种行为。
 
-The behaviour and properties of an enhanced task are defined by the task's class. When you declare an enhanced task, you specify the type, or class of the task.
+增强型任务的行为和属性由任务的类定义。 声明增强的任务时，可以指定任务的类型或类。
 
-Implementing your own custom task class in Gradle is easy. You can implement a custom task class in pretty much any language you like, provided it ends up compiled to JVM bytecode. In our examples, we are going to use Groovy as the implementation language. Groovy, Java or Kotlin are all good choices as the language to use to implement a task class, as the Gradle API has been designed to work well with these languages. In general, a task implemented using Java or Kotlin, which are statically typed, will perform better than the same task implemented using Groovy.
-
+在 Gradle 中实现自己的自定义任务类很容易。 您可以使用任何您喜欢的语言来实现自定义任务类，只要最终将其编译为 JVM 字节码即可。 在我们的示例中，我们将使用 Groovy 作为实现语言。 Groovy，Java 或 Kotlin 都是用于实现 task 类的语言，都是不错的选择，因为 Gradle API 被设计为可以与这些语言很好地配合使用。 通常，使用 Java 或 Kotlin（静态类型）实现的任务将比使用 Groovy 实现的任务执行得更好。
 
 [[sec:packaging_a_task_class]]
-== Packaging a task class
+== 打包 task class
 
-There are several places where you can put the source for the task class.
+有几个地方可以放置 task 类的源代码。.
 
 Build script::
-You can include the task class directly in the build script. This has the benefit that the task class is automatically compiled and included in the classpath of the build script without you having to do anything. However, the task class is not visible outside the build script, and so you cannot reuse the task class outside the build script it is defined in.
+您可以将 task 类直接包含在构建脚本中。 这样的好处是，task 类将自动编译并包含在构建脚本的类路径中，而无需执行任何操作。 但是，task 类在构建脚本之外不可见，因此您不能在定义该任务的构建脚本之外重用该 task 类。
 
 `buildSrc` project::
-You can put the source for the task class in the `__rootProjectDir__/buildSrc/src/main/groovy` directory (or `__rootProjectDir__/buildSrc/src/main/java` or `__rootProjectDir__/buildSrc/src/main/kotlin` depending on which language you prefer). Gradle will take care of compiling and testing the task class and making it available on the classpath of the build script. The task class is visible to every build script used by the build. However, it is not visible outside the build, and so you cannot reuse the task class outside the build it is defined in. Using the `buildSrc` project approach separates the task declaration — that is, what the task should do — from the task implementation — that is, how the task does it.
+您可以将任务类的源代码放在 `__rootProjectDir__/buildSrc/src/main/groovy` 目录中 (或者 `__rootProjectDir__/buildSrc/src/main/java` 或 `__rootProjectDir__/buildSrc/src/main/kotlin` 具体取决于您喜欢哪种语言). 
+Gradle 将负责编译和测试 task 类，并使其在构建脚本的类路径中可用。task 类对生成所使用的每个生成脚本都是可见的。但是，它在构建之外是不可见的，因此您不能在其定义的构建之外重用 task 类。使用 buildSrc 项目方法将任务声明(即任务应该做什么)与任务实现(即任务如何执行)分离开来。
 +
-See <<organizing_gradle_projects.adoc#organizing_gradle_projects,Organizing Gradle Projects>> for more details about the `buildSrc` project.
+有关 `buildSrc` 项目的更多详细信息，请参见 <<organizing_gradle_projects.adoc#organizing_gradle_projects,Organizing Gradle Projects>>。
 
 Standalone project::
-You can create a separate project for your task class. This project produces and publishes a JAR which you can then use in multiple builds and share with others. Generally, this JAR might include some custom plugins, or bundle several related task classes into a single library. Or some combination of the two.
+您可以为任务类创建一个单独的项目。 并发布了一个 JAR，您可以在多个版本中使用它并与他人共享。 通常，此 JAR 可能包含一些自定义插件，或将几个相关的任务类捆绑到一个库中。 或两者的某种组合。
 
-In our examples, we will start with the task class in the build script, to keep things simple. Then we will look at creating a standalone project.
+在我们的示例中，我们将从构建脚本中的 task 类开始。然后，我们将考虑创建一个独立的项目。
 
 [[sec:writing_a_simple_task_class]]
-== Writing a simple task class
+== 编写一个简单的 task class
 
-To implement a custom task class, you extend link:{groovyDslPath}/org.gradle.api.DefaultTask.html[DefaultTask].
+要实现自定义任务类，可以扩展 link:{groovyDslPath}/org.gradle.api.DefaultTask.html[DefaultTask].
 
 .Defining a custom task
 ====
@@ -53,7 +55,8 @@ include::{snippets-dir}/tasks/customTask/groovy/build.gradle[tags=define-task]
 include::{snippets-dir}/tasks/customTask/kotlin/build.gradle.kts[tags=define-task]
 ====
 
-This task doesn't do anything useful, so let's add some behaviour. To do so, we add a method to the task and mark it with the link:{javadocPath}/org/gradle/api/tasks/TaskAction.html[TaskAction] annotation. Gradle will call the method when the task executes. You don't have to use a method to define the behaviour for the task. You could, for instance, call `doFirst()` or `doLast()` with a closure in the task constructor to add behaviour.
+该任务没有做任何事情，所以让我们添加一些行为。 为此，我们向此任务添加一个方法，并使用 link:{javadocPath}/org/gradle/api/tasks/TaskAction.html[TaskAction] 注解对其进行标记。 任务执行时，Gradle 将调用该方法。 您不必使用方法来定义任务的行为。
+例如，您可以在任务构造函数中使用闭包调用 `doFirst()` 或 `doLast()` 以添加行为。
 
 .A hello world task
 ====
@@ -67,7 +70,7 @@ include::{snippets-dir}/tasks/customTask/kotlin/build.gradle.kts[tags=add-action
 include::{snippets-dir}/tasks/customTask/tests/customTaskWithAction.out[]
 ----
 
-Let's add a property to the task, so we can customize it. Tasks are simply POGOs, and when you declare a task, you can set the properties or call methods on the task object. Here we add a `greeting` property, and set the value when we declare the `greeting` task.
+让我们为任务添加一个属性，以便我们对其进行自定义。 任务只是简单的 POGO，声明任务时，可以在任务对象上设置属性或调用方法。 在这里，我们添加了 `greeting` 属性，并在声明 `greeting` 任务时设置该值。
 
 .A customizable hello world task
 ====
@@ -83,9 +86,10 @@ include::{snippets-dir}/tasks/customTaskWithProperty/tests/customTaskWithPropert
 
 
 [[sec:custom_tasks_standalone_project]]
-== A standalone project
+== 一个独立的项目
 
-Now we will move our task to a standalone project, so we can publish it and share it with others. This project is simply a Groovy project that produces a JAR containing the task class. Here is a simple build script for the project. It applies the Groovy plugin, and adds the Gradle API as a compile-time dependency.
+现在，我们将把任务移到一个独立的项目中，以便我们可以发布并与他人共享。 这个项目只是一个 Groovy 项目，它由一个包含 task 类的 JAR 组成。 这是该项目的简单构建脚本。
+它应用了 Groovy 插件，并将 Gradle API 添加为编译时依赖。
 
 .A build for a custom task
 ====
@@ -94,9 +98,9 @@ include::{snippets-dir}/base/customExternalTask/kotlin/task/build.gradle.kts[tag
 ====
 
 
-We just follow the convention for where the source for the task class should go.
+遵循 task 类源码应该放在哪里的约定.
 
-=== Example: A custom task
+=== Example: 自定义 task
 
 [source.multi-language-sample,groovy]
 .src/main/groovy/org/gradle/GreetingTask.groovy
@@ -105,9 +109,9 @@ include::{snippets-dir}/base/customExternalTask/groovy/task/src/main/groovy/org/
 ----
 
 [[sec:using_your_task_class_in_another_project]]
-=== Using your task class in another project
+=== 在另一个项目中使用 task 类
 
-To use a task class in a build script, you need to add the class to the build script's classpath. To do this, you use a `buildscript { }` block, as described in <<tutorial_using_tasks.adoc#sec:build_script_external_dependencies,External dependencies for the build script>>. The following example shows how you might do this when the JAR containing the task class has been published to a local repository:
+要在构建脚本中使用任务类，您需要将该类添加到构建脚本的类路径中。 为此，请使用 `buildscript { }` ，如 <<tutorial_using_tasks.adoc#sec:build_script_external_dependencies,构建脚本的外部依赖>> 中所述。 以下示例显示了包含已发布到本地仓库 task 类的 JAR 时如何执行此操作：
 
 .Using a custom task in another project
 ====
@@ -116,11 +120,11 @@ include::{snippets-dir}/base/customExternalTask/kotlin/consumer/build.gradle.kts
 ====
 
 [[sec:writing_tests_for_your_task_class]]
-=== Writing tests for your task class
+=== 为 task 类编写测试
 
-You can use the link:{javadocPath}/org/gradle/testfixtures/ProjectBuilder.html[ProjectBuilder] class to create link:{groovyDslPath}/org.gradle.api.Project.html[Project] instances to use when you test your task class.
+您可以使用 link:{javadocPath}/org/gradle/testfixtures/ProjectBuilder.html[ProjectBuilder] 类创建在测试 task 类时要使用的 link:{groovyDslPath}/org.gradle.api.Project.html[Project] 实例。
 
-=== Example: Testing a custom task
+=== Example: 测试自定义 task
 
 [source.multi-language-sample,groovy]
 .src/test/groovy/org/gradle/GreetingTaskTest.groovy
@@ -129,53 +133,44 @@ include::{snippets-dir}/base/customExternalTask/groovy/task/src/test/groovy/org/
 ----
 
 [[incremental_tasks]]
-== Incremental tasks
+== 增量任务
 
-With Gradle, it's very simple to implement a task that is skipped when all of its inputs and outputs are up to date (see <<more_about_tasks.adoc#sec:up_to_date_checks,Incremental Builds>>).
-However, there are times when only a few input files have changed since the last execution, and you'd like to avoid reprocessing all of the unchanged inputs.
-This can be particularly useful for a transformer task that converts input files to output files on a 1:1 basis.
+使用Gradle，可以很容易地实现一个任务，当它的所有输入和输出都是最新的时将被跳过（请参阅 <<more_about_tasks.adoc#sec:up_to_date_checks,增量构建>>）。
+但是，自上次执行以来，有时只有少数输入更改，因此您希望避免重新处理所有未更改的输入。 这对于已经更改的 1:1 转换为输出的转换器任务特别有用。
 
-If you'd like to optimize your build so that only out-of-date input files are processed, you can do so with an _incremental task_.
+如果您想优化构建，以便仅处理过时的输入文件，则可以执行增量任务。
 
 [NOTE]
 ====
-There is the link:{javadocPath}/org/gradle/api/tasks/incremental/IncrementalTaskInputs.html[IncrementalTaskInputs] API, which is available in Gradle versions before 5.4.
-When using link:{javadocPath}/org/gradle/api/tasks/incremental/IncrementalTaskInputs.html[IncrementalTaskInputs], it is only possible to query for all file changes of the task inputs.
-It is not possible to query for changes of individual input file properties.
-Moreover, the old API does not distinguish between incremental and non-incremental task inputs, so the task itself needs to determine where the changes originated from.
-Therefore, the usage of this API is deprecated, and it will be removed eventually.
-The new link:{groovyDslPath}/org.gradle.work.InputChanges.html[InputChanges] API, which is documented here, replaces the old API and addresses its shortcomings.
-If you need to use the old API, have a look at the documentation in the link:https://docs.gradle.org/5.3.1/userguide/custom_tasks.html#incremental_tasks[user manual for Gradle 5.3.1].
+有 link:{javadocPath}/org/gradle/api/tasks/incremental/IncrementalTaskInputs.html[IncrementalTaskInputs] API，在 5.4 之前的 Gradle 版本中可用。 使用 link:{javadocPath}/org/gradle/api/tasks/incremental/IncrementalTaskInputs.html[IncrementalTaskInputs] 时，
+只能查询任务输入的所有文件更改。 无法查询各个输入文件属性的更改。 而且，旧的 API 不能区分增量任务输入和非增量任务输入，因此任务本身需要确定更改的来源。 因此，不建议使用此 API，并最终将其删除。
+本文记录了新的 link:{groovyDslPath}/org.gradle.work.InputChanges.html[InputChanges] API，它取代了旧的API并解决了其缺点。 如果需要使用旧的API，请查看 link:https://docs.gradle.org/5.3.1/userguide/custom_tasks.html#incremental_tasks[Gradle 5.3.1 用户手册中的文档]。
 ====
 
 [[sec:implementing_an_incremental_task]]
-=== Implementing an incremental task
+=== 实现增量任务
 
-For a task to process inputs incrementally, that task must contain an _incremental task action_.
-This is a task action method that has a single link:{groovyDslPath}/org.gradle.work.InputChanges.html[InputChanges] parameter.
-That parameter tells Gradle that the action only wants to process the changed inputs.
-In addition, the task needs to declare at least one incremental file input property by using either link:{javadocPath}/org/gradle/work/Incremental.html[@Incremental] or link:{javadocPath}/org/gradle/api/tasks/SkipWhenEmpty.html[@SkipWhenEmpty].
+为了使任务能够处理增量输入，该任务必须包含一个增量任务动作。 也就是具有 link:{groovyDslPath}/org.gradle.work.InputChanges.html[InputChanges] 参数的任务操作方法。
+该参数告诉 Gradle 该操作仅想处理更改的输入。 此外，任务需要使用 link:{javadocPath}/org/gradle/work/Incremental.html[@Incremental] 或 link:{javadocPath}/org/gradle/api/tasks/SkipWhenEmpty.html[@SkipWhenEmpty] 声明至少一个增量文件输入属性。
 
 [IMPORTANT]
 ====
-To query incremental changes for an input file property, that property always needs to return the same instance.
-The easiest way to accomplish this is to use one of the following types for such properties: link:{javadocPath}/org/gradle/api/file/RegularFileProperty.html[RegularFileProperty], link:{javadocPath}/org/gradle/api/file/DirectoryProperty.html[DirectoryProperty] or link:{javadocPath}/org/gradle/api/file/ConfigurableFileCollection.html[ConfigurableFileCollection].
+要查询输入文件属性的增量更改，该属性始终需要返回相同的实例。 完成此操作的最简单方法是对此类属性使用以下类型之一：link:{javadocPath}/org/gradle/api/file/RegularFileProperty.html[RegularFileProperty], link:{javadocPath}/org/gradle/api/file/DirectoryProperty.html[DirectoryProperty] or link:{javadocPath}/org/gradle/api/file/ConfigurableFileCollection.html[ConfigurableFileCollection].
 
-You can learn more about `RegularFileProperty` and `DirectoryProperty` in the <<lazy_configuration#lazy_configuration,Lazy Configuration>> chapter, especially the sections on <<lazy_configuration#lazy_properties,using read-only and configurable properties>> and <<lazy_configuration#working_with_files_in_lazy_properties,lazy file properties>>.
+
+您可以在 <<lazy_configuration#lazy_configuration,Lazy Configuration>>  一章中了解有关 `RegularFileProperty` 和 `DirectoryProperty` 的更多信息，尤其是有关 <<lazy_configuration#lazy_properties,使用只读配置属性>>  以及 <<lazy_configuration#working_with_files_in_lazy_properties,lazy file properties>> 的部分。
 ====
 
-The incremental task action can use link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] to find out what files have changed for a given file-based input property, be it of type `RegularFileProperty`, `DirectoryProperty` or `ConfigurableFileCollection`.
-The method returns an `Iterable` of type link:{javadocPath}/org/gradle/work/FileChange.html[FileChanges], which in turn can be queried for the following:
+增量任务操作可以使用 link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 来查找哪些文件已更改为给定的基于文件的输入属性，
+类型为 `RegularFileProperty`, `DirectoryProperty` or `ConfigurableFileCollection`. 该方法返回 link:{javadocPath}/org/gradle/work/FileChange.html[FileChanges] 类型的 `Iterable`，然后可以查询以下内容：
 
 * the link:{javadocPath}/org/gradle/work/FileChange.html#getFile--[affected file]
 * the link:{javadocPath}/org/gradle/work/FileChange.html#getChangeType--[change type] (`ADDED`, `REMOVED` or `MODIFIED`)
 * the link:{javadocPath}/org/gradle/work/FileChange.html#getNormalizedPath--[normalized path] of the changed file
 * the link:{javadocPath}/org/gradle/work/FileChange.html#getFileType--[file type] of the changed file
 
-The following example demonstrates an incremental task that has a directory input.
-It assumes that the directory contains a collection of text files and copies them to an output directory, reversing the text within each file.
-The key things to note are the type of the `inputDir` property, its annotations, and how the action (`execute()`) uses `getFileChanges()` to process the subset of files that have actually changed since the last build.
-You can also see how the action deletes a target file if the corresponding input file has been removed:
+以下示例演示了具有目录输入的增量任务。假定目录包含文本文件的集合，并将它们复制到输出目录，对文件中的文本进行反转操作。 需要注意的关键是 `inputDir` 属性的类型，其注解以及操作  (`execute()`) 如何使用 `getFileChanges()`  处理自上次构建以来实际上已更改的文件的子集。
+您还可以查看如果删除了相应的输入文件，则该如何操作删除目标文件：
 
 [[taskDefinition]]
 .Defining an incremental task action
@@ -184,44 +179,39 @@ include::{snippets-dir}/tasks/incrementalTask/groovy/build.gradle[tags=increment
 include::{snippets-dir}/tasks/incrementalTask/kotlin/build.gradle.kts[tags=incremental-task]
 ====
 
+如果由于某种原因（例如，通过使用 `--rerun-tasks` 运行）以非增量方式执行任务，则无论先前状态如何，所有文件均报告为 "已添加"。 在这种情况下，Gradle 自动删除先前的输出，因此增量任务仅需要处理给定的文件。
 
-If for some reason the task is executed non-incrementally, for example by running with `--rerun-tasks`, all files are reported as `ADDED`, irrespective of the previous state.
-In this case, Gradle automatically removes the previous outputs, so the incremental task only needs to process the given files.
-
-For a simple transformer task like the above example, the task action simply needs to generate output files for any out-of-date inputs and delete output files for any removed inputs.
+对于像上述示例这样的简单转换器任务，任务操作仅需要为任何过期输入生成输出文件，并为任何已删除输入删除输出文件。
 
 [IMPORTANT]
 ====
-A task may only contain a single incremental task action.
+一个任务只能包含一个增量任务动作。
 ====
 
 [[sec:which_inputs_are_considered_out_of_date]]
-=== Which inputs are considered out of date?
+=== 哪些输入被认为是过时的？
 
-When there is a previous execution of the task, and the only changes since that execution are to incremental input file properties, then Gradle is able to determine which input files need to be processed (incremental execution).
-In this case, the link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] method returns details for all input files for the given property that were _added_, _modified_ or _removed_.
+当以前执行任务时，自执行以来唯一的更改是增量输入文件属性，则 Gradle 能够确定需要处理哪些输入文件（增量执行）。 在这种情况下，link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 方法将返回添加，修改或删除的给定属性的所有输入文件的详细信息。
 
-However, there are many cases where Gradle is unable to determine which input files need to be processed (non-incremental execution).
-Examples include:
+但是，在许多情况下，Gradle 无法确定需要处理哪些输入文件（非增量执行）。 示例包括：
 
-* There is no history available from a previous execution.
-* You are building with a different version of Gradle. Currently, Gradle does not use task history from a different version.
-* An link:{javadocPath}/org/gradle/api/tasks/TaskOutputs.html#upToDateWhen-groovy.lang.Closure-[`upToDateWhen`] criterion added to the task returns `false`.
-* An input property has changed since the previous execution.
-* A non-incremental input file property has changed since the previous execution.
-* One or more output files have changed since the previous execution.
+* 没有上一次执行的历史记录。
+* 你用的是不同版本的 Gradle。目前，Gradle 并不使用来自不同版本的任务历史记录。
+* 添加到任务的 link:{javadocPath}/org/gradle/api/tasks/TaskOutputs.html#upToDateWhen-groovy.lang.Closure-[`upToDateWhen`] 条件返回 `false`.
+* 自上次执行以来，输入属性发生了更改。
+* 自上次执行以来，非增量输入文件属性发生了更改。
+* 自上次执行以来，一个或多个输出文件发生了更改。
 
-In all of these cases, Gradle will report all input files as `ADDED` and the `getFileChanges()` method will return details for all the files that comprise the given input property.
+在所有这些情况下，Gradle 将报告添加的所有输入文件，而 `getFileChanges()` 方法将返回构成给定输入属性的所有文件的详细信息。
 
-You can check if the task execution is incremental or not with the link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges.html##org.gradle.work.InputChanges:incremental[InputChanges.isIncremental()] method.
+您可以使用 link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges.html##org.gradle.work.InputChanges:incremental[InputChanges.isIncremental()] 方法检查任务执行是否为增量执行。
 
 [[sec:an_incremental_task_in_action]]
 === An incremental task in action
 
-Given the example incremental task implementation <<#taskDefinition,above>>, let's walk through some scenarios based on it.
+给 <<#taskDefinition,上面>> 增量任务的示例实现，让我们逐一介绍一些方案。
 
-First, consider an instance of `IncrementalReverseTask` that is executed against a set of inputs for the first time.
-In this case, all inputs will be considered added, as shown here:
+首先，考虑一个首次针对一组输入执行的 `IncrementalReverseTask` 实例。在这种情况下，所有输入将被视为已添加，如下所示：
 
 [[ex:incremental_task_definition]]
 .Running the incremental task for the first time
@@ -246,7 +236,7 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskFirstRun.out[
 ----
 ====
 
-Naturally when the task is executed again with no changes, then the entire task is up to date and the task action is not executed:
+如果再次执行任务且没有任何更改，则整个任务都是最新的，并且不执行任务动作：
 
 .Running the incremental task with unchanged inputs
 ====
@@ -257,8 +247,7 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskNoChange.out[
 ----
 ====
 
-When an input file is modified in some way or a new input file is added, then re-executing the task results in those files being returned by link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()].
-The following example modifies the content of one file and adds another before running the incremental task:
+如果以某种方式修改了输入文件或添加了新的输入文件，则重新执行任务将导致 link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 返回这些文件。 下面的示例在运行增量任务之前修改一个文件的内容并添加另一个文件的内容：
 
 .Running the incremental task with updated input files
 ====
@@ -272,11 +261,9 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskUpdatedInputs
 ----
 ====
 
-NOTE: The various mutation tasks (`updateInputs`, `removeInput`, etc) are only present to demonstrate the behavior of incremental tasks.
-They should not be viewed as the kinds of tasks or task implementations you should have in your own build scripts.
+NOTE: 各种任务（`updateInputs`, `removeInput` 等）仅用于演示增量任务的行为。不应将它们视为您应该在自己的构建脚本中拥有的任务或任务实现类型。
 
-When an existing input file is removed, then re-executing the task results in that file being returned by link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] as `REMOVED`.
-The following example removes one of the existing files before executing the incremental task:
+删除现有输入文件后，重新执行任务将导致该文件由 link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 返回为  `REMOVED`。下面的示例在执行增量任务之前删除现有文件之一：
 
 .Running the incremental task with an input file removed
 ====
@@ -290,9 +277,7 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskRemovedInput.
 ----
 ====
 
-When an _output_ file is deleted (or modified), then Gradle is unable to determine which input files are out of date.
-In this case, details for _all_ the input files for the given property are returned by link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()].
-The following example removes just one of the output files from the build directory, but notice how all the input files are considered to be `ADDED`:
+当输出文件被删除（或修改）时，Gradle 无法确定哪些输入文件已过期。 在这种情况下，link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 返回给定属性的所有输入文件的详细信息。 以下示例仅从构建目录中删除输出文件之一，但请注意如何将所有输入文件视为 `ADDED`：
 
 .Running the incremental task with an output file removed
 ====
@@ -306,11 +291,9 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskRemovedOutput
 ----
 ====
 
-The last scenario we want to cover concerns what happens when a non-file-based input property is modified.
-In such cases, Gradle is unable to determine how the property impacts the task outputs, so the task is executed non-incrementally.
-This means that _all_ input files for the given property are returned by link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] and they are all treated as `ADDED`.
-The following example sets the project property `taskInputProperty` to a new value when running the `incrementalReverse` task and that project property is used to initialize the task's `inputProperty` property, as you can see in the <<ex:incremental_task_definition,first example of this section>>.
-Here's the output you can expect in this case:
+我们要讨论的最后一个场景涉及修改基于非文件的输入属性时发生的情况。 在这种情况下，Gradle 无法确定属性如何影响任务输出，因此任务将以非增量方式执行。 
+这意味着给定属性的所有输入文件都由 link:{groovyDslPath}/org.gradle.work.InputChanges.html#org.gradle.work.InputChanges:getFileChanges(org.gradle.api.file.FileCollection)[InputChanges.getFileChanges()] 返回，并且都被视为 `ADDED`。 
+下面的示例在运行  `incrementalReverse`  任务时将项目属性 `taskInputProperty` 设置为新值，并且该项目属性用于初始化任务的 `inputProperty`  属性，如本节的 <<ex:incremental_task_definition,第一个示例所示>>。 在这种情况下，您可以期待以下输出：
 
 .Running the incremental task with an input property changed
 ====
@@ -322,29 +305,25 @@ include::{snippets-dir}/tasks/incrementalTask/tests/incrementalTaskChangedProper
 ====
 
 [[sec:storing_incremental_task_state]]
-=== Storing incremental state for cached tasks
+=== 缓存任务保存增量状态
 
-Using Gradle's `InputChanges` is not the only way to create tasks that only work on changes since the last execution.
-Tools like the Kotlin compiler provide incrementality as a built-in feature.
-The way this is typically implemented is that the tool stores some analysis data about the state of the previous execution in some file.
-If such state files are <<build_cache.adoc#sec:task_output_caching_inputs,relocatable>>, then they can be declared as outputs of the task.
-This way when the task's results are loaded from cache, the next execution can already use the analysis data loaded from cache, too.
-
-However, if the state files are non-relocatable, then they can't be shared via the build cache.
-Indeed, when the task is loaded from cache, any such state files must be cleaned up to prevent stale state from confusing the tool during the next execution.
-Gradle can ensure such stale files are removed if they are declared via link:{javadocPath}/org/gradle/api/tasks/TaskLocalState.html#register-java.lang.Object++...++-[task.localState.register()] or if a property is marked with the link:{javadocPath}/org/gradle/api/tasks/LocalState.html[@LocalState] annotation.
+自上次执行以来，使用 Gradle 的 `InputChanges` 并不是创建仅对更改起作用的任务的唯一方法。 诸如 Kotlin 编译器之类的工具将增量性作为内置功能提供。 通常的实现方式是该工具将有关先前执行状态的分析数据存储在某个文件中。
+如果此类状态文件 <<build_cache.adoc#sec:task_output_caching_inputs,relocatable>>，则可以将其声明为任务的输出。 这样，当从缓存中加载任务的结果时，下一次执行也可以使用从缓存中加载的分析数据。
+,
+但是，如果状态文件不可重定位，则无法通过构建缓存共享它们。 实际上，当从缓存加载任务时，必须清除所有此类状态文件，以防止过时的状态在下一次执行期间使工具混乱。 如果通过 link:{javadocPath}/org/gradle/api/tasks/TaskLocalState.html#register-java.lang.Object++...++-[task.localState.register()] 声明了旧文件，或者使用  link:{javadocPath}/org/gradle/api/tasks/LocalState.html[@LocalState] 注解标记了属性，则 Gradle 可以确保删除这些陈旧文件。
 
 [[sec:declaring_and_using_command_line_options]]
-== Declaring and Using Command Line Options
+== 声明和使用命令行选项
 
-Sometimes a user wants to declare the value of an exposed task property on the command line instead of the build script. Being able to pass in property values on the command line is particularly helpful if they change more frequently. The task API supports a mechanism for marking a property to automatically generate a corresponding command line parameter with a specific name at runtime.
+有时，用户希望在命令行而不是构建脚本上声明公开的任务属性的值。 如果更频繁地更改属性值，则在命令行上传递它们特别有用。 任务 API 支持一种用于标记属性的机制，以在运行时自动生成具有特定名称的相应命令行参数。
 
 [[sec:declaring_task_option]]
-=== Declaring a command-line option
+=== 声明命令行选项
 
-Exposing a new command line option for a task property is straightforward. You just have to annotate the corresponding setter method of a property with link:{javadocPath}/org/gradle/api/tasks/options/Option.html[Option]. An option requires a mandatory identifier. Additionally, you can provide an optional description. A task can expose as many command line options as properties available in the class.
+为任务属性公开新的命令行选项非常简单。 您只需要使用 link:{javadocPath}/org/gradle/api/tasks/options/Option.html[Option] 注解属性的相应 setter 方法即可。 一个选项需要一个强制标识符。
+此外，您可以提供可选的描述。 任务可以公开与类中可用属性一样多的命令行选项。
 
-Let's have a look at an example to illustrate the functionality. The custom task `UrlVerify` verifies whether a given URL can be resolved by making a HTTP call and checking the response code. The URL to be verified is configurable through the property `url`. The setter method for the property is annotated with link:{javadocPath}/org/gradle/api/tasks/options/Option.html[@Option].
+让我们看一个示例来说明功能。 定制任务 `UrlVerify` 通过进行 HTTP 调用并检查响应代码来验证是否可以解析给定的 URL。 可以通过属性 `url` 配置要验证的 URL。 该属性的 setter 方法使用 link:{javadocPath}/org/gradle/api/tasks/options/Option.html[@Option] 注解
 
 === Example: Declaring a command line option
 
@@ -354,18 +333,18 @@ Let's have a look at an example to illustrate the functionality. The custom task
 include::{snippets-dir}/tasks/commandLineOption-stringOption/groovy/buildSrc/src/main/java/UrlVerify.java[tag=custom-task-implementation]
 ----
 
-All options declared for a task can be <<#sec:listing_task_options,rendered as console output>> by running the `help` task and the `--task` option.
+通过运行 `help` 任务和 `--task`选项，可以将为任务声明的所有选项 <<#sec:listing_task_options,在控制台输出>> 。
 
 [[sec:using_task_option_command_line]]
-=== Using an option on the command line
+=== 在命令行上使用选项
 
-Using an option on the command line has to adhere to the following rules:
+在命令行上使用选项必须遵守以下规则:
 
-- The option uses a double-dash as prefix e.g. `--url`. A single dash does not qualify as valid syntax for a task option.
-- The option argument follows directly after the task declaration e.g. `verifyUrl --url=http://www.google.com/`.
-- Multiple options of a task can be declared in any order on the command line following the task name.
+- 该选项使用双破折号作为前缀，例如： `--url`. 单个破折号不能作为任务选项的有效语法。
+- 选项参数直接跟随在任务声明之后 e.g. `verifyUrl --url=http://www.google.com/`.
+- 任务的多个选项可以在任务名称后面的命令行中以任何顺序声明
 
-Getting back to the previous example, the build script creates a task instance of type `UrlVerify` and provides a value from the command line through the exposed option.
+回到前面的示例，构建脚本创建类型为 `UrlVerify` 的任务实例，并通过 exposed 选项从命令行提供一个值。
 
 .Using a command line option
 ====
@@ -380,33 +359,34 @@ include::{snippets-dir}/tasks/commandLineOption-stringOption/tests/taskCommandLi
 ----
 
 [[sec:supported_task_option_data_types]]
-=== Supported data types for options
+=== 选项支持的数据类型
 
-Gradle limits the set of data types that can be used for declaring command line options. The use on the command line differ per type.
+Gradle 限制了可用于声明命令行选项的数据类型集。命令行上的用法因类型而异。
 
 `boolean`, `Boolean`, `Property<Boolean>`::
-Describes an option with the value `true` or `false`. Passing the option on the command line treats the value as `true`. For example `--enabled` equates to `true`. The absence of the option uses the default value of the property.
+描述值为 `true` 或 `false`. 在命令行上传递选项会将值视为 `true`. 例如 `--enabled` 等于 `true`. 没有该选项将使用属性的默认值.
 
 `String`, `Property<String>`::
-Describes an option with an arbitrary String value. Passing the option on the command line also requires a value e.g. `--container-id=2x94held` or `--container-id 2x94held`.
+描述值为 String 类型. 在命令行上传递选项还需要一个值 e.g. `--container-id=2x94held` 或 `--container-id 2x94held`.
 
 `enum`, `Property<enum>`::
-Describes an option as an enumerated type. Passing the option on the command line also requires a value e.g. `--log-level=DEBUG` or `--log-level debug`. The value is not case sensitive.
+描述值为 enumerated 类型. 在命令行上传递选项还需要一个值 e.g. `--log-level=DEBUG` 或 `--log-level debug`. 该值不区分大小写。
 
 `List<String>`, `List<enum>`::
 Describes an option that can takes multiple values of a given type. The values for the option have to be provided as multiple declarations e.g. `--image-id=123 --image-id=456`. Other notations such as comma-separated lists or multiple values separated by a space character are currently not supported.
 
 [[sec:documenting_available_task_option_values]]
-=== Documenting available values for an option
+=== 记录选项的可用值
 
-In theory, an option for a property type `String` or `List<String>` can accept any arbitrary value. Expected values for such an option can be documented programmatically with the help of the annotation link:{javadocPath}/org/gradle/api/tasks/options/OptionValues.html[OptionValues]. This annotation may be assigned to any method that returns a `List` of one of the supported data types. In addition, you have to provide the option identifier to indicate the relationship between option and available values.
+理论上，属性类型为 `String` 或 `List<String>` 的选项可以接受任何任意值。 可以在注解 link:{javadocPath}/org/gradle/api/tasks/options/OptionValues.html[OptionValues] 的帮助下以编程方式记录此选项的期望值。 可以将此注解分配给任何返回受支持数据类型之一的 `List` 的方法。
+另外，您必须提供选项标识符以指示选项和可用值之间的关系。
 
 [NOTE]
 ====
-Passing a value on the command line that is not supported by the option does not fail the build or throw an exception. You'll have to implement custom logic for such behavior in the task action.
+在选项中不支持的命令行上传递值不会使构建失败或引发异常。您必须在任务操作中为此类行为实现自定义逻辑。
 ====
 
-This example demonstrates the use of multiple options for a single task. The task implementation provides a list of available values for the option `output-type`.
+本示例说明了单个任务使用多个选项的情况。任务实现提供选项 `output-type` 的可用值列表。
 
 === Example: Declaring available values for an option
 
@@ -417,11 +397,11 @@ include::{snippets-dir}/tasks/commandLineOption-optionValues/groovy/buildSrc/src
 ----
 
 [[sec:listing_task_options]]
-=== Listing command line options
+=== 列出命令行选项
 
-Command line options using the annotations link:{javadocPath}/org/gradle/api/tasks/options/Option.html[Option] and link:{javadocPath}/org/gradle/api/tasks/options/OptionValues.html[OptionValues] are self-documenting. You will see <<#sec:declaring_task_option,declared options>> and their <<#sec:documenting_available_task_option_values,available values>> reflected in the console output of the `help` task. The output renders options in alphabetical order.
+使用注解 link:{javadocPath}/org/gradle/api/tasks/options/Option.html[Option] 和 link:{javadocPath}/org/gradle/api/tasks/options/OptionValues.html[OptionValues] 的命令行选项是自行记录的。您将在 `help` 任务的控制台输出中看到 <<#sec:declaring_task_option,声明的选项>> 及其 <<#sec:documenting_available_task_option_values,可用值>>。输出以字母顺序呈现选项。
 
-=== Example: Listing available values for option
+=== Example: 列出选项的可用值
 
 .**`gradle -q help --task processUrl`** 的输出
 ----
@@ -429,39 +409,40 @@ Command line options using the annotations link:{javadocPath}/org/gradle/api/tas
 include::{snippets-dir}/tasks/commandLineOption-optionValues/tests/helpTaskOptions.out[]
 ----
 
-=== Limitations
+=== 局限性
 
-Support for declaring command line options currently comes with a few limitations.
+当前支持声明命令行选项有一些限制。
 
-- Command line options can only be declared for custom tasks via annotation. There's no programmatic equivalent for defining options.
-- Options cannot be declared globally e.g. on a project-level or as part of a plugin.
-- When assigning an option on the command line then the task exposing the option needs to be spelled out explicitly e.g. `gradle check --tests abc` does not work even though the `check` task depends on the `test` task.
+- 只能通过注解为自定义任务声明命令行选项。 没有用于定义选项的程序化等效项。
+- 选项不能全局声明，例如 在项目级别或作为插件的一部分。
+- 在命令行上分配选项时，需要明确说明暴露该选项的任务，例如. `gradle check --tests abc` 不起作用，即使检查任务取决于 `test` 任务
 
 [[worker_api]]
-== The Worker API
+== Worker API
 
 [NOTE]
 ====
 
-The Worker API is an <<feature_lifecycle.adoc#feature_lifecycle,incubating>> feature.
+Worker API <<feature_lifecycle.adoc#feature_lifecycle,是一个孵化功能>> .
 
 ====
 
-As can be seen from the discussion of <<#incremental_tasks,incremental tasks>>, the work that a task performs can be viewed as discrete units (i.e. a subset of inputs that are transformed to a certain subset of outputs). Many times, these units of work are highly independent of each other, meaning they can be performed in any order and simply aggregated together to form the overall action of the task. In a single threaded execution, these units of work would execute in sequence, however if we have multiple processors, it would be desirable to perform independent units of work concurrently. By doing so, we can fully utilize the available resources at build time and complete the activity of the task faster.
+从对 <<#incremental_tasks,增量任务>> 的讨论中可以看出，可以将任务执行的 work 视为离散单位（即，将输入的子集转换为特定的输出子集）。 很多时候，这些 work 单元彼此高度独立，这意味着它们可以以任何顺序执行，
+并且可以简单地汇总在一起以形成任务的整体动作。 在单线程执行中，这些 work 单元将按顺序执行，但是，如果我们有多个处理器，则希望同时执行独立的 work 单元。 这样，我们可以在构建时充分利用可用资源，
+并更快地完成任务的活动。
 
-The Worker API provides a mechanism for doing exactly this. It allows for safe, concurrent execution of multiple items of work during a task action. But the benefits of the Worker API are not confined to parallelizing the work of a task. You can also configure a desired level of isolation such that work can be executed in an isolated classloader or even in an isolated process. Furthermore, the benefits extend beyond even the execution of a single task. Using the Worker API, Gradle can begin to execute tasks in parallel by default. In other words, once a task has submitted its work to be executed asynchronously, and has exited the task action, Gradle can then begin the execution of other independent tasks in parallel, even if those tasks are in the same project.
+Worker API 提供了一种完成此操作的机制。 它允许在任务动作期间安全，并行地执行多项 work 。 但是，Worker API的好处不仅限于并行执行任务。 您还可以配置所需的隔离级别，以便可以在隔离的类加载器甚至隔离的进程中执行 work 。 此外，好处甚至超出了执行单个任务的范围。 默认情况下，使用Worker API，Gradle可以开始并行执行任务。 换句话说，一旦任务提交了要异步执行的 work ，并且退出了任务动作，Gradle便可以并行开始执行其他独立任务，即使这些任务在同一项目中
 
 [[using-the-worker-api]]
-=== Using the Worker API
+=== 使用 Worker API
 
-In order to submit work to the Worker API, two things must be provided: an implementation of the unit of work, and the parameters for the unit of work.
+为了将 work 提交给 Worker API，必须提供两件事：work 单元的实现，以及 work 单元的参数。
 
-The parameters for the unit of work are defined as an interface or abstract class that implements link:{javadocPath}/org/gradle/workers/WorkParameters.html[WorkParameters].
-The parameters type must be a <<custom_gradle_types.adoc#managed_types,managed type>>.
+work 单元的参数定义为实现 link:{javadocPath}/org/gradle/workers/WorkParameters.html[WorkParameters] 的接口或抽象类。 参数类型必须是 <<custom_gradle_types.adoc#managed_types,managed type>>。
 
-You can find out more about implementing work parameters in <<custom_gradle_types.adoc#custom_gradle_types,Developing Custom Gradle Types>>.
+您可以在 <<custom_gradle_types.adoc#custom_gradle_types,开发自定义 Gradle 类型>>中找到有关实现 work 参数的更多信息。
 
-The implementation is a class that extends link:{javadocPath}/org/gradle/workers/WorkAction.html[WorkAction]. This class should be abstract and should not implement the `getParameters()` method. Gradle will inject an implementation of this method at runtime with the parameters object for each unit of work.
+该实现是扩展 link:{javadocPath}/org/gradle/workers/WorkAction.html[WorkAction] 的类。 此类应该是抽象的，并且不应实现 `getParameters()`  方法。 Gradle 将在运行时为每个 work 单元的参数对象注入此方法的实现。
 
 .Defining the unit of work parameters and implementation
 ====
@@ -469,9 +450,11 @@ include::{snippets-dir}/workerApi/noIsolation/groovy/build.gradle[tags=unit-of-w
 include::{snippets-dir}/workerApi/noIsolation/kotlin/build.gradle.kts[tags=unit-of-work]
 ====
 
-A `WorkAction` implementation can inject services that provide capabilities during work execution, such as the link:{javadocPath}/org/gradle/api/file/FileSystemOperations.html[FileSystemOperations] service in the example above.  See <<custom_gradle_types.adoc#service_injection,Service Injection>> for further information on injecting service types.
+`WorkAction` 实现可以注入在 work 执行过程中提供功能的服务，例如上例中的 link:{javadocPath}/org/gradle/api/file/FileSystemOperations.html[FileSystemOperations] 服务。 有关注入服务类型的更多信息，请参见 <<custom_gradle_types.adoc#service_injection,Service Injection>>。
 
-In order to submit the unit of work, it is necessary to first acquire the link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor]. To do this, a task should have a constructor annotated with `javax.inject.Inject` that accepts a link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor] parameter. Gradle will inject the instance of link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor] at runtime when the task is created.  Then a link:{javadocPath}/org/gradle/workers/WorkQueue.html[WorkQueue] object can be created and individual items of work can be submitted.
+为了提交 work 单元，必须首先获得 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor]。 为此，任务应具有一个带有 `javax.inject.Inject`  注解的构造函数，该构造函数接受 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor] 参数。
+创建任务时，Gradle 将在运行时注入 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor] 的实例。
+然后可以创建一个 link:{javadocPath}/org/gradle/workers/WorkQueue.html[WorkQueue] 对象，并可以提交各个 work 项。
 
 .Submitting a unit of work for execution
 ====
@@ -479,16 +462,17 @@ include::{snippets-dir}/workerApi/noIsolation/groovy/build.gradle[tags=task-impl
 include::{snippets-dir}/workerApi/noIsolation/kotlin/build.gradle.kts[tags=task-implementation]
 ====
 
-Once all of the work for a task action has been submitted, it is safe to exit the task action. The work will be executed asynchronously and in parallel (up to the setting of `max-workers`). Of course, any tasks that are dependent on this task (and any subsequent task actions of this task) will not begin executing until all of the asynchronous work completes. However, other independent tasks that have no relationship to this task can begin executing immediately.
+提交任务动作的所有 work 后，可以安全地退出任务动作。 该 work 将异步和并行执行（取决于 `max-workers` 的设置）。 当然，在完成所有异步 work 之前，任何依赖于此任务的任务（以及该任务的任何后续任务动作）都不会开始执行。 但是，与此任务无关的其他独立任务可以立即开始执行。
 
-If any failures occur while executing the asynchronous work, the task will fail and a link:{javadocPath}/org/gradle/workers/WorkerExecutionException.html[WorkerExecutionException] will be thrown detailing the failure for each failed work item. This will be treated like any failure during task execution and will prevent any dependent tasks from executing.
+如果在执行异步 work 时发生任何故障，该任务将失败，并且将抛出 link:{javadocPath}/org/gradle/workers/WorkerExecutionException.html[WorkerExecutionException]，详细说明每个失败的 work 项的故障。 这将被视为任务执行期间的任何失败，并且将阻止执行任何从属任务。
 
-In some cases, however, it might be desirable to wait for work to complete before exiting the task action. This is possible using the link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()] method. As in the case of allowing the work to complete asynchronously, any failures that occur while executing an item of work will be surfaced as a link:{javadocPath}/org/gradle/workers/WorkerExecutionException.html[WorkerExecutionException] thrown from the link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()] method.
+但是，在某些情况下，可能希望在退出任务操作之前等待 work 完成。 使用 link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()] 方法可以实现。 与允许 work 异步完成的情况一样，
+执行 work 项时发生的任何故障都将作为从  link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()]  方法引发的 link:{javadocPath}/org/gradle/workers/WorkerExecutionException.html[WorkerExecutionException] 出现。
 
 [NOTE]
 ====
 
-Note that Gradle will only begin running other independent tasks in parallel when a task has exited a task action and returned control of execution to Gradle. When link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()] is used, execution does not leave the task action. This means that Gradle will not allow other tasks to begin executing and will wait for the task action to complete before doing so.
+请注意，当任务退出任务动作并将执行控制权返回给 Gradle 时，Gradle 将仅开始并行运行其他独立任务。 使用 link:{javadocPath}/org/gradle/workers/WorkQueue.html#await--[WorkQueue.await()] 时，执行不会离开任务动作。 这意味着Gradle将不允许其他任务开始执行，并且将等待任务动作完成后再执行。
 
 ====
 
@@ -499,23 +483,22 @@ include::{snippets-dir}/workerApi/waitForCompletion/kotlin/build.gradle.kts[tags
 ====
 
 [[isolation-modes]]
-=== Isolation Modes
+=== 隔离模式
 
-Gradle provides three isolation modes that can be configured when creating a link:{javadocPath}/org/gradle/workers/WorkQueue.html[WorkQueue] and are specified using the one of the following methods on link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor]:
+Gradle 提供了三种隔离模式，可以在创建 link:{javadocPath}/org/gradle/workers/WorkQueue.html[WorkQueue] 时对其进行配置，并使用 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html[WorkerExecutor] 上的以下方法之一进行指定：
 
 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html#noIsolation--[WorkerExecutor.noIsolation()]::
-This states that the work should be run in a thread with a minimum of isolation. For instance, it will share the same classloader that the task is loaded from. This is the fastest level of isolation.
+这表明 work 应在具有最小隔离度的线程中运行。 例如，它将共享从中加载任务的同一类加载器。 这是最快的隔离级别。
 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html#classLoaderIsolation-org.gradle.api.Action-[WorkerExecutor.classLoaderIsolation()]::
-This states that the work should be run in a thread with an isolated classloader. The classloader will have the classpath from the classloader that the unit of work implementation class was loaded from as well as any additional classpath entries added through link:{javadocPath}/org/gradle/workers/ClassLoaderWorkerSpec.html#getClasspath--[ClassLoaderWorkerSpec.getClasspath()].
+这表明 work 应在具有隔离类加载器的线程中运行。 类加载器将具有来自加载了 work 单元实现类的类加载器的类路径，以及通过 link:{javadocPath}/org/gradle/workers/ClassLoaderWorkerSpec.html#getClasspath--[ClassLoaderWorkerSpec.getClasspath()] 添加的任何其他类路径条目。
 link:{javadocPath}/org/gradle/workers/WorkerExecutor.html#processIsolation-org.gradle.api.Action-[WorkerExecutor.processIsolation()]::
-This states that the work should be run with a maximum level of isolation by executing the work in a separate process. The classloader of the process will use the classpath from the classloader that the unit of work was loaded from as well as any additional classpath entries added through link:{javadocPath}/org/gradle/workers/ClassLoaderWorkerSpec.html#getClasspath--[ClassLoaderWorkerSpec.getClasspath()]. Furthermore, the process will be a _Worker Daemon_ which will stay alive and can be reused for future work items that may have the same requirements. This process can be configured with different settings than the Gradle JVM using link:{javadocPath}/org/gradle/workers/ProcessWorkerSpec.html#forkOptions-org.gradle.api.Action-[ProcessWorkerSpec.forkOptions(org.gradle.api.Action)].
-
-
+这表明应通过在单独的进程中执行 work 来最大程度地隔离 work 。 流程的类加载器将使用加载了 work 单元的类加载器中的类路径，以及通过 link:{javadocPath}/org/gradle/workers/ClassLoaderWorkerSpec.html#getClasspath--[ClassLoaderWorkerSpec.getClasspath()] 添加的任何其他类路径条目。
+此外，该过程将是一个 work 守护程序，该守护程序将保持活动状态，并且可以重复用于将来可能具有相同要求的 work 项。 使用 link:{javadocPath}/org/gradle/workers/ProcessWorkerSpec.html#forkOptions-org.gradle.api.Action-[ProcessWorkerSpec.forkOptions(org.gradle.api.Action)]，可以使用与 Gradle JVM 不同的设置来配置此过程。
 
 [[worker-daemons]]
 === Worker Daemons
 
-When using `processIsolation()`, gradle will start a long-lived _Worker Daemon_ process that can be reused for future work items.
+使用 `processIsolation()` 时，gradle 将启动一个寿命很长的 Worker Daemon 进程，该进程可用于将来的 work 项。
 
 .Submitting an item of work to run in a worker daemon
 ====
@@ -523,43 +506,40 @@ include::{snippets-dir}/workerApi/workerDaemon/groovy/build.gradle[tags=worker-d
 include::{snippets-dir}/workerApi/workerDaemon/kotlin/build.gradle.kts[tags=worker-daemon]
 ====
 
-When a unit of work for a Worker Daemon is submitted, Gradle will first look to see if a compatible, idle daemon already exists. If so, it will send the unit of work to the idle daemon, marking it as busy. If not, it will start a new daemon. When evaluating compatibility, Gradle looks at a number of criteria, all of which can be controlled through link:{javadocPath}/org/gradle/workers/ProcessWorkerSpec.html#forkOptions-org.gradle.api.Action-[ProcessWorkerSpec.forkOptions(org.gradle.api.Action)].
+提交 work 程序守护程序的 work 单元时，Gradle 首先会查看是否存在兼容的空闲守护程序。 如果是这样，它将把 work 单元发送到空闲的守护程序，将其标记为忙。 如果没有，它将启动一个新的守护程序。 
+在评估兼容性时，Gradle 会考虑许多标准，所有这些标准都可以通过 link:{javadocPath}/org/gradle/workers/ProcessWorkerSpec.html#forkOptions-org.gradle.api.Action-[ProcessWorkerSpec.forkOptions(org.gradle.api.Action)] 进行控制.
 
-By default, a worker daemon starts with a maximum heap of 512MB. This can be changed by adjusting the workers fork options.
+默认情况下，辅助守护程序的最大堆启动为512MB。可以通过调整worker fork选项来更改.
 
 executable::
-A daemon is considered compatible only if it uses the same java executable.
+守护程序仅在使用相同的Java可执行文件时才被认为是兼容的。.
 classpath::
-A daemon is considered compatible if its classpath contains all of the classpath entries requested. Note that a daemon is considered compatible only if the classpath exactly matches the requested classpath.
+如果守护程序的类路径包含所有请求的类路径条目，则该守护程序被认为是兼容的。请注意，只有当类路径与请求的类路径完全匹配时，守护程序才被认为是兼容的.
 heap settings::
-A daemon is considered compatible if it has at least the same heap size settings as requested. In other words, a daemon that has higher heap settings than requested would be considered compatible.
+如果守护程序至少具有与请求相同的堆大小设置，则认为该守护程序是兼容的。换句话说，具有高于请求的堆设置的守护程序将被视为兼容.
 jvm arguments::
-A daemon is considered compatible if it has set all of the jvm arguments requested. Note that a daemon is considered compatible if it has additional jvm arguments beyond those requested (except for arguments treated specially such as heap settings, assertions, debug, etc).
+如果守护程序已设置所有请求的 jvm 参数，则该守护程序被认为是兼容的。 请注意，如果守护程序除了请求的参数之外还具有其他jvm参数，则该守护程序被认为是兼容的（除了专门处理的参数，例如堆设置，断言，调试等）.
 system properties::
-A daemon is considered compatible if it has set all of the system properties requested with the same values. Note that a daemon is considered compatible if it has additional system properties beyond those requested.
+如果守护程序已将请求的所有系统属性设置为相同的值，则该守护程序被认为是兼容的。请注意，如果守护程序具有除请求的属性之外的其他系统属性，则该守护程序被认为是兼容的.
 environment variables::
-A daemon is considered compatible if it has set all of the environment variables requested with the same values. Note that a daemon is considered compatible if it has more environment variables in addition to those requested.
+如果守护程序已将所有请求的环境变量设置为相同的值，则认为该守护程序是兼容的。请注意，如果守护程序除请求的环境变量之外还具有更多环境变量，则该守护程序被认为是兼容的。
 bootstrap classpath::
-A daemon is considered compatible if it contains all of the bootstrap classpath entries requested. Note that a daemon is considered compatible if it has more bootstrap classpath entries in addition to those requested.
+如果守护程序包含所有请求的引导类路径条目，则该守护程序被认为是兼容的。请注意，如果守护程序除请求的引导程序类路径条目之外还有更多的引导程序类路径条目，则该守护程序被认为是兼容的。
 debug::
-A daemon is considered compatible only if debug is set to the same value as requested (true or false).
+仅当将debug设置为与请求相同的值（真或假）时，守护程序才被视为兼容。
 enable assertions::
-A daemon is considered compatible only if enable assertions is set to the same value as requested (true or false).
+仅当将启用断言设置为与请求相同的值（true 或 false）时，守护程序才被视为兼容。
 default character encoding::
-A daemon is considered compatible only if the default character encoding is set to the same value as requested.
+仅当默认字符编码设置为与请求相同的值时，守护程序才被视为兼容。
 
+辅助守护程序将保持运行状态，直到启动它们的构建守护程序停止或系统内存不足为止。 当可用系统内存不足时，Gradle 将开始停止 work 程序守护程序，以尽量减少内存消耗。
 
-Worker daemons will remain running until either the build daemon that started them is stopped, or system memory becomes scarce. When available system memory is low, Gradle will begin stopping worker daemons in an attempt to minimize memory consumption.
+== 取消和超时
 
-== Cancellation and timeouts
+为了支持取消操作（例如，当用户使用CTRL + C停止构建时）和任务超时，自定义任务应对其正在执行的线程被中断做出反应。 通过 work 人员 API 提交的 work 项也是如此。 如果任务在 10 秒内未响应中断，则守护程序将关闭以释放系统资源。
 
-In order to support cancellation (e.g. when the user stops the build with CTRL+C) and task timeouts, custom tasks should react to their executing thread being interrupted.
-The same is true for work items submitted via the worker API. If a task does not respond to an interrupt within 10s, the daemon will shut down in order to free up system resources.
+== 更多细节
 
-== More details
+在自定义 Gradle 插件中打包自定义任务类型通常是一种好方法。 该插件可以为任务类型提供有用的默认值和约定，并提供一种从构建脚本或其他插件使用任务类型的便捷方法。 请参阅开发 <<custom_plugins.adoc#custom_plugins,Developing Custom Gradle Plugins>>  以获取更多详细信息。
 
-It's often a good approach to package custom task types in a custom Gradle plugin.
-The plugin can provide useful defaults and conventions for the task type, and provides a convenient way to use the task type from a build script or another plugin.
-Please see <<custom_plugins.adoc#custom_plugins,Developing Custom Gradle Plugins>> for more details.
-
-Gradle provides a number of features that are helpful when developing Gradle types, including tasks. Please see <<custom_gradle_types.adoc#,Developing Custom Gradle Types>> for more details.
+Gradle 提供了许多功能，这些功能在 （包括任务）时非常有用。 有关更多详细信息，请参见开发 <<custom_gradle_types.adoc#,Developing Custom Gradle Types>> 。
