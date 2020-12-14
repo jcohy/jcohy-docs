@@ -1,40 +1,34 @@
-= Downgrading versions and excluding dependencies
+= 降级版本和排除依赖
 
 [[sec:enforcing_dependency_version]]
-== Overriding transitive dependency versions
+== 覆盖传递依赖版本
 
-Gradle resolves any dependency version conflicts by selecting the latest version found in the dependency graph.
-Some projects might need to divert from the default behavior and enforce an earlier version of a dependency e.g. if the source code of the project depends on an older API of a dependency than some of the external libraries.
+Gradle 通过选择在依赖关系图中找到的最新版本来解决任何依赖关系版本冲突。 某些项目可能需要偏离默认行为并强制实施较早版本的依赖项，例如 如果项目的源代码依赖于比某些外部库更旧的API。
 
 [WARNING]
 ====
-Forcing a version of a dependency requires a conscious decision.
-Changing the version of a transitive dependency might lead to runtime errors if external libraries do not properly function without them.
-Consider upgrading your source code to use a newer version of the library as an alternative approach.
+强制版本的依赖项需要有意识的决定。 如果外部库没有它们而无法正常运行，则更改可传递依赖项的版本可能会导致运行时错误。 考虑将源代码升级为使用库的较新版本作为替代方法。
 ====
 
-In general, forcing dependencies is done to downgrade a dependency.
-There might be different use cases for downgrading:
+通常，执行强制依赖关系可以降级依赖关系。降级可能会有不同的用例：:
 
-- a bug was discovered in the latest release
-- your code depends on a lower version which is not binary compatible
-- your code doesn't depend on the code paths which need a higher version of a dependency
+- 在最新版本中发现了一个错误
+- 您的代码取决于与二进制不兼容的较低版本
+- 您的代码不依赖于需要更高版本依赖的代码路径
 
-In all situations, this is best expressed saying that your code _strictly depends on_ a version of a transitive.
-Using <<rich_versions.adoc#sec:strict-version,strict versions>>, you will effectively depend on the version you declare, even if a transitive dependency says otherwise.
+在所有情况下，最好的表述是您的代码严格依赖于可传递代码的版本。使用 <<rich_versions.adoc#sec:strict-version,strict versions>>，即使传递依赖项另有说明，您也将有效地依赖于声明的版本。
 
 [NOTE]
 ====
-Strict dependencies are to some extent similar to Maven's _nearest first_ strategy, but there are subtle differences:
+严格的依赖关系在某种程度上类似于 Maven 最接近的优先策略，但存在细微的差异：:
 
-- _strict dependencies_ don't suffer an ordering problem: they are applied transitively to the subgraph, and it doesn't matter in which order dependencies are declared.
-- conflicting strict dependencies will trigger a build failure that you have to resolve
-- strict dependencies can be used with rich versions, meaning that <<#sec:strict-version-consequences,it's better to express the requirement in terms of a _strict range_ combined with a single _preferred version_>>.
+- 严格的依存关系不会遇到排序问题：它们可传递地应用于子图，并且声明依存关系的顺序无关紧要。
+- 严格的依存关系冲突将触发构建失败，您必须解决
+- 严格的依赖项可以与丰富的版本一起使用， <<#sec:strict-version-consequences,这意味着最好在严格范围内结合单个首选版本来表达需求>>.
 ====
 
-Let's say a project uses the link:https://hc.apache.org/httpcomponents-client-ga/[HttpClient library] for performing HTTP calls. HttpClient pulls in link:https://commons.apache.org/proper/commons-codec/[Commons Codec] as transitive dependency with version 1.10.
-However, the production source code of the project requires an API from Commons Codec 1.9 which is not available in 1.10 anymore.
-A dependency version can be enforced by declaring it as strict it in the build script:
+假设一个项目使用 link:https://hc.apache.org/httpcomponents-client-ga/[HttpClient library] 执行 HTTP 调用。 HttpClient 从 1.10 版引入 link:https://commons.apache.org/proper/commons-codec/[Commons Codec] 作为传递依赖项。 但是，项目的生产源代码需要 Commons Codec 1.9 中的 API，该 API 在 1.10 中不再可用。
+可以通过在构建脚本中将其声明为严格来强制实施依赖项版本：
 
 .Setting a strict version
 ====
@@ -43,38 +37,30 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-forc
 ====
 
 [[sec:strict-version-consequences]]
-=== Consequences of using strict versions
+=== 使用严格版本的后果
 
-Using a strict version must be carefully considered, in particular by library authors.
-As the _producer_, a strict version will effectively behave like a _force_: the version declaration takes precedence over whatever is found in the transitive dependency graph.
-In particular, a _strict version_ will override any other _strict version_ on the same module found transitively.
+必须仔细考虑使用严格的版本，尤其是图书馆作者。 作为生产者，严格版本实际上将表现得像一种力量：版本声明优先于可传递依赖关系图中发现的任何内容。 特别是，严格版本将覆盖可传递地找到的同一模块上的任何其他严格版本。
 
-However, for consumers, strict versions are still considered globally during graph resolution and _may trigger an error_ if the consumer disagrees.
+但是，对于消费者，在图形解析期间仍会严格考虑严格版本，如果消费者不同意，则可能会触发错误。
 
-For example, imagine that your project `B` _strictly_ depends on `C:1.0`.
-Now, a consumer, `A`, depends on both `B` and `C:1.1`.
+例如，假设您的项目 `B` 严格取决于 `C:1.0`。 现在，消费者 `A` 依赖于 `B` 和 `C:1.1`。
 
-Then this would trigger a resolution error because `A` says it needs `C:1.1` but `B`, _within its subgraph_, strictly needs `1.0`.
-This means that if you choose a _single version_ in a strict constraint, then the version can _no longer be upgraded_, unless the consumer also sets a strict version constraint on the same module.
+然后，这将引发解析错误，因为 `A` 表示需要 `C:1.1`，而 `B` 在其子图中严格要求 `1.0`。 这意味着，如果您在严格限制条件下选择单个版本，则该版本将无法再升级，除非使用者也对同一模块设置了严格版本限制。
 
-In the example above, `A` would have to say it _strictly depends on 1.1_.
+在上面的示例中， `A` 必须说它严格取决于1.1。
 
-For this reason, a good practice is that if you use _strict versions_, you should express them in terms of ranges and a preferred version within this range.
-For example, `B` might say, instead of `strictly 1.0`, that it _strictly depends_ on the `[1.0, 2.0[` range, but _prefers_ `1.0`.
-Then if a consumer chooses 1.1 (or any other version in the range), the build will _no longer fail_ (constraints are resolved).
+因此，一个好的做法是，如果您使用严格的版本，则应使用范围和该范围内的首选版本来表达它们。 例如，`B` 可能会说严格地依赖 `[1.0, 2.0[`，而不是 `1.0`，而不是 `strictly 1.0` 。 然后，如果使用者选择1.1（或该范围内的任何其他版本），则构建将不再失败（约束已解决）。
 
 [[forced_dependencies_vs_strict_dependencies]]
-=== Forced dependencies vs strict dependencies
+=== 强制依赖与严格依赖
 
 [WARNING]
 ====
-Forcing dependencies via link:{javadocPath}/org/gradle/api/artifacts/ExternalDependency.html#setForce-boolean-[ExternalDependency.setForce(boolean)] is deprecated and no longer recommended:
-forced dependencies suffer an ordering issue which can be hard to diagnose and will not work well together with other rich version constraints.
-You should prefer <<#sec:enforcing_dependency_version,strict versions>> instead.
-If you are authoring and publishing a <<library_vs_application.adoc#,library>>, you also need to be aware that `force` is *not* published.
+不建议使用 link:{javadocPath}/org/gradle/api/artifacts/ExternalDependency.html#setForce-boolean-[ExternalDependency.setForce(boolean)] 强制依赖，并且不再建议使用：强制依赖存在一个排序问题，该问题很难诊断，
+并且无法与其他 <<#sec:enforcing_dependency_version,strict versions>> 一起很好地工作。 您应该选择严格的版本。 如果要编写和 <<library_vs_application.adoc#,library>>，则还需要注意没有发布强制。
 ====
 
-If, for some reason, you can't use <<#sec:enforcing_dependency_version,strict versions>>, you can force a dependency doing this:
+如果由于某种原因不能使用  <<#sec:enforcing_dependency_version,strict versions>> ，则可以强制执行依赖项操作：
 
 .Enforcing a dependency version
 ====
@@ -82,7 +68,7 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-forc
 include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-forceForDependency/kotlin/build.gradle.kts[tags=force-per-dependency]
 ====
 
-If the project requires a specific version of a dependency on a configuration-level then it can be achieved by calling the method link:{groovyDslPath}/org.gradle.api.artifacts.ResolutionStrategy.html#org.gradle.api.artifacts.ResolutionStrategy:force(java.lang.Object++[]++)[ResolutionStrategy.force(java.lang.Object++[]++)].
+如果项目要求在配置级别上具有特定版本的依赖关系，则可以通过调用方法 link:{groovyDslPath}/org.gradle.api.artifacts.ResolutionStrategy.html#org.gradle.api.artifacts.ResolutionStrategy:force(java.lang.Object++[]++)[ResolutionStrategy.force(java.lang.Object++[]++)] 来实现。
 
 .Enforcing a dependency version on the configuration-level
 ====
@@ -91,20 +77,16 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-forc
 ====
 
 [[sec:excluding-transitive-deps]]
-== Excluding transitive dependencies
+== 排除传递依赖
 
-While the previous section showed how you can enforce a certain version of a transitive dependency, this section covers _excludes_ as a way to remove a transitive dependency completely.
+尽管上一节显示了如何强制实施某个版本的可传递依赖项，但本节将排除作为完全删除可传递依赖项的一种方式。
 
 [WARNING]
 ====
-Similar as forcing a version of a dependency, excluding a dependency completely requires a conscious decision.
-Excluding a transitive dependency might lead to runtime errors if external libraries do not properly function without them.
-If you use excludes, make sure that you do not utilise any code path requiring the excluded dependency by sufficient test coverage.
+与强制依赖版本类似，完全排除依赖需要有意识的决定。 如果外部库没有它们而无法正常运行，则排除传递依赖关系可能会导致运行时错误。 如果您使用排除，请确保您没有通过足够的测试覆盖率来利用任何需要排除依赖的代码路径。
 ====
 
-Transitive dependencies can be excluded on the level of a declared dependency.
-Exclusions are spelled out as a key/value pair via the attributes `group` and/or `module` as shown in the example below.
-For more information, refer to link:{javadocPath}/org/gradle/api/artifacts/ModuleDependency.html#exclude-java.util.Map-[ModuleDependency.exclude(java.util.Map)].
+可以在声明的依赖项级别上排除传递性依赖项。 排除通过属性 `group` 和/或 `module` 作为键​​/值对拼出，如以下示例所示。 有关更多信息，请参见  link:{javadocPath}/org/gradle/api/artifacts/ModuleDependency.html#exclude-java.util.Map-[ModuleDependency.exclude(java.util.Map)]。
 
 .Excluding a transitive dependency for a particular dependency declaration
 ====
@@ -112,32 +94,23 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excl
 include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excludeForDependency/kotlin/build.gradle.kts[tags=exclude-transitive-dependencies-1]
 ====
 
-In this example, we add a dependency to `commons-beanutils` but exclude the transitive dependency `commons-collections`.
-In our code, shown below, we only use one method from the beanutils library, `PropertyUtils.setSimpleProperty()`.
-Using this method for existing setters does not require any functionality from `commons-collections` as we verified through test coverage.
+在此示例中，我们向 `commons-beanutils`  添加了一个依赖关系，但不包括传递依赖项 `commons-collections`。 在下面显示的代码中，我们仅使用 beanutils 库中的一种方法 `PropertyUtils.setSimpleProperty()`。 
+通过我们的测试覆盖范围进行验证，将这种方法用于现有的设置员不需要从 `commons-collections` 获得任何功能。
 
 .Using a utility from the beanutils library
 ====
 include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excludeForDependency/groovy/src/main/java/Main.java"]
 ====
 
-Effectively, we are expressing that we only use a _subset_ of the library, which does not require the `commons-collection` library.
-This can be seen as implicitly defining a <<feature_variants.adoc#,feature variant>> that has not been explicitly declared by `commons-beanutils` itself.
-However, the risk of breaking an untested code path increased by doing this.
+实际上，我们表示仅使用该库的一个子集，而该子集不需要 `commons-collection` 库。 可以将其视为隐式定义了 `commons-beanutils` 本身未明确声明的 <<feature_variants.adoc#,feature variant>>。 但是，这样做会增加破坏未经测试的代码路径的风险。
 
-For example, here we use the `setSimpleProperty()` method to modify properties defined by setters in the `Person` class, which works fine.
-If we would attempt to set a property not existing on the class, we _should_ get an error like `Unknown property on class Person`.
-However, because the error handling path uses a class from `commons-collections`, the error we now get is `NoClassDefFoundError: org/apache/commons/collections/FastHashMap`.
-So if our code would be more dynamic, and we would forget to cover the error case sufficiently, consumers of our library might be confronted with unexpected errors.
+例如，这里我们使用 `setSimpleProperty()` 方法来修改 `Person` 类中 setter 定义的属性，效果很好。 如果尝试设置类中不存在的属性，则会出现 `Unknown property on class Person` 的错误。
+但是，由于错误处理路径使用 `commons-collections` 中的类，所以我们现在得到的错误是 `NoClassDefFoundError: org/apache/commons/collections/FastHashMap`。 因此，如果我们的代码更具动态性，而我们忘记了充分涵盖错误情况，则库的使用者可能会遇到意外错误。
 
-This is only an example to illustrate potential pitfalls.
-In practice, larger libraries or frameworks can bring in a huge set of dependencies.
-If those libraries fail to declare features separately and can only be consumed in a "all or nothing" fashion, excludes can be a valid method to reduce the library to the feature set actually required.
+这仅仅是说明潜在陷阱的一个示例。 实际上，较大的库或框架会带来大量的依赖关系。 如果这些库未能分别声明功能，并且只能以“全有或全无”的方式使用，则排除可能是将库缩减为实际所需功能集的有效方法。
 
-On the upside, Gradle's exclude handling is, in contrast to Maven, taking the whole dependency graph into account.
-So if there are multiple dependencies on a library, excludes are only exercised if all dependencies agree on them.
-For example, if we add `opencsv` as another dependency to our project above, which also depends on `commons-beanutils`, `commons-collection` is no longer excluded as `opencsv` itself does *not* exclude it.
-
+从好的方面来看，与 Maven 相比，Gradle 的排除处理考虑了整个依赖关系图。 因此，如果库上有多个依赖项，则仅当所有依赖项都对它们都同意时才执行排除。 例如，如果我们将 `opencsv` 作为另一个依赖项添加到上面的项目中，
+而该依赖项还取决于 `commons-beanutils`，则不再排除 `commons-collection` ，因为 `opencsv`  本身并不排除它。
 
 .Excludes only apply if all dependency declarations agree on an exclude
 ====
@@ -145,7 +118,7 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excl
 include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excludeForDependency/kotlin/build.gradle.kts[tags=exclude-transitive-dependencies-2]
 ====
 
-If we still want to have `commons-collections` excluded, because our combined usage of `commons-beanutils` and `opencsv` does not need it, we need to exclude it from the transitive dependencies of `opencsv` as well.
+如果我们仍然希望排除 `commons-collections`，因为  `commons-beanutils`  和 `opencsv` 的组合用法不需要​​它，我们也需要将其从 `opencsv` 的传递依赖项中排除。
 
 .Excluding a transitive dependency for multiple dependency declaration
 ====
@@ -153,20 +126,15 @@ include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excl
 include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-excludeForDependency/kotlin/build.gradle.kts[tags=exclude-transitive-dependencies-3]
 ====
 
-Historically, excludes were also used as a band aid to fix other issues not supported by some dependency management systems.
-Gradle however, offers a variety of features that might be better suited to solve a certain use case.
-You may consider to look into the following features:
+从历史上看，排除项还用作解决某些依赖项管理系统不支持的其他问题的辅助工具。 但是，Gradle提供了可能更适合解决特定用例的各种功能。 您可以考虑研究以下功能：
 
 - <<#sec:enforcing_dependency_version,Update>> or <<#sec:enforcing_dependency_version,downgrade>> dependency versions:
-  If versions of dependencies clash, it is usually better to adjust the version through a dependency constraint, instead of attempting to exclude the dependency with the undesired version.
+如果依赖性版本发生冲突，通常最好通过依赖性约束来调整版本，而不是尝试用不需要的版本排除依赖性。
 - <<component_metadata_rules.adoc#,Component Metadata Rules>>:
-  If a library's metadata is clearly wrong, for example if it includes a compile time dependency which is never needed at compile time, a possible solution is to remove the dependency in a component metadata rule.
-  By this, you tell Gradle that a dependency between two modules is never needed — i.e. the metadata was wrong — and therefore should *never* be considered.
-  If you are developing a library, you have to be aware that this information is not published, and so sometimes an _exclude_ can be the better alternative.
+  如果库的元数据明显错误，例如，如果库的元数据包含编译时从不需要的编译时相关性，则可能的解决方案是删除组件元数据规则中的相关性。 这样，您便告诉Gradle不再需要两个模块之间的依赖关系（即元数据是错误的），因此不应考虑。 如果要开发库，则必须注意该信息不会发布，因此有时排除是更好的选择。
 - <<dependency_capability_conflict.adoc#,Resolving mutually exclusive dependency conflicts>>:
-  Another situation that you often see solved by excludes is that two dependencies cannot be used together because they represent two implementations of the same thing (the same <<dependency_capability_conflict.adoc#sub:capabilities,capability>>).
-  A popular example are clashing logging API implementations (like `log4j` and `log4j-over-slf4j`) or modules that have different coordinates in different versions (like `com.google.collections` and `guava`).
-  In this case, if this information is not known to Gradle, it is recommended to add the missing capability information via component metadata rules as described in the <<dependency_capability_conflict.adoc#sub:declaring-component-capabilities,declaring component capabilities>> section.
-  Even if you are developing a library, and your consumers will have to deal with resolving the conflict again, it is often the right solution to leave the decision to the final consumers of libraries.
-  I.e. you as a library author should not have to decide which logging implementation your consumers use in the end.
+  您经常看到用排除法解决的另一种情况是，两个依赖项不能一起使用，因为它们表示同一事物（ <<dependency_capability_conflict.adoc#sub:capabilities,capability>）的两个实现。 一个流行的示例是冲突的日志记录 API 实现
+  （例如 `log4j` 和 `log4j-over-slf4j` ）或在不同版本中具有不同坐标的模块
+  (例如 `com.google.collections` 和 `guava` )。 在这种情况下，如果 Gradle 不知道此信息，则建议通过组件元数据规则添加缺少的能力信息，如 <<dependency_capability_conflict.adoc#sub:declaring-component-capabilities,声明组件功能>> 部分中所述。 即使您正在开发库时，
+  而您的使用者也不得不再次解决冲突，将决定权交给库的最终使用者通常是正确的解决方案。 即 作为库的作者，您最终不必决定消费者使用哪种日志记录实现。
 
