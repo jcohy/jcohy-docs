@@ -1,0 +1,156 @@
+[[elasticsearch.operations]]
+= Elasticsearch Operations
+
+Spring Data Elasticsearch uses several interfaces to define the operations that can be called against an Elasticsearch index (for a description of the reactive interfaces see <<elasticsearch.reactive.operations>>).
+
+* `IndexOperations` defines actions on index level like creating or deleting an index.
+* `DocumentOperations` defines actions to store, update and retrieve entities based on their id.
+* `SearchOperations` define the actions to search for multiple entities using queries
+* `ElasticsearchOperations` combines the `DocumentOperations` and `SearchOperations` interfaces.
+
+These interfaces correspond to the structuring of the https://www.elastic.co/guide/en/elasticsearch/reference/current/rest-apis.html[Elasticsearch API].
+
+The default implementations of the interfaces offer:
+
+* index management functionality.
+* Read/Write mapping support for domain types.
+* A rich query and criteria api.
+* Resource management and Exception translation.
+
+[[elasticsearch.operations.template]]
+== ElasticsearchTemplate
+
+NOTE: Usage of the ElasticsearchTemplate is deprecated as of version 4.0, use ElasticsearchRestTemplate instead.
+
+The `ElasticsearchTemplate` is an implementation of the `ElasticsearchOperations` interface using the <<elasticsearch.clients.transport>>.
+
+.ElasticsearchTemplate configuration
+====
+[source,java]
+----
+@Configuration
+public class TransportClientConfig extends ElasticsearchConfigurationSupport {
+
+  @Bean
+  public Client elasticsearchClient() throws UnknownHostException {                 <1>
+    Settings settings = Settings.builder().put("cluster.name", "elasticsearch").build();
+    TransportClient client = new PreBuiltTransportClient(settings);
+    client.addTransportAddress(new TransportAddress(InetAddress.getByName("127.0.0.1"), 9300));
+    return client;
+  }
+
+  @Bean(name = {"elasticsearchOperations", "elasticsearchTemplate"})
+  public ElasticsearchTemplate elasticsearchTemplate() throws UnknownHostException { <2>
+  	return new ElasticsearchTemplate(elasticsearchClient());
+  }
+}
+----
+<1> Setting up the <<elasticsearch.clients.transport>>. Deprecated as of version 4.0.
+<2> Creating the `ElasticsearchTemplate` bean, offering both names, _elasticsearchOperations_ and _elasticsearchTemplate_.
+====
+
+[[elasticsearch.operations.resttemplate]]
+== ElasticsearchRestTemplate
+
+The `ElasticsearchRestTemplate` is an implementation of the `ElasticsearchOperations` interface using the <<elasticsearch.clients.rest>>.
+
+.ElasticsearchRestTemplate configuration
+====
+[source,java]
+----
+@Configuration
+public class RestClientConfig extends AbstractElasticsearchConfiguration {
+  @Override
+  public RestHighLevelClient elasticsearchClient() {       <1>
+    return RestClients.create(ClientConfiguration.localhost()).rest();
+  }
+
+  // no special bean creation needed                       <2>
+}
+----
+<1> Setting up the <<elasticsearch.clients.rest>>.
+<2> The base class `AbstractElasticsearchConfiguration` already provides the `elasticsearchTemplate` bean.
+====
+
+[[elasticsearch.operations.usage]]
+== Usage examples
+
+As both `ElasticsearchTemplate` and `ElasticsearchRestTemplate` implement the `ElasticsearchOperations` interface, the code to use them is not different. The example shows how to use an injected `ElasticsearchOperations` instance in a Spring REST controller. The decision, if this is using the `TransportClient` or the `RestClient` is made by providing the corresponding Bean with one of the configurations shown above.
+
+.ElasticsearchOperations usage
+====
+[source,java]
+----
+@RestController
+@RequestMapping("/")
+public class TestController {
+
+  private  ElasticsearchOperations elasticsearchOperations;
+
+  public TestController(ElasticsearchOperations elasticsearchOperations) { <1>
+    this.elasticsearchOperations = elasticsearchOperations;
+  }
+
+  @PostMapping("/person")
+  public String save(@RequestBody Person person) {                         <2>
+
+    IndexQuery indexQuery = new IndexQueryBuilder()
+      .withId(person.getId().toString())
+      .withObject(person)
+      .build();
+    String documentId = elasticsearchOperations.index(indexQuery);
+    return documentId;
+  }
+
+  @GetMapping("/person/{id}")
+  public Person findById(@PathVariable("id")  Long id) {                   <3>
+    Person person = elasticsearchOperations
+      .queryForObject(GetQuery.getById(id.toString()), Person.class);
+    return person;
+  }
+}
+
+----
+<1> Let Spring inject the provided `ElasticsearchOperations` bean in the constructor.
+<2> Store some entity in the Elasticsearch cluster.
+<3> Retrieve the entity with a query by id.
+====
+
+To see the full possibilities of `ElasticsearchOperations` please refer to the API documentation.
+
+include::reactive-elasticsearch-operations.adoc[leveloffset=+1]
+
+[[elasticsearch.operations.searchresulttypes]]
+== Search Result Types
+
+When a document is retrieved with the methods of the  `DocumentOperations` interface, just the found entity will be returned. When searching with the methods of the `SearchOperations` interface, additional information is available for each entity, for example the _score_ or the _sortValues_ of the found entity.
+
+In order to return this information, each entity is wrapped in a `SearchHit` object that contains this entity-specific additional information. These `SearchHit` objects themselves are returned within a `SearchHits` object which additionally contains informations about the whole search like the _maxScore_ or requested aggregations. The following classes and interfaces are now available:
+
+.SearchHit<T>
+Contains the following information:
+
+* Id
+* Score
+* Sort Values
+* Highlight fields
+* The retrieved entity of type <T>
+
+.SearchHits<T>
+Contains the following information:
+
+* Number of total hits
+* Total hits relation
+* Maximum score
+* A list of `SearchHit<T>` objects
+* Returned aggregations
+
+.SearchPage<T>
+Defines a Spring Data `Page` that contains a `SearchHits<T>` element and can be used for paging access using repository methods.
+
+.SearchScrollHits<T>
+Returned by the low level scroll API functions in `ElasticsearchRestTemplate`, it enriches a `SearchHits<T>` with the Elasticsearch scroll id.
+
+.SearchHitsIterator<T>
+An Iterator returned by the streaming functions of the `SearchOperations` interface.
+

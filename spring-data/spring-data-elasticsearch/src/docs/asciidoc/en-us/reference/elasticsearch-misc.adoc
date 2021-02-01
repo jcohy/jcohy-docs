@@ -1,0 +1,102 @@
+[[elasticsearch.misc]]
+= Miscellaneous Elasticsearch Operation Support
+
+This chapter covers additional support for Elasticsearch operations that cannot be directly accessed via the repository interface. It is recommended to add those operations as custom implementation as described in <<repositories.custom-implementations>> .
+
+[[elasticsearch.misc.filter]]
+== Filter Builder
+
+Filter Builder improves query speed.
+
+====
+[source,java]
+----
+private ElasticsearchOperations operations;
+
+IndexCoordinates index = IndexCoordinates.of("sample-index");
+
+SearchQuery searchQuery = new NativeSearchQueryBuilder()
+  .withQuery(matchAllQuery())
+  .withFilter(boolFilter().must(termFilter("id", documentId)))
+  .build();
+  
+Page<SampleEntity> sampleEntities = operations.searchForPage(searchQuery, SampleEntity.class, index);
+----
+====
+
+[[elasticsearch.scroll]]
+== Using Scroll For Big Result Set
+
+Elasticsearch has a scroll API for getting big result set in chunks. This is internally used by Spring Data Elasticsearch to provide the implementations of the `<T> SearchHitsIterator<T> SearchOperations.searchForStream(Query query, Class<T> clazz, IndexCoordinates index)` method.
+
+[source,java]
+----
+IndexCoordinates index = IndexCoordinates.of("sample-index");
+
+SearchQuery searchQuery = new NativeSearchQueryBuilder()
+  .withQuery(matchAllQuery())
+  .withFields("message")
+  .withPageable(PageRequest.of(0, 10))
+  .build();
+
+SearchHitsIterator<SampleEntity> stream = elasticsearchTemplate.searchForStream(searchQuery, SampleEntity.class, index);
+
+List<SampleEntity> sampleEntities = new ArrayList<>();
+while (stream.hasNext()) {
+  sampleEntities.add(stream.next());
+}
+
+stream.close();
+----
+
+There are no methods in the `SearchOperations` API to access the scroll id, if it should be necessary to access this, the following methods of the `ElasticsearchRestTemplate` can be used:
+
+[source,java]
+----
+
+@Autowired ElasticsearchRestTemplate template;
+
+IndexCoordinates index = IndexCoordinates.of("sample-index");
+
+SearchQuery searchQuery = new NativeSearchQueryBuilder()
+  .withQuery(matchAllQuery())
+  .withFields("message")
+  .withPageable(PageRequest.of(0, 10))
+  .build();
+
+SearchScrollHits<SampleEntity> scroll = template.searchScrollStart(1000, searchQuery, SampleEntity.class, index);
+
+String scrollId = scroll.getScrollId();
+List<SampleEntity> sampleEntities = new ArrayList<>();
+while (scroll.hasSearchHits()) {
+  sampleEntities.addAll(scroll.getSearchHits());
+  scrollId = scroll.getScrollId();
+  scroll = template.searchScrollContinue(scrollId, 1000, SampleEntity.class);
+}
+template.searchScrollClear(scrollId);
+----
+
+To use the Scroll API with repository methods, the return type must defined as `Stream` in the Elasticsearch Repository. The implementation of the method will then use the scroll methods from the ElasticsearchTemplate.
+
+[source,java]
+----
+interface SampleEntityRepository extends Repository<SampleEntity, String> {
+
+    Stream<SampleEntity> findBy();
+
+}
+----
+
+[[elasticsearch.misc.sorts]]
+== Sort options
+
+In addition to the default sort options described <<repositories.paging-and-sorting>> Spring Data Elasticsearch has a `GeoDistanceOrder` class which can be used to have the result of a search operation ordered by geographical distance.
+
+If the class to be retrieved has a `GeoPoint` property named _location_, the following `Sort` would sort the results by distance to the given point:
+
+[source,java]
+----
+Sort.by(new GeoDistanceOrder("location", new GeoPoint(48.137154, 11.5761247)))
+----
+
+
