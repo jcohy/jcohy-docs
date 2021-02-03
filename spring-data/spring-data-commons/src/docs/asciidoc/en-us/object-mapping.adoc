@@ -73,16 +73,18 @@ Unless already populated by the entity's constructor (i.e. consumed through its 
 After that, all non-transient properties that have not already been populated by the constructor are set on the entity instance.
 For that we use the following algorithm:
 
-1. If the property is immutable but exposes a wither method (see below), we use the wither to create a new entity instance with the new property value.
+1. If the property is immutable but exposes a `with…` method (see below), we use the `with…` method to create a new entity instance with the new property value.
 2. If property access (i.e. access through getters and setters) is defined, we're invoking the setter method.
-3. By default, we set the field value directly.
+3. If the property is mutable we set the field directly.
+3. If the property is immutable we're using the constructor to be used by persistence operations (see <<mapping.object-creation>>) to create a copy of the instance.
+4. By default, we set the field value directly.
 
 [[mapping.property-population.details]]
 .Property population internals
 ****
 Similarly to our <<mapping.object-creation.details,optimizations in object construction>> we also use Spring Data runtime generated accessor classes to interact with the entity instance.
 
-[source, java]
+[source,java]
 ----
 class Person {
 
@@ -160,7 +162,7 @@ class Person {
   private final @Id Long id;                                                <1>
   private final String firstname, lastname;                                 <2>
   private final LocalDate birthday;
-  private final int age; <3>
+  private final int age;                                                    <3>
 
   private String comment;                                                   <4>
   private @AccessType(Type.PROPERTY) String remarks;                        <5>
@@ -194,10 +196,11 @@ class Person {
 The class exposes a `withId(…)` method that's used to set the identifier, e.g. when an instance is inserted into the datastore and an identifier has been generated.
 The original `Person` instance stays unchanged as a new one is created.
 The same pattern is usually applied for other properties that are store managed but might have to be changed for persistence operations.
+The wither method is optional as the persistence constructor (see 6) is effectively a copy constructor and setting the property will be translated into creating a fresh instance with the new identifier value applied.
 <2> The `firstname` and `lastname` properties are ordinary immutable properties potentially exposed through getters.
 <3> The `age` property is an immutable but derived one from the `birthday` property.
 With the design shown, the database value will trump the defaulting as Spring Data uses the only declared constructor.
-Even if the intent is that the calculation should be preferred, it's important that this constructor also takes `age` as parameter (to potentially ignore it) as otherwise the property population step will attempt to set the age field and fail due to it being immutable and no wither being present.
+Even if the intent is that the calculation should be preferred, it's important that this constructor also takes `age` as parameter (to potentially ignore it) as otherwise the property population step will attempt to set the age field and fail due to it being immutable and no `with…` method being present.
 <4> The `comment` property is mutable is populated by setting its field directly.
 <5> The `remarks` properties are mutable and populated by setting the `comment` field directly or by invoking the setter method for
 <6> The class exposes a factory method and a constructor for object creation.
@@ -215,7 +218,7 @@ Constructor-only materialization is up to 30% faster than properties population.
 * _Use factory methods instead of overloaded constructors to avoid ``@PersistenceConstructor``_ -- With an all-argument constructor needed for optimal performance, we usually want to expose more application use case specific constructors that omit things like auto-generated identifiers etc.
 It's an established pattern to rather use static factory methods to expose these variants of the all-args constructor.
 * _Make sure you adhere to the constraints that allow the generated instantiator and property accessor classes to be used_ --
-* _For identifiers to be generated, still use a final field in combination with a wither method_ --
+* _For identifiers to be generated, still use a final field in combination with an all-arguments persistence constructor (preferred) or a `with…` method_ --
 * _Use Lombok to avoid boilerplate code_ -- As persistence operations usually require a constructor taking all arguments, their declaration becomes a tedious repetition of boilerplate parameter to field assignments that can best be avoided by using Lombok's `@AllArgsConstructor`.
 
 [[mapping.kotlin]]
@@ -225,19 +228,20 @@ Spring Data adapts specifics of Kotlin to allow object creation and mutation.
 
 === Kotlin object creation
 
-Kotlin classes are supported to be instantiated , all classes are immutable by default and require explicit property declarations to define mutable properties. Consider the following `data` class `Person`:
+Kotlin classes are supported to be instantiated , all classes are immutable by default and require explicit property declarations to define mutable properties.
+Consider the following `data` class `Person`:
 
 ====
-[source,java]
+[source,kotlin]
 ----
 data class Person(val id: String, val name: String)
 ----
 ====
 
-The class above compiles to a typical class with an explicit constructor. We can customize this class by adding another constructor and annotate it with `@PersistenceConstructor` to indicate a constructor preference:
+The class above compiles to a typical class with an explicit constructor.We can customize this class by adding another constructor and annotate it with `@PersistenceConstructor` to indicate a constructor preference:
 
 ====
-[source,java]
+[source,kotlin]
 ----
 data class Person(var id: String, val name: String) {
 
@@ -248,10 +252,10 @@ data class Person(var id: String, val name: String) {
 ====
 
 Kotlin supports parameter optionality by allowing default values to be used if a parameter is not provided.
-When Spring Data detects a constructor with parameter defaulting, then it leaves these parameters absent if the data store does not provide a value (or simply returns `null`) so Kotlin can apply parameter defaulting. Consider the following class that applies parameter defaulting for `name`
+When Spring Data detects a constructor with parameter defaulting, then it leaves these parameters absent if the data store does not provide a value (or simply returns `null`) so Kotlin can apply parameter defaulting.Consider the following class that applies parameter defaulting for `name`
 
 ====
-[source,java]
+[source,kotlin]
 ----
 data class Person(var id: String, val name: String = "unknown")
 ----
@@ -261,13 +265,15 @@ Every time the `name` parameter is either not part of the result or its value is
 
 === Property population of Kotlin data classes
 
-In Kotlin, all classes are immutable by default and require explicit property declarations to define mutable properties. Consider the following `data` class `Person`:
+In Kotlin, all classes are immutable by default and require explicit property declarations to define mutable properties.
+Consider the following `data` class `Person`:
 
 ====
-[source,java]
+[source,kotlin]
 ----
 data class Person(val id: String, val name: String)
 ----
 ====
 
-This class is effectively immutable. It allows to create new instances as Kotlin generates a `copy(…)` method that creates new object instances copying all property values from the existing object and applying property values provided as arguments to the method.
+This class is effectively immutable.
+It allows creating new instances as Kotlin generates a `copy(…)` method that creates new object instances copying all property values from the existing object and applying property values provided as arguments to the method.
