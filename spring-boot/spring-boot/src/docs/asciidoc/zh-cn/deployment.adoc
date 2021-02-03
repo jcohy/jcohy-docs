@@ -8,7 +8,7 @@ Spring Boot的灵活打包选项在部署应用程序时提供了很多选择.  
 
 [[containers-deployment]]
 == 打包成容器
-如果从容器中运行应用程序,则可以使用可执行jar,但是将其爆炸并以其他方式运行通常也是一个优点.  某些PaaS实施也可能选择在运行存档之前将其解压缩.  例如,Cloud Foundry以这种方式运行.  运行解压缩存档的最简单方法是启动相应的启动器,如下所示:
+如果从容器中运行应用程序,则可以使用可执行jar,但是将其爆炸并以其他方式运行通常也是一个优点.  某些 PaaS 实施也可能选择在运行存档之前将其解压缩.  例如,Cloud Foundry 以这种方式运行.  运行解压缩存档的最简单方法是启动相应的启动器,如下所示:
 
 [indent=0]
 ----
@@ -16,43 +16,9 @@ Spring Boot的灵活打包选项在部署应用程序时提供了很多选择.  
 	$ java org.springframework.boot.loader.JarLauncher
 ----
 
-实际上,这在启动时 (取决于jar的大小) 比从未爆炸的存档中运行要快一些.  在运行时,您不应期望有任何差异.
+NOTE: 在应用程序的 main 方法上使用 `JarLauncher` 可以预测类路径加载顺序。 该 jar 包含一个 `classpath.idx` 文件，该文件由 `JarLauncher` 在构造类路径时使用。
 
-解压缩jar文件后,还可以通过使用其 "自然" 主方法 (而不是 `JarLauncher`) 运行应用程序来增加启动时间.  例如:
-
-[indent=0]
-----
-	$ jar -xf myapp.jar
-	$ java -cp BOOT-INF/classes:BOOT-INF/lib/* com.example.MyApplication
-----
-
-还可以通过将依赖为与应用程序类和资源 (通常会更频繁地更改) 分离的一层复制到映像中来创建更有效的容器映像.  实现这一层分离的方法不止一种.  例如,使用 `Dockerfile` 可以用以下形式表示它:
-
-[indent=0]
-----
-	FROM openjdk:8-jdk-alpine AS builder
-	WORKDIR target/dependency
-	ARG APPJAR=target/*.jar
-	COPY ${APPJAR} app.jar
-	RUN jar -xf ./app.jar
-
-	FROM openjdk:8-jre-alpine
-	VOLUME /tmp
-	ARG DEPENDENCY=target/dependency
-	COPY --from=builder ${DEPENDENCY}/BOOT-INF/lib /app/lib
-	COPY --from=builder ${DEPENDENCY}/META-INF /app/META-INF
-	COPY --from=builder ${DEPENDENCY}/BOOT-INF/classes /app
-	ENTRYPOINT ["java","-cp","app:app/lib/*","com.example.MyApplication"]
-----
-
-假设上述 `Dockerfile` 是当前目录,则可以使用 `docker build`. 生成您的docker映像,或者可以选择指定应用程序jar的路径,如以下示例所示:
-
-[indent=0]
-----
-	docker build --build-arg APPJAR=path/to/myapp.jar .
-----
-
-
+还可以通过为依赖项以及应用程序类和资源（通常会更频繁地更改）<<spring-boot-features.adoc#boot-features-container-images-docker,creating separate layers>> 来创建更有效的容器映像。
 
 [[cloud-deployment]]
 == 部署到云端
@@ -153,6 +119,34 @@ NOTE: 在前面的示例中,我们用 `acloudyspringtime` 替换您给cf作为�
 
 TIP: https://github.com/pivotal-cf/java-cfenv/[Java CFEnv] 项目更适合诸如配置数据源之类的任务.
 
+[[cloud-deployment-kubernetes]]
+=== Kubernetes
+
+Spring Boot 通过检查环境中的 `"*_SERVICE_HOST"` 和 `"*_SERVICE_PORT"` 变量来自动检测 Kubernetes 部署环境。 您可以使用  configprop:spring.main.cloud-platform[] 配置属性覆盖此检测。
+
+Spring Boot 帮助您<<spring-boot-features.adoc#boot-features-application-availability,管理应用程序的状态>>，并<<production-ready-features.adoc#production-ready-kubernetes-probes, 使用 Actuator 通过 HTTP Kubernetes 探针>>将其导出。
+
+[[cloud-deployment-kubernetes-container-lifecycle]]
+==== Kubernetes 容器生命周期
+
+当 Kubernetes 删除应用程序实例时，关机过程会同时涉及多个子系统：shutdown hooks，注销服务，将实例从负载均衡器中删除... 因为这些关机进程并行发生（并且由于分布式系统的性质）， 有一个窗口，在此期间可以将流量路由到也已开始其关闭处理的Pod。
+
+您可以在 preStop 处理程序中配置睡眠执行，以避免将请求路由到已经开始关闭的 Pod。 此睡眠时间应足够长，以使新请求停止路由到 Pod，并且其持续时间因部署而异。 可以通过 pod 配置文件中的 PodSpec 来配置 preStop 处理程序，如下所示：
+
+[source,yml,indent=0]
+----
+spec:
+  containers:
+  - name: example-container
+    image: example-image
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sh", "-c", "sleep 10"]
+----
+
+一旦停止前挂钩完成，SIGTERM将 被发送到容器，并且将 <<spring-boot-features#boot-features-graceful-shutdown,正常关机>>，从而允许完成所有剩余的运行中请求。
+
 [[cloud-deployment-heroku]]
 === Heroku
 Heroku i是另一个流行的PaaS平台.  要自定义Heroku构建,您需要提供一个 `Procfile`,该文件提供了部署应用程序所需的内容.  Heroku为Java应用程序分配了一个要使用的 `port` ,然后确保可以路由到外部URI.
@@ -215,9 +209,9 @@ Spring Boot使 `-D` 参数成为可从Spring `Environment` 实例访问的属性
 
 [[cloud-deployment-openshift]]
 === OpenShift
-https://www.openshift.com/[OpenShift] 是Kubernetes容器编排平台的Red Hat公共 (和企业) 扩展.  与Kubernetes相似,OpenShift具有许多用于安装基于Spring Boot的应用程序的选项.
+https://www.openshift.com/[OpenShift] 是 Kubernetes 容器编排平台的 Red Hat 公共 (和企业) 扩展.  与 Kubernetes 相似,OpenShift 具有许多用于安装基于 Spring Boot的应用程序的选项.
 
-OpenShift提供了许多资源来描述如何部署Spring Boot应用程序,包括:
+OpenShift 提供了许多资源来描述如何部署 Spring Boot 应用程序,包括:
 
 * https://blog.openshift.com/using-openshift-enterprise-grade-spring-boot-deployments/[使用S2I构建器]
 * https://access.redhat.com/documentation/en-us/reference_architectures/2017/html-single/spring_boot_microservices_on_red_hat_openshift_container_platform_3/[Architecture 指南]
@@ -321,11 +315,11 @@ TIP: 默认情况下,Boxfuse 在启动时会激活一个名为 `boxfuse` 的Spri
 
 [[cloud-deployment-gae]]
 === Google Cloud
-Google Cloud有多个选项可用于启动Spring Boot应用程序.  最容易上手的可能是App Engine,但您也可以找到在Container Engine的容器中或Compute Engine的虚拟机上运行Spring Boot的方法.
+Google Cloud 有多个选项可用于启动 Spring Boot 应用程序.  最容易上手的可能是App Engine,但您也可以找到在Container Engine的容器中或Compute Engine的虚拟机上运行Spring Boot的方法.
 
-要在App Engine中运行,您可以先在用户界面中创建一个项目,该项目将为您设置一个唯一的标识符,并还设置HTTP路由.  将Java应用程序添加到项目中,并将其保留为空,然后使用  https://cloud.google.com/sdk/install[Google Cloud SDK] 从命令行或CI构建将Spring Boot应用程序推送到该插槽中.
+要在 App Engine 中运行,您可以先在用户界面中创建一个项目,该项目将为您设置一个唯一的标识符,并还设置HTTP路由.  将Java应用程序添加到项目中,并将其保留为空,然后使用  https://cloud.google.com/sdk/install[Google Cloud SDK] 从命令行或CI构建将Spring Boot应用程序推送到该插槽中.
 
-App Engine Standard 要求您使用WAR包装.  请按照 https://github.com/GoogleCloudPlatform/getting-started-java/blob/master/appengine-standard-java8/springboot-appengine-standard/README.md[以下步骤] 将 App Engine标准应用程序部署到Google Cloud.
+App Engine Standard 要求您使用 WAR 包装.  请按照 https://github.com/GoogleCloudPlatform/java-docs-samples/tree/master/appengine-java8/springboot-helloworld/README.md[这些步骤]  将 App Engine 标准应用程序部署到 Google Cloud.
 
 另外,App Engine Flex要求您创建一个 `app.yaml` 文件来描述您的应用程序所需的资源.  通常,您将此文件放在 `src/main/appengine` 中,它应类似于以下文件:
 
@@ -411,7 +405,7 @@ CAUTION: 不能使zip64格式的jar文件完全可执行.  尝试这样做将导
 通过使用 `init.d` 或 `systemd`,可以轻松地将Spring Boot应用程序作为 `Unix/Linux` 服务启动.
 
 [[deployment-initd-service]]
-==== 作为 `init.d` 服务安装 (系统V)
+==== 作为 init.d 服务安装 (系统V)
 如果您将Spring Boot的Maven或Gradle插件配置为生成<<deployment-install, 完全可执行的jar>>,并且不使用自定义的 `EmbeddedLaunchScript`,则您的应用程序可以用作 `init.d` 服务.  为此,将jar链接到 `init.d` 以支持标准的 `start`, `stop`, `restart`, 和 `status` 命令.
 
 该脚本支持以下功能:
@@ -444,7 +438,7 @@ TIP: 如果您的应用程序无法启动,请检查写入  `/var/log/<appname>.l
 ----
 
 [[deployment-initd-service-securing]]
-===== 保护 `init.d` 服务
+===== 保护 init.d 服务
 NOTE: 以下是一组有关如何保护作为init.d服务运行的Spring Boot应用程序的准则.  它并不旨在详尽列出增强应用程序及其运行环境所应进行的所有工作.
 
 当以root身份执行时 (例如使用root来启动init.d服务时) ,默认的可执行脚本以 `RUN_AS_USER` 环境变量中指定的用户身份运行应用程序.
@@ -485,7 +479,7 @@ TIP: 为了减少应用程序的用户帐户被盗的机会,您应该考虑阻�
 ----
 
 [[deployment-systemd-service]]
-==== 作为 `systemd` 服务安装
+==== 作为 systemd 服务安装
 `systemd` 是System V init系统的后继产品,现在被许多现代Linux发行版使用.  尽管您可以继续在 `systemd` 中使用 `init.d` 脚本,但也可以通过使用 `systemd` 的 '`service`' 脚本来启动Spring Boot应用程序.
 
 假设您在 `/var/myapp` 中安装了Spring Boot应用程序,要将Spring Boot应用程序安装为 `systemd` 服务,请创建一个名为 `myapp.service` 的脚本并将其放在 `/etc/systemd/system` 目录中.  以下脚本提供了一个示例:
@@ -530,7 +524,7 @@ NOTE: `ExecStart` 字段未声明脚本操作命令,这意味着默认情况下�
 
 在将启动脚本写入jar文件时,自定义启动脚本的元素通常很有意义.  例如,`init.d` 脚本可以提供  "`description`".  由于您已经预先了解了描述 (并且无需更改) ,因此在生成jar时也可以提供它.
 
-要自定义书面元素,请使用Spring Boot Maven插件的 `embeddedLaunchScriptProperties` 选项或 {spring-boot-gradle-plugin-docs}/#packaging-executable-configuring-launch-script[Spring Boot Gradle插件的 `launchScript` 的 `properties` 属性].
+要自定义书面元素,请使用Spring Boot Maven插件的 `embeddedLaunchScriptProperties` 选项或 {spring-boot-gradle-plugin-docs}#packaging-executable-configuring-launch-script[Spring Boot Gradle插件的 `launchScript` 的 `properties` 属性].
 
 默认脚本支持以下属性替换:
 
@@ -652,13 +646,13 @@ NOTE: `ExecStart` 字段未声明脚本操作命令,这意味着默认情况下�
 | 是否可以使用 `start-stop-daemon` 命令来控制该过程.  默认为 `true`.
 
 | `PID_FOLDER`
-| pid文件夹的根名称 (默认为 `/var/run`) .
+| pid目录的根名称 (默认为 `/var/run`) .
 
 | `LOG_FOLDER`
-| 放置日志文件的文件夹的名称 (默认为 `/var/log`) .
+| 放置日志文件的目录的名称 (默认为 `/var/log`) .
 
 | `CONF_FOLDER`
-| 从中读取.conf文件的文件夹的名称 (默认情况下与jar文件相同的文件夹) .
+| 从中读取 `.conf` 文件的目录的名称 (默认情况下与jar文件相同的目录) .
 
 | `LOG_FILENAME`
 | `LOG_FOLDER` 中的日志文件名 (默认为 `<appname>.log`) .

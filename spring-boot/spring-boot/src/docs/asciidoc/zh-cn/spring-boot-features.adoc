@@ -160,6 +160,82 @@ include::{code-examples}/builder/SpringApplicationBuilderExample.java[tag=hierar
 
 NOTE: 创建层级的 `ApplicationContext` 时有部分限制,比如 Web 组件必须包含在子上下文中,并且相同的 `Environment` 将作用于父子上下文. 有关详细信息,请参阅 {spring-boot-module-api}/builder/SpringApplicationBuilder.html[`SpringApplicationBuilder` Javadoc] .
 
+[[boot-features-application-availability]]
+=== 应用程序的可用性
+在平台上部署后，应用程序可以使用诸如 https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/[Kubernetes Probes] 之类的基础结构向平台提供有关其可用性的信息。 Spring Boot 对常用的 "`liveness`"  和 "`readiness`" 可用性状态提供了开箱即用的支持。 如果您使用了 Spring Boot 的 "`actuator`" 支持，则这些状态将显示为运行状况端点组。
+
+另外，您还可以通过将 `ApplicationAvailability` 接口注入到您自己的bean中来获取可用性状态。
+
+[[boot-features-application-availability-liveness-state]]
+==== Liveness State
+应用程序的 "`Liveness`"  状态表明其内部是否正常运行，或者在当前出现故障时自行恢复。 损坏的 "`Liveness`"  状态意味着应用程序处于无法恢复的状态，并且应重新启动应用程序。
+
+NOTE: 通常，"Liveness" 状态不应基于外部检查（例如 <<production-ready-features.adoc#production-ready-health, Health checks>>）。 如果确实如此，则发生故障的外部系统（数据库，Web API，外部缓存）将触发整个平台的大量重启和级联故障。
+
+Spring Boot 应用程序的内部状态主要由 Spring `ApplicationContext` 表示。 如果应用程序上下文已成功启动，则 Spring Boot 会假定该应用程序处于有效状态。 刷新上下文后，应用程序即被视为活动应用程序，请参阅 <<boot-features-application-events-and-listeners, Spring Boot 应用程序生命周期和相关的应用程序事件>>。
+
+[[boot-features-application-availability-readiness-state]]
+==== Readiness State
+
+应用程序的 "`Readiness`" 状态告诉应用程序是否已准备好处理流量。 失败的 "`Readiness`" 状态告诉平台当前不应将流量路由到应用程序。 这通常发生在启动过程中，正在处理 `CommandLineRunner` 和 `ApplicationRunner` 组件时，或者在应用程序认为它太忙而无法获得额外流量的情况下。
+
+一旦调用了应用程序和命令行运行程序，就认为该应用程序已准备就绪，请参阅 <<boot-features-application-events-and-listeners, Spring Boot 应用程序生命周期和相关的应用程序事件>>.
+
+TIP: 预期在启动期间运行的任务应由 `CommandLineRunner` 和 `ApplicationRunner` 组件执行，而不是使用 Spring 组件生命周期回调（如 `@PostConstruct`）执行。
+
+[[boot-features-application-availability-managing]]
+==== 管理应用程序可用性状态
+通过注入 `ApplicationAvailability` 接口并调用其方法，应用程序组件可以随时检索当前的可用性状态。 应用程序通常会希望监听状态更新或更新应用程序的状态。
+
+例如，我们可以将应用程序的  "Readiness" 状态导出到文件中，以便 Kubernetes 的 "exec Probe" 可以查看此文件：
+
+[source,java,indent=0]
+----
+    @Component
+	public class ReadinessStateExporter {
+
+		@EventListener
+	    public void onStateChange(AvailabilityChangeEvent<ReadinessState> event) {
+			switch (event.getState()) {
+		    case ACCEPTING_TRAFFIC:
+			    // create file /tmp/healthy
+			break;
+		    case REFUSING_TRAFFIC:
+		    	// remove file /tmp/healthy
+			break;
+		    }
+	    }
+
+	}
+----
+
+当应用程序崩溃且无法恢复时，我们还可以更新应用程序的状态:
+
+[source,java,indent=0]
+----
+    @Component
+	public class LocalCacheVerifier {
+
+	    private final ApplicationEventPublisher eventPublisher;
+
+	    public LocalCacheVerifier(ApplicationEventPublisher eventPublisher) {
+            this.eventPublisher = eventPublisher;
+	    }
+
+	    public void checkLocalCache() {
+	    	try {
+	    		//...
+	    	}
+	    	catch (CacheCompletelyBrokenException ex) {
+	    		AvailabilityChangeEvent.publish(this.eventPublisher, ex, LivenessState.BROKEN);
+	    	}
+	    }
+
+	}
+----
+
+Spring Boot 通过 <<production-ready-features.adoc#production-ready-kubernetes-probes,Kubernetes HTTP probes for "Liveness" and "Readiness" with Actuator Health Endpoints>>。您可以在专用部分中获得<<deployment.adoc#cloud-deployment-kubernetes,有关在 Kubernetes 上部署 Spring Boot 应用程序的更多指南>>。
+
 [[boot-features-application-events-and-listeners]]
 === 应用程序事件与监听器
 
@@ -167,7 +243,7 @@ NOTE: 创建层级的 `ApplicationContext` 时有部分限制,比如 Web 组件�
 
 [NOTE]
 ====
-在 `ApplicationContext` 创建之前,实际上触发了一些事件,因此您不能像 `@Bean` 一样注册监听器. 您可以通过 `SpringApplication.addListeners(​...)` 或者 `SpringApplicationBuilder.listeners(...​)` 方法注册它们.
+在 `ApplicationContext` 创建之前,实际上触发了一些事件,因此您不能像 `@Bean` 一样注册监听器. 您可以通过 `SpringApplication.addListeners(​...)` 或者 `SpringApplicationBuilder.listeners(...)` 方法注册它们.
 如果您希望无论应用使用何种创建方式都能自动注册这些监听器,您都可以将 `META-INF/spring.factories` 文件添加到项目中,并使用 `org.springframework.context.ApplicationListener` 属性键指向您的监听器.
 比如: `org.springframework.context.ApplicationListener=com.example.project.MyListener`
 
@@ -185,15 +261,19 @@ NOTE: 创建层级的 `ApplicationContext` 时有部分限制,比如 Web 组件�
 . 准备 `ApplicationContext` 并调用 `ApplicationContextInitializers` 之后但在加载任何bean定义之前,将发送 `ApplicationContextInitializedEvent`.
 . 开始刷新之前,bean 定义被加载之后发送 `ApplicationPreparedEvent`.
 . 在上下文刷新之后且所有的应用和命令行运行器 (command-line runner) 被调用之前发送 `ApplicationStartedEvent`.
-. 在应用程序和命令行运行器 (command-line runner) 被调用之后,将发出 `ApplicationReadyEvent`,该事件用于通知应用已经准备处理请求.
-. 如果启动时发生异常,将发送 `ApplicationFailedEvent`.
+. 紧随其后发送带有 `LivenessState.CORRECT` 的 `AvailabilityChangeEvent`，以指示该应用程序处于活动状态。
+. 在应用程序和命令行运行器 (command-line runner) 被调用之后,将发出，将发送 `ApplicationReadyEvent`。
+. 随即在 `ReadinessState.ACCEPTING_TRAFFIC` 之后发送 `AvailabilityChangeEvent`，以指示该应用程序已准备就绪，可以处理请求。
+. 如果启动时发生异常，则发送 `ApplicationFailedEvent`。
 
 上面的列表仅包含绑定到 `SpringApplication` 的 `SpringApplicationEvents`.  除这些以外,以下事件也在 `ApplicationPreparedEvent` 之后和 `ApplicationStartedEvent` 之前发布:
 
-. 刷新 `ApplicationContext` 时,将发送 `ContextRefreshedEvent`.
 . `WebServer` 准备就绪后,将发送 `WebServerInitializedEvent`.  `ServletWebServerInitializedEvent` 和 `ReactiveWebServerInitializedEvent` 分别是servlet和reactive变量.
+. 刷新 `ApplicationContext` 时,将发送 `ContextRefreshedEvent` 事件.
 
 TIP: 您可能不会经常使用应用程序事件,但了解他们的存在还是很有必要的. 在框架内部,Spring Boot 使用这些事件来处理各种任务.
+
+NOTE: 默认情况下，事件监听器不应该运行可能很长的任务，因为它们在同一个线程中执行。考虑改用<<boot-features-command-line-runner,application and command-line runners>>。
 
 应用程序事件发送使用了 Spring Framework 的事件发布机制. 该部分机制确保在子上下文中发布给监听器的事件也会发布给所有祖先上下文中的监听器. 因此,如果您的应用程序使用有层级结构的 `SpringApplication` 实例,则监听器可能会收到同种类型应用程序事件的多个实例.
 
@@ -240,7 +320,9 @@ TIP: Spring Boot 还向 Spring `Environment` 注册了一个 `CommandLinePropert
 
 [[boot-features-command-line-runner]]
 === 使用 ApplicationRunner 或 CommandLineRunner
-如果您需要在 `SpringApplication` 启动时运行一些代码,可以实现 `ApplicationRunner` 或者 `CommandLineRunner` 接口. 这两个接口的工作方式是一样的,都提供了一个单独的 `run` 方法,它将在 `SpringApplication.run(​...)` 完成之前调用.
+如果您需要在 `SpringApplication` 启动时运行一些代码,可以实现 `ApplicationRunner` 或者 `CommandLineRunner` 接口. 这两个接口的工作方式是一样的,都提供了一个单独的 `run` 方法,它将在 `SpringApplication.run(...)` 完成之前调用.
+
+NOTE: 这个契约非常适合那些应该在应用程序启动后但在它开始接受流量之前运行的任务。
 
 `CommandLineRunner` 接口提供了访问应用程序字符串数组形式参数的方法,而 `ApplicationRunner` 则使用了上述的 `ApplicationArguments` 接口. 以下示例展示 `CommandLineRunner` 和 `run` 方法的使用:
 
@@ -289,7 +371,7 @@ Spring Boot 可以让您的配置外部化,以便可以在不同环境中使用�
 
 Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能覆盖默认值. 属性将按照以下顺序处理:
 
-. 当 devtools 被激活, `$HOME/.config/spring-boot` 文件夹中的 <<using-spring-boot.adoc#using-boot-devtools-globalsettings,Devtools 全局设置属性>>.
+. 当 devtools 被激活, `$HOME/.config/spring-boot` 目录中的 <<using-spring-boot.adoc#using-boot-devtools-globalsettings,Devtools 全局设置属性>>.
 . 在测试中使用到的 {spring-framework-api}/test/context/TestPropertySource.html[`@TestPropertySource`] 注解.
 . 在测试中使用到的 `properties` 属性,可以是 {spring-boot-test-module-api}/context/SpringBootTest.html[`@SpringBootTest`] 和 <<boot-features-testing-spring-boot-applications-testing-autoconfigured-tests,用于测试应用程序某部分的测试注解>>.
 . 命令行参数.
@@ -302,8 +384,8 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 . 只有 `random.*` 属性的 `RandomValuePropertySource`.
 . 在已打包的 jar 外部的 <<boot-features-external-config-profile-specific-properties,指定 profile 的应用属性文件>> (`application-\{profile}.properties` 和 YAML 变量).
 . 在已打包的 jar 内部的<<boot-features-external-config-profile-specific-properties,指定 profile 的应用属性文件>> (`application-\{profile}.properties` 和 YAML 变量).
-. 在已打包的 jar 外部的应用属性文件 (`application.properties` 和 YAML 变量).
-. 在已打包的 jar 内部的应用属性文件 (`application.properties` 和 YAML 变量).
+. 在已打包的 jar 外部的 <<boot-features-external-config-application-property-files,Application properties>> 文件 (`application.properties` 和 YAML 变量).
+. 在已打包的 jar 内部的 <<boot-features-external-config-application-property-files,Application properties>> 文件 (`application.properties` 和 YAML 变量).
 . 在 `@Configuration` 类上的 {spring-framework-api}/context/annotation/PropertySource.html[`@PropertySource`]  注解.
 请注意,在刷新应用程序上下文之前,不会将此类属性源添加到环境中.  现在配置某些属性 (如 `logging.*` 和 `spring.main.*` ) 为时已晚,这些属性在刷新开始之前就已读取.
 . 默认属性 (使用 `SpringApplication.setDefaultProperties` 指定) .
@@ -328,10 +410,16 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 
 在您的应用程序的 classpath 中 (比如在 jar 中) ,您可以有一个 `application.properties`,它为 name 提供了一个合适的默认属性值. 当在新环境中运行时,您可以在 jar 外面提供一个 `application.properties` 来覆盖 `name`. 对于一次性测试,您可以使用命令行指定形式启动 (比如 `java -jar app.jar --name="Spring"`) .
 
+加载配置文件时，Spring Boot 还支持通配符位置。 默认情况下，jar 支持通配符 `config/*/` 位置。 指定 `spring.config.additional-location` 和 `spring.config.location` 时，也支持通配符位置。
+
+当存在多个配置属性源时，通配符位置在诸如 Kubernetes 之类的环境中特别有用。 例如，如果您具有一些 Redis 配置和某些 MySQL 配置，则可能希望将这两个配置分开，同时要求这两个配置都存在于该应用程序可以绑定到的`application.properties` 中。 这可能会导致两个单独的 `application.properties` 文件安装在不同的位置，例如 `/config/redis/application.properties和/config/mysql/application.properties`。 在这种情况下，通配符位置为 `config/*/` 将导致两个文件都被处理。
+
+NOTE: 通配符位置必须仅包含一个 `*` 并以 `*/` 结尾（对于目录的搜索位置）或 `*/<filename>`（对于文件的搜索位置）。带通配符的位置根据文件名的绝对路径按字母顺序排序。
+
 [[boot-features-external-config-application-json]]
 [TIP]
 ====
-`SPRING_APPLICATION_JSON` 属性可以在命令行中提供一个环境变量. 比如在 UN*X shell 中:
+`SPRING_APPLICATION_JSON` 属性可以在命令行中提供一个环境变量. 比如在 UN{asterisk}X  shell 中:
 
 [indent=0]
 ----
@@ -355,7 +443,7 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 或者将 JSON 作为一个 JNDI 变量: `java:comp/env/spring.application.json`.
 ====
 
-
+NOTE: 尽管 JSON 中的 `null` 被添加到结果属性集中，但 `PropertySourcesPropertyResolver` 将 `null` 属性视为缺失值。 这意味着 JSON 无法使用 `null` 覆盖在属性集中具有低优先级的属性。
 
 [[boot-features-external-config-random-values]]
 === 配置随机值
@@ -411,11 +499,12 @@ NOTE: 您还可以 <<boot-features-external-config-yaml, 使用 YAML (.yml)  文
 WARNING: `spring.config.name` 和 `spring.config.location` 在程序启动早期就用来确定哪些文件必须加载,因此必须将它们定义为环境属性 (通常是 OS 环境变量、系统属性或命令行参数) .
 
 如果 `spring.config.location` 包含目录 (而不是文件) ,则它们应该以 `/` 结尾 (并且在运行期间,在加载之前追加从 `spring.config.name` 生成的名称,包括指定 profile 的文件名) .
-`spring.config.location` 中指定的文件按原样使用,不支持指定 profile 形式,并且可被任何指定 profile 的文件的属性所覆盖.
+`spring.config.location` 中指定的文件按原样使用,不支持指定 profile 形式,并且可被任何指定 profile 的文件的属性所覆盖.无论是直接指定还是包含在目录中，配置文件都必须在名称中包含文件扩展名。典型扩展名是`.properties`，`.yaml` 和 `.yml`
 
-配置位置以相反的顺序搜索. 默认情况下,配置的位置为 `classpath:/,classpath:/config/,file:./,file:./config/`. 生成的搜索顺序如下:
+配置位置以相反的顺序搜索. 默认情况下,配置的位置为 `classpath:/,classpath:/config/,file:./,file:./config/*/,file:./config/`. 生成的搜索顺序如下:
 
 . `file:./config/`
+. `file:./config/*/`
 . `file:./`
 . `classpath:/config/`
 . `classpath:/`
@@ -430,6 +519,7 @@ WARNING: `spring.config.name` 和 `spring.config.location` 在程序启动早期
 . `file:./custom-config/`
 . `classpath:custom-config/`
 . `file:./config/`
+. `file:./config/*/`
 . `file:./`
 . `classpath:/config/`
 . `classpath:/`
@@ -568,7 +658,7 @@ YAML 列表表示带有 `[index]` 下标引用的属性键. 例如以下 YAML:
 
 [NOTE]
 ====
-因此,`spring.profiles` 可以包含一个简单的 profile 名称 (例如 `production`) 或一个 profile 表达式. profile 表达式允许表达更复杂的 profile 逻辑,例如  `production & (eu-central | eu-west)`. 有关详细信息,请查阅{spring-framework-docs}core.html#beans-definition-profiles-java[reference guide].
+因此,`spring.profiles` 可以包含一个简单的 profile 名称 (例如 `production`) 或一个 profile 表达式. profile 表达式允许表达更复杂的 profile 逻辑,例如  `production & (eu-central | eu-west)`. 有关详细信息,请查阅{spring-framework-docs}/core.html#beans-definition-profiles-java[reference guide].
 ====
 
 如果在应用程序上下文启动时没有显式激活,则激活默认 profile. 因此,在以下 YAML 中,我们为 `spring.security.user.password` 设置了一个值,该值仅在 default profile 中可用:
@@ -817,10 +907,10 @@ NOTE: 要使用构造函数绑定,必须使用 `@EnableConfigurationProperties` 
 
 TIP: 如果您的类具有多个构造函数,则还可以直接在应绑定的构造函数上使用 `@ConstructorBinding`.
 
-
+NOTE: 不建议将 `java.util.Optional` 与 `@ConfigurationProperties` 一起使用，因为它主要是用作返回类型。 因此，它不太适合配置属性注入。 为了与其他类型的属性保持一致，如果确实声明了 `Optional` 属性并且没有任何值，则将绑定 `null` 而不是空的 `Optional`。
 
 [[boot-features-external-config-enabling]]
-==== 启用 `@ConfigurationProperties` 注解的类型
+==== 启用 @ConfigurationProperties 注解的类型
 Spring Boot提供了绑定 `@ConfigurationProperties` 类型并将其注册为Bean的基础架构.  您可以逐类启用配置属性,也可以启用与组件扫描类似的方式进行配置属性扫描.
 
 有时,用 `@ConfigurationProperties` 注解的类可能不适用于扫描,例如,如果您正在开发自己的自动配置,或者想要有条件地启用它们.  在这些情况下,请使用 `@EnableConfigurationProperties` 注解 指定要处理的类型列表.  可以在任何 `@Configuration` 类上完成此操作,如以下示例所示:
@@ -855,7 +945,7 @@ Spring Boot提供了绑定 `@ConfigurationProperties` 类型并将其注册为Be
 对于极端情况,可以使用setter注入或框架提供的任何 `*Aware` 接口 (例如,需要访问 `Environment` 的 `EnvironmentAware`) .  如果仍然想使用构造函数注入其他bean,则必须使用 `@Component` 注解配置属性bean,并使用基于JavaBean的属性绑定.
 
 [[boot-features-external-config-using]]
-==== 使用 `@ConfigurationProperties` 注解类型
+==== 使用 @ConfigurationProperties 注解类型
 这种配置样式与 `SpringApplication` 外部YAML配置特别有效,如以下示例所示:
 
 [source,yaml,indent=0]
@@ -1022,8 +1112,6 @@ Spring Boot 的宽松绑定规则尽可能设计成与这些命名限制兼容�
 
 例如，配置属性 `spring.main.log-startup-info` 是一个名为 `SPRING_MAIN_LOGSTARTUPINFO` 的环境变量。
 
-NOTE: 下划线不能用于替换属性名称中的中划线。如果您在上面的示例中尝试使用 `SPRING_MAIN_LOG_STARTUP_INFO`，则不会绑定任何值。
-
 当绑定到对象列表时，也可以使用环境变量。 要绑定到列表，元素编号应在变量名称中用下划线括起来。
 
 例如，配置属性 `my.acme[0].other` 使用名为 `MY_ACME_0_OTHER` 的环境变量。
@@ -1162,9 +1250,26 @@ include::{code-examples}/context/properties/bind/AppSystemProperties.java[tag=ex
 * `h` 小时
 * `d` 天
 
-默认单位是毫秒,可以使用 `@DurationUnit` 配合上面的单位示例重写.
+默认单位是毫秒,可以使用 `@DurationUnit` 配合上面的单位示例重写.请注意，只有使用 getter 和 setter 的 JavaBean 样式的属性绑定才支持 `@DurationUnit`。构造函数绑定不支持。
 
-TIP: 要从先前仅使用 `Long` 来表示持续时间的版本进行升级,如果切换到 `Duration` 时不是毫秒,请定义单位 (使用 `@DurationUnit`) . 这样做可以提供透明的升级路径,同时支持更丰富的格式.
+TIP: 如果要升级 `Long` 属性，请确保以毫秒为单位定义单位(使用 `@DurationUnit`) . 这样做可以提供透明的升级路径,同时支持更丰富的格式.
+
+[[boot-features-external-config-conversion-period]]
+===== Converting periods
+除了持续时间，Spring Boot 还可以使用 `java.time.Period` 类型。 可以在应用程序属性中使用以下格式：
+
+* 常规的 `int` 表示形式（使用天作为默认单位，除非已指定 `@PeriodUnit`）
+* {java-api}/java/time/Period.html#parse-java.lang.CharSequence-[`java.time.Period`] 使用的标准 ISO-8601 格式  format
+* 将值和单位对耦合在一起 (e.g. `1y3d` 表示 1 年零 3 天)
+
+简单格式支持以下单位:
+
+* `y` 年
+* `m` 月
+* `w` 周
+* `d` 天
+
+NOTE: `java.time.Period` 类型从不存储事迹的星期数，这是一个快捷方式，表示  "`7 days`"。
 
 [[boot-features-external-config-conversion-datasize]]
 ===== 转换 Data Size
@@ -1192,7 +1297,7 @@ include::{code-examples}/context/properties/bind/AppIoProperties.java[tag=exampl
 
 默认单位是字节,可以使用 `@DataSizeUnit` 配合上面的示例单位重写.
 
-TIP: 要从先前仅使用 `Long` 来表示大小的版本进行升级,请确保在切换到 `DataSize` 不是字节的情况下定义单位 (使用 `@DataSizeUnit`) . 这样做可以提供透明的升级路径,同时支持更丰富的格式.
+TIP: 如果要升级 `Long` 属性，请确保在切换到 `DataSize` 不是字节的情况下定义单位 (使用 `@DataSizeUnit`) . 这样做可以提供透明的升级路径,同时支持更丰富的格式.
 
 [[boot-features-external-config-validation]]
 ==== @ConfigurationProperties 验证
@@ -1257,7 +1362,7 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 
 | <<boot-features-external-config-relaxed-binding,宽松绑定>>
 | Yes
-| Limited (see note below)
+| Limited (see  <<boot-features-external-config-vs-value-note,note below>>)
 
 | <<appendix-configuration-metadata.adoc#configuration-metadata,元数据支持>>
 | Yes
@@ -1268,15 +1373,12 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 | Yes
 |===
 
-如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中.
-这样做将为您提供结构化，类型安全的对象，您可以将其注入到自己的 bean 中。
-
-如果您确实想使用 `@Value`，我们建议您以规范形式引用属性名称(kebab-case仅使用小写字母),这与 Spring Boot `@ConfigurationProperties` 宽松绑定使用相同的逻辑
-
-例如,`@Value("{demo.item-price}")` 将从 `application.properties` 文件以及 DEMO_ITEMPRICE 环境变量中获取 `demo.item-price` 和 `demo.itemPrice` 形式.
+NOTE: [[boot-features-external-config-vs-value-note]] 如果您确实想使用 `@Value`，我们建议您以规范形式引用属性名称(kebab-case仅使用小写字母),这与 Spring Boot `@ConfigurationProperties` 宽松绑定使用相同的逻辑. 例如,`@Value("{demo.item-price}")` 将从 `application.properties` 文件以及 DEMO_ITEMPRICE 环境变量中获取 `demo.item-price` 和 `demo.itemPrice` 形式.
 如果您使用的是 `@Value("{demo.itemPrice}")`，则不会考虑 `demo.item-price` 和 `DEMO_ITEMPRICE` 环境变量。
 
-最后,虽然您可以在 `@Value` 中编写 SpEL 表达式,但来自<<boot-features-external-config-application-property-files,应用程序属性文件>>的此类表达式并不会被处理.
+如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中.这样做将为您提供结构化，类型安全的对象，您可以将其注入到自己的 bean 中。
+
+解析这些文件并填充环境时，不会处理来自应用程序属性文件的 SpEL 表达式。 但是，可以在 `@Value` 中编写 SpEL 表达式。 如果 <<boot-features-external-config-application-property-files,应用程序属性文件>> 中的属性值是 SpEL 表达式，则在通过 `@Value` 进行使用时将对其进行评估。
 
 [[boot-features-profiles]]
 == Profiles
@@ -1653,7 +1755,7 @@ WARNING: 扩展不能与 Logback 的 https://logback.qos.ch/manual/configuration
 
 ==== 特定 Profile 配置
 `<springProfile>` 标签允许您根据激活的 Spring profile 选择性地包含或排除配置部分. 在 `<configuration>` 元素中的任何位置都支持配置 profile. 使用 `name` 属性指定哪个 proifle 接受配置. `<springProfile>` 标记可以包含简单的 proifle 名称 (例如 `staging`) 或 profile 表达式. profile 表达式允许表达更复杂的 profile 逻辑,
-例如 `production & (eu-central | eu-west)`. 有关详细信息,请查阅 {spring-framework-docs}core.html#beans-definition-profiles-java[参考指南] . 以下清单展示了三个示例 profile:
+例如 `production & (eu-central | eu-west)`. 有关详细信息,请查阅 {spring-framework-docs}/core.html#beans-definition-profiles-java[参考指南] . 以下清单展示了三个示例 profile:
 
 [source,xml,indent=0]
 ----
@@ -1736,7 +1838,7 @@ Spring Boot 非常适合用于开发 web 应用程序. 您可以使用嵌入式 
 
 [[boot-features-spring-mvc]]
 === Spring Web MVC 框架
-{spring-framework-docs}web.html#mvc[Spring Web MVC 框架]  (通常简称 "Spring MVC") 是一个富模型-视图-控制器的 web 框架. Spring MVC 允许您创建 `@Controller` 或者 `@RestController` bean 来处理传入的 HTTP 请求. 控制器中的方法通过 `@RequestMapping` 注解映射到 HTTP.
+{spring-framework-docs}/web.html#mvc[Spring Web MVC 框架]  (通常简称 "Spring MVC") 是一个富模型-视图-控制器的 web 框架. Spring MVC 允许您创建 `@Controller` 或者 `@RestController` bean 来处理传入的 HTTP 请求. 控制器中的方法通过 `@RequestMapping` 注解映射到 HTTP.
 
 以下是一个使用了 `@RestController` 来响应 JSON 数据的典型示例:
 
@@ -1764,7 +1866,7 @@ Spring Boot 非常适合用于开发 web 应用程序. 您可以使用嵌入式 
 	}
 ----
 
-Spring MVC 是 Spring Framework 核心的一部分,详细介绍可参考其 {spring-framework-docs}web.html#mvc[参考文档].  https://spring.io/guides 还提供了几个 Spring MVC 相关的指南.
+Spring MVC 是 Spring Framework 核心的一部分,详细介绍可参考其 {spring-framework-docs}/web.html#mvc[参考文档].  https://spring.io/guides 还提供了几个 Spring MVC 相关的指南.
 
 [[boot-features-spring-mvc-auto-configuration]]
 ==== Spring MVC 自动配置
@@ -1781,7 +1883,7 @@ Spring Boot 提供了适用于大多数 Spring MVC 应用的自动配置 (auto-c
 * 支持自定义 `Favicon`  (<<boot-features-spring-mvc-favicon,见下文>>) .
 * 自动使用 `ConfigurableWebBindingInitializer` bean (<<boot-features-spring-mvc-web-binding-initializer,见下文>>) .
 
-如果您想保留 Spring Boot MVC 的功能,并且需要添加其他  {spring-framework-docs}web.html#mvc[MVC configuration] (interceptor、formatter 和视图控制器等) ,可以添加自己的 `WebMvcConfigurerAdapter` 类型的 `@Configuration` 类,但不能带 `@EnableWebMvc` 注解.
+如果您想保留 Spring Boot MVC 的功能,并且需要添加其他  {spring-framework-docs}/web.html#mvc[MVC configuration] (interceptor、formatter 和视图控制器等) ,可以添加自己的 `WebMvcConfigurerAdapter` 类型的 `@Configuration` 类,但不能带 `@EnableWebMvc` 注解.
 
 如果您想自定义 `RequestMappingHandlerMapping`、`RequestMappingHandlerAdapter` 或者 `ExceptionHandlerExceptionResolver` 实例,可以声明一个 `WebMvcRegistrationsAdapter` 实例来提供这些组件.
 
@@ -1904,7 +2006,7 @@ NOTE: 模板中的资源链接在运行时被重写,这得益于 `ResourceUrlEnc
 
 [TIP]
 ====
-该功能已经在一个专门的 https://spring.io/blog/2014/07/24/spring-framework-4-1-handling-static-web-resources[博客文章]和 {spring-framework-docs}web.html#mvc-config-static-resources[Spring 框架的参考文档]中进行了详细描述
+该功能已经在一个专门的 https://spring.io/blog/2014/07/24/spring-framework-4-1-handling-static-web-resources[博客文章]和 {spring-framework-docs}/web.html#mvc-config-static-resources[Spring 框架的参考文档]中进行了详细描述
 ====
 
 [[boot-features-spring-mvc-welcome-page]]
@@ -1920,7 +2022,7 @@ Spring Boot 在配置的静态内容位置和根 classpath 中查找 `favicon.ic
 ==== 路径匹配与内容协商
 Spring MVC 可以通过查看请求路径并将其与应用程序中定义的映射相匹配,将传入的 HTTP 请求映射到处理程序 (例如 Controller 方法上的 `@GetMapping` 注解) .
 
-Spring Boot 默认选择禁用后缀模式匹配,这意味着像 `"GET /projects/spring-boot.json"` 这样的请求将不会与 `@GetMapping("/projects/spring-boot")` 映射匹配. 这被视为是 {spring-framework-docs}web.html#mvc-ann-requestmapping-suffix-pattern-match[Spring MVC 应用程序的最佳实践] . 此功能在过去对于 HTTP 客户端没有发送正确的 Accept 请求头的情况还是很有用的,我们需要确保将正确的内容类型发送给客户端. 如今,内容协商 (Content Negotiation) 更加可靠.
+Spring Boot 默认选择禁用后缀模式匹配,这意味着像 `"GET /projects/spring-boot.json"` 这样的请求将不会与 `@GetMapping("/projects/spring-boot")` 映射匹配. 这被视为是 {spring-framework-docs}/web.html#mvc-ann-requestmapping-suffix-pattern-match[Spring MVC 应用程序的最佳实践] . 此功能在过去对于 HTTP 客户端没有发送正确的 Accept 请求头的情况还是很有用的,我们需要确保将正确的内容类型发送给客户端. 如今,内容协商 (Content Negotiation) 更加可靠.
 
 还有其他方法可以处理 HTTP 客户端发送不一致 Accept 请求头问题. 我们可以使用查询参数来确保像 `"GET /projects/spring-boot?format=json"` 这样的请求映射到 `@GetMapping("/projects/spring-boot")`,而不是使用后缀匹配:
 
@@ -1975,11 +2077,14 @@ TIP: 如果可以,请尽量避免使用 JSP,当使用了内嵌 servlet 容器,�
 
 当您使用这些模板引擎的其中一个并附带了默认配置时,您的模板将从 `src/main/resources/templates` 自动获取.
 
-TIP: IntelliJ IDEA 根据您运行应用程序的方式来对 classpath 进行不同的排序. 在 IDE 中通过 main 方法来运行应用程序将导致与使用 Maven 或 Gradle 或来以 jar 包方式引用程序的排序有所不同,可能会导致 Spring Boot 找不到 classpath 中的模板. 如果您碰到到此问题,可以重新排序 IDE 的 classpath 来放置模块的 classes 和 `resources` 到首位. 或者,您可以配置模板前缀来搜索 classpath 中的每一个 `templates` 目录,比如: `classpath*:/templates/`.
+TIP: IntelliJ IDEA 根据您运行应用程序的方式来对 classpath 进行不同的排序. 在 IDE 中通过 main 方法来运行应用程序将导致与使用 Maven 或 Gradle 或来以 jar 包方式引用程序的排序有所不同,可能会导致 Spring Boot 找不到 classpath 中的模板. 如果您碰到到此问题,可以重新排序 IDE 的 classpath 来放置模块的 classes 和 `resources` 到首位.
 
 [[boot-features-error-handling]]
 ==== 错误处理
 默认情况下,Spring Boot 提供了一个使用了比较合理的方式来处理所有错误的 `/error` 映射,其在 servlet 容器中注册了一个全局错误页面. 对于机器客户端而言,它将产生一个包含错误、HTTP 状态和异常消息的 JSON 响应. 对于浏览器客户端而言,将以 HTML 格式呈现相同数据的 whitelabel 错误视图 (可添加一个解析到 `error` 的 `View` 进行自定义) .
+
+如果要自定义默认错误处理行为，可以设置许多 `server.error` 属性。请参阅附录的 <<appendix-application-properties.adoc#common-application-properties-server, "`Server Properties`">> 部分。
+
 要完全替换默认行为,您可以实现 `ErrorController` 并注册该类型的 bean,或者简单地添加一个类型为 `ErrorAttributes` 的 bean 来替换内容,但继续使用现用机制.
 
 TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,这非常有用,尤其是在您想添加一个新的内容类型 (默认专门处理 `text/html`,并为其他内容提供后备) 处理器的情况下. 要做到这点,您只需要继承 `BasicErrorController` 并添加一个带有 `produces` 属性的 `@RequestMapping` 注解的公共方法,之后创建一个新类型的 bean.
@@ -2013,9 +2118,9 @@ TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,�
 
 [[boot-features-error-handling-custom-error-pages]]
 ===== 自定义错误页面
-如果您想在自定义的 HTML 错误页面上显示给定的状态码,请将文件添加到 `/error` 文件夹中. 错误页面可以是静态 HTML (添加在任意静态资源文件夹下) 或者使用模板构建. 文件的名称应该是确切的状态码或者一个序列掩码.
+如果您想在自定义的 HTML 错误页面上显示给定的状态码,请将文件添加到 `/error` 目录中. 错误页面可以是静态 HTML (添加在任意静态资源目录下) 或者使用模板构建. 文件的名称应该是确切的状态码或者一个序列掩码.
 
-例如,要将 404 映射到一个静态 HTML 文件,文件夹结构可以如下:
+例如,要将 404 映射到一个静态 HTML 文件,目录结构可以如下:
 
 [source,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -2030,7 +2135,7 @@ TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,�
 	             +- <other public assets>
 ----
 
-使用 FreeMarker 模板来映射所有 `5xx` 错误,文件夹的结构如下:
+使用 FreeMarker 模板来映射所有 `5xx` 错误,目录的结构如下:
 
 [source,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -2061,7 +2166,7 @@ TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,�
 	}
 ----
 
-您还可以使用常规的 Spring MVC 功能,比如  {spring-framework-docs}web.html#mvc-exceptionhandlers[`@ExceptionHandler` methods]  方法和  {spring-framework-docs}web.html#mvc-ann-controller-advice[`@ControllerAdvice`]. 之后,`ErrorController` 将能接收任何未处理的异常.
+您还可以使用常规的 Spring MVC 功能,比如  {spring-framework-docs}/web.html#mvc-exceptionhandlers[`@ExceptionHandler` methods]  方法和  {spring-framework-docs}/web.html#mvc-ann-controller-advice[`@ControllerAdvice`]. 之后,`ErrorController` 将能接收任何未处理的异常.
 
 [[boot-features-error-handling-mapping-error-pages-without-mvc]]
 ===== 映射到 Spring MVC 之外的错误页面
@@ -2124,8 +2229,8 @@ NOTE: 如果您注册了一个 `ErrorPage`,它的路径最终由一个 `Filter` 
 ==== CORS 支持
 https://en.wikipedia.org/wiki/Cross-origin_resource_sharing[Cross-origin resource sharing] 跨域资源共享 (Cross-origin resource sharing,CORS) 是 https://caniuse.com/#feat=cors[most browsers]实现的一个 https://www.w3.org/TR/cors/[W3C specification] ,其可允许您以灵活的方式指定何种跨域请求可以被授权,而不是使用一些不太安全和不太强大的方式 (比如 IFRAME 或者 JSONP) .
 
-Spring MVC 从 4.2 版本起开始 {spring-framework-docs}web.html#mvc-cors[支持 CORS]. 您可在 Spring Boot 应用程序中使用 {spring-framework-api}/web/bind/annotation/CrossOrigin.html[`@CrossOrigin`]  注解 {spring-framework-docs}web.html#mvc-cors-controller[配置控制器方法]启用 CORS.
-还可以通过注册一个 `WebMvcConfigurer` bean 并自定义 `addCorsMappings(CorsRegistry)` 方法来定义 {spring-framework-docs}web.html#mvc-cors-global[全局 CORS 配置] :
+Spring MVC 从 4.2 版本起开始 {spring-framework-docs}/web.html#mvc-cors[支持 CORS]. 您可在 Spring Boot 应用程序中使用 {spring-framework-api}/web/bind/annotation/CrossOrigin.html[`@CrossOrigin`]  注解 {spring-framework-docs}/web.html#mvc-cors-controller[配置控制器方法]启用 CORS.
+还可以通过注册一个 `WebMvcConfigurer` bean 并自定义 `addCorsMappings(CorsRegistry)` 方法来定义 {spring-framework-docs}/web.html#mvc-cors-global[全局 CORS 配置] :
 
 [source,java,indent=0]
 ----
@@ -2207,7 +2312,7 @@ Spring WebFlux 是 Spring Framework 5.0 中新引入的一个响应式 Web 框�
 	}
 ----
 
-WebFlux 是 Spring Framework 的一部分,详细信息可查看其 {spring-framework-docs}web-reactive.html#webflux-fn[参考文档].
+WebFlux 是 Spring Framework 的一部分,详细信息可查看其 {spring-framework-docs}/web-reactive.html#webflux-fn[参考文档].
 
 TIP: 您可以根据需要定义尽可能多的 `RouterFunction` bean 来模块化路由定义. 如果需要设定优先级,Bean 可以指定顺序.
 
@@ -2225,7 +2330,7 @@ Spring Boot 为 Spring WebFlux 提供自动配置,适用于大多数应用程序
 * 为 `HttpMessageReader` 和 `HttpMessageWriter` 实例配置编解码器 (<<boot-features-webflux-httpcodecs,稍后将介绍>>) .
 * 支持提供静态资源,包括对 `WebJars` 的支持 (<<boot-features-spring-mvc-static-content,稍后将介绍>>) .
 
-如果你要保留 Spring Boot WebFlux 功能并且想要添加其他  {spring-framework-docs}web-reactive.html#webflux-config[`WebFlux` 配置],可以添加自己的 `@Configuration` 类,类型为 `WebFluxConfigurer`,但不包含 `@EnableWebFlux`.
+如果你要保留 Spring Boot WebFlux 功能并且想要添加其他  {spring-framework-docs}/web-reactive.html#webflux-config[`WebFlux` 配置],可以添加自己的 `@Configuration` 类,类型为 `WebFluxConfigurer`,但不包含 `@EnableWebFlux`.
 
 如果您想完全控制 Spring WebFlux,可以将 `@EnableWebFlux` 注解到自己的 `@Configuration`.
 
@@ -2273,6 +2378,10 @@ Spring Boot 通过使用 `CodecCustomizer` 实例加强定制. 例如,`spring.ja
 
 TIP: Spring WebFlux 应用程序并不严格依赖于 Servlet API,因此它们不能作为 war 文件部署,也不能使用 `src/main/webapp` 目录.
 
+[[boot-features-webflux-welcome-page]]
+==== 欢迎页面
+Spring Boot 支持静态和模板化的欢迎页面. 它首先在配置的静态内容位置中查找 `index.html` 文件. 如果找不到,则查找 `index` 模板. 如果找到其中任何一个,它将自动用作应用程序的欢迎页面.
+
 [[boot-features-webflux-template-engines]]
 ==== 模板引擎
 除了 REST web 服务之外,您还可以使用 Spring WebFlux 来服务动态 HTML 内容. Spring WebFlux 支持多种模板技术,包括 Thymeleaf、FreeMarker 和 Mustache.
@@ -2316,9 +2425,9 @@ Spring Boot 提供了一个 `WebExceptionHandler`,它以合理的方式处理所
 
 [[boot-features-webflux-error-handling-custom-error-pages]]
 ===== 自定义错误页面
-如果您想在自定义的 HTML 错误页面上显示给定的状态码,请将文件添加到 `/error` 文件夹中. 错误页面可以是静态 HTML (添加在任意静态资源文件夹下) 或者使用模板构建. 文件的名称应该是确切的状态码或者一个序列掩码.
+如果您想在自定义的 HTML 错误页面上显示给定的状态码,请将文件添加到 `/error` 目录中. 错误页面可以是静态 HTML (添加在任意静态资源目录下) 或者使用模板构建. 文件的名称应该是确切的状态码或者一个序列掩码.
 
-例如,要将 404 映射到一个静态 HTML 文件,文件夹结构可以如下:
+例如,要将 404 映射到一个静态 HTML 文件,目录结构可以如下:
 
 [source,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -2333,7 +2442,7 @@ Spring Boot 提供了一个 `WebExceptionHandler`,它以合理的方式处理所
 	             +- <other public assets>
 ----
 
-使用 Mustache 模板来映射所有 `5xx` 错误,文件夹的结构如下:
+使用 Mustache 模板来映射所有 `5xx` 错误,目录的结构如下:
 
 [source,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -2497,27 +2606,24 @@ TIP: 有关完整的内容列表,请参阅 {spring-boot-autoconfigure-module-cod
 	}
 ----
 
-NOTE: `TomcatServletWebServerFactory`, `JettyServletWebServerFactory` 和 `UndertowServletWebServerFactory` 是 `ConfigurableServletWebServerFactory` 的具体子类,它们分别为 Tomcat、Jetty 和 Undertow 提供了额外的自定义 setter 方法. .
 
+`TomcatServletWebServerFactory`, `JettyServletWebServerFactory` 和 `UndertowServletWebServerFactory` 是 `ConfigurableServletWebServerFactory` 的具体子类,它们分别为 Tomcat、Jetty 和 Undertow 提供了额外的自定义 setter 方法.
+以下示例显示如何自定义 `TomcatServletWebServerFactory`，它提供对于 Tomcat 的配置选项的访问：
 
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+include::{code-examples}/context/embedded/TomcatServerCustomizerExample.java[tag=configuration]
+----
 
 [[boot-features-customizing-configurableservletwebserverfactory-directly]]
 ===== 直接自定义 ConfigurableServletWebServerFactory
-如果上述的自定义方式太局限,您可以自己注册 `TomcatServletWebServerFactory`、`JettyServletWebServerFactory` 或 `UndertowServletWebServerFactory` bean.
 
-[source,java,indent=0]
-----
-	@Bean
-	public ConfigurableServletWebServerFactory webServerFactory() {
-		TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
-		factory.setPort(9000);
-		factory.setSessionTimeout(10, TimeUnit.MINUTES);
-		factory.addErrorPages(new ErrorPage(HttpStatus.NOT_FOUND, "/notfound.html"));
-		return factory;
-	}
-----
+For more advanced use cases that require you to extend from `ServletWebServerFactory`, you can expose a bean of such type yourself.
+对于需要从 `ServletWebServerFactory` 扩展的更高级的用例，您可以自己暴露这种类型的 bean。
 
 Setter 方法提供了许多配置选项. 还有几个 hook 保护方法供您深入定制. 有关详细信息,请参阅 {spring-boot-module-api}/web/servlet/server/ConfigurableServletWebServerFactory.html[源码文档].
+
+NOTE: 自动配置的定制器仍会应用到您的定制工厂，因此请谨慎使用该选项。
 
 [[boot-features-jsp-limitations]]
 ==== JSP 局限
@@ -2546,11 +2652,33 @@ Spring Boot 包括对以下内嵌响应式 Web 服务器的支持: Reactor Netty
 
 您可以在 <<boot-features-webclient-runtime, WebClient Runtime >>章节中了解有关客户端资源配置的更多内容.
 
+[[boot-features-graceful-shutdown]]
+== Graceful shutdown
+所有四个嵌入式 Web 服务器（Jetty，Reactor Netty，Tomcat 和 Undertow）以及响应式和基于 Servlet 的 Web 应用程序都支持正常关机。 它是关闭应用程序上下文的一部分，并且在停止 `SmartLifecycle` bean 的最早阶段执行。 该停止处理使用一个超时，该超时提供一个宽限期，在此宽限期内，现有请求将被允许完成，而新请求将不被允许。 不允许新请求的确切方式因所使用的 Web 服务器而异。 Jetty，Reactor Netty 和 Tomcat 将停止在网络层接受请求。 Undertow 将接受请求，但会立即以服务不可用（503）响应进行响应。
+
+NOTE: 使用 Tomcat 正常关机需要 Tomcat 9.0.33 或更高版本。
+
+要启用正常关机，请配置 `server.shutdown` 属性，如以下示例所示：
+
+[source,properties,indent=0,configprops]
+----
+server.shutdown=graceful
+----
+
+要配置超时时间，请配置 `spring.lifecycle.timeout-per-shutdown-phase` 属性，如以下示例所示：
+
+[source,properties,indent=0,configprops]
+----
+spring.lifecycle.timeout-per-shutdown-phase=20s
+----
+
+IMPORTANT: 如果 IDE 无法发送正确的 `SIGTERM` 信号，则在其 IDE 中使用正常关机可能无法正常工作。 有关更多详细信息，请参阅IDE的文档。
+
 [[boot-features-rsocket]]
 == RSocket
 https://rsocket.io[RSocket] 是用于字节流传输的二进制协议.  它通过通过单个连接传递的异步消息来启用对称交互模型.
 
-Spring框架的 `spring-messaging` 模块在客户端和服务器端都支持RSocket请求者和响应者.  有关更多详细信息,请参见Spring Framework参考中的 {spring-framework-docs}web-reactive.html#rsocket-spring[RSocket 部分],其中包括RSocket协议的概述.
+Spring 框架的 `spring-messaging` 模块在客户端和服务器端都支持 RSocket 请求者和响应者.  有关更多详细信息,请参见 Spring Framework 参考中的 {spring-framework-docs}/web-reactive.html#rsocket-spring[RSocket 部分],其中包括 RSocket 协议的概述.
 
 [[boot-features-rsocket-strategies-auto-configuration]]
 === RSocket策略自动配置
@@ -2564,7 +2692,7 @@ Spring Boot自动配置一个 `RSocketStrategies` bean,该bean提供了编码和
 开发人员可以通过创建实现 `RSocketStrategiesCustomizer` 接口的bean来自定义 `RSocketStrategies` 组件.  请注意,它们的 `@Order` 很重要,因为它确定编解码器的顺序.
 
 [[boot-features-rsocket-server-auto-configuration]]
-=== RSocket服务器自动配置
+=== RSocket 服务器自动配置
 Spring Boot提供了RSocket服务器自动配置.  所需的依赖由 `spring-boot-starter-rsocket` 提供.
 
 Spring Boot允许从WebFlux服务器通过WebSocket暴露RSocket,或支持独立的RSocket服务器.  这取决于应用程序的类型及其配置.
@@ -2588,8 +2716,6 @@ WARNING: 由于RSocket本身是使用该库构建的,因此只有Reactor Netty�
 	spring.rsocket.server.transport=tcp # you're free to configure other properties
 ----
 
-
-
 [[boot-features-rsocket-messaging]]
 === Spring Messaging RSocket支持
 Spring Boot将为RSocket自动配置Spring Messaging基础结构.
@@ -2598,7 +2724,7 @@ Spring Boot将为RSocket自动配置Spring Messaging基础结构.
 
 
 [[boot-features-rsocket-requester]]
-=== 使用 `RSocketRequester` 调用RSocket服务
+=== 使用 RSocketRequester 调用 RSocket 服务
 在服务器和客户端之间建立 `RSocket` 通道后,任何一方都可以向另一方发送或接收请求.
 
 作为服务器,您可以在RSocket `@Controller` 的任何处理程序方法上注入 `RSocketRequester` 实例.  作为客户端,您需要首先配置和建立RSocket连接.  在这种情况下,Spring Boot会使用预期的编解码器自动配置 `RSocketRequester.Builder`.
@@ -2747,6 +2873,8 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ----
 
+TIP: Spring Boot自动配置一个 `InMemoryOAuth2AuthorizedClientService`，Spring Security 使用它来管理客户端注册。 `InMemoryOAuth2AuthorizedClientService` 的功能有限，我们建议仅将其用于开发环境。 对于生产环境，请考虑使用 `JdbcOAuth2AuthorizedClientService` 或创建自己的 `OAuth2AuthorizedClientService` 实现。
+
 [[boot-features-security-oauth2-common-providers]]
 ===== OAuth2 客户端注册常见的提供者
 对于常见的 OAuth2 和 OpenID 提供者 (provider) ,包括 Google、Github、Facebook 和 Okta,我们提供了一组提供者默认设置 (分别是 google、github、facebook 和 okta) .
@@ -2802,16 +2930,16 @@ NOTE: 如果授权服务器不支持JWK设置URI,则可以使用用于验证JWT�
 另外,您可以为Servlet应用程序定义自己的 `OpaqueTokenIntrospector` Bean,或者为反应性应用程序定义 `ReactiveOpaqueTokenIntrospector`.
 
 ==== 授权服务器
-目前,Spring Security 没有提供 OAuth 2.0 授权服务器实现. 但此功能可从 {spring-security-oauth2}[Spring Security OAuth] 项目获得,该项目最终会被 Spring Security 所取代. 在此之前,您可以使用 `spring-security-oauth2-autoconfigure` 模块轻松设置 OAuth 2.0 授权服务器,请参阅 https://docs.spring.io/spring-security-oauth2-boot[其文档]以获取详细信息.
+目前,Spring Security 没有提供 OAuth 2.0 授权服务器实现. 但此功能可从 {spring-security-oauth2}[Spring Security OAuth] 项目获得,该项目最终会被 Spring Security 所取代. 在此之前,您可以使用 `spring-security-oauth2-autoconfigure` 模块轻松设置 OAuth 2.0 授权服务器,请参阅 https://docs.spring.io/spring-security-oauth2-boot/[其文档]以获取详细信息.
 
 [[boot-features-security-saml]]
 === SAML 2.0
 
 [[boot-features-security-saml2-relying-party]]
 ==== 依赖方
-如果您在类路径中具有 `spring-security-saml2-service-provider`,则可以利用一些自动配置功能来轻松设置SAML 2.0依赖方.  此配置利用 `Saml2RelyingPartyProperties` 下的属性.
+如果您在类路径中具有 `spring-security-saml2-service-provider`,则可以利用一些自动配置功能来轻松设置 SAML 2.0 依赖方.  此配置利用 `Saml2RelyingPartyProperties` 下的属性.
 
-依赖方注册代表身份提供商IDP和服务提供商SP之间的配对配置.  您可以在 `spring.security.saml2.relyingparty` 前缀下注册多个依赖方,如以下示例所示:
+依赖方注册代表身份提供商 IDP 和服务提供商 SP 之间的配对配置.  您可以在 `spring.security.saml2.relyingparty` 前缀下注册多个依赖方,如以下示例所示:
 
 [source,properties,indent=0,configprops]
 ----
@@ -2990,8 +3118,8 @@ NOTE: `NamedParameterJdbcTemplate` 在底层重用了相同的 `JdbcTemplate` �
 Java Persistence API (Java 持久化 API) 是一项标准技术,可让您将对象映射到关系数据库. `spring-boot-starter-data-jpa` POM 提供了一个快速起步的方法. 它提供了以下关键依赖:
 
 * Hibernate:  最受欢迎的 JPA 实现之一.
-* Spring Data JPA: 可以轻松地实现基于 JPA 的资源库.
-* Spring ORMs:  Spring Framework 的核心 ORM 支持
+* Spring Data JPA: 帮助你实现基于 JPA 的资源库.
+* Spring ORM: Spring Framework 的核心 ORM 支持
 
 TIP: 我们不会在这里介绍太多关于 JPA 或者  {spring-data}[Spring Data]  的相关内容. 您可以在 https://spring.io 上查看使用 https://spring.io/guides/gs/accessing-data-jpa/["`JPA 访问数据`"],获取阅读 {spring-data-jpa}[Spring Data JPA] 和 https://hibernate.org/orm/documentation/[Hibernate] 的参考文档.
 
@@ -3075,6 +3203,8 @@ Spring Data 资源库通常继承自 {spring-data-commons-api}/repository/Reposi
 ----
 
 Spring Data JPA 资源库支持三种不同的引导模式: `default`、`deferred` 和 `lazy`. 要启用延迟或懒惰引导,请将 `spring.data.jpa.repositories.bootstrap-mode` 分别设置为 `deferred` 或 `lazy`. 使用延迟或延迟引导时,自动配置的 `EntityManagerFactoryBuilder` 将使用上下文的 `AsyncTaskExecutor`  (如果有) 作为 `applicationTaskExecutor`.
+
+NOTE: 使用 deferred 或 lazy bootstraping 时，请确保在应用程序上下文阶段之后，延迟对 JPA 的任何访问。
 
 TIP: 我们几乎没有接触到 Spring Data JPA 的表面内容. 有关详细信息,请查阅 {spring-data-jdbc-docs}[Spring Data JPA 参考文档].
 
@@ -3161,8 +3291,6 @@ Java 面向对象查询 (Java Object Oriented Querying, https://www.jooq.org/[jO
 	</plugin>
 ----
 
-
-
 ==== 使用 DSLContext
 jOOQ 提供的流式 API 是通过 `org.jooq.DSLContext` 接口初始化的. Spring Boot 将自动配置一个 `DSLContext` 作为 Spring Bean,并且将其连接到应用程序的 `DataSource`. 要使用 `DSLContext`,您只需要 `@Autowire` 它:
 
@@ -3194,14 +3322,10 @@ TIP: jOOQ 手册建议使用名为 `create` 的变量来保存 `DSLContext`.
 	}
 ----
 
-
-
 ==== jOOQ SQL 方言
 除非配置了 `spring.jooq.sql-dialect` 属性,否则 Spring Boot 会自动判定用于数据源的 SQL 方言. 如果 Spring Boot 无法检测到方言,则使用 `DEFAULT`.
 
 NOTE: Spring Boot 只能自动配置 jOOQ 开源版本支持的方言.
-
-
 
 ==== 自定义  jOOQ
 可通过定义自己的 `@Bean` 来实现更高级的功能,这些自定义将在创建 jOOQ `Configuration` 时使用. 您可以为以下 jOOQ 类型定义 bean:
@@ -3219,7 +3343,120 @@ NOTE: Spring Boot 只能自动配置 jOOQ 开源版本支持的方言.
 
 如果要完全控制 jOOQ 配置,您可以创建自己的 `org.jooq.Configuration` `@Bean`.
 
+[[boot-features-r2dbc]]
+=== 使用 R2DBC
+响应式关系数据库连接 (https://r2dbc.io[R2DBC]) 项目将响应式编程 API 引入关系数据库。 R2DBC 的 `io.r2dbc.spi.Connection` 提供了一种处理非阻塞数据库连接的标准方法。 通过 `ConnectionFactory` 提供连接，类似于使用 jdbc 的数据源。
 
+`ConnectionFactory` 配置由 `+spring.r2dbc.*+` 中的外部配置属性控制。 例如，您可以在 `application.properties` 中声明以下部分：
+
+[source,properties,indent=0]
+----
+	spring.r2dbc.url=r2dbc:postgresql://localhost/test
+	spring.r2dbc.username=dbuser
+	spring.r2dbc.password=dbpass
+----
+
+TIP: 您不需要指定驱动程序类名称，因为 Spring Boot 从 R2DBC 的 Connection Factory 发现中获取驱动程序.
+
+NOTE: 您应该至少提供 url。 URL 中指定的信息优先于各个属性，即 `name`, `username`, `password`  和连接池选项.
+
+TIP: "`How-to`" 章节包括有关如何 <<howto.adoc#howto-initialize-a-database-using-r2dbc, 初始化数据库的部分>>
+
+要自定义由 `ConnectionFactory` 创建的连接，即设置不需要（或无法）在中央数据库配置中配置的特定参数，可以使用 `ConnectionFactoryOptionsBuilderCustomizer` `@Bean`。 以下示例显示了如何从应用程序配置中获取其余选项的同时手动覆盖数据库端口：
+
+[source,java,indent=0]
+----
+	@Bean
+	public ConnectionFactoryOptionsBuilderCustomizer connectionFactoryPortCustomizer() {
+		return (builder) -> builder.option(PORT, 5432);
+	}
+----
+
+以下示例显示了如何设置一些 PostgreSQL 连接选项：:
+
+[source,java,indent=0]
+----
+	@Bean
+	public ConnectionFactoryOptionsBuilderCustomizer postgresCustomizer() {
+		Map<String, String> options = new HashMap<>();
+		options.put("lock_timeout", "30s");
+		options.put("statement_timeout", "60s");
+		return (builder) -> builder.option(OPTIONS, options);
+	}
+----
+
+当 `ConnectionFactory` bean可用时，常规 JDBC DataSource 自动配置将退出。 如果要保留 JDBC DataSource 自动配置，并且对在响应式应用程序中使用阻塞 JDBC API 的风险感到满意，请在应用程序的`@Configuration` 类上添加 `@Import(DataSourceAutoConfiguration.class)`以重新启用它
+
+[[boot-features-r2dbc-embedded-database]]
+==== 嵌入式数据库支持
+与 <<boot-features-embedded-database-support,JDBC 支持类似>>，Spring Boot 可以自动配置嵌入式数据库进行响应式使用。 您无需提供任何连接 URL。 您只需要包括要使用的嵌入式数据库的构建依赖关系，如以下示例所示：
+
+[source,xml,indent=0]
+----
+	<dependency>
+		<groupId>io.r2dbc</groupId>
+		<artifactId>r2dbc-h2</artifactId>
+		<scope>runtime</scope>
+	</dependency>
+----
+
+[NOTE]
+====
+如果您在测试中使用此功能，则可能会注意到，整个测试套件将重复使用同一数据库，而不管您使用的应用程序上下文有多少。 如果要确保每个上下文都有一个单独的嵌入式数据库，则应将 `spring.r2dbc.generate-unique-name` 设置为 `true`。
+====
+
+[[boot-features-r2dbc-using-database-client]]
+==== 使用 DatabaseClient
+
+Spring Data 的 `DatabaseClient` 类是自动配置的，您可以将其直接 `@Autowire` 到自己的 bean 中，如以下示例所示：
+
+[source,java,indent=0]
+----
+	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.data.r2dbc.function.DatabaseClient;
+	import org.springframework.stereotype.Component;
+
+	@Component
+	public class MyBean {
+
+		private final DatabaseClient databaseClient;
+
+		@Autowired
+		public MyBean(DatabaseClient databaseClient) {
+			this.databaseClient = databaseClient;
+		}
+
+		// ...
+
+	}
+----
+
+[[boot-features-spring-data-r2dbc-repositories]]
+==== Spring Data R2DBC Repositories
+https://spring.io/projects/spring-data-r2dbc[Spring Data R2DBC] 存储库是可以定义以访问数据的接口。 查询是根据您的方法名称自动创建的。 例如，`CityRepository` 接口可能声明了 `findAllByState(String state)` 方法来查找给定状态下的所有城市。
+
+对于更复杂的查询，您可以使用 Spring Data 的 {spring-data-r2dbc-api}/repository/Query.html[`Query`] 注解对方法进行注解。
+
+Spring Data 存储库通常从 {spring-data-commons-api}/repository/Repository.html[`Repository`] 或 {spring-data-commons-api}/repository/CrudRepository.html[`CrudRepository`] 接口扩展。 如果您使用自动配置，则会从包含您的主要配置类（以 `@EnableAutoConfiguration` 或 `@SpringBootApplication` 注解的类）的包中搜索存储库。
+
+以下示例显示了典型的 Spring Data 存储库接口定义：
+
+[source,java,indent=0]
+----
+	package com.example.myapp.domain;
+
+	import org.springframework.data.domain.*;
+	import org.springframework.data.repository.*;
+	import reactor.core.publisher.Mono;
+
+	public interface CityRepository extends Repository<City, Long> {
+
+		Mono<City> findByNameAndStateAllIgnoringCase(String name, String state);
+
+	}
+----
+
+TIP: 我们只讨论了 Spring Data R2DBC 的简单的东西. 如果需要详细信息，请参阅 {spring-data-r2dbc-docs}[Spring Data R2DBC reference documentation].
 
 [[boot-features-nosql]]
 == 使用 NoSQL 技术
@@ -3276,27 +3513,27 @@ https://www.mongodb.com/[MongoDB] 是一个开源的 NoSQL 文档数据库,其�
 
 [[boot-features-connecting-to-mongodb]]
 ==== 连接 MongoDB 数据库
-您可以注入一个自动配置的 `org.springframework.data.mongodb.MongoDbFactory` 来访问 Mongo 数据库. 默认情况下,该实例将尝试在 `mongodb://localhost/test` 上连接 MongoDB 服务器,以下示例展示了如何连接到 MongoDB 数据库:
+您可以注入一个自动配置的 `org.springframework.data.mongodb.MongoDbFactory` 来访问 MongoDB 数据库. 默认情况下,该实例将尝试在 `mongodb://localhost/test` 上连接 MongoDB 服务器,以下示例展示了如何连接到 MongoDB 数据库:
 
 [source,java,indent=0]
 ----
-	import org.springframework.data.mongodb.MongoDbFactory;
-	import com.mongodb.DB;
+	import org.springframework.data.mongodb.MongoDatabaseFactory;
+	import com.mongodb.client.MongoDatabase;
 
 	@Component
 	public class MyBean {
 
-		private final MongoDbFactory mongo;
+		private final MongoDatabaseFactory mongo;
 
 		@Autowired
-		public MyBean(MongoDbFactory mongo) {
+		public MyBean(MongoDatabaseFactory mongo) {
 			this.mongo = mongo;
 		}
 
 		// ...
 
 		public void example() {
-			DB db = mongo.getDb();
+			MongoDatabase db = mongo.getMongoDatabase();
 			// ...
 		}
 
@@ -3310,21 +3547,24 @@ https://www.mongodb.com/[MongoDB] 是一个开源的 NoSQL 文档数据库,其�
 	spring.data.mongodb.uri=mongodb://user:secret@mongo1.example.com:12345,mongo2.example.com:23456/test
 ----
 
-另外,只要您使用了 Mongo 2.x,请指定 `host/port`. 比如,您可能要在 `application.properties` 中声明以下内容:
+或者，您可以使用 discrete 属性指定连接详细信息。
 
 [source,properties,indent=0,configprops]
 ----
-	spring.data.mongodb.host=mongoserver
+	spring.data.mongodb.host=mongoserver.example.com
 	spring.data.mongodb.port=27017
+	spring.data.mongodb.database=test
+	spring.data.mongodb.username=user
+	spring.data.mongodb.password=secret
 ----
 
-如果您已经定义了自己的 `MongoClient`,它将被用于自动配置合适的 `MongoDbFactory`. 支持 `com.mongodb.MongoClient` 和 `com.mongodb.client.MongoClient`.
+如果您已经定义了自己的 `MongoClient`,它将被用于自动配置合适的 `MongoDatabaseFactory`.
 
-NOTE: 如果您使用 Mongo 3.0 Java 驱动,则不支持 `spring.data.mongodb.host` 和 `spring.data.mongodb.port`. 这种情况下,应该使用 `spring.data.mongodb.uri` 来提供所有配置.
+使用 `MongoClientSettings` 创建自动配置的 `MongoClient`。 要微调其配置，请声明一个或多个 `MongoClientSettingsBuilderCustomizer` Bean。 每个命令都将与用于构建 `MongoClientSettings` 的`MongoClientSettings.Builder` 依次调用。
 
 TIP: 如果未指定 `spring.data.mongodb.port`,则使用默认值 `27017`. 您可以将上述示例中的改行配置删除掉.
 
-TIP: 如果您不使用 Spring Data Mongo,则可以注入 `com.mongodb.MongoClient` bean 来代替 `MongoDbFactory`. 如果要完全控制建立 MongoDB 连接,您还可以声明自己的 `MongoDbFactory` 或者 `MongoClient` bean.
+TIP: 如果您不使用 Spring Data MongoDB,则可以注入 `com.mongodb.MongoClient` bean 来代替 `MongoDatabaseFactory`. 如果要完全控制建立 MongoDB 连接,您还可以声明自己的 `MongoDatabaseFactory` 或者 `MongoClient` bean.
 
 NOTE: 如果您使用的是响应式驱动,则 SSL 需要 Netty.  如果 Netty 可用且 factory 尚未自定义,则自动配置会自动配置此 factory.
 
@@ -3360,7 +3600,7 @@ NOTE: 如果您使用的是响应式驱动,则 SSL 需要 Netty.  如果 Netty �
 ==== Spring Data MongoDB Repositories
 Spring Data 包含了对 MongoDB 资源库 (repository) 的支持. 与之前讨论的 JPA 资源库一样,基本原理是根据方法名称自动构建查询.
 
-事实上,Spring Data JPA 和 Spring Data MongoDB 共享通用的底层代码,因此你可以拿之前提到的 JPA 示例作为基础,假设 `City` 现在是一个 Mongo 数据类,而不是一个 JPA `@Entity`,他们方式工作相同:
+事实上,Spring Data JPA 和 Spring Data MongoDB 共享通用的底层代码,因此你可以拿之前提到的 JPA 示例作为基础,假设 `City` 现在是一个 MongoDB 数据类,而不是一个 JPA `@Entity`,他们方式工作相同:
 
 [source,java,indent=0]
 ----
@@ -3534,14 +3774,10 @@ https://www.elastic.co/products/elasticsearch[Elasticsearch] 是一个开源、�
 
 Spring Boot 支持以下 HTTP 客户端:
 
-Spring Boot 支持以下 HTTP 客户端:
-
 * 官方 Java Low Level (低级)  和 High Level (高级)  REST 客户端
 * Spring Data Elasticsearch提供的 `ReactiveElasticsearchClient`
 
-https://github.com/spring-projects/spring-data-elasticsearch[Spring Data Elasticsearch] 依旧使用传输客户端,但是Spring Data Elasticsearch和Elasticsearch本身已弃用了它的支持.  它将在将来的版本中删除. 您可以使用 spring-boot-starter-data-elasticsearch starter 引入使用它.
-
-由于Elasticsearch和Spring Data Elasticsearch为REST客户端提供了官方支持,因此  https://github.com/searchbox-io/Jest[Jest]  客户端也已被弃用.
+Spring Boot 提供了一个 "`Starter`". 您可以使用 spring-boot-starter-data-elasticsearch starter 引入使用它.
 
 [[boot-features-connecting-to-elasticsearch-rest]]
 ==== 使用 REST 客户端连接 Elasticsearch
@@ -3557,9 +3793,9 @@ Elasticsearch 提供了 https://www.elastic.co/guide/en/elasticsearch/client/jav
 	spring.elasticsearch.rest.password=secret
 ----
 
-您还可以注册实现任意数量的 `RestClientBuilderCustomizer` bean,以进行更高级的自定义. 要完全控制注册流程,请定义 RestClient bean.
+您还可以注册实现任意数量的 `RestClientBuilderCustomizer` bean,以进行更高级的自定义. 要完全控制注册流程,请定义 RestClientBuilder bean.
 
-如果你 classpath 上有 `org.elasticsearch.client:elasticsearch-rest-high-level-client` 依赖,Spring Boot 将自动配置一个 `RestHighLevelClient`,它包装了所有现有的 `RestClient` bean,重用其 HTTP 配置.
+如果你 classpath 上有 `org.elasticsearch.client:elasticsearch-rest-high-level-client` 依赖,Spring Boot 将自动配置一个 `RestHighLevelClient`,它利用所有现有的 `RestClientBuilder` bean 重用其 HTTP 配置.
 
 [[boot-features-connecting-to-elasticsearch-reactive-rest]]
 ==== 使用 Reactive REST 客户端连接
@@ -3577,30 +3813,6 @@ Elasticsearch 提供了 https://www.elastic.co/guide/en/elasticsearch/client/jav
 ----
 
 如果配置属性不够,并且您想完全控制客户端配置,则可以注册自定义 `ClientConfiguration` bean.
-
-[[boot-features-connecting-to-elasticsearch-jest]]
-==== 使用 Jest 连接 Elasticsearch
-
-现在,Spring Boot支持官方的 `RestHighLevelClient`,不再支持 `Jest`.
-
-如果您的 classpath 上存在 `Jest`,则可以注入一个默认目标为 `http://localhost:9200`. 的自动配置 `JestClient`. 您还可以进一步调整客户端配置:
-
-[source,properties,indent=0,configprops]
-----
-	spring.elasticsearch.jest.uris=https://search.example.com:9200
-	spring.elasticsearch.jest.read-timeout=10000
-	spring.elasticsearch.jest.username=user
-	spring.elasticsearch.jest.password=secret
-----
-
-您还可以注册任何数量实现了 `HttpClientConfigBuilderCustomizer` 的 bean,以进行更加高级的自定义. 以下示例调整了其他 HTTP 设置:
-
-[source,java,indent=0]
-----
-include::{code-examples}/elasticsearch/jest/JestClientCustomizationExample.java[tag=customizer]
-----
-
-要完全控制注册流程,请定义一个 `JestClient` bean.
 
 [[boot-features-connecting-to-elasticsearch-spring-data]]
 ==== 使用 Spring Data 连接 Elasticsearch
@@ -3643,22 +3855,41 @@ Spring Boot使用 `ElasticsearchRestTemplate` 或 `ReactiveElasticsearchTemplate
     spring.data.elasticsearch.repositories.enabled=false
 ----
 
-
 [[boot-features-cassandra]]
 === Cassandra
 https://cassandra.apache.org/[Cassandra] 是一个开源的分布式数据库管理系统,旨在处理商用服务器上的大量数据. Spring Boot 为 Cassandra 提供了自动配置,且 https://github.com/spring-projects/spring-data-cassandra[Spring Data Cassandra] 为其提供了顶层抽象. 相关依赖包含在 spring-boot-starter-data-cassandra starter 中.
 
 [[boot-features-connecting-to-cassandra]]
 ==== 连接 Cassandra
-您可以像其他 Spring Bean 一样注入一个自动配置的 `CassandraTemplate` 或 Cassandra `Session` 实例. spring.data.cassandra.* 属性可用于自定义连接. 通常,您会提供 `keyspace-name` 和 `contact-points` 属性:
+
+您可以像其他 Spring Bean 一样注入一个自动配置的 `CassandraTemplate` 或 Cassandra `CqlSession` 实例. spring.data.cassandra.* 属性可用于自定义连接. 通常,您会提供 `keyspace-name` 和 `contact-points` 以及 local-datacenter 属性:
+
+[source,properties,indent=0,configprops]
+----
+	spring.data.cassandra.keyspace-name=mykeyspace
+	spring.data.cassandra.contact-points=cassandrahost1:9042,cassandrahost2:9042
+	spring.data.cassandra.local-datacenter=datacenter1
+----
+
+如果所有端口都相同，则可以使用快捷方式，仅指定主机名，如以下示例所示：
 
 [source,properties,indent=0,configprops]
 ----
 	spring.data.cassandra.keyspace-name=mykeyspace
 	spring.data.cassandra.contact-points=cassandrahost1,cassandrahost2
+	spring.data.cassandra.local-datacenter=datacenter1
 ----
 
-您还可以注册任意数量实现了 `ClusterBuilderCustomizer` 的 bean,以进行更高级的自定义.
+TIP: 这两个示例与默认端口 9042 相同。如果需要配置端口，请使用 `spring.data.cassandra.port`。
+
+[NOTE]
+====
+Cassandra 驱动程序具有自己的配置基础结构，该结构在类路径的根目录中加载 `application.conf`。
+
+Spring Boot 不会查找此类文件，而是通过 `spring.data.cassandra.*` 命名空间提供了许多配置属性。 对于更高级的驱动程序定制，可以注册任意数量的实现 `DriverConfigLoaderBuilderCustomizer` 的bean。 可以使用 `CqlSessionBuilderCustomizer` 类型的 bean 来定制 `CqlSession`。
+====
+
+NOTE: 如果您使用 `CqlSessionBuilder` 创建多个 `CqlSession` Bean，请记住该构建器是可变的，因此请确保为每个会话注入一个新副本。
 
 以下代码展示了如何注入一个 Cassandra bean:
 
@@ -3667,7 +3898,7 @@ https://cassandra.apache.org/[Cassandra] 是一个开源的分布式数据库管
 	@Component
 	public class MyBean {
 
-		private CassandraTemplate template;
+		private final CassandraTemplate template;
 
 		public MyBean(CassandraTemplate template) {
 			this.template = template;
@@ -3695,16 +3926,17 @@ https://www.couchbase.com/[Couchbase] 是一个开源、分布式多模型的 No
 
 [[boot-features-connecting-to-couchbase]]
 ==== 连接 Couchbase
-您可以通过添加 Couchbase SDK 和一些配置来轻松获取 `Bucket` 和 `Cluster`. `spring.couchbase.*` 属性可用于自定义连接. 通常您会配置 bootstrap host、bucket name 和 password:
+
+您可以通过添加 Couchbase SDK 和一些配置来轻松获取 `Cluster`. `spring.couchbase.*` 属性可用于自定义连接. 通常您会提供 https://github.com/couchbaselabs/sdk-rfcs/blob/master/rfc/0011-connection-string.md[connection string] username 和 password:
 
 [source,properties,indent=0,configprops]
 ----
-	spring.couchbase.bootstrap-hosts=my-host-1,192.168.1.123
-	spring.couchbase.bucket.name=my-bucket
-	spring.couchbase.bucket.password=secret
+	spring.couchbase.connection-string=couchbase://192.168.1.123
+	spring.couchbase.username=user
+	spring.couchbase.password=secret
 ----
 
-TIP: 您至少需要提供 bootstrap host,这种情况下,bucket name 为 `default` 且 password 为空字符串. 或者,您可以定义自己的 `org.springframework.data.couchbase.config.CouchbaseConfigurer` `@Bean`  来控制整个配置.
+还可以自定义某些 `ClusterEnvironment` 设置。 例如，以下配置用于打开新的 `Bucket` 并启用SSL支持的超时：
 
 [source,properties,indent=0,configprops]
 ----
@@ -3713,17 +3945,20 @@ TIP: 您至少需要提供 bootstrap host,这种情况下,bucket name 为 `defau
 	spring.couchbase.env.ssl.key-store-password=secret
 ----
 
-查看 `spring.couchbase.env.*` 获取更多详细内容.
-
-
+TIP: 检查 `spring.couchbase.env.*` 属性以获取更多详细信息。为了获得更多控制权，可以使用一个或多个 `ClusterEnvironmentBuilderCustomizer` bean。
 
 [[boot-features-spring-data-couchbase-repositories]]
 ==== Spring Data Couchbase 资源库
-Spring Data 包含了 Couchbase 资源库支持. 有关 Spring Data Couchbase 的完整详细信息,请参阅其 https://docs.spring.io/spring-data/couchbase/docs/current/reference/html/[参考文档].
+Spring Data 包含了 Couchbase 资源库支持. 有关 Spring Data Couchbase 的完整详细信息,请参阅其 {spring-data-couchbase-docs}[reference documentation].
 
-您可以像使用其他 Spring Bean 一样注入自动配置的 `CouchbaseTemplate` 实例,前提是有一个默认的 `CouchbaseConfigurer` (当您启用 Couchbase 支持时会发生这种情况,如之前所述) .
+您可以像使用其他 Spring Bean 一样注入自动配置的 `CouchbaseTemplate` 实例,前提是可以使用 `CouchbaseClientFactory` (当您 `Cluster` 可以并且指定了 bucket 名称时会发生这种情况,如之前所述) .
 
-以下示例展示了如何注入一个 Couchbase bean:
+[source,properties,indent=0,configprops]
+----
+	spring.data.couchbase.bucket-name=my-bucket
+----
+
+以下示例展示了如何注入一个 CouchbaseTemplate bean:
 
 [source,java,indent=0]
 ----
@@ -3744,9 +3979,9 @@ Spring Data 包含了 Couchbase 资源库支持. 有关 Spring Data Couchbase �
 
 您可以在自己的配置中定义以下几个 bean,以覆盖自动配置提供的配置:
 
-* 一个名为 `couchbaseTemplate` 的 `CouchbaseTemplate` `@Bean`
-* 一个名为 `couchbaseIndexManager` 的 `IndexManager` `@Bean`
+* 一个名为 `couchbaseMappingContext` 的 `CouchbaseMappingContext` `@Bean`
 * 一个名为 `couchbaseCustomConversions` 的 `CustomConversions` `@Bean`
+* 一个名为 `couchbaseTemplate` 的 `CouchbaseTemplate` `@Bean`
 
 为了避免在自己的配置中硬编码这些名称,您可以重用 Spring Data Couchbase 提供的 `BeanNames`,例如,您可以自定义转换器,如下:
 
@@ -3770,7 +4005,7 @@ TIP: 如果您想要安全绕开 Spring Data Couchbase 的自动配置,请提供
 [[boot-features-ldap]]
 === LDAP
 https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol[LDAP]  (Lightweight Directory Access Protocol,轻量级目录访问协议) 是一个开放、厂商中立的行业标准应用协议,其通过 IP 网络访问和维护分布式目录信息服务.
-Spring Boot 为兼容 LDAP 服务器提供了自动配置,以及支持从 https://www.ldap.com/unboundid-ldap-sdk-for-java[UnboundID] 内嵌内存式 LDAP 服务器.
+Spring Boot 为兼容 LDAP 服务器提供了自动配置,以及支持从 https://ldap.com/unboundid-ldap-sdk-for-java/[UnboundID] 内嵌内存式 LDAP 服务器.
 
 https://github.com/spring-projects/spring-data-ldap[Spring Data LDAP] 提供了 LDAP 抽象. 相关依赖包含在了 `spring-boot-starter-data-ldap` starter 中.
 
@@ -3787,6 +4022,7 @@ https://github.com/spring-projects/spring-data-ldap[Spring Data LDAP] 提供了 
 
 如果需要自定义连接设置,您可以使用 `spring.ldap.base` 和 `spring.ldap.base-environment` 属性.
 
+如果 `DirContextAuthenticationStrategy` bean可用，则它与自动配置的 `LdapContextSource` 相关联。
 `LdapContextSource` 将根据这些设置自动配置. 如果您需要自定义它,例如使用一个 `PooledContextSource`,则仍然可以注入自动配置的 `LdapContextSource`. 确保将自定义的 `ContextSource` 标记为 `@Primary`,以便自动配置的 `LdapTemplate` 能使用它.
 
 [[boot-features-ldap-spring-data-repositories]]
@@ -3871,7 +4107,7 @@ Spring Boot 自动配置 `InfluxDB` 实例,前提是 `Influxdb-java` 客户端�
 == 缓存
 Spring Framework 支持以透明的方式向应用程序添加缓存. 从本质上讲,将缓存应用于方法上,根据缓存数据减少方法的执行次数. 缓存逻辑是透明的,不会对调用者造成任何干扰. 通过 `@EnableCaching` 注解启用缓存支持,Spring Boot 就会自动配置缓存设置.
 
-NOTE: 有关更多详细信息,请查看 Spring Framework 参考文档的 {spring-framework-docs}integration.html#cache[相关部分] .
+NOTE: 有关更多详细信息,请查看 Spring Framework 参考文档的 {spring-framework-docs}/integration.html#cache[相关部分] .
 
 简而言之,为服务添加缓存的操作就像在其方法中添加注解一样简单,如下所示:
 
@@ -3898,7 +4134,7 @@ CAUTION: 您还可以使用标准 JSR-107 (JCache) 注解 (例如 `@CacheResult`
 如果您不添加任何指定的缓存库,Spring Boot 会自动配置一个使用并发 map 的 <<boot-features-caching-provider-simple,simple provider>> . 当需要缓存时 (例如前面示例中的 `piDecimals`) ,该 simple provider 会为您创建缓存. 不推荐将 simple provider 用于生产环境,但它非常适合入门并帮助您了解这些功能.
 当您决定使用缓存提供者时,请务必阅读其文档以了解如何配置应用程序. 几乎所有提供者都要求您显式配置应用程序中使用的每个缓存. 有些提供了自定义 `spring.cache.cache-names` 属性以定义默认缓存.
 
-TIP: 还可以透明地从缓存中 {spring-framework-docs}integration.html#cache-annotations-put[更新]或 {spring-framework-docs}integration.html#cache-annotations-evict[删除] 数据.
+TIP: 还可以透明地从缓存中 {spring-framework-docs}/integration.html#cache-annotations-put[更新]或 {spring-framework-docs}/integration.html#cache-annotations-evict[删除] 数据.
 
 [[boot-features-caching-provider]]
 === 支持的缓存提供者
@@ -3995,44 +4231,20 @@ NOTE: Infinispan 在 Spring Boot 中的支持仅限于内嵌模式,非常简单.
 
 [[boot-features-caching-provider-couchbase]]
 ==== Couchbase
-如果 https://www.couchbase.com/[Couchbase] Java 客户端和 `couchbase-spring-cache` 实现可用且已经<<boot-features-couchbase,配置>>了 `Couchbase`,则应用程序会自动配置一个 `CouchbaseCacheManager`. 也可以通过设置 `spring.cache.cache-names` 属性在启动时创建其他缓存. 这些缓存在自动配置的 `Bucket` 上操作.
-您还可以使用 customizer 在其他 `Bucket` 上创建缓存. 假设您需要在 main `Bucket` 上有两个缓存 (`cache1` 和 `cache2`) ,并且 "`another`" `Bucket` 有一个过期时间为 2 秒的缓存 (`cache3`) . 您可以通过配置创建这两个缓存,如下所示:
+如果 Spring Data Couchbase 可用并且已 <<boot-features-couchbase,配置>>  Couchbase，则会自动配置 `CouchbaseCacheManager`。 通过设置 `spring.cache.cache-names` 属性可以在启动时创建其他缓存，并且可以使用 `spring.cache.couchbase.*` 属性配置缓存默认值。 以下配置创建 `cache1` 和 `cache2` 缓存,他们的有效时间为 10 分钟:
 
 [source,properties,indent=0,configprops]
 ----
 	spring.cache.cache-names=cache1,cache2
+    spring.cache.couchbase.expiration=10m
 ----
 
-然后,您可以定义一个 `@Configuration` 类来配置其他 `Bucket` 和 `cache3` 缓存,如下所示:
+如果需要对配置进行更多控制，请考虑注册 `CouchbaseCacheManagerBuilderCustomizer` bean。以下示例显示了一个定制器，该定制器为 `cache1` 和 `cache2` 配置到期：
 
 [source,java,indent=0]
 ----
-	@Configuration(proxyBeanMethods = false)
-	public class CouchbaseCacheConfiguration {
-
-		private final Cluster cluster;
-
-		public CouchbaseCacheConfiguration(Cluster cluster) {
-			this.cluster = cluster;
-		}
-
-		@Bean
-		public Bucket anotherBucket() {
-			return this.cluster.openBucket("another", "secret");
-		}
-
-		@Bean
-		public CacheManagerCustomizer<CouchbaseCacheManager> cacheManagerCustomizer() {
-			return c -> {
-				c.prepareCache("cache3", CacheBuilder.newInstance(anotherBucket())
-						.withExpiration(2));
-			};
-		}
-
-	}
+include::{code-examples}/cache/CouchbaseCacheManagerCustomizationExample.java[tag=configuration]
 ----
-
-此示例配置复用了通过自动配置创建的 `Cluster`.
 
 [[boot-features-caching-provider-redis]]
 ==== Redis
@@ -4102,7 +4314,7 @@ Spring Framework 为消息传递系统集成提供了广泛的支持,从使用 `
 
 [[boot-features-jms]]
 === JMS
-`javax.jms.ConnectionFactory` 接口提供了一种创建 `javax.jms.Connection` 的标准方法,可与 JMS broker (代理) 进行交互. 虽然 Spring 需要一个 `ConnectionFactory` 来与 JMS 一同工作,但是您通常不需要自己直接使用它,而是可以依赖更高级别的消息传递抽象.  (有关详细信息,请参阅 {spring-framework-docs}integration.html#jms[Spring Framework 参考文档的相关部分]. ) Spring Boot 还会自动配置发送和接收消息所需的基础设施.
+`javax.jms.ConnectionFactory` 接口提供了一种创建 `javax.jms.Connection` 的标准方法,可与 JMS broker (代理) 进行交互. 虽然 Spring 需要一个 `ConnectionFactory` 来与 JMS 一同工作,但是您通常不需要自己直接使用它,而是可以依赖更高级别的消息传递抽象.  (有关详细信息,请参阅 {spring-framework-docs}/integration.html#jms[Spring Framework 参考文档的相关部分]. ) Spring Boot 还会自动配置发送和接收消息所需的基础设施.
 
 [[boot-features-activemq]]
 ==== ActiveMQ 支持
@@ -4139,13 +4351,13 @@ TIP: 有关更多支持的选项,请参阅 {spring-boot-autoconfigure-module-cod
 默认情况下,ActiveMQ 会创建一个 destination (目标)  (如果它尚不存在) ,以便根据提供的名称解析 destination.
 
 [[boot-features-artemis]]
-==== Artemis 支持
+==== ActiveMQ Artemis 支持
 Spring Boot 可以在检测到 https://activemq.apache.org/components/artemis/[Artemis] 在 classpath 上可用时自动配置一个 `ConnectionFactory`. 如果存在 broker,则会自动启动并配置一个内嵌 broker (除非已明确设置 mode 属性) .
 支持的 mode 为 `embedded` (明确表示需要一个内嵌 broker,如果 broker 在 classpath 上不可用则发生错误) 和 `native` (使用 `netty` 传输协议连接到 broker) . 配置后者后,Spring Boot 会使用默认设置配置一个 `ConnectionFactory`,该 `ConnectionFactory` 连接到在本地计算机上运行的 broker.
 
 NOTE: 如果使用了 `spring-boot-starter-artemis`,则会提供连接到现有的 Artemis 实例的必须依赖,以及与 JMS 集成的Spring 基础设施. 将 `org.apache.activemq:artemis-jms-server` 添加到您的应用程序可让您使用内嵌模式.
 
-Artemis 配置由 `spring.artemis.*` 中的外部配置属性控制. 例如,您可以在 `application.properties` 中声明以下部分:
+ActiveMQ Artemis 配置由 `spring.artemis.*` 中的外部配置属性控制. 例如,您可以在 `application.properties` 中声明以下部分:
 
 [source,properties,indent=0,configprops]
 ----
@@ -4303,6 +4515,8 @@ RabbitMQ 配置由 `spring.rabbitmq.*` 中的外部配置属性控制. 例如,�
 	spring.rabbitmq.addresses=amqp://admin:secret@localhost
 ----
 
+NOTE: 当以这种方式指定 addresses 时，`host` 和 `port` 属性将被忽略。 如果地址使用 `amqps` 协议，则会自动启用 SSL 支持
+
 如果上下文中存在 `ConnectionNameStrategy` bean,它将自动用于命名由自动配置的 `ConnectionFactory` 所创建的连接. 有关更多支持的选项,请参阅 {spring-boot-autoconfigure-module-code}/amqp/RabbitProperties.java[`RabbitProperties`] .
 
 TIP: 有关详细信息,请参阅理解  https://spring.io/blog/2010/06/14/understanding-amqp-the-protocol-used-by-rabbitmq/[AMQP、RabbitMQ 使用的协议] f.
@@ -4348,6 +4562,8 @@ NOTE: {spring-amqp-api}/rabbit/core/RabbitMessagingTemplate.html[`RabbitMessagin
 ----
 
 默认情况下禁用重试. 您还可以通过声明 `RabbitRetryTemplateCustomizer` bean 以编程方式自定义 `RetryTemplate`.
+
+如果您需要创建更多的 `RabbitTemplate` 实例，或者想覆盖默认实例，Spring Boot 提供了一个 `RabbitTemplateConfigurer` bean，您可以使用它来初始化一个 `RabbitTemplate`，其设置与自动配置所使用的工厂相同。
 
 [[boot-features-using-amqp-receiving]]
 ==== 接收消息
@@ -4536,9 +4752,9 @@ IMPORTANT: 以这种方式设置的属性将覆盖 Spring Boot 明确支持的�
 
 [[boot-features-embedded-kafka]]
 ==== 使用嵌入式 Kafka 进行测试
-Spring 为 Apache Kafka 提供了一种使用嵌入式Apache Kafka代理测试项目的便捷方法.  要使用此功能,请在 `spring-kafka-test` 模块中使用 `@EmbeddedKafka` 注解测试类.  有关更多信息,请参阅Spring for Apache Kafka https://docs.spring.io/spring-kafka/docs/current/reference/html/#embedded-kafka-annotation[参考手册].
+Spring 为 Apache Kafka 提供了一种使用嵌入式Apache Kafka代理测试项目的便捷方法.  要使用此功能,请在 `spring-kafka-test` 模块中使用 `@EmbeddedKafka` 注解测试类.  有关更多信息,请参阅Spring for Apache Kafka  {spring-kafka-docs}#embedded-kafka-annotation[参考手册].
 
-要使Spring Boot自动配置与上述嵌入式Apache Kafka代理一起使用,您需要将嵌入式代理地址 (由 `EmbeddedKafkaBroker` 填充) 的系统属性重新映射到Apache Kafka的Spring Boot配置属性中.  有几种方法可以做到这一点:
+要使 Spring Boot 自动配置与上述嵌入式 Apache Kafka 代理一起使用,您需要将嵌入式代理地址 (由 `EmbeddedKafkaBroker` 填充) 的系统属性重新映射到 Apache Kafka 的 Spring Boot 配置属性中.  有几种方法可以做到这一点:
 
 * 提供一个系统属性,以将嵌入式代理地址映射到测试类中的 `spring.kafka.bootstrap-servers` 中:
 
@@ -4565,7 +4781,7 @@ spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}
 ----
 
 [[boot-features-resttemplate]]
-== 使用 `RestTemplate` 调用 REST 服务
+== 使用 RestTemplate 调用 REST 服务
 如果您的应用程序需要调用远程 REST 服务,这可以使用 Spring Framework 的 RestTemplate 类. 由于 {spring-framework-api}/web/client/RestTemplate.html[`RestTemplate`]  实例在使用之前通常需要进行自定义,因此 Spring Boot 不提供任何自动配置的 `RestTemplate` bean. 但是,
 它会自动配置 `RestTemplateBuilder`,可在需要时创建 `RestTemplate` 实例. 自动配置的 `RestTemplateBuilder` 确保将合适的 `HttpMessageConverters` 应用于 `RestTemplate` 实例.
 
@@ -4609,8 +4825,8 @@ include::{code-examples}/web/client/RestTemplateProxyCustomizationExample.java[t
 最后,最极端 (也很少使用) 的选择是创建自己的 `RestTemplateBuilder` bean. 这样做会关闭 `RestTemplateBuilder` 的自动配置,并阻止使用任何 `RestTemplateCustomizer` bean.
 
 [[boot-features-webclient]]
-== 使用 `WebClient` 调用 REST 服务
-如果在 classpath 上存在 Spring WebFlux,则还可以选择使用 `WebClient` 来调用远程 REST 服务. 与 `RestTemplate` 相比,该客户端更具函数式风格并且完全响应式. 您可以在 {spring-framework-docs}web-reactive.html#webflux-client[ Spring Framework 文档的相关部分]中了解有关 `WebClient` 的更多信息.
+== 使用 WebClient 调用 REST 服务
+如果在 classpath 上存在 Spring WebFlux,则还可以选择使用 `WebClient` 来调用远程 REST 服务. 与 `RestTemplate` 相比,该客户端更具函数式风格并且完全响应式. 您可以在 {spring-framework-docs}/web-reactive.html#webflux-client[ Spring Framework 文档的相关部分]中了解有关 `WebClient` 的更多信息.
 
 Spring Boot 为您创建并预配置了一个 `WebClient.Builder`. 强烈建议将其注入您的组件中并使用它来创建 `WebClient` 实例. Spring Boot 配置该构建器以共享 HTTP 资源,以与服务器相同的方式反射编解码器设置 (请参阅 <<boot-features-webflux-httpcodecs,WebFlux HTTP 编解码器自动配置>>) 等.
 
@@ -4645,7 +4861,7 @@ Spring Boot 将自动检测用于驱动 `WebClient` 的 `ClientHttpConnector`,�
 
 如果您只希望覆盖客户端选项,则可以定义自己的 `ClientHttpConnector` bean 并完全控制客户端配置.
 
-您可以在 Spring Framework 参考文档中了解有关 {spring-framework-docs}web-reactive.html#webflux-client-builder[`WebClient` 配置选项的更多信息].
+您可以在 Spring Framework 参考文档中了解有关 {spring-framework-docs}/web-reactive.html#webflux-client-builder[`WebClient` 配置选项的更多信息].
 
 [[boot-features-webclient-customization]]
 === 自定义 WebClient
@@ -4683,7 +4899,7 @@ Spring Boot 将自动检测用于驱动 `WebClient` 的 `ClientHttpConnector`,�
 == 发送邮件
 Spring Framework 提供了一个使用 `JavaMailSender` 接口发送电子邮件的简单抽象,Spring Boot 为其提供了自动配置以及一个 starter 模块.
 
-TIP: 有关如何使用 JavaMailSender 的详细说明,请参阅 {spring-framework-docs}integration.html#mail[参考文档].
+TIP: 有关如何使用 JavaMailSender 的详细说明,请参阅 {spring-framework-docs}/integration.html#mail[参考文档].
 
 如果 `spring.mail.host` 和相关库 (由 `spring-boot-starter-mail` 定义) 可用,则创建默认的 `JavaMailSender` (如果不存在) . 可以通过 `spring.mail` 命名空间中的配置项进一步自定义发件人. 有关更多详细信息,请参阅 {spring-boot-autoconfigure-module-code}/mail/MailProperties.java[`MailProperties`].
 
@@ -4707,7 +4923,7 @@ TIP: 有关如何使用 JavaMailSender 的详细说明,请参阅 {spring-framewo
 
 [[boot-features-jta]]
 == JTA 分布式事务
-Spring Boot 通过使用  https://www.atomikos.com/[Atomikos] 或  https://github.com/bitronix/btm[Bitronix] 嵌入式事务管理器来支持跨多个 XA 资源的分布式 JTA 事务. 部署在某些 Java EE 应用服务器 (Application Server) 上也支持 JTA 事务.
+Spring Boot 通过使用  https://www.atomikos.com/[Atomikos] 嵌入式事务管理器来支持跨多个 XA 资源的分布式 JTA 事务, 并弃用了 https://github.com/bitronix/btm[Bitronix] 嵌入式事务管理器的支持,并在未来版本中删除. 部署在某些 Java EE 应用服务器 (Application Server) 上也支持 JTA 事务.
 
 当检测到 JTA 环境时,Spring 的 `JtaTransactionManager` 将用于管理事务. 自动配置的 JMS、DataSource 和 JPA bean 已升级为支持 XA 事务. 您可以使用标准的 Spring 方式 (例如 `@Transactional`) 来使用分布式事务. 如果您处于 JTA 环境中并且仍想使用本地事务,则可以将 `spring.jta.enabled` 属性设置为 `false` 以禁用 JTA 自动配置.
 
@@ -4721,6 +4937,8 @@ NOTE: 为确保多个事务管理器可以安全地协调相同的资源管理�
 
 [[boot-features-jta-bitronix]]
 === 使用 Bitronix 事务管理器
+NOTE: 从Spring Boot 2.3开始，不赞成使用Bitronix，并且在将来的版本中将删除它。
+
 https://github.com/bitronix/btm[Bitronix] 是一个流行的开源 JTA 事务管理器实现. 您可以使用 `spring-boot-starter-jta-bitronix` starter 为您的项目添加合适的 Bitronix 依赖. 与 Atomikos 一样,Spring Boot 会自动配置 Bitronix 并对 bean 进行后处理 (post-processes) ,以确保启动和关闭顺序正确.
 
 默认情况下,Bitronix 事务日志文件 (`part1.btm` 和 `part2.btm`) 将写入应用程序主目录中的 `transaction-logs` 目录. 您可以通过设置 `spring.jta.log-dir` 属性来自定义此目录的位置. 以 `spring.jta.bitronix.properties` 开头的属性绑定到了 `bitronix.tm.Configuration` bean,允许完全自定义. 有关详细信息,请参阅 https://github.com/bitronix/btm/wiki/Transaction-manager-configuration[Bitronix 文档].
@@ -4761,7 +4979,7 @@ NOTE: 为确保多个事务管理器能够安全地协调相同的资源管理�
 === 支持嵌入式事务管理器
 {spring-boot-module-code}/jms/XAConnectionFactoryWrapper.java[`XAConnectionFactoryWrapper`] 和  {spring-boot-module-code}/jdbc/XADataSourceWrapper.java[`XADataSourceWrapper`]  接口可用于支持其他嵌入式事务管理器. 接口负责包装 `XAConnectionFactory` 和 `XADataSource` bean,并将它们暴露为普通的 `ConnectionFactory` 和 `DataSource` bean,它们透明地加入分布式事务. `DataSource` 和 JMS 自动配置使用 JTA 变体,前提是您需要有一个 `JtaTransactionManager` bean 和在 `ApplicationContext` 中注册有的相应 XA 包装器 (wrapper)  bean.
 
-{spring-boot-module-code}/jta/bitronix/BitronixXAConnectionFactoryWrapper.java[BitronixXAConnectionFactoryWrapper] 和 {spring-boot-module-code}/jta/bitronix/BitronixXADataSourceWrapper.java[BitronixXADataSourceWrapper] 为如何编写 XA 包装器提供了很好示例.
+{spring-boot-module-code}/jta/atomikos/AtomikosXAConnectionFactoryWrapper.java[AtomikosXAConnectionFactoryWrapper] 和 {spring-boot-module-code}/jta/atomikos/AtomikosXADataSourceWrapper.java[AtomikosXADataSourceWrapper] 为如何编写 XA 包装器提供了很好示例.
 
 [[boot-features-hazelcast]]
 == Hazelcast
@@ -4813,7 +5031,7 @@ Spring Boot 提供了几种使用  https://www.quartz-scheduler.org/[Quartz 调�
 
 WARNING: 默认将使用 Quartz 库提供的标准脚本检测并初始化数据库. 这些脚本会删除现有表,在每次重启时删除所有触发器. 可以通过设置 `spring.quartz.jdbc.schema` 属性来提供自定义脚本.
 
-要让 Quartz 使用除应用程序主 `DataSource` 之外的 `DataSource`,请声明一个 `DataSource` bean,使用 `@QuartzDataSource` 注解其 `@Bean` 方法. 这样做可确保 `SchedulerFactoryBean` 和 schema 初始化都使用 Quartz 指定的 `DataSource`.
+要让 Quartz 使用除应用程序主 `DataSource` 之外的 `DataSource`,请声明一个 `DataSource` bean,使用 `@QuartzDataSource` 注解其 `@Bean` 方法. 这样做可确保 `SchedulerFactoryBean` 和 schema 初始化都使用 Quartz 指定的 `DataSource`.类似地，要让 Quartz 使用应用程序的主 `TransactionManager` 之外的 `TransactionManager` 来声明 `TransactionManager` bean，并用 `@QuartzTransactionManager` 注解其 `@Bean` 方法。
 
 默认情况下,配置创建的 job 不会覆盖已从持久 job 存储读取的已注册的 job. 要启用覆盖现有的 job 定义,请设置 `spring.quartz.overwrite-existing-jobs` 属性.
 
@@ -4884,6 +5102,20 @@ Spring Boot 还配置了一些由其他 Spring Integration 模块触发的功能
 	spring.integration.jdbc.initialize-schema=always
 ----
 
+如果可用 `spring-integration-rsocket`，则开发人员可以使用 `"spring.rsocket.server.*"` 属性配置 RSocket 服务器，并使其使用 `IntegrationRSocketEndpoint` 或 `RSocketOutboundGateway` 组件来处理传入的 RSocket 消息。 该基础结构可以处理 Spring Integration RSocket 通道适配器和 `@MessageMapping` 处理程序（已配置 `"spring.integration.rsocket.server.message-mapping-enabled"`）。
+
+Spring Boot 还可以使用配置属性来自动配置 `ClientRSocketConnector`：
+
+[source,properties,indent=0,configprops]
+----
+	# Connecting to a RSocket server over TCP
+	spring.integration.rsocket.client.host=example.org
+	spring.integration.rsocket.client.port=9898
+
+	# Connecting to a RSocket Server over WebSocket
+	spring.integration.rsocket.client.uri=ws://example.org
+----
+
 有关更多详细信息,请参阅 {spring-boot-autoconfigure-module-code}/integration/IntegrationAutoConfiguration.java[`IntegrationAutoConfiguration`]  和  {spring-boot-autoconfigure-module-code}/integration/IntegrationProperties.java[`IntegrationProperties`]  类.
 
 默认情况下,如果存在 Micrometer `meterRegistry` bean,则 Micrometer 将管理 Spring Integration 的指标. 如果您希望使用旧版 Spring Integration 指标,请将 `DefaultMetricsFactory` bean 添加到应用程序上下文中.
@@ -4897,10 +5129,14 @@ Spring Boot 为各种数据存储提供 {spring-session}[Spring Session]  自动
 * Hazelcast
 * MongoDB
 
+Servlet 的自动配置取代了使用 `@Enable*HttpSession` 的需要。
+
 构建响应式 Web 应用程序时,可以自动配置以下存储:
 
 * Redis
 * MongoDB
+
+reactive 的自动配置取代了使用 `@Enable*WebSession` 的需要.
 
 如果 classpath 上存在单个 Spring Session 模块,则 Spring Boot 会自动使用该存储实现. 如果您有多个实现,则必须选择要用于存储会话的 {spring-boot-autoconfigure-module-code}/session/StoreType.java[`StoreType`].  例如,要使用 JDBC 作为后端存储,您可以按如下方式配置应用程序:
 
@@ -4919,6 +5155,8 @@ TIP: 可以将 `store-type` 设置为 `none` 来禁用 Spring Session.
 ----
 
 可以使用 `spring.session.timeout` 属性来设置会话的超时时间. 如果未设置该属性,则自动配置将使用 `server.servlet.session.timeout` 的值.
+
+您可以使用 `@Enable*HttpSession`（Servlet）或 `@Enable*WebSession` （Reactive）来控制 Spring Session 的配置。 这将导致自动配置退出。 然后，可以使用注解的属性而不是先前描述的配置属性来配置 Spring Session。
 
 [[boot-features-jmx]]
 == 通过 JMX 监控和管理
@@ -4960,7 +5198,7 @@ Spring Boot提供了许多工具类和注解,可以在测试应用程序时提�
 `spring-boot-starter-test` "`Starter`" (在 `test` `scope`) 包含以下的库: :
 
 *  https://junit.org/junit5/[JUnit 5] (包括用于与JUnit 4向后兼容的老式引擎): 用于进行Java应用程序单元测试的事实上的标准.
-* {spring-framework-docs}testing.html#integration-testing[Spring 测试] & Spring Boot 测试: 对Spring Boot应用程序的实用程序和集成测试支持.
+* {spring-framework-docs}/testing.html#integration-testing[Spring 测试] & Spring Boot 测试: 对Spring Boot应用程序的实用程序和集成测试支持.
 * https://assertj.github.io/doc/[AssertJ]: 流式的断言库.
 * https://github.com/hamcrest/JavaHamcrest[Hamcrest]: 匹配对象库 (也称为约束或断言) .
 * https://site.mockito.org/[Mockito]: 一个Java模拟框架.
@@ -4977,7 +5215,7 @@ Spring Boot提供了许多工具类和注解,可以在测试应用程序时提�
 
 Spring框架包括用于此类集成测试的专用测试模块.  您可以直接向 `org.springframework: spring-test` 声明依赖,也可以使用 `spring-boot-starter-test` "`Starter`" 将其传递.
 
-如果您以前没有使用过 `spring-test` 模块,则应先阅读 {spring-framework-docs}testing.html#testing[Spring Framework参考文档的相关部分] .
+如果您以前没有使用过 `spring-test` 模块,则应先阅读 {spring-framework-docs}/testing.html#testing[Spring Framework参考文档的相关部分] .
 
 [[boot-features-testing-spring-boot-applications]]
 === 测试 Spring Boot 应用程序
@@ -5081,7 +5319,7 @@ include::{code-examples}/test/web/MockMvcExampleTests.java[tag=test-mock-mvc]
 
 TIP: 如果只想关注Web层而不希望启动完整的 `ApplicationContext`,请考虑使用<<boot-features-testing-spring-boot-applications-testing-autoconfigured-mvc-tests, `@WebMvcTest`>>.
 
-另外,您可以配置 {spring-framework-docs}testing.html#webtestclient-tests[`WebTestClient`] ,如以下示例所示:
+另外,您可以配置 {spring-framework-docs}/testing.html#webtestclient-tests[`WebTestClient`] ,如以下示例所示:
 
 [source,java,indent=0]
 ----
@@ -5100,7 +5338,7 @@ include::{code-examples}/test/web/MockWebTestClientExampleTests.java[tag=test-mo
 如果需要启动完全运行的服务器,建议您使用随机端口.  如果使用 `@SpringBootTest(webEnvironment=WebEnvironment.RANDOM_PORT)`,则每次运行测试时都会随机选择一个可用端口.
 
 `@LocalServerPort` 注解可用于将  <<howto.adoc#howto-discover-the-http-port-at-runtime,将实际使用的端口注入>> 测试中.  为了方便起见,需要对已启动的服务器进行REST调用的测试可以 `@Autowire` 附加地使用 `WebTestClient`,
-该 {spring-framework-docs}testing.html#webtestclient-tests[`WebTestClient`] 解析到正在运行的服务器的相对链接,并带有用于验证响应的专用API,如以下示例所示:
+该 {spring-framework-docs}/testing.html#webtestclient-tests[`WebTestClient`] 解析到正在运行的服务器的相对链接,并带有用于验证响应的专用API,如以下示例所示:
 
 [source,java,indent=0]
 ----
@@ -5189,6 +5427,9 @@ NOTE: Spring的测试框架在测试之间缓存应用程序上下文,并为共�
 
 TIP: 如果您使用 `@SpyBean` 通过 `@Cacheable` 方法监视通过名称引用参数的 bean,则必须使用 `-parameters` 编译应用程序.  这样可以确保一旦侦察到bean,参数名称就可用于缓存基础结构.
 
+TIP: 当您使用 `@SpyBean` 监视由 Spring 代理的 bean 时，在某些情况下，例如使用 `given` 或 `when` 设置期望值时，您可能需要删除 Spring 的代理。
+使用 `AopTestUtils.getTargetObject(yourProxiedSpy)`
+
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-tests]]
 ==== 自动配置测试
 Spring Boot的自动配置系统适用于应用程序,但有时对测试来说可能有点过多.  它通常仅有助于加载测试应用程序 "切片" 所需的配置部分.  例如,您可能想要测试Spring MVC控制器是否正确映射了URL,并且您不想在这些测试中涉及数据库调用,或者您想要测试JPA实体,并且对那些JPA实体不感兴趣.  测试运行.
@@ -5202,7 +5443,7 @@ NOTE: 不支持在一个测试中使用多个 `@...Test` 注解来包含多个 "
 TIP: 也可以将 `@AutoConfigure...` 注解与标准的 `@SpringBootTest` 注解一起使用.  如果您对 "`slicing`" 应用程序不感兴趣,但需要一些自动配置的测试bean,则可以使用此组合.
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-json-tests]]
-==== 自动配置的JSON测试
+==== 自动配置的 JSON 测试
 要测试对象JSON序列化和反序列化是否按预期工作,可以使用 `@JsonTest` 注解.  `@JsonTest` 自动配置可用的受支持的JSON映射器,该映射器可以是以下库之一:
 
 * Jackson `ObjectMapper`, any `@JsonComponent` beans and any Jackson ``Module``s
@@ -5267,7 +5508,7 @@ assertThat(json.write(message))
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-mvc-tests]]
 ==== 自动配置的 Spring MVC 测试
-要测试Spring MVC控制器是否按预期工作,请使用 `@WebMvcTest` 注解.  `@WebMvcTest` 自动配置Spring MVC基础结构,并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `Filter`, `HandlerInterceptor`, `WebMvcConfigurer`, 和 `HandlerMethodArgumentResolver`.  使用此注解时,不扫描常规 `@Component` bean.
+要测试Spring MVC控制器是否按预期工作,请使用 `@WebMvcTest` 注解.  `@WebMvcTest` 自动配置Spring MVC基础结构,并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `Filter`, `HandlerInterceptor`, `WebMvcConfigurer`, 和 `HandlerMethodArgumentResolver`.  使用此注解时,不扫描常规 `@Component` ,`@ConfigurationProperties` bean. `@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@WebMvcTest` 启用的自动配置设置的列表.
 
@@ -5356,8 +5597,8 @@ TIP: 有时编写Spring MVC测试是不够的.  Spring Boot可以帮助您在 <<
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-webflux-tests]]
 ==== 自动配置的 Spring WebFlux 测试
-要测试 {spring-framework-docs}/web-reactive.html[Spring WebFlux] 控制器是否按预期工作,可以使用 `@WebFluxTest` 注解.  `@WebFluxTest` 自动配置Spring WebFlux基础结构,
-并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `WebFilter` 和 `WebFluxConfigurer`.  使用 `@WebFluxTest` 注解时,不扫描常规 `@Component` bean.
+要测试 {spring-framework-docs}/web-reactive.html[Spring WebFlux] 控制器是否按预期工作,可以使用 `@WebFluxTest` 注解.  `@WebFluxTest` 自动配置 Spring WebFlux 基础结构,
+并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `WebFilter` 和 `WebFluxConfigurer`.  使用 `@WebFluxTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@WebFluxTest` 启用的自动配置的列表.  .
 
@@ -5365,7 +5606,7 @@ TIP: 如果需要注册其他组件,例如Jackson模块,则可以在测试中使
 
 通常,`@WebFluxTest` 仅限于单个控制器,并与 `@MockBean` 注解结合使用,以为所需的协作者提供模拟实现.
 
-`@WebFluxTest` 还可以自动配置  {spring-framework-docs}testing.html#webtestclient[`WebTestClient`],它提供了一种强大的方法来快速测试WebFlux控制器,而无需启动完整的HTTP服务器.
+`@WebFluxTest` 还可以自动配置  {spring-framework-docs}/testing.html#webtestclient[`WebTestClient`],它提供了一种强大的方法来快速测试WebFlux控制器,而无需启动完整的HTTP服务器.
 
 TIP: 您还可以通过在非 `@WebFluxTest` (例如 `@SpringBootTest`) 中自动配置 `WebTestClient`,方法是使用 `@AutoConfigureWebTestClient` 对其进行注解.  下面的示例显示一个同时使用 `@WebFluxTest` 和 `WebTestClient` 的类:
 
@@ -5411,11 +5652,12 @@ TIP: 有时编写Spring WebFlux测试是不够的.  Spring Boot可以帮助您�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jpa-test]]
 ==== 自动配置的 Data JPA 测试
-您可以使用 `@DataJpaTest` 注解来测试JPA应用程序.  默认情况下,它将扫描 `@Entity` 类并配置 Spring Data JPA 存储库.  如果在类路径上有嵌入式数据库,它也将配置一个.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@DataJpaTest` 注解来测试 JPA 应用程序.  默认情况下,它将扫描 `@Entity` 类并配置 Spring Data JPA 存储库.  如果在类路径上有嵌入式数据库,它也将配置一个.  使用 `@DataJpaTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
+
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataJpaTest` 启用的自动配置设置的列表.
 
-默认情况下,数据JPA测试是事务性的,并在每次测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的 {spring-framework-docs}testing.html#testcontext-tx-enabling-transactions[相关部分] .  如果这不是您想要的,则可以按以下方式禁用测试或整个类的事务管理:
+默认情况下,数据JPA测试是事务性的,并在每次测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的 {spring-framework-docs}/testing.html#testcontext-tx-enabling-transactions[相关部分] .  如果这不是您想要的,则可以按以下方式禁用测试或整个类的事务管理:
 
 [source,java,indent=0]
 ----
@@ -5431,7 +5673,7 @@ TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 	}
 ----
 
-数据JPA测试也可以注入 {spring-boot-test-autoconfigure-module-code}/orm/jpa/TestEntityManager.java[`TestEntityManager`] bean,它为专门为测试设计的标准JPA `EntityManager` 提供了替代方法.  如果要在 `@DataJpaTest` 实例之外使用 `TestEntityManager`,也可以使用 `@AutoConfigureTestEntityManager` 注解.
+数据 JPA 测试也可以注入 {spring-boot-test-autoconfigure-module-code}/orm/jpa/TestEntityManager.java[`TestEntityManager`] bean,它为专门为测试设计的标准JPA `EntityManager` 提供了替代方法.  如果要在 `@DataJpaTest` 实例之外使用 `TestEntityManager`,也可以使用 `@AutoConfigureTestEntityManager` 注解.
 如果需要,还可以使用 `JdbcTemplate`.  以下示例显示了正在使用的 `@DataJpaTest` 注解:
 
 [source,java,indent=0]
@@ -5476,11 +5718,11 @@ TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jdbc-test]]
 ==== 自动配置的 JDBC 测试
-`@JdbcTest` 与 `@DataJpaTest` 相似,但适用于仅需要数据源并且不使用Spring Data JDBC的测试.  默认情况下,它配置一个内存嵌入式数据库和一个 `JdbcTemplate`.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+`@JdbcTest` 与 `@DataJpaTest` 相似,但适用于仅需要数据源并且不使用Spring Data JDBC的测试.  默认情况下,它配置一个内存嵌入式数据库和一个 `JdbcTemplate`. 使用 `@JdbcTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@JdbcTest` 启用的自动配置的列表.
 
-默认情况下,JDBC测试是事务性的,并在每个测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的{spring-framework-docs}testing.html#testcontext-tx-enabling-transactions[相关部分].  如果这不是您想要的,则可以为测试或整个类禁用事务管理,如下所示:
+默认情况下,JDBC测试是事务性的,并在每个测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的{spring-framework-docs}/testing.html#testcontext-tx-enabling-transactions[相关部分].  如果这不是您想要的,则可以为测试或整个类禁用事务管理,如下所示:
 
 [source,java,indent=0]
 ----
@@ -5500,18 +5742,18 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-data-jdbc-test]]
 ==== 自动配置的 Data JDBC 测试
-`@DataJdbcTest` 与 `@JdbcTest` 相似,但适用于使用 Spring Data JDBC 存储库的测试.  默认情况下,它配置一个内存嵌入式数据库,一个 `JdbcTemplate` 和 Spring Data JDBC 存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+`@DataJdbcTest` 与 `@JdbcTest` 相似,但适用于使用 Spring Data JDBC 存储库的测试.  默认情况下,它配置一个内存嵌入式数据库,一个 `JdbcTemplate` 和 Spring Data JDBC 存储库.  使用 `@DataJdbcTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataJdbcTest` 启用的自动配置的列表.
 
-默认情况下,Data JDBC测试是事务性的,并在每个测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的 {spring-framework-docs}testing.html#testcontext-tx-enabling-transactions[相关部分].  如果这不是您想要的,则可以禁用测试或整个测试类的事务管理,<<boot-features-testing-spring-boot-applications-testing-autoconfigured-jdbc-test,如JDBC示例所示>>.
+默认情况下,Data JDBC测试是事务性的,并在每个测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的 {spring-framework-docs}/testing.html#testcontext-tx-enabling-transactions[相关部分].  如果这不是您想要的,则可以禁用测试或整个测试类的事务管理,<<boot-features-testing-spring-boot-applications-testing-autoconfigured-jdbc-test,如JDBC示例所示>>.
 
 如果您希望测试针对真实数据库运行,则可以使用 `@AutoConfigureTestDatabase` 注解,其方式与 `DataJpaTest` 相同.   (请参阅<<boot-features-testing-spring-boot-applications-testing-autoconfigured-jpa-test,自动配置的 Data JPA测试>>. )
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jooq-test]]
 ==== 自动配置的 jOOQ Tests
-您可以以与 `@JdbcTest` 类似的方式使用 `@JooqTest`,但可以用于与jOOQ相关的测试.  由于jOOQ严重依赖与数据库模式相对应的基于Java的模式,因此将使用现有的 `DataSource`.
-如果要将其替换为内存数据库,则可以使用 `@AutoConfigureTestDatabase` 覆盖这些设置.   (有关在Spring Boot中使用jOOQ的更多信息,请参阅本章前面的 "<<boot-features-jooq,使用 jOOQ>>". ) 常规 `@Component` Bean未加载到 `ApplicationContext` 中.
+您可以以与 `@JdbcTest` 类似的方式使用 `@JooqTest`,但可以用于与jOOQ相关的测试.  由于 jOOQ 严重依赖与数据库模式相对应的基于 Java 的模式,因此将使用现有的 `DataSource`.
+如果要将其替换为内存数据库,则可以使用 `@AutoConfigureTestDatabase` 覆盖这些设置.   (有关在Spring Boot中使用jOOQ的更多信息,请参阅本章前面的 "<<boot-features-jooq,使用 jOOQ>>". ) 使用 `@JooqTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@JooqTest` 启用的自动配置的列表.
 
@@ -5535,7 +5777,7 @@ JOOQ测试是事务性的,默认情况下会在每个测试结束时回滚.  如
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-mongo-test]]
 ==== 自动配置的 Data MongoDB 测试
-您可以使用 `@DataMongoTest` 测试MongoDB应用程序.  默认情况下,它配置内存嵌入式MongoDB (如果可用) ,配置 `MongoTemplate`,扫描 `@Document` 类,并配置 Spring Data MongoDB 存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@DataMongoTest` 测试MongoDB应用程序.  默认情况下,它配置内存嵌入式MongoDB (如果可用) ,配置 `MongoTemplate`,扫描 `@Document` 类,并配置 Spring Data MongoDB 存储库.  使用 `@DataMongoTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
  (有关将 MongoDB 与 Spring Boot 结合使用的更多信息,请参阅本章前面的 "<<boot-features-mongodb,MongoDB>>")
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataMongoTest` 启用的自动配置设置的列表.
@@ -5574,7 +5816,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-neo4j-test]]
 ==== 自动配置的 Data Neo4j 测试
 您可以使用 `@DataNeo4jTest` 来测试Neo4j应用程序.  默认情况下,它使用内存中嵌入式Neo4j (如果有嵌入式驱动程序可用) ,扫描 `@NodeEntity` 类,并配置 Spring Data Neo4j 存储库.
-常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将Neo4J与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-neo4j,Neo4j>>". )
+使用 `@DataNeo4jTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean.   (有关将Neo4J与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-neo4j,Neo4j>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataNeo4jTest` 启用的自动配置设置的列表.
 
@@ -5595,7 +5837,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 	}
 ----
 
-默认情况下,Data Neo4j测试是事务性的,并在每次测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的{spring-framework-docs}testing.html#testcontext-tx-enabling-transactions[相关部分] .  如果这不是您想要的,则可以为测试或整个类禁用事务管理,如下所示:
+默认情况下,Data Neo4j测试是事务性的,并在每次测试结束时回滚.  有关更多详细信息,请参见《 Spring Framework参考文档》中的{spring-framework-docs}/testing.html#testcontext-tx-enabling-transactions[相关部分] .  如果这不是您想要的,则可以为测试或整个类禁用事务管理,如下所示:
 
 [source,java,indent=0]
 ----
@@ -5614,7 +5856,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-redis-test]]
 ==== 自动配置的 Data Redis 测试
-您可以使用 `@DataRedisTest` 测试Redis应用程序.  默认情况下,它会扫描 `@RedisHash` 类并配置Spring Data Redis存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将Redis与Spring Boot结合使用的更多信息,请参阅本章前面的"<<boot-features-redis,Redis>>". )
+您可以使用 `@DataRedisTest` 测试Redis应用程序.  默认情况下,它会扫描 `@RedisHash` 类并配置Spring Data Redis存储库.  使用 `@DataRedisTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean.    (有关将Redis与Spring Boot结合使用的更多信息,请参阅本章前面的"<<boot-features-redis,Redis>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataRedisTest` 启用的自动配置设置的列表.
 
@@ -5640,7 +5882,7 @@ The following example shows the `@DataRedisTest` annotation in use:
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-ldap-test]]
 ==== 自动配置的 Data LDAP 测试
 您可以使用 `@DataLdapTest` 来测试LDAP应用程序.  默认情况下,它配置内存嵌入式LDAP (如果可用) ,配置 `LdapTemplate`,扫描 `@Entry` 类,并配置 Spring Data LDAP 存储库.
-常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将LDAP与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-ldap,LDAP>>". )
+使用 `@DataLdapTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean.   (有关将LDAP与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-ldap,LDAP>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataLdapTest` 启用的自动配置设置的列表.
 
@@ -5679,7 +5921,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-client]]
 ==== 自动配置的 REST Clients
-您可以使用 `@RestClientTest` 注解来测试REST客户端.  默认情况下,它会自动配置Jackson,GSON和Jsonb支持,配置 `RestTemplateBuilder`,并添加对 `MockRestServiceServer` 的支持.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@RestClientTest` 注解来测试REST客户端.  默认情况下,它会自动配置Jackson,GSON和Jsonb支持,配置 `RestTemplateBuilder`,并添加对 `MockRestServiceServer` 的支持.  使用 `@RestClientTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean.
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@RestClientTest` 启用的自动配置设置的列表.
 
@@ -5710,7 +5952,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-docs]]
 ==== 自动配置的 Spring REST Docs 测试
-您可以使用 `@AutoConfigureRestDocs` 注解在Mock MVC,REST Assured或 `WebTestClient` 的测试中使用 {spring-restdocs}[Spring REST Docs].  它消除了Spring REST Docs中对JUnit扩展的需求.
+您可以使用 `@AutoConfigureRestDocs` 注解在 Mock MVC,REST Assured 或 `WebTestClient` 的测试中使用 {spring-restdocs}[Spring REST Docs].  它消除了 Spring REST Docs 中对 JUnit 扩展的需求.
 
 `@AutoConfigureRestDocs` 可用于覆盖默认输出目录 (如果使用Maven,则为 `target/generated-snippets` 如果使用Gradle,则为 `build/generated-snippets` ) .  它也可以用于配置出现在任何记录的URI中的主机,方案和端口.
 
@@ -5781,7 +6023,7 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-docs-web-test-client]]
 ===== 使用 WebTestClient 自动配置的Spring REST Docs测试
-`@AutoConfigureRestDocs` 也可以与 `WebTestClient` 一起使用.  您可以使用 `@Autowired` 注入它,并像通常使用 `@WebFluxTest` 和Spring REST Docs一样在测试中使用它,如以下示例所示:
+`@AutoConfigureRestDocs` 也可以与 `WebTestClient` 一起使用.  您可以使用 `@Autowired` 注入它,并像通常使用 `@WebFluxTest` 和 Spring REST Docs 一样在测试中使用它,如以下示例所示:
 
 [source,java,indent=0]
 ----
@@ -5810,6 +6052,35 @@ include::{code-examples}/test/autoconfigure/restdocs/restassured/UserDocumentati
 include::{code-examples}/test/autoconfigure/restdocs/restassured/AdvancedConfigurationExample.java[tag=configuration]
 ----
 
+[[boot-features-testing-spring-boot-applications-testing-autoconfigured-webservices]]
+==== 自动配置的 Spring Web Services 测试
+您可以使用 `@WebServiceClientTest` 来通过 Spring Web Services 项目测试使用呼叫 Web 服务的应用程序。 默认情况下，它配置模拟 `WebServiceServer` bean 并自动自定义 `WebServiceTemplateBuilder`。 （有关在 Spring Boot 中结合使用 Web 服务的更多信息，请参阅本章前面的 "<<boot-features-webservices>>"。）
+
+TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>> 找到由 `@WebServiceClientTest` 启用的自动配置设置的列表。
+
+以下示例显示了正在使用的 `@WebServiceClientTest` 注解:
+
+[source,java,indent=0]
+----
+	@WebServiceClientTest(ExampleWebServiceClient.class)
+	class WebServiceClientIntegrationTests {
+
+		@Autowired
+		private MockWebServiceServer server;
+
+		@Autowired
+		private ExampleWebServiceClient client;
+
+		@Test
+		void mockServerCall() {
+			this.server.expect(payload(new StringSource("<request/>"))).andRespond(
+					withPayload(new StringSource("<response><status>200</status></response>")));
+			assertThat(this.client.test()).extracting(Response::getStatus).isEqualTo(200);
+		}
+
+	}
+----
+
 [[boot-features-testing-spring-boot-applications-testing-auto-configured-additional-auto-config]]
 ==== 其他的自动配置和切片
 每个切片提供一个或多个 `@AutoConfigure...` 注解,即定义应包含在切片中的自动配置.  可以通过创建自定义 `@AutoConfigure...` 注解来添加其他自动配置,也可以简单地通过将 `@ImportAutoConfiguration` 添加到测试中来添加其他自动配置,如以下示例所示:
@@ -5824,6 +6095,15 @@ include::{code-examples}/test/autoconfigure/restdocs/restassured/AdvancedConfigu
 ----
 
 NOTE: 确保不要使用常规的 `@Import` 注解导入自动配置,因为它们是由Spring Boot以特定方式处理的.
+
+或者，可以通过在 `META-INF/spring.factories` 中注册切片注解的任何使用来添加其他自动配置，如以下示例所示：
+
+[indent=0]
+----
+	org.springframework.boot.test.autoconfigure.jdbc.JdbcTest=com.example.IntegrationAutoConfiguration
+----
+
+切片或 `@AutoConfigure...` 注解可以通过这种方式自定义，只要使用 `@ImportAutoConfiguration` 对其进行元注解即可。
 
 [[boot-features-testing-spring-boot-applications-testing-user-configuration]]
 ==== 用户配置和切片
@@ -5970,9 +6250,9 @@ include::{test-examples}/web/client/SampleWebClientTests.java[tag=test]
 == WebSockets
 Spring Boot 为内嵌式 Tomcat、Jetty 和 Undertow 提供了 WebSocket 自动配置. 如果将 war 文件部署到独立容器,则 Spring Boot 假定容器负责配置其 WebSocket 支持.
 
-Spring Framework 为 MVC Web 应用程序提供了 {spring-framework-docs}web.html#websocket[丰富的 WebSocket 支持] ,可以通过 `spring-boot-starter-websocket` 模块轻松访问.
+Spring Framework 为 MVC Web 应用程序提供了 {spring-framework-docs}/web.html#websocket[丰富的 WebSocket 支持] ,可以通过 `spring-boot-starter-websocket` 模块轻松访问.
 
-WebSocket 支持也可用于 {spring-framework-docs}web-reactive.html#webflux-websocket[响应式 Web 应用程序] ,并且引入 WebSocket API 以及 `spring-boot-starter-webflux`:
+WebSocket 支持也可用于 {spring-framework-docs}/web-reactive.html#webflux-websocket[响应式 Web 应用程序] ,并且引入 WebSocket API 以及 `spring-boot-starter-webflux`:
 
 [source,xml,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -5999,7 +6279,7 @@ Spring Boot 提供 Web Service 自动配置,因此您要做的就是定义 Endpo
 ----
 
 [[boot-features-webservices-template]]
-=== 使用 `WebServiceTemplate` 调用 Web Service
+=== 使用 WebServiceTemplate 调用 Web Service
 如果您需要从应用程序调用远程 Web 服务,则可以使用 {spring-webservices-docs}#client-web-service-template[`WebServiceTemplate`]  类. 由于 `WebServiceTemplate` 实例在使用之前通常需要进行自定义,因此 Spring Boot 不提供任何自动配置的 `WebServiceTemplate` bean.
 但是,它会自动配置 `WebServiceTemplateBuilder`,可在需要创建 `WebServiceTemplate` 实例时使用.
 
@@ -6066,6 +6346,8 @@ NOTE: 必须以这种方式加载自动配置. 确保它们在特定的包空间
 
 如果您想排序某些不应该彼此直接了解的自动配置,您也可以使用 `@AutoConfigureOrder`. 该注解与常规 `@Order` 注解有相同的语义,但它为自动配置类提供了专用顺序.
 
+与标准的 `@Configuration` 类一样，自动配置类的应用顺序仅会影响其 bean 的定义顺序。随后创建这些 bean 的顺序不受影响，并由每个 bean 的依赖关系和任何 `@DependsOn` 关系确定。
+
 [[boot-features-condition-annotations]]
 === 条件注解
 您几乎总希望在自动配置类中包含一个或多个 `@Conditional` 注解. `@ConditionalOnMissingBean` 是一个常用的注解,其允许开发人员在对您的默认值不满意用于覆盖自动配置.
@@ -6083,7 +6365,7 @@ Spring Boot 包含许多 `@Conditional` 注解,您可以通过注解 `@Configura
 
 [[boot-features-class-conditions]]
 ==== 类条件
-`@ConditionalOnClass` 和 `@ConditionalOnMissingClass` 注解允许根据特定类的是否存在来包含 `@Configuration` 类. 由于使用 https://asm.ow2.org/[ASM] 解析注解元数据,您可以使用 `value` 属性来引用真实类,即使该类实际上可能不会出现在正在运行的应用程序的 `classpath` 中.
+`@ConditionalOnClass` 和 `@ConditionalOnMissingClass` 注解允许根据特定类的是否存在来包含 `@Configuration` 类. 由于使用 https://asm.ow2.io/[ASM] 解析注解元数据,您可以使用 `value` 属性来引用真实类,即使该类实际上可能不会出现在正在运行的应用程序的 `classpath` 中.
 如果您希望使用 String 值来指定类名,也可以使用 `name` 属性.
 
 此机制不会以相同的方式应用于返回类型是条件的目标的 `@Bean` 方法: 在方法上的条件应用之前,JVM 将加载类和可能处理的方法引用,如果找不到类,将发生失败.
@@ -6137,6 +6419,9 @@ TIP: 您需要非常小心地添加 bean 定义的顺序,因为这些条件是�
 
 NOTE:  `@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 不会阻止创建 `@Configuration` 类. 在类级别使用这些条件并使用注解标记每个包含 `@Bean` 方法的唯一区别是,如果条件不匹配,前者会阻止将 `@Configuration` 类注册为 bean.
 
+NOTE: 声明 `@Bean` 方法时，请在该方法的返回类型中提供尽可能多的类型信息。例如，如果您的 bean 的具体类实现一个接口，则 bean 方法的返回类型应该是具体的类而不是接口。
+使用 bean 条件时，在 `@Bean` 方法中提供尽可能多的类型信息尤为重要，因为它们的评估只能依靠方法签名中可用的类型信息。
+
 [[boot-features-property-conditions]]
 ==== 属性条件
 `@ConditionalOnProperty` 注解允许基于 Spring Environment 属性包含配置. 使用 `prefix` 和 `name` 属性指定需要检查的属性. 默认情况下,匹配存在且不等于 `false` 的所有属性. 您还可以使用 `havingValue` 和 `matchIfMissing` 属性创建更高级的检查.
@@ -6149,9 +6434,11 @@ NOTE:  `@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 不会阻止创建 `
 ==== Web 应用程序条件
 `@ConditionalOnWebApplication` 和 `@ConditionalOnNotWebApplication` 注解在应用程序为 Web 应用程序的情况下是否包含配置. Web 应用程序是使用 Spring `WebApplicationContext`,定义一个 session 作用域或具有 `StandardServletEnvironment` 的任何应用程序.
 
+通过 `@ConditionalOnWarDeployment` 注解，可以根据应用程序是否是已部署到容器的传统 WAR 应用程序进行配置。对于嵌入式服务器运行的应用程序，此条件将不匹配。
+
 [[boot-features-spel-conditions]]
 ==== SpEL 表达式条件
-`@ConditionalOnExpression` 注解允许根据  {spring-framework-docs}core.html#expressions[SpEL 表达式]的结果包含配置.
+`@ConditionalOnExpression` 注解允许根据  {spring-framework-docs}/core.html#expressions[SpEL 表达式]的结果包含配置.
 
 [[boot-features-test-autoconfig]]
 === 测试自动配置
@@ -6166,7 +6453,7 @@ include::{test-examples}/autoconfigure/UserServiceAutoConfigurationTests.java[ta
 
 TIP: 如果必须定义多个自动配置,则无需按照与运行应用程序时完全相同的顺序调用它们的声明.
 
-每个测试都可以使用 runner 来表示特定的用例. 例如,下面的示例调用用户配置 (`UserConfiguration`) 并检查自动配置是否正确退回. 调用 `run` 提供了一个可以与 `Assert4J` 一起使用的回调上下文.
+每个测试都可以使用 runner 来表示特定的用例. 例如,下面的示例调用用户配置 (`UserConfiguration`) 并检查自动配置是否正确退回. 调用 `run` 提供了一个可以与 `AssertJ` 一起使用的回调上下文.
 
 [source,java,indent=0]
 ----
@@ -6289,6 +6576,30 @@ Spring Boot 使用注解处理器来收集元数据文件 (`META-INF/spring-auto
 	</dependency>
 ----
 
+如果您直接在应用程序中定义了自动配置，请确保配置 `spring-boot-maven-plugin`，以防止 `repackage` 目标将依赖添加到 fat jar 中：
+
+[source,xml,indent=0,subs="verbatim,quotes,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<excludes>
+							<exclude>
+								<groupId>org.springframework.boot</groupId>
+								<artifactId>spring-boot-autoconfigure-processor</artifactId>
+							</exclude>
+						</excludes>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
 使用 Gradle 4.5 及更早版本时,应在 `compileOnly` 配置中声明依赖,如下所示:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
@@ -6321,7 +6632,7 @@ NOTE: 无论哪种方式,您的 starter 必须直接或间接引用 Spring Boot 
 == Kotlin 支持
 https://kotlinlang.org[Kotlin] 是一种针对 JVM (和其他平台) 的静态类型语言,它可编写出简洁而优雅的代码,同时提供与使用 Java 编写的现有库的 {kotlin-docs}java-interop.html[互通性].
 
-Spring Boot 通过利用其他 Spring 项目 (如 Spring Framework、Spring Data 和 Reactor) 的支持来提供 Kotlin 支持. 有关更多信息,请参阅 {spring-framework-docs}languages.html#kotlin[Spring Framework Kotlin 支持文档] .
+Spring Boot 通过利用其他 Spring 项目 (如 Spring Framework、Spring Data 和 Reactor) 的支持来提供 Kotlin 支持. 有关更多信息,请参阅 {spring-framework-docs}/languages.html#kotlin[Spring Framework Kotlin 支持文档] .
 
 开始学习 Spring Boot 和 Kotlin 最简单方法是遵循这个 https://spring.io/guides/tutorials/spring-boot-kotlin/[全面教程]. 您可以通过 https://start.spring.io/#!language=kotlin[start.spring.io] 创建新的 Kotlin 项目. 如果您需要支持,请免费加入 https://slack.kotlinlang.org/[Kotlin Slack]  的 #spring 频道或使用 https://stackoverflow.com/questions/tagged/spring+kotlin[Stack Overflow]  上的 `spring` 和 `kotlin` 标签提问.
 
@@ -6453,6 +6764,109 @@ JUnit 5是默认的,并且提供了vintage引擎与JUnit 4向后兼容. 如果�
 * https://github.com/spring-petclinic/spring-petclinic-kotlin[spring-petclinic-kotlin]: Spring PetClinic 示例应用的 Kotlin 版本
 * https://github.com/sdeleuze/spring-kotlin-deepdive[spring-kotlin-deepdive]: 将Boot 1.0 + Java 逐步迁移到 Boot 2.0 + Kotlin
 * https://github.com/sdeleuze/spring-boot-coroutines-demo[spring-boot-coroutines-demo]: Coroutines 示例程序
+
+[[boot-features-container-images]]
+== 容器镜像
+可以很容易地将 Spring Boot 的 fat jar 打包为 docker 镜像。 但是，像在 docker 镜像中一样，复制和运行 fat jar 还有很多弊端。 在不打包的情况下运行 fat jar 时，总会有一定的开销，在容器化环境中，这很明显。 另一个问题是，将应用程序的代码及其所有依赖放在 Docker 镜像 的一层中是次优的。 由于重新编译代码的频率可能比升级所用 Spring Boot 的版本的频率高，因此最好将代码分开一些。 如果将 jar 文件放在应用程序类之前的层中，则 Docker 通常只需要更改最底层即可从其缓存中获取其他文件。
+
+[[boot-layering-docker-images]]
+=== 分层 Docker 镜像
+为了使创建的 Docker 镜像更加容易，Spring Boot 支持在 jar 中添加一个层索引文件。 它提供了层的列表以及应包含在其中的 jar 的各个部分。 索引中的层列表是根据应将层添加到  Docker/OCI 镜像的顺序来排序的。 现成的，支持以下层：
+
+* `dependencies` (用于常规发布的依赖关系)
+* `spring-boot-loader` (适用于 `org/springframework/boot/loader` 下的所有内容)
+* `snapshot-dependencies` (用于快照依赖关系)
+* `application` (用于应用程序类和资源)
+
+下面显示了 `layers.idx` 文件的示例:
+
+[source]
+----
+- "dependencies":
+  - BOOT-INF/lib/library1.jar
+  - BOOT-INF/lib/library2.jar
+- "spring-boot-loader":
+  - org/springframework/boot/loader/JarLauncher.class
+  - org/springframework/boot/loader/jar/JarEntry.class
+- "snapshot-dependencies":
+  - BOOT-INF/lib/library3-SNAPSHOT.jar
+- "application":
+  - META-INF/MANIFEST.MF
+  - BOOT-INF/classes/a/b/C.class
+----
+
+此分层旨在根据应用程序构建之间更改的可能性来分离代码。 库代码不太可能在内部版本之间进行更改，因此将其放置在自己的层中，以允许工具重新使用缓存中的层。 应用程序代码更可能在内部版本之间进行更改，因此将其隔离在单独的层中。
+
+对于 Maven，请参阅 {spring-boot-maven-plugin-docs}#repackage-layers[packaging layered jars section] ，以获取有关在 jar 中添加层索引的更多详细信息。 对于 Gradle，请参阅 Gradle 插件文档的{spring-boot-gradle-plugin-docs}#packaging-layered-jars[packaging layered jars section]。
+
+=== 构建容器镜像
+Spring Boot应用程序可以 <<boot-features-container-images-docker,使用 Dockerfiles>> 进行容器化，也可以<<boot-features-container-images-buildpacks,使用 Cloud Native Buildpacks 创建可以在任何地方运行的兼容 Docker 容器镜像>>.
+
+[[boot-features-container-images-docker]]
+==== Dockerfiles
+虽然可以在 Dockerfile 中仅几行就将 Spring Boot jar 转换为 docker 镜像，但我们将使用  <<boot-layering-docker-images,分层功能>> 来创建优化的 docker 镜像。 当您创建一个包含 layers 索引文件的 jar 时，`spring-boot-jarmode-layertools` jar 将作为依赖添加到您的 jar 中。 将此 jar 放在类路径上，您可以在特殊模式下启动应用程序，该模式允许引导代码运行与应用程序完全不同的内容，例如，提取层的内容。
+
+CAUTION: `layertools` 模式不能与包含启动脚本的完全可执行的 <<deployment.adoc#deployment-install, fully executable Spring Boot archive>> 一起使用。在构建一个打算与 `layertools` 一起使用的jar文件时，禁用启动脚本配置。
+
+您可以通过以下方式使用 `layertools` jar 模式启动 jar:
+
+[source]
+----
+$ java -Djarmode=layertools -jar my-app.jar
+----
+
+以下输出:
+
+[source]
+----
+Usage:
+  java -Djarmode=layertools -jar my-app.jar
+
+Available commands:
+  list     List layers from the jar that can be extracted
+  extract  Extracts layers from the jar for image creation
+  help     Help about any command
+----
+
+`extract` 命令可用于轻松地将应用程序拆分为多个层，以添加到 dockerfile 中。 这是一个使用 `jarmode` 的 Dockerfile 的示例。
+
+[source]
+----
+FROM adoptopenjdk:11-jre-hotspot as builder
+WORKDIR application
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} application.jar
+RUN java -Djarmode=layertools -jar application.jar extract
+
+FROM adoptopenjdk:11-jre-hotspot
+WORKDIR application
+COPY --from=builder application/dependencies/ ./
+COPY --from=builder application/spring-boot-loader/ ./
+COPY --from=builder application/snapshot-dependencies/ ./
+COPY --from=builder application/application/ ./
+ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher"]
+----
+
+假设上述 `Dockerfile` 位于当前目录中，则可以使用 `docker build`。生成您的 docker 镜像，或者可以选择指定应用程序 jar 的路径，如以下示例所示：
+
+[indent=0]
+----
+	docker build --build-arg JAR_FILE=path/to/myapp.jar .
+----
+
+这是一个多阶段的 dockerfile。 构建器阶段提取以后需要的目录。 每个 `COPY` 命令都与 jarmode 提取的层有关。
+
+当然，无需使用 jarmode 即可编写 `Dockerfile`。 您可以使用 `unzip` 和 `mv` 的某种组合将内容移至正确的层，而 jarmode 简化了这一点。
+
+[[boot-features-container-images-buildpacks]]
+==== Cloud Native Buildpacks
+Dockerfiles 只是构建 Docker 镜像的一种方式。 构建 docker 镜像的另一种方法是直接从您的 Maven 或 Gradle 插件中使用 buildpacks。 如果您曾经使用过 Cloud Foundry 或 Heroku 等应用程序平台，那么您可能已经使用了一个 buildpack。 Buildpacks 是平台的一部分，可接收您的应用程序并将其转换为平台可以实际运行的内容。 例如，Cloud Foundry 的 Java buildpack 将注意到您正在推送 `.jar` 文件并自动添加相关的 JRE。
+
+借助 Cloud Native Buildpacks，您可以创建可在任何地方运行的 Docker 兼容镜像。 Spring Boot 直接支持 Maven 和 Gradle 的 buildpack。 这意味着您只需键入一个命令，即可将明智的镜像快速地导入本地运行的Docker 守护程序。
+
+有关如何在 {spring-boot-maven-plugin-docs}#build-image[Maven] 和 {spring-boot-gradle-plugin-docs}#build-image[Gradle] 中使用 buildpack 的信息，请参阅各个插件文档。
+
+NOTE: https://github.com/paketo-buildpacks/spring-boot[Paketo Spring Boot buildpack] 也已更新，以支持 `layers.idx` 文件，因此，对其应用的任何自定义都将反映在 buildpack 创建的镜像中。
 
 [[boot-features-whats-next]]
 == 下一步

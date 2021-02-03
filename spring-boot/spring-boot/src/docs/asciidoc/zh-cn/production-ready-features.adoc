@@ -7,7 +7,7 @@ Spring Boot 包含许多其他功能,可帮助你在将应用程序推送到生�
 [[production-ready-enabling]]
 == 启用生产就绪功能
 
-{spring-boot-code}/spring-boot-project/spring-boot-actuator[`spring-boot-actuator`] 模块提供了 Spring Boot 的所有生产就绪功能. 启用这些功能的最简单方法是添加 `spring-boot-starter-actuator` starter 到依赖中.
+{spring-boot-code}/spring-boot-project/spring-boot-actuator[`spring-boot-actuator`] 模块提供了 Spring Boot 的所有生产就绪功能. 启用这些功能的推荐的方法是添加 `spring-boot-starter-actuator` starter 到依赖中.
 
 .Actuator 的定义
 ****
@@ -31,7 +31,7 @@ Actuator 是制造术语,指的是用于移动或控制某物的机械装置. Ac
 [source,groovy,indent=0]
 ----
 	dependencies {
-		compile("org.springframework.boot:spring-boot-starter-actuator")
+		implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	}
 ----
 
@@ -394,6 +394,13 @@ TIP: 有关选项的完整列表,请参阅 {spring-boot-actuator-autoconfigure-m
 === 实现自定义端点
 如果你添加一个使用了 `@Endpoint` 注解的 `@Bean`,则使用 `@ReadOperation`, `@WriteOperation`,  或 `@DeleteOperation` 注解的所有方法都将通过 JMX 自动暴露,并且在 Web 应用程序中也将通过 HTTP 暴露. 可以使用 Jersey、Spring MVC 或 Spring WebFlux 通过 HTTP 暴露端点.
 
+以下示例暴露了一个 read 操作，该操作返回一个自定义对象:
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/endpoint/CustomEndpointExample.java[tag=read]
+----
+
 你还可以使用 `@JmxEndpoint` 或 `@WebEndpoint` 编写特定技术的端点. 这些端点仅限于各自的技术. 例如,`@WebEndpoint` 仅通过 HTTP 暴露,而不是 JMX.
 
 你可以使用 `@EndpointWebExtension` 和 `@EndpointJmxExtension` 编写特定技术的扩展. 通过这些注解,你可以提供特定技术的操作来扩充现有端点.
@@ -402,7 +409,7 @@ TIP: 有关选项的完整列表,请参阅 {spring-boot-actuator-autoconfigure-m
 
 [[production-ready-endpoints-custom-input]]
 ==== 接收输入
-端点上的操作通过参数接收输入. 通过 Web 暴露时,这些参数的值取自 URL 的查询参数和 JSON 请求体. 通过 JMX 暴露时,参数将映射到 MBean 操作的参数. 默认情况下参数是必须的. 可以使用 `@org.springframework.lang.Nullable` 对它们进行注解,使它们成为可选项.
+端点上的操作通过参数接收输入. 通过 Web 暴露时,这些参数的值取自 URL 的查询参数和 JSON 请求体. 通过 JMX 暴露时,参数将映射到 MBean 操作的参数. 默认情况下参数是必须的. 可以使用 `@javax.annotation.Nullable` 或 `@org.springframework.lang.Nullable` 对它们进行注解,使它们成为可选项.
 
 JSON 请求体中的每个根属性都可以映射到端点的参数. 考虑以下 JSON 请求体:
 
@@ -416,7 +423,12 @@ JSON 请求体中的每个根属性都可以映射到端点的参数. 考虑以�
 
 这可用于调用带有 `String name` 和 `int counter` 参数的写操作.
 
-TIP: 由于端点与技术无关,因此只能在方法签名中指定简单类型. 特别是不支持使用定义一个 `name` 和 `counter` 属性的自定义类型声明单个参数.
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/endpoint/CustomEndpointExample.java[tag=write]
+----
+
+TIP: 由于端点与技术无关,因此只能在方法签名中指定简单类型. 特别是不支持使用定义一个 `name` 和 `counter` 属性的 `CustomData` 类型声明单个参数.
 
 NOTE: 要允许将输入映射到操作方法的参数,应使用 `-parameters` 编译实现端点的 Java 代码,并且应使用 -java-parameters 编译实现端点的 Kotlin 代码. 如果你使用的是 Spring Boot 的 Gradle 插件,或者是 Maven 和 `spring-boot-starter-parent`,则它们会自动执行此操作.
 
@@ -532,64 +544,96 @@ NOTE: 如果你已保护应用程序并希望使用 `always`,则安全配置必�
 TIP: `HealthContributorRegistry` 可用于在运行时注册和注销健康指示器.
 
 
-
+[[production-ready-health-indicators]]
 ==== 自动配置的 `HealthIndicators`
-适当时,Spring Boot 会自动配置以下 `HealthIndicators`:
 
-[cols="4,6"]
+Spring Boot 会自动配置以下 `HealthIndicators`。您也可以通过配置 `management.health.key.enabled` 并使用下表中列出的 `key` 来启用/禁用指定的指标。
+
+[cols="2,4,6"]
 |===
-| 名称 | 描述
+| Key | Name | Description
 
+| `cassandra`
 | {spring-boot-actuator-module-code}/cassandra/CassandraHealthIndicator.java[`CassandraHealthIndicator`]
-| 检查 Cassandra 数据库是否已启动.
+| Checks that a Cassandra database is up.
 
+| `couchbase`
 | {spring-boot-actuator-module-code}/couchbase/CouchbaseHealthIndicator.java[`CouchbaseHealthIndicator`]
-| 检查 Couchbase 集群是否已启动.
+| Checks that a Couchbase cluster is up.
 
-| {spring-boot-actuator-module-code}/system/DiskSpaceHealthIndicator.java[`DiskSpaceHealthIndicator`]
-| 检查是否磁盘空间不足.
-
+| `datasource`
 | {spring-boot-actuator-module-code}/jdbc/DataSourceHealthIndicator.java[`DataSourceHealthIndicator`]
-| 检查是否可以获得与 `DataSource` 的连接.
+| Checks that a connection to `DataSource` can be obtained.
 
-| {spring-boot-actuator-module-code}/elasticsearch/ElasticSearchRestHealthContributorAutoConfiguration.java[`ElasticSearchRestHealthContributorAutoConfiguration`]
-| 检查 Elasticsearch 集群是否已启动.
+| `diskspace`
+| {spring-boot-actuator-module-code}/system/DiskSpaceHealthIndicator.java[`DiskSpaceHealthIndicator`]
+| Checks for low disk space.
 
+| `elasticsearch`
+| {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchRestHealthIndicator.java[`ElasticsearchRestHealthIndicator`]
+| Checks that an Elasticsearch cluster is up.
+
+| `hazelcast`
 | {spring-boot-actuator-module-code}/hazelcast/HazelcastHealthIndicator.java[`HazelcastHealthIndicator`]
-| 检查 Hazelcast 服务器是否启动.
+| Checks that a Hazelcast server is up.
 
+| `influxdb`
 | {spring-boot-actuator-module-code}/influx/InfluxDbHealthIndicator.java[`InfluxDbHealthIndicator`]
-| 检查 InfluxDB 服务器是否已启动
+| Checks that an InfluxDB server is up.
 
+| `jms`
 | {spring-boot-actuator-module-code}/jms/JmsHealthIndicator.java[`JmsHealthIndicator`]
-| 检查 JMS broker 是否已启动.
+| Checks that a JMS broker is up.
 
+| `ldap`
 | {spring-boot-actuator-module-code}/ldap/LdapHealthIndicator.java[`LdapHealthIndicator`]
-| 检查  LDAP 服务器是否已启动
+| Checks that an LDAP server is up.
 
+| `mail`
 | {spring-boot-actuator-module-code}/mail/MailHealthIndicator.java[`MailHealthIndicator`]
-| 检查邮件服务器是否已启动.
+| Checks that a mail server is up.
 
+| `mongo`
 | {spring-boot-actuator-module-code}/mongo/MongoHealthIndicator.java[`MongoHealthIndicator`]
-| 检查 Mongo 数据库是否已启动.
+| Checks that a Mongo database is up.
 
+| `neo4j`
 | {spring-boot-actuator-module-code}/neo4j/Neo4jHealthIndicator.java[`Neo4jHealthIndicator`]
-| 检查 Neo4j 服务器是否已启动.
+| Checks that a Neo4j database is up.
 
+| `ping`
 | {spring-boot-actuator-module-code}/health/PingHealthIndicator.java[`PingHealthIndicator`]
-| 始终响应 `UP`.
+| Always responds with `UP`.
 
+| `rabbit`
 | {spring-boot-actuator-module-code}/amqp/RabbitHealthIndicator.java[`RabbitHealthIndicator`]
-| 检查 Rabbit 服务器是否已启动.
+| Checks that a Rabbit server is up.
 
+| `redis`
 | {spring-boot-actuator-module-code}/redis/RedisHealthIndicator.java[`RedisHealthIndicator`]
-| 检查 Redis 服务器是否已启动.
+| Checks that a Redis server is up.
 
+| `solr`
 | {spring-boot-actuator-module-code}/solr/SolrHealthIndicator.java[`SolrHealthIndicator`]
-| 检查 Solr 服务器是否已启动.
+| Checks that a Solr server is up.
 |===
 
 TIP: 你可以通过设置 `management.health.defaults.enabled` 属性来禁用它们.
+
+其他 `HealthIndicators` 可用，但默认情况下未启用:
+
+[cols="3,4,6"]
+|===
+| Key | Name | Description
+
+| `livenessstate`
+| {spring-boot-actuator-module-code}/availability/LivenessStateHealthIndicator.java[`LivenessStateHealthIndicator`]
+| Exposes the "Liveness" application availability state.
+
+| `readinessstate`
+| {spring-boot-actuator-module-code}/availability/ReadinessStateHealthIndicator.java[`ReadinessStateHealthIndicator`]
+| Exposes the "Readiness" application availability state.
+|===
 
 ==== 编写自定义 HealthIndicators
 要提供自定义健康信息,可以注册实现  {spring-boot-actuator-module-code}/health/HealthIndicator.java[`HealthIndicator`] 接口的 Spring bean. 你需要提供 `health()` 方法的实现并返回一个 `Health` 响应. Health 响应应包括一个状态,并且可以选择包括要显示的其他详细信息. 以下代码展示了一个 `HealthIndicator` 实现示例:
@@ -710,6 +754,7 @@ TIP: 要自动处理错误,请考虑从 `AbstractReactiveHealthIndicator` 进行
 
 TIP: 必要时,响应式指示器取代常规指示器. 此外,任何未明确处理的 `HealthIndicator` 都会自动包装.
 
+[[production-ready-health-groups]]
 ==== Health 组
 有时候,将健康指标分为不同的组很有用.  例如,如果将应用程序部署到Kubernetes,则可能需要一组不同的运行状况指示器来进行 active 和 "就绪" 探针.
 
@@ -734,6 +779,111 @@ TIP: 必要时,响应式指示器取代常规指示器. 此外,任何未明确�
 ----
 
 TIP: 如果需要注册自定义 `StatusAggregator` 或 `HttpCodeStatusMapper` Bean以便与该组一起使用,则可以使用 `@Qualifier("groupname")` .
+
+[[production-ready-kubernetes-probes]]
+=== Kubernetes Probes
+部署在 Kubernetes 上的应用程序可以使用 https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-probes[Container Probes] 提供有关其内部状态的信息。根据https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/[您的Kubernetes 配置]，kubelet 将调用这些探针并对结果做出反应。
+
+Spring Boot 管理您的 <<spring-boot-features.adoc#boot-features-application-availability,应用程序可用性转台>>.
+如果部署在 Kubernetes 环境中，那么 actuator 将从 `ApplicationAvailability` 接口收集 "Liveness" and "Readiness" 信息，并在 <<production-ready-health-indicators,Health Indicators>>: `LivenessStateHealthIndicator` 和 `ReadinessStateHealthIndicator` 中使用这些信息.
+这些指标将显示在全局健康端点 (`"/actuator/health"`) 中.
+他们还暴露了单独的 HTTP 探针,这些探针位置 <<production-ready-health-groups, Health Groups>> 中: `"/actuator/health/liveness"` 和 `"/actuator/health/readiness"`.
+
+然后，您可以使用以下端点信息配置 Kubernetes 基础架构
+
+[source,yml,indent=0]
+----
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: <actuator-port>
+  failureThreshold: ...
+  periodSeconds: ...
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: <actuator-port>
+  failureThreshold: ...
+  periodSeconds: ...
+----
+
+NOTE: `<actuator-port>` 应该设置为 actuator 端点可用的端口。它可以是 web 服务器端口，或者是单独的管理端口(如果 `"management.server.port"` 已设置）
+
+仅当应用程序<<deployment.adoc#cloud-deployment-kubernetes,在 Kubernetes 环境中运行时>> ，才会自动启用这些运行状况组。您可以使用 `management.endpoint.health.probes.enabled` 配置属性在任何环境中启用它们。
+
+NOTE: 如果应用程序的启动时间比配置的激活时间长，Kubernetes 会提及 `"startupProbe"` 作为可能的解决方案。 由于在所有启动任务完成之前 `"readinessProbe"` 将失败，因此此处不一定需要 `"startupProbe"` ，请参阅 <<production-ready-features.adoc#production-ready-kubernetes-probes-lifecycle,探针在应用程序生命周期中的行为>>。
+
+WARNING: 如果您的 Actuator 端点部署在单独的管理上下文中，请注意，端点将不使用与主应用程序相同的 Web 基础结构（端口，连接池，框架组件）。 在这种情况下，即使主应用程序无法正常运行（例如，它不能接受新连接），也可能会成功进行探测检查。
+
+[[production-ready-kubernetes-probes-external-state]]
+==== 使用 Kubernetes 探针检查外部状态
+Actuator 将  "liveness" 和 "readiness" 探针配置为 <<production-ready-health-groups, Health Groups features>> 。这意味着所有 Health Groups 功能均可用。例如，您可以配置其他运行状况指标：
+
+[source,properties,indent=0,configprops]
+----
+	management.endpoint.health.group.readiness.include=readinessState,customCheck
+----
+
+默认情况下，Spring Boot 不会将其他运行状况指标添加到这些组中。
+
+"`liveness`"  探针不应依赖于外部系统的运行状况检查。 如果<<spring-boot-features.adoc#boot-features-application-availability-liveness-state,应用程序的 Liveness 状态>> 被破坏，Kubernetes 将尝试通过重新启动应用程序实例来解决该问题。 这意味着，如果外部系统发生故障（例如数据库，Web API，外部缓存），则 Kubernetes 可能会重新启动所有应用程序实例并造成级联故障。
+
+至于  "`readiness`"  探针，必须由应用程序开发人员仔细选择检查外部系统的选择，即，Spring Boot 在 readiness 探针中不包括任何其他运行状况检查。 如果<<spring-boot-features.adoc#boot-features-application-availability-readiness-state,应用程序实例的 readiness 状态>> 尚未就绪，Kubernetes 将不会将流量路由到该实例。 应用程序实例可能不会共享某些外部系统，在这种情况下，它们很自然地可以包含在 readiness 探针中。 其他外部系统对于该应用程序可能不是必需的（该应用程序可能具有 circuit breakers 和 fallbacks），在这种情况下，绝对不应该包括它们。 不幸的是，由所有应用程序实例共享的外部系统是常见的，您必须做出判断调用：将其包括在 readiness 探针中，并期望在外部服务关闭时该应用程序退出服务，或者退出该应用程序 排除并处理更高级别的故障，例如 在回调中使用断路器。
+
+NOTE: 如果应用程序的所有实例尚未就绪，则 `type=ClusterIP` 或 `NodePort`  服务将不接受任何传入连接。 由于没有连接，因此没有 HTTP 错误响应（503 等）。  `type=LoadBalancer`  的服务可能会或可能不会接受连接，具体取决于提供程序。 具有显式  https://kubernetes.io/docs/concepts/services-networking/ingress/[Ingress]  的 Service 还将以依赖于实现的方式进行响应- Ingress Service 本身必须决定如何处理下游的 "拒绝连接"。 对于负载均衡器和入口都非常可能使用 HTTP 503。
+
+另外，如果应用程序正在使用 Kubernetes https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/[autoscaling]，它可能会对从负载平衡中取出的应用程序做出不同的反应，这取决于它的 autoscaler 配置。
+
+[[production-ready-kubernetes-probes-lifecycle]]
+==== 应用程序生命周期和探针状态
+Kubernetes 探针支持的一个重要方面是它与应用程序生命周期的一致性。  <<spring-boot-features.adoc#boot-features-application-events-and-listeners,Spring Boot 在启动和关闭>>期间发布应用程序事件。
+
+当 Spring Boot 应用程序启动时:
+
+[cols="3,2,2,6"]
+|===
+|Application startup phase |Liveness State |Readiness State |Notes
+
+|Starting
+|`BROKEN`
+|`REFUSING_TRAFFIC`
+|Kubernetes checks the "liveness" Probe and restarts the application if it takes too long.
+
+|Started
+|`CORRECT`
+|`REFUSING_TRAFFIC`
+|The application context is refreshed. The application performs startup tasks and does not receive traffic yet.
+
+|Ready
+|`CORRECT`
+|`ACCEPTING_TRAFFIC`
+|Startup tasks are finished. The application is receiving traffic.
+|===
+
+当 Spring Boot 应用程序关闭时:
+
+[cols="3,2,2,6"]
+|===
+|Application shutdown phase |Liveness State |Readiness State |Notes
+
+|Running
+|live
+|ready
+|Shutdown has been requested.
+
+|Graceful shutdown
+|live
+|unready
+|If enabled, <<spring-boot-features#boot-features-graceful-shutdown,graceful shutdown processes in-flight requests>>.
+
+|Shutdown complete
+|broken
+|unready
+|The application context is closed and the application cannot serve traffic.
+|===
+
+TIP: 请查看 <<deployment.adoc#cloud-deployment-kubernetes-container-lifecycle,Kubernetes 容器生命周期章节>>，以获取有关 Kubernetes 部署的更多信息。
 
 [[production-ready-application-info]]
 === 应用程序信息
@@ -787,15 +937,22 @@ TIP: 可以通过设置 `management.info.defaults.enabled` 属性来禁用它们
 
 [[production-ready-application-info-git]]
 ==== Git 提交信息
-`info` 端点的另一个有用功能是它能够在构建项目时发布 git 源码仓库相关的状态的信息. 如果 `GitProperties` bean 可用,则暴露 `git.branch`、`git.commit.id` 和 `git.commit.time` 属性.
+`info` 端点的另一个有用功能是它能够在构建项目时发布 git 源码仓库相关的状态的信息. 如果 `GitProperties` bean 可用,则可以使用 `info` 端点暴露这些属性。
 
 TIP: 如果 `git.properties` 文件在 classpath 的根目录中可用,则会自动配置 `GitProperties` bean. 有关更多详细信息,请参阅<<howto.adoc#howto-git-info,生成 git 信息>>.
 
-如果要显示完整的 git 信息 (即 `git.properties` 的完整内容) ,请使用 `management.info.git.mode` 属性,如下所示:
+默认情况下，`git.branch`、`git.commit.id` 和 `git.commit.time` 属性（如果存在）。 如果您不希望端点响应中包含任何这些属性，则需要将它们从 `git.properties` 文件中排除。 如果要显示完整的 git 信息 (即 `git.properties` 的完整内容) ,请使用 `management.info.git.mode` 属性,如下所示:
 
 [source,properties,indent=0,configprops]
 ----
 	management.info.git.mode=full
+----
+
+要完全禁用来自 `info` 端点的 git commit 信息，请将 `management.info.git.enabled` 属性设置为 `false`，如下所示：
+
+[source,properties,indent=0,configprops]
+----
+	management.info.git.enabled=false
 ----
 
 [[production-ready-application-info-build]]
@@ -1054,6 +1211,7 @@ Spring Boot Actuator 为 Micrometer 提供了依赖管理和自动配置, https:
 - <<production-ready-metrics-export-prometheus,Prometheus>>
 - <<production-ready-metrics-export-signalfx,SignalFx>>
 - <<production-ready-metrics-export-simple,Simple (in-memory)>>
+- <<production-ready-metrics-export-stackdriver,Stackdriver>>
 - <<production-ready-metrics-export-statsd,StatsD>>
 - <<production-ready-metrics-export-wavefront,Wavefront>>
 
@@ -1097,14 +1255,7 @@ Spring Boot 还会将所有自动配置的注册表添加到 `Metrics` 类的全
 	}
 ----
 
-使用该设置,你可以在组件中注入 `MeterRegistry` 并注册指标:
-
-[source,java,indent=0]
-----
-include::{code-examples}/actuate/metrics/SampleBean.java[tag=example]
-----
-
-Spring Boot 还<<production-ready-metrics-meter,配置内置的测量工具>>  (即 `MeterBinder` 实现) ,你可以通过配置或专用注解标记来控制.
+Spring Boot 还<<production-ready-metrics-meter,配置内置的测量工具>> ,你可以通过配置或专用注解标记来控制.
 
 [[production-ready-metrics-export]]
 === 支持的监控系统
@@ -1274,6 +1425,15 @@ New Relic 注册表定期将指标推送到  {micrometer-registry-docs}/new-reli
 	management.metrics.export.newrelic.step=30s
 ----
 
+默认情况下，指标标准是通过 REST 调用发布的，但是如果您在类路径中有 Java Agent API，也可以使用它：
+
+[source,properties,indent=0,configprops]
+----
+	management.metrics.export.newrelic.client-provider-type=insights-agent
+----
+
+最后，你可以完全控制你定义的 `NewRelicClientProvider` bean.
+
 [[production-ready-metrics-export-prometheus]]
 ==== Prometheus
 {micrometer-registry-docs}/prometheus[Prometheus]  希望抓取或轮询各个应用实例以获取指标数据. Spring Boot 在 `/actuator/prometheus` 上提供 actuator 端点,以适当的格式呈现 https://prometheus.io[Prometheus scrape].
@@ -1301,7 +1461,8 @@ TIP: 默认情况下端点不可用,必须暴露,请参阅 <<production-ready-en
 </dependency>
 ----
 
-当在类路径上存在Prometheus Pushgateway 依赖时,Spring Boot会自动配置 `PrometheusPushGatewayManager` bean.  这可以管理将指标推送到Prometheus Pushgateway.
+当在类路径上存在 Prometheus Pushgateway 依赖，并且 `management.metrics.export.prometheus.pushgateway.enabled` 属性为 `true`,Spring Boot 会自动配置 `PrometheusPushGatewayManager` bean.  这可以管理将指标推送到 Prometheus Pushgateway
+
 可以使用 `management.metrics.export.prometheus.pushgateway` 下的属性来调整 `PrometheusPushGatewayManager`.  对于高级配置,您还可以提供自己的 `PrometheusPushGatewayManager` bean.
 
 [[production-ready-metrics-export-signalfx]]
@@ -1331,9 +1492,26 @@ Micrometer 附带一个简单的内存后端,如果没有配置其他注册表,�
 	management.metrics.export.simple.enabled=false
 ----
 
+
+[[production-ready-metrics-export-stackdriver]]
+==== Stackdriver
+Stackdriver 注册表会定期将指标推送到 https://cloud.google.com/stackdriver/[Stackdriver]。要将指标导出到 SaaS {micrometer-registry-docs}/stackdriver[Stackdriver]，必须提供您的 Google Cloud 项目 ID
+
+[source,properties,indent=0,configprops]
+----
+	management.metrics.export.stackdriver.project-id=my-project
+----
+
+您还可以更改将指标发送到 Stackdriver 的时间间隔：
+
+[source,properties,indent=0,configprops]
+----
+	management.metrics.export.stackdriver.step=30s
+----
+
 [[production-ready-metrics-export-statsd]]
 ==== StatsD
-StatsD 注册表将 UDP 上的指标推送到 {micrometer-registry-docs}/statsd[StatsD] 代理.  默认情况下,指标将导出到本地的 StatsD 代理,可以使用以下方式提供 StatsD 代理主机和端口:
+StatsD 注册表将 UDP 上的指标推送到 {micrometer-registry-docs}/statsD[StatsD] 代理.  默认情况下,指标将导出到本地的 StatsD 代理,可以使用以下方式提供 StatsD 代理主机和端口:
 
 [source,properties,indent=0,configprops]
 ----
@@ -1373,8 +1551,6 @@ TIP: 如果将指标发布到 Wavefront 代理 (https://docs.wavefront.com/proxi
 	management.metrics.export.wavefront.step=30s
 ----
 
-
-
 [[production-ready-metrics-meter]]
 === 支持的指标
 Spring Boot 在适当的环境注册以下核心指标:
@@ -1386,7 +1562,7 @@ Spring Boot 在适当的环境注册以下核心指标:
 ** 加载/卸载 class 的数量
 * CPU 指标
 * 文件描述符指标
-* Kafka 消费者指标 (<<production-ready-jmx,JMX 支持>> 应该开启)
+* Kafka 生产者和消费者指标
 * Log4j2 指标: 记录每个级别记录到 Log4j2 的事件数
 * Logback 指标: 记录每个级别记录到 Logback 的事件数
 * 正常运行时间 指标: 报告正常运行时间和表示应用程序绝对启动时间的固定计量值
@@ -1437,7 +1613,7 @@ Spring Boot 在适当的环境注册以下核心指标:
 | 	如果可能,在变量替换之前请求 URI 模板 (例如,`/api/person/{id}`)
 |===
 
-要自定义标签,请提供一个实现了 `WebMvcTagsProvider` 的 `@Bean`.
+要添加到默认标签，请提供一个或多个实现 `WebMvcTagsContributor` 的 `@Bean`。 要替换默认标签，请提供实现 `WebMvcTagsProvider` 的 `@Bean`。
 
 [[production-ready-metrics-web-flux]]
 ==== Spring WebFlux 指标
@@ -1466,7 +1642,7 @@ Spring Boot 在适当的环境注册以下核心指标:
 | 如果可能,在变量替换之前请求 URI 模板 (例如,`/api/person/{id}`)
 |===
 
-要自定义标签,请提供一个实现了 `WebFluxTagsProvider` 的 `@Bean`.
+要添加到默认标签，请提供一个或多个实现 `WebFluxTagsContributor` 的 `@Bean`。 要替换默认标签，请提供实现 `WebFluxTagsProvider` 的 `@Bean`。
 
 [[production-ready-metrics-jersey-server]]
 ==== Jersey Server 指标
@@ -1590,6 +1766,10 @@ TIP: 默认情况下,Spring Boot 为所有支持的数据源提供了元数据. 
 ==== RabbitMQ 指标
 自动配置将使用名为 `rabbitmq` 的指标启用对所有可用 RabbitMQ 连接工厂进行指标记录.
 
+[[production-ready-metrics-kafka]]
+==== Kafka Metrics
+自动配置将分别为消费者工厂和生产者工厂注册 `MicrometerConsumerListener` 和 `MicrometerProducerListener`。 有关更多详细信息，请参阅 Spring Kafka 文档的 {spring-kafka-docs}#micrometer-native[Micrometer Native Metrics] 部分。
+
 [[production-ready-metrics-custom]]
 === 注册自定义指标
 要注册自定义指标,请将 `MeterRegistry` 注入你的组件中,如下所示:
@@ -1599,7 +1779,14 @@ TIP: 默认情况下,Spring Boot 为所有支持的数据源提供了元数据. 
 include::{code-examples}/actuate/metrics/MetricsMeterRegistryInjectionExample.java[tag=component]
 ----
 
-如果你发现跨组件或应用程序重复记录一套指标,则可以将此套件封装在 `MeterBinder` 实现中. 默认情况下,所有 `MeterBinder` bean 的指标都将自动绑定到 Spring 管理的 `MeterRegistry`.
+如果您的指标依赖于其他 bean，则建议您使用 `MeterBinder` 进行注册，如以下示例所示：
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag=example]
+----
+
+使用 `MeterBinder` 可以确保设置正确的依赖关系，并且在获取指标值时 Bean 可用。 默认情况下，所有 `MeterBinder` bean 的指标都将自动绑定到 Spring 管理的 `MeterRegistry`。 如果你发现跨组件或应用程序重复记录一套指标，则 `MeterBinder` 实现也可能很有用。
 
 [[production-ready-metrics-per-meter-properties]]
 === 自定义单个指标
@@ -1653,11 +1840,11 @@ NOTE: 如果你使用 Graphite,那么标签的顺序很重要. 由于使用此�
 | `management.metrics.distribution.percentiles`
 | 发布在你自己的应用程序中计算的百分比数值
 
-| `management.metrics.distribution.sla`
-| 发一个使用 SLA 定义的存储桶发布累积柱状图.
+| `management.metrics.distribution.slo`
+| 发布包含服务级别目标定义的存储区的累积直方图。
 |===
 
-有关 `percentiles-histogram`、`percentiles` 和 `sla` 概念的更多详细信息,请参阅 {micrometer-concepts-docs}#_histograms_and_percentiles["柱状图与百分位数" 部分的文档].
+有关 `percentiles-histogram`、`percentiles` 和 `slo` 概念的更多详细信息,请参阅 {micrometer-concepts-docs}#_histograms_and_percentiles["柱状图与百分位数" 部分的文档].
 
 [[production-ready-metrics-endpoint]]
 === 指标端点

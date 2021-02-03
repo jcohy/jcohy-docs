@@ -75,9 +75,62 @@ Java 没有提供任何标准的方式来装载嵌套的 jar 文件 (即,它们�
 
 依赖应放在嵌套的 `WEB-INF/lib` 目录中.  在运行嵌入式程序时需要但在部署到传统Web容器时不需要的任何依赖都应放在 `WEB-INF/lib-provided` 的文件中.
 
+[[executable-jar-war-index-files]]
+=== 文件索引
+Spring Boot Loader-compatible 的 jar 和 war 可以在  `BOOT-INF/` 目录下附加一个索引文件，可以同时为 jar 和 war 提供一个 `classpath.idx` 文件，他提供了将 jar 加载到类路径的顺序.
+`layers.idx` 文件只能用于 jar，它允许将 jar 进行逻辑分层，以创建 Docker/OCI 镜像
+
+索引文件使用兼容 YAML 的语法，以便可以由第三方工具轻松解析。 但是，这些文件在内部没有作为 YAML 进行解析，因此必须按照以下所述的格式编写，才能使用。
+
+[[executable-jar-war-index-files-classpath]]
+=== Classpath Index
+
+可以在 `BOOT-INF/classpath.idx` 中提供类路径索引文件。 它提供了 jar 名称列表（不包括目录），其顺序为应将其添加到类路径中。 每行必须以破折号 (`"-&#183;"`) 开头，并且名称必须用双引号引起来。
+
+例如，给出以下jar:
+
+[indent=0]
+----
+	example.jar
+	 |
+	 +-META-INF
+	 |  +-...
+	 +-BOOT-INF
+	    +-classes
+	    |  +...
+	    +-lib
+	       +-dependency1.jar
+	       +-dependency2.jar
+----
+
+索引文件应为:
+
+[indent=0]
+----
+	- "dependency2.jar"
+	- "dependency1.jar"
+----
+
+[[executable-jar-war-index-files-layers]]
+=== Layer Index(分层索引)
+
+可以在 `BOOT-INF/layers.idx` 中提供分层索引文件。 它提供了每一层的列表以及应包含在其中的 jar。 按照应将其添加到 Docker/OCI 镜像的顺序来分层。 每一层的名称以带引号的字符串编写，前缀带有短划线空格 (`"-&#183;"`) 和后缀冒号(`":"`) 。 分层内容是用引号引起来的字符串的文件名或目录名，并带有空格短划线  (`"&#183;&#183;-&#183;"`)。 目录名称以 `/` 结尾，而文件名则没有。 使用目录名称时，意味着该目录内的所有文件都在同一层。
+
+分层索引的典型示例是:
+
+[indent=0]
+----
+	- "dependencies":
+	  - "BOOT-INF/lib/dependency1.jar"
+	  - "BOOT-INF/lib/dependency2.jar"
+	- "application":
+	  - "BOOT-INF/classes/"
+	  - "META-INF/"
+----
+
 [[executable-jar-jarfile]]
 == Spring Boot  "`JarFile`" 类
-用于支持加载嵌套jar的核心类是 `org.springframework.boot.loader.jar.JarFile`.  它使您可以从标准jar文件或嵌套的子jar数据加载jar内容.  首次加载时,每个 `JarEntry` 的位置都映射到外部jar的物理文件偏移,如以下示例所示:
+用于支持加载嵌套 jar 的核心类是 `org.springframework.boot.loader.jar.JarFile`.  它使您可以从标准jar文件或嵌套的子jar数据加载jar内容.  首次加载时,每个 `JarEntry` 的位置都映射到外部jar的物理文件偏移,如以下示例所示:
 
 [indent=0]
 ----
