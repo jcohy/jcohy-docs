@@ -18,28 +18,28 @@ package org.springframework.boot.docs.cache;
 
 import java.time.Duration;
 
-import org.springframework.boot.autoconfigure.cache.RedisCacheManagerBuilderCustomizer;
+import org.springframework.boot.autoconfigure.cache.CouchbaseCacheManagerBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.couchbase.cache.CouchbaseCacheConfiguration;
 
 /**
- * An example how to customize {@code RedisCacheManagerBuilder} via
- * {@code RedisCacheManagerBuilderCustomizer}.
+ * An example how to customize {@code CouchbaseCacheManagerBuilder} via
+ * {@code CouchbaseCacheManagerBuilderCustomizer}.
  *
  * @author Dmytro Nosan
  */
 @Configuration(proxyBeanMethods = false)
-public class RedisCacheManagerCustomizationExample {
+public class CouchbaseCacheManagerCustomizationExample {
 
 	// tag::configuration[]
 	@Bean
-	public RedisCacheManagerBuilderCustomizer myRedisCacheManagerBuilderCustomizer() {
+	public CouchbaseCacheManagerBuilderCustomizer myCouchbaseCacheManagerBuilderCustomizer() {
 		return (builder) -> builder
 				.withCacheConfiguration("cache1",
-						RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofSeconds(10)))
+						CouchbaseCacheConfiguration.defaultCacheConfig().entryExpiry(Duration.ofSeconds(10)))
 				.withCacheConfiguration("cache2",
-						RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(1)));
+						CouchbaseCacheConfiguration.defaultCacheConfig().entryExpiry(Duration.ofMinutes(1)));
 
 	}
 	// end::configuration[]
