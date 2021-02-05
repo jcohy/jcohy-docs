@@ -106,7 +106,7 @@ include::../gradle/packaging/spring-boot-dsl-main-class.gradle[tags=main-class]
 include::../gradle/packaging/spring-boot-dsl-main-class.gradle.kts[tags=main-class]
 ----
 
-另外, 如果应用了 {application-plugin}[`application` plugin] 可以这么设置 `mainClassName` 属性:
+另外, 如果应用了 {application-plugin}[`application` plugin] 可以这么设置 `mainClass` 属性:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -134,11 +134,14 @@ include::../gradle/packaging/boot-jar-manifest-main-class.gradle[tags=main-class
 include::../gradle/packaging/boot-jar-manifest-main-class.gradle.kts[tags=main-class]
 ----
 
+NOTE: 如果主类是用 Kotlin 编写的，则应使用生成的 Java 类的名称。 默认情况下，这是添加了 `Kt` 后缀的 Kotlin 类的名称。 例如，`ExampleApplication` `变为ExampleApplicationKt`。 如果使用 `@JvmName` 定义了另一个名称，则应使用该名称。
 
-[[packaging-executable-configuring-excluding-devtools]]
-==== Excluding Devtools
+[[packaging-executable-configuring-including-development-only-dependencies]]
+==== Including Development-only Dependencies
 
-默认 SpringBoot 的 Devtools 模块 `org.springframework.boot:spring-boot-devtools` 不会被打包进可执行的 jar 或者 war. 如果打包 Devtools 到文件里, 设置 `excludeDevtools` 属性为 `false`:
+默认情况下，`developmentOnly` 配置中声明的所有依赖将从可执行 jar 或 war 中排除。
+
+如果要在归档中包括在 `developmentOnly` 配置中声明的依赖项，请配置其任务的类路径以包括该配置，如 `bootWar` 任务的以下示例所示：
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -151,7 +154,6 @@ include::../gradle/packaging/boot-war-include-devtools.gradle[tags=include-devto
 ----
 include::../gradle/packaging/boot-war-include-devtools.gradle.kts[tags=include-devtools]
 ----
-
 
 [[packaging-executable-configuring-unpacking]]
 ==== 配置需要移除的库
@@ -178,6 +180,8 @@ include::../gradle/packaging/boot-jar-requires-unpack.gradle.kts[tags=requires-u
 ==== 让文件完全可执行
 
 Spring Boot 对完全可执行文件提供支持. 通过已知的如何启动应用的预 shell 脚步来制造完全可执行. 在类 Unix 平台上, 这个启动脚本运行文件可以像任何可执行文件直接运行或者作为服务安装.
+
+NOTE: 当前，某些工具不接受此格式，因此您可能无法始终使用此技术。 例如，`jar -xf` 可能在无提示的情况下无法提取出已成为完全可执行的 jar 或 war。 建议仅在打算直接执行此选项时才启用此选项，而不是使用 `java -jar` 运行它，将其部署到 servlet 容器或将其包含在 OCI 镜像中。
 
 启用这个特性, launchScript 必须启用:
 
@@ -239,3 +243,83 @@ include::../gradle/packaging/boot-war-properties-launcher.gradle[tags=properties
 include::../gradle/packaging/boot-war-properties-launcher.gradle.kts[tags=properties-launcher]
 ----
 
+
+[[packaging-layered-jars]]
+==== 打包分层的 Jars
+
+默认情况下，`bootJar`  任务会构建一个 archive 文件，其中包含应用程序的类和依赖关系，分别位于 `BOOT-INF/classes` 和 `BOOT-INF/lib` 中。 对于需要从 jar 的内容中构建 docker 镜像的情况，能够进一步分隔这些目录以便将它们写入不同的层中很有用。
+
+分层的 jar 使用与常规重新打包的 jar 相同的布局，但是包括了描述每个层的附加元数据文件。 要使用此功能，必须启用分层功能：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-jar-layered.gradle[tags=layered]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-jar-layered.gradle.kts[tags=layered]
+----
+
+默认情况下，定义了以下层:
+
+* `dependencies`： 包含所有的依赖，但不包括 `SNAPSHOT` 版本的依赖.
+* `spring-boot-loader`： 用于加载 jar.
+* `snapshot-dependencies`： 包含所有的 `SNAPSHOT` 版本依赖 .
+* `application`： 应用程序类和资源.
+
+层的顺序很重要，因为它确定了部分应用程序更改时可以缓存先前的层的可能性。 默认顺序是 `dependencies`, `spring-boot-loader`, `snapshot-dependencies`, `application`。 应该首先添加最不可能更改的内容，然后添加有可能更改的层。
+
+创建分层 jar 时，`spring-boot-jarmode-layertools` jar 将作为依赖添加到 jar 中。 将此 jar 放在类路径上，您可以在特殊模式下启动应用程序，该模式允许引导代码运行与您的应用程序完全不同的内容，例如，提取层的内容。 如果要排除此依赖关系，可以按以下方式进行：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-jar-layered-exclude-tools.gradle[tags=layered]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-jar-layered-exclude-tools.gradle.kts[tags=layered]
+----
+
+[[packaging-layers-configuration]]
+===== 自定义层的配置
+根据您的应用程序，您可能想要调整层的创建方式和添加新层的方式。
+
+这可以通过使用配置来完成，该配置描述了如何将 jar 分为几层，以及这些层的顺序。下面的示例显示如何显式定义上述默认顺序：：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-jar-layered-custom.gradle[tags=layered]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-jar-layered-custom.gradle.kts[tags=layered]
+----
+
+`layered` DSL 包含三部分:
+
+* `<application>` 定义应如何对应用程序类和资源进行分层.
+* `<dependencies>` 定义应层之间的依赖关系.
+* `<layerOrder>` 定义应写入层的顺序.
+
+嵌套的 `intoLayer` 用于 `application` 和 `dependencies` 中，以声明层的内容。 从上到下，按照定义的顺序评估。 较早的块未声明的任何内容仍然可供后续块使用。
+
+`intoLayer` 块使用嵌套的 `include` 和 `exclude` 元素声明内容。 `application` 对 include/exclude  表达式使用 Ant 风格的匹配模式。 `dependencies` 使用 `group:artifact[:version]` 模式。
+
+如果未定义 `include`，则将考虑所有内容（较早的块未声明）。
+
+如果未定义 `exclude`，则不应用任何排除项。
+
+查看上面的 `dependencies` 示例，我们可以看到第一个 `intoLayer` 将声明 `snapshot-dependencies` 层的所有 SNAPSHOT 依赖。 后续的 `intoLayer` 将声明 `dependencies` 层的所有剩余内容（在这种情况下，不是SNAPSHOT 的任何依赖）。
+
+`application` 块具有相似的规则。 首先声明 `spring-boot-loader` 层的 `org/springframework/boot/loader/**`  内容。 然后为 `application` 层声明所有剩余的类和资源。
+
+NOTE: `intoLayer` 块的定义顺序通常与层的写入顺序不同。 因此，必须始终包含 `layerOrder` 元素，并且必须覆盖 `intoLayer` 块引用的所有层。
