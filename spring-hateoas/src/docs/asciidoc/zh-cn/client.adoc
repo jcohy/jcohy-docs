@@ -49,7 +49,7 @@ include::{test-dir}/client/TraversonTest.java[tag=hop-put]
 
 您还可以使用 `.withParameters(Map)` 加载整个参数  `Map` .
 
-NOTE: `follow()` 是可链接的,这意味着您可以将多个 hop 串在一起,如前面的示例所示. 您可以放置​​多个基于字符串的 `rel` 值(`follow("items", "item")`),也可以放置具有特定参数的单个 hop .
+NOTE: `follow()` 是可链接的,这意味着您可以将多个 hop 串在一起,如前面的示例所示. 您可以放置多个基于字符串的 `rel` 值(`follow("items", "item")`),也可以放置具有特定参数的单个 hop .
 
 === `EntityModel<T>` vs. `CollectionModel<T>`
 
@@ -87,3 +87,144 @@ assertThat(link.getRel(), is("foo"));
 assertThat(link.getHref(), is("/foo/bar"));
 ----
 ====
+
+[[client.web-client]]
+== 配置 WebClient 实例
+
+如果您需要配置 `WebClient` 来说明超媒体, 这很容易. 需要 `HypermediaWebClientConfigurer`, 如下所示:
+
+.Configuring a `WebClient` yourself
+====
+[source, java, tabsize=0, indent=0]
+----
+include::{code-dir}/client/HypermediaConfiguration.java[tag=web-client]
+----
+<1> 在你的 `@Configuration` 类中, 获取一个 `HypermediaWebClientConfigurer` bean 副本 Spring HATEOAS registers.
+<2> 创建 `WebClient.Builder` 后, 使用 configurer 注册 hypermedia types.
+====
+
+NOTE: `HypermediaWebClientConfigurer` 的功能是向 `WebClient.Builder` 注册所有正确的编码器和解码器.  要使用它, 您需要将构建器注入到应用程序中的某个位置, 然后运行 `build()` 方法生成 `WebClient`.
+
+如果您使用的是 Spring Boot, 则还有另一种方法:  `WebClientCustomizer`.
+
+.Letting Spring Boot configure things
+====
+[source,java]
+----
+@Bean // <4>
+WebClientCustomizer hypermediaWebClientCustomizer(HypermediaWebClientConfigurer configurer) { // <1>
+    return webClientBuilder -> { // <2>
+        configurer.registerHypermediaTypes(webClientBuilder); // <3>
+    };
+}
+----
+<1> 当创建一个 Spring bean 时, 请获取一个 Spring HATEOAS `HypermediaWebClientConfigurer` bean 的副本.
+<2> 使用 Java 8 lambda 表达式定义 `WebClientCustomizer`.
+<3> 在函数调用内部, 应用 `registerHypermediaTypes` 方法.
+<4> 将整个内容作为 Spring bean 返回,  Spring Boot 可以自动获取并将其应用于其自动配置的 `WebClient.Builder` bean.
+====
+
+在这个阶段, 每当需要具体的 `WebClient` 时, 只需将 `WebClient.Builder` 注入代码中, 然后使用 `build()`.  `WebClient` 实例将能够使用超媒体进行交互.
+
+[[client.web-test-client]]
+== 配置 `WebTestClient` 实例
+
+使用启用了超媒体的表示形式时, 常见的任务是使用 `WebTestClient` 执行各种测试.
+
+要在测试案例中配置 `WebTestClient` 的实例, 请查看以下示例:
+
+.Configuring `WebTestClient` when using Spring HATEOAS
+====
+[source, java, indent=0, tabsize=2]
+----
+include::{test-dir}/config/HypermediaWebTestClientConfigurerTest.java[tag=web-test-client]
+----
+<1> 注册使用了 `@EnableHypermediaSupport` 注解的配置类来开启 HAL 支持.
+<2> 使用 `HypermediaWebTestClientConfigurer` 可以应用超媒体支持.
+<3> 使用 Spring HATEOAS 的 `TypeReferences.CollectionModelType` helper 请求 `CollectionModel<EntityModel<Employee>>` 响应.
+<4> 在获得 Spring HATEOAS 格式的 "body" 之后, 对其进行断言！
+====
+
+IMPORTANT: `WebTestClient` 是不可变的值类型, 因此您不能更改它. . `HypermediaWebClientConfigurer` 的返回值必须捕获才能使用.
+
+如果您使用的是Spring Boot, 则还有其他选项, 例如:
+
+.Configuring `WebTestClient` when using Spring Boot
+====
+[source,java,tabsize=2]
+----
+@SpringBootTest
+@AutoConfigureWebTestClient // <1>
+class WebClientBasedTests {
+
+    @Test
+    void exampleTest(@Autowired WebTestClient.Builder builder, @Autowired HypermediaWebTestClientConfigurer configurer) { // <2>
+        client = builder.apply(configurer).build(); // <3>
+
+        client.get().uri("/") //
+                .exchange() //
+                .expectBody(new TypeReferences.EntityModelType<Employee>() {}) // <4>
+                .consumeWith(result -> {
+                    // assert against this EntityModel<Employee>!
+                });
+    }
+}
+----
+<1> 这是 Spring Boot 的测试注解, 它将为该测试类配置 `WebTestClient.Builder`.
+<2> 自动将 Spring Boot 的 `WebTestClient.Builder` 插入到 `builder` 并将 Spring HATEOAS 的 configurer 作为方法参数. .
+<3> 使用 `HypermediaWebTestClientConfigurer` 注册对超媒体的支持.
+<4> 表示您希望使用 `TypeReferences` 返回 `EntityModel<Employee>` .
+
+同样, 您可以使用与前面的示例类似的断言.
+====
+
+还有许多其他方式来测试案例.  `WebTestClient` 可以绑定到控制器, 函数和 URL.  本部分并不表示所有内容.  相反, 这为您提供了一些入门示例.  重要的是, `通过应用HypermediaWebTestClientConfigurer`, 可以更改 `WebTestClient` 的任何实例以处理超媒体.
+
+[[client.rest-template]]
+== 配置 RestTemplate 实例
+
+如果要创建自己的 `RestTemplate` 副本（配置为使用超媒体）, 则可以使用 `HypermediaRestTemplateConfigurer`:
+
+.Configuring `RestTemplate` yourself
+====
+[source, java, tabsize=0, indent=0]
+----
+include::{code-dir}/client/HypermediaConfiguration.java[tag=rest-template]
+----
+<1> 在 `@Configuration` 类中, 获取 `HypermediaRestTemplateConfigurer` bean Spring HATEOAS registers 的副本.
+<2> 创建 `RestTemplate` 之后, 使用配置器应用超媒体类型.
+====
+
+您可以自由地将此模式应用于所需的任何 `RestTemplate` 实例, 无论是创建注册的 bean 还是在定义的服务内部.
+
+如果您使用的是 Spring Boot, 则还有另一种方法.
+
+通常, Spring Boot 摆脱了在应用程序上下文中注册 `RestTemplate` bean的概念.
+
+
+* 当与不同的服务通信时, 您通常需要不同的凭据.
+* 当 `RestTemplate` 使用底层连接池时, 您会遇到其他问题.
+* 用户通常需要不同的实例, 而不是单一的 bean.
+
+为了弥补这一点, Spring Boot 提供了 `RestTemplateBuilder`. 这个自动配置的 bean 让您可以定义各种用于构造 `RestTemplate` 实例的 bean. `您请求RestTemplateBuilder` bean, 执行其 `build()` 方法, 然后应用 final 设置(如凭据等).
+
+注册基于超媒体的消息转换器, 添加以下代码:
+
+.Letting Spring Boot configure things
+====
+[source,java]
+----
+@Bean // <4>
+RestTemplateCustomizer hypermediaRestTemplateCustomizer(HypermediaRestTemplateConfigurer configurer) { // <1>
+    return restTemplate -> { // <2>
+        configurer.registerHypermediaTypes(restTemplate); // <3>
+    };
+}
+----
+<1> 创建 Spring Bean 时, 请获取 Spring HATEOAS 的 `HypermediaRestTemplateConfigurer` Bean的副本.
+<2> 使用 Java 8 lambda 表达式定义 `RestTemplateCustomizer`.
+<3> 在函数调用内部, 应用 `registerHypermediaTypes` 方法.
+<4> 将整个内容作为 Spring bean 返回, Spring Boot 可以自动获取并将其应用于其自动配置的  `RestTemplateBuilder`.
+====
+
+在这个阶段, 只要您需要一个具体的 `RestTemplate`, 只需将 `RestTemplateBuilder` 注入到代码中, 并使用 `build()`. `RestTemplate` 实例将能够使用超媒体进行交互.

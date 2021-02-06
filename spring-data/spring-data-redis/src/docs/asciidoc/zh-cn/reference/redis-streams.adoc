@@ -131,7 +131,7 @@ StreamMessageListenerContainer<String, MapRecord<String, String, String>> contai
 Subscription subscription = container.receive(StreamOffset.fromStart("my-stream"), streamListener);
 ----
 
-请参阅各种消息监听器容器的Javadoc,以获取每个实现所支持功能的完整说明.
+请参阅各种消息监听器容器的 Javadoc,以获取每个实现所支持功能的完整说明.
 
 ==== Reactive `StreamReceiver`
 
@@ -250,7 +250,7 @@ List<ObjectRecord<String, String>> records = redisTemplate()
     .opsForStream()
     .read(String.class, StreamOffset.fromStart("my-stream"));
 ----
-<1> XADD my-stream * "_class" "com.example.User" "firstname" "night" "lastname" "angel"
+<1> XADD my-stream * "_class" "java.lang.String" "_raw" "my-value"
 
 ``ObjectRecord``s 与所有其他记录通过相同的序列化过程,因此 Record 也可以使用返回 `MapRecord` 的无类型读取操作获得.
 
@@ -262,7 +262,7 @@ List<ObjectRecord<String, String>> records = redisTemplate()
 * 用合适的 `RedisSerializer` 序列化该值.
 * 使用 `HashMapper` 将值转换为适合于序列化的 `Map`.
 
-第一个变体是最直接的变体,但忽略了流结构提供的字段值功能,但流中的值仍可供其他使用者读取. 第二个选项具有与第一个选项相同的好处,但是可能会导致非常特殊的使用方限制,因为所有使用方都必须实现完全相同的序列化机制. `HashMapper` 方法是一种更复杂的方法,它使用了Steam哈希结构,但是却使源代码变得平坦. 只要选择了合适的序列化器组合,其他使用者仍然可以读取记录.
+第一个变体是最直接的变体,但忽略了流结构提供的字段值功能,但流中的值仍可供其他使用者读取. 第二个选项具有与第一个选项相同的好处,但是可能会导致非常特殊的使用方限制,因为所有使用方都必须实现完全相同的序列化机制. `HashMapper` 方法是一种更复杂的方法,它使用了 Steam 哈希结构,但是却使源代码变得平坦. 只要选择了合适的序列化器组合,其他使用者仍然可以读取记录.
 
 NOTE: `HashMappers` 将有效负载转换为具有特定类型的Map. 确保使用能够(反)序列化哈希的哈希键和哈希值序列化程序.
 
@@ -291,3 +291,38 @@ redisTemplate()
     .add(record); <1>
 ----
 <1> XADD user-logon * "firstname" "night" "@class" "com.example.User" "lastname" "angel"
+
+[NOTE]
+====
+`StreamMessageListenerContainer` 可能并不知道 domain 类型上使用的任何 `@TypeAlias`, 因为需要通过 `MappingContext` 进行解析. 确保使用 `initialEntitySet` 初始化 `RedisMappingContext`.
+
+[source,java]
+----
+@Bean
+RedisMappingContext redisMappingContext() {
+    RedisMappingContext ctx = new RedisMappingContext();
+    ctx.setInitialEntitySet(Collections.singleton(Person.class));
+    return ctx;
+}
+
+@Bean
+RedisConverter redisConverter(RedisMappingContext mappingContext) {
+    return new MappingRedisConverter(mappingContext);
+}
+
+@Bean
+ObjectHashMapper hashMapper(RedisConverter converter) {
+    return new ObjectHashMapper(converter);
+}
+
+@Bean
+StreamMessageListenerContainer streamMessageListenerContainer(RedisConnectionFactory connectionFactory, ObjectHashMapper hashMapper) {
+    StreamMessageListenerContainerOptions<String, ObjectRecord<String, Object>> options = StreamMessageListenerContainerOptions.builder()
+            .objectMapper(hashMapper)
+            .build();
+
+    return StreamMessageListenerContainer.create(connectionFactory, options);
+}
+----
+====
+

@@ -10,6 +10,54 @@ Redis 是高级键值存储. 它类似于 memcached,但数据集是不易失的,
 
 Spring Data Redis 提供了简单的配置,并可以从 Spring 应用程序访问 Redis. 它提供了与 store 交互的低层和高层抽象,使用户摆脱了基础配置的困扰.
 
+[[redis:setup]]
+== 开始使用
+
+设置工作环境的一种简单方法是在 https://spring.io/tools/sts[STS] 中创建一个基于 Spring 的项目.
+
+首先, 您需要设置一个正在运行的 Redis 服务器.
+
+在 STS 中创建 Spring 项目:
+
+. File -> New -> Spring Template Project -> Simple Spring Utility Project, 然后在出现提示时按 Yes. 然后输入项目和包名称, 例如 `org.spring.redis.example`.
+.将以下内容添加到 pom.xml 文件 `dependencies` 元素中:
++
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>org.springframework.data</groupId>
+    <artifactId>spring-data-redis</artifactId>
+    <version>{version}</version>
+  </dependency>
+
+</dependencies>
+----
+. 在 pom.xml 中将 Spring 的版本更改为
++
+[source,xml,subs="+attributes"]
+----
+<spring.framework.version>{springVersion}</spring.framework.version>
+----
+. 将 Spring Milestone 存储库添加到 `pom.xml` 文件中,  与 `<dependencies/>` 元素处于同一级别:
++
+[source,xml]
+----
+<repositories>
+  <repository>
+    <id>spring-milestone</id>
+    <name>Spring Maven MILESTONE Repository</name>
+    <url>https://repo.spring.io/libs-milestone</url>
+  </repository>
+</repositories>
+----
+
+也可以在这里 https://repo.spring.io/milestone/org/springframework/data/[预览此存储库].
+
+
 [[redis:requirements]]
 == Redis 要求
 
@@ -40,12 +88,90 @@ NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或
 
 使用 `RedisConnectionFactory` 的最简单方法是通过IoC容器配置适当的连接器,并将其注入 using 类.
 
-IMPORTANT: 不幸的是,当前,并非所有连接器都支持所有 Redis 功能. 在底层库不支持的 Connection API 上调用方法时,将抛出 `UnsupportedOperationException`.
+不幸的是,当前,并非所有连接器都支持所有 Redis 功能. 在底层库不支持的 Connection API 上调用方法时,将抛出 `UnsupportedOperationException`.
+
+
+[[redis:connectors:overview]]
+.Feature Availability across Redis Connectors
+|===
+| Supported Feature | Lettuce | Jedis
+
+| Standalone Connections
+| X
+| X
+
+| <<redis:write-to-master-read-from-replica,Master/Replica Connections>>
+| X
+|
+
+| <<redis:sentinel,Redis Sentinel>>
+| Master Lookup, Sentinel Authentication, Replica Reads
+| Master Lookup
+
+| <<cluster,Redis Cluster>>
+| Cluster Connections, Cluster Node Connections, Replica Reads
+| Cluster Connections, Cluster Node Connections
+
+| Transport Channels
+| TCP, OS-native TCP (epoll, kqueue), Unix Domain Sockets
+| TCP
+
+| Connection Pooling
+| X (using `commons-pool2`)
+| X (using `commons-pool2`)
+
+| Other Connection Features
+| Singleton-connection sharing for non-blocking commands
+| `JedisShardInfo` support
+
+| SSL Support
+| X
+| X
+
+| <<pubsub,Pub/Sub>>
+| X
+| X
+
+| <<pipeline,Pipelining>>
+| X
+| X
+
+| <<tx,Transactions>>
+| X
+| X
+
+| Datatype support
+| Key, String, List, Set, Sorted Set, Hash, Server, Stream, Scripting, Geo, HyperLogLog
+| Key, String, List, Set, Sorted Set, Hash, Server, Scripting, Geo, HyperLogLog
+
+| <<redis:reactive,Reactive (non-blocking) API>>
+| X
+|
+
+|===
 
 [[redis:connectors:lettuce]]
 === 配置 Lettuce 连接器
 
 https://github.com/lettuce-io/lettuce-core[Lettuce] 是一个基于 https://netty.io/[Netty] 的 开源连接器.Spring Data Redis 通过 `org.springframework.data.redis.connection.lettuce` 包提供支持. 以下示例显示了如何创建新的 Lettuce 连接工厂:
+
+.Add the following to the pom.xml files `dependencies` element:
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>io.lettuce</groupId>
+    <artifactId>lettuce-core</artifactId>
+    <version>{lettuce}</version>
+  </dependency>
+
+</dependencies>
+----
+
+以下示例显示了如何创建新的 Lettuce 连接工厂:
 
 [source,java]
 ----
@@ -81,9 +207,27 @@ class AppConfig {
 NOTE: Netty 当前支持用于OS本地传输的 epoll(Linux)和 kqueue (BSD/macOS)接口.
 
 [[redis:connectors:jedis]]
-=== 配置Jedis连接器
+=== 配置 Jedis 连接器
 
-Jedis 是一个社区驱动的连接器, Spring Data Redis 模块通过 `org.springframework.data.redis.connection.jedis` 包支持. Jedis配置以最简单的形式如下所示:
+Jedis 是一个社区驱动的连接器, Spring Data Redis 模块通过 `org.springframework.data.redis.connection.jedis` 包支持.
+
+.Add the following to the pom.xml files `dependencies` element:
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+    <version>{jedis}</version>
+  </dependency>
+
+</dependencies>
+----
+
+Jedis 配置以最简单的形式如下所示:
 
 [source,java]
 ----
@@ -644,7 +788,7 @@ RedisCacheConfiguration.defaultCacheConfig().computePrefixWith(cacheName -> "¯\
 |Initial Caches
 |None
 
-|Trasaction Aware
+|Transaction Aware
 |No
 |====
 

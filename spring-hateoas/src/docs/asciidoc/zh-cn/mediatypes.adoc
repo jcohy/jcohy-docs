@@ -1,6 +1,7 @@
 [[mediatypes]]
 = 媒体类型
 include::attributes.adoc[]
+:tabsize: 2
 
 [[mediatypes.hal]]
 == HAL – Hypertext Application Language
@@ -8,6 +9,111 @@ include::attributes.adoc[]
 https://tools.ietf.org/html/draft-kelly-json-hal-08[JSON Hypertext Application Language] 或 HAL 是不基于任何 Web 栈的最简单,使用最广泛的超媒体类型之一.
 
 这是 Spring HATEOAS 采用的第一种基于规范的媒体类型.
+
+[[mediatypes.hal.models]]
+=== 构建 HAL representation 模型
+
+从 Spring HATEOAS 1.1 开始, 我们提供了专用的 `HalModelBuilder`, 该模型允许通过 HAL 惯用 API 创建 `RepresentationModel` 实例.  这些是其基础假设:
+
+1. HAL representation 可以由构建 representation 中包含的 domain 字段的任意对象(实体)支持.
+2. representation 可以通过各种嵌入文档来丰富, 这些文档可以是任意对象, 也可以是 HAL representation 本身(即包含嵌套的嵌入和链接). .
+3. 某些特定的 HAL 模式(例如预览)可以直接在 API 中使用, 这样设置 representation 的代码读起来就像你在按照这些习语描述 HAL representation 一样. .
+
+这是使用的 API 的示例: :
+
+[source, java]
+----
+// An order
+var order = new Order(…); <1>
+
+// The customer who placed the order
+var customer = customer.findById(order.getCustomerId());
+
+var customerLink = Link.of("/orders/{id}/customer") <2>
+  .expand(order.getId())
+  .withRel("customer");
+
+var additional = …
+
+var model = HalModelBuilder.halModel(order)
+  .preview(new CustomerSummary(customer)) <3>
+  .forLink(customerLink) <4>
+  .embed(additional) <5>
+  .link(Link.of(…, IanaLinkRelations.SELF));
+  .build();
+----
+<1> 我们设置一些 domain 类型. 在本示例中,order 和 customer 具有一定的关系.
+<2> 我们准备了一个链接, 指向将公开 customer 详细信息的资源
+<3> 我们通过提供应该在 `_embeddable` 子句中呈现的有效负载开始构建预览.
+<4> 我们通过提供目标链接来结束预览. 它被透明地添加到 `_links` 对象中, 它的链接关系被用作上一步中提供的对象的键.
+<5> 可以添加其他对象以显示在 `_embedded` 下.
+它们所列的键来自对象关系设置. 它们可以通过  `@Relation` 或专用的 `LinkRelationProvider` 自定义它们 (see <<server.rel-provider>> for details).
+
+[source, javascript]
+----
+{
+  "_links" : {
+    "self" : { "href" : "…" }, <1>
+    "customer" : { "href" : "/orders/4711/customer" } <2>
+  },
+  "_embedded" : {
+    "customer" : { … }, <3>
+    "additional" : { … } <4>
+  }
+}
+----
+<1> 提供 `self` 链接.
+<2> 通过 `….preview(…).forLink(…)` 添加 `customer` 链接.
+<3> 提供的预览对象.
+<4> 通过 `….embed(…)` 提供其他元素.
+
+在 HAL 中, `_embedded` 也用于表示顶级集合.  通常将它们归类为根据对象类型得出的链接关系.  即 HAL中的订单清单如下所示:
+
+[source, javascript]
+----
+{
+  "_embedded" : {
+    "orders : [
+      … <1>
+    ]
+  }
+}
+----
+<1> Individual order documents go here.
+
+创建这样的表示很简单:
+
+[source, java]
+----
+Collection<Order> orders = …;
+
+HalModelBuilder.emptyHalDocument()
+  .embed(orders);
+----
+
+也就是说, 如果 Order 为空, 则无法扩展链接关系以显示在 `_embedded` 内部, 因此, 如果集合为空, 则文档将保持为空.
+
+如果您希望显式地传递一个空集合, 则可以将类型传递给采用 `Collection` 的 `….embed(…)`  方法的重载.  如果传递给该方法的集合为空, 则将导致使用其链接关系从给定类型扩展的字段呈现.
+
+[source, java]
+----
+HalModelBuilder.emptyHalModel()
+  .embed(Collections.emptyList(), Order.class);
+  // or
+  .embed(Collections.emptyList(), LinkRelation.of("orders"));
+----
+
+将创建以下更明确的表示形式.
+
+[source, javascript]
+----
+{
+  "_embedded" : {
+    "orders" : []
+  }
+}
+----
+
 
 [[mediatypes.hal.configuration]]
 === 配置链接渲染
@@ -18,7 +124,7 @@ https://tools.ietf.org/html/draft-kelly-json-hal-08[JSON Hypertext Application L
 
 .HAL document with two links associated with one relation
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/hal/hal-multiple-entry-link-relation.json[]
 ----
@@ -30,7 +136,7 @@ include::{resource-dir}/docs/mediatype/hal/hal-multiple-entry-link-relation.json
 
 .HAL document with single link rendered as an object
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-object.json[]
 ----
@@ -40,7 +146,7 @@ include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-object
 
 .HAL with single link rendered as an array
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-array.json[]
 ----
@@ -50,7 +156,7 @@ include::{resource-dir}/docs/mediatype/hal/hal-single-entry-link-relation-array.
 
 .Global HAL single-link rendering policy
 ====
-[source, java, indent=0, tabsize=2]
+[source, javascript]
 ----
 include::{code-dir}/SampleAppConfiguration.java[tag=1]
 ----
@@ -61,7 +167,7 @@ include::{code-dir}/SampleAppConfiguration.java[tag=1]
 
 .Link relation-based HAL single-link rendering policy
 ====
-[source, java, indent=0, tabsize=2]
+[source, javascript]
 ----
 include::{code-dir}/SampleAppConfiguration.java[tag=2]
 ----
@@ -73,7 +179,7 @@ include::{code-dir}/SampleAppConfiguration.java[tag=2]
 
 .Pattern-based HAL single-link rendering policy
 ====
-[source,java,indent=0,tabsize=2]
+[source, javascript]
 ----
 include::{code-dir}/SampleAppConfiguration.java[tag=3]
 ----
@@ -134,7 +240,7 @@ https://tools.ietf.org/html/rfc8288#section-2.1[Web Linking RFC] 描述了注册
 以下配置定义了默认的 curie 提供程序:
 
 ====
-[source, java]
+[source,java]
 ----
 @Configuration
 @EnableWebMvc
@@ -152,7 +258,7 @@ public class Config {
 请注意,现在 `ex:` 前缀会自动出现在所有未向IANA注册的 rel 值之前,例如  `ex:orders`. 客户可以使用 `curies` 链接将 Curie 解析为完整表单. 以下示例显示了如何执行此操作:
 
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/hal/hal-with-curies.json[]
 ----
@@ -301,6 +407,40 @@ com.acme.Employee.firstName._prompt=Firstname <3>
 ----
 ====
 
+[[mediatypes.http-problem]]
+== HTTP Problem Details
+
+https://tools.ietf.org/html/rfc7807[Problem Details for HTTP APIs] 是一种媒体类型, 用于在 HTTP 响应中携带机器可读的错误详细信息, 以避免需要为HTTP API 定义新的错误响应格式.
+
+HTTP Problem Details 定义了一组 JSON 属性, 这些属性包含其他信息以向 HTTP 客户端描述错误详细信息.  在 https://tools.ietf.org/html/rfc7807#section-3.1[RFC document] 的相关部分中找到有关这些属性的更多详细信息.
+
+您可以通过在 Spring MVC Controller 中使用 `Problem` 媒体类型 domain 类型来创建这样的 JSON 响应:
+
+.Reporting problem details using Spring HATEOAS' `Problem` type
+[source, java]
+----
+include::{code-dir}/mediatype/problem/PaymentController.java[tags=header;method;footer]
+----
+<1> 首先, 使用公开的工厂方法创建 `Problem`  的实例. .
+<2> 您可以定义由媒体类型定义的默认属性的值, 例如 使用 Spring 国际化功能的 URI 类型, 标题和详细信息（请参见上文）.
+<3> 可以通过 Map 或显式对象添加自定义属性（请参见下文）.
+
+要将专用对象用于自定义属性, 请声明一个类型, 创建并填充其实例, 然后通过  `….withProperties(…)`  或在通过 `Problem.create(…)` 创建实例时将其移入 `Problem` 实例.
+
+.Using a dedicated type to capture extended problem properties
+[source, java, indent=0]
+----
+include::{code-dir}/mediatype/problem/PaymentController.java[tags=alternative]
+----
+
+这将导致如下所示的响应:
+
+.A sample HTTP Problem Details response
+[source, java, indent=0]
+----
+include::{resource-dir}/docs/mediatype/problem/response.json[]
+----
+
 [[mediatypes.collection-json]]
 == Collection+JSON
 
@@ -316,7 +456,7 @@ Collection+JSON 提供了一种统一的方式来表示单个 item 资源和集�
 
 .Collection+JSON enabled application
 ====
-[source, java, tabsize=2]
+[source, java]
 ----
 include::{code-dir}/CollectionJsonApplication.java[tag=code]
 ----
@@ -328,7 +468,7 @@ include::{code-dir}/CollectionJsonApplication.java[tag=code]
 
 .Collection+JSON single item example
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/collectionjson/spec-part3.json[]
 ----
@@ -373,7 +513,7 @@ UBER提供了一种统一的方式来表示单个 item 资源和集合.要启用
 
 .UBER+JSON enabled application
 ====
-[source, java, tabsize=2]
+[source, java]
 ----
 include::{code-dir}/UberApplication.java[tag=code]
 ----
@@ -383,7 +523,7 @@ include::{code-dir}/UberApplication.java[tag=code]
 
 .UBER sample document
 ====
-[source, json, tabsize=2]
+[source, javascript]
 ----
 include::{resource-dir}/docs/mediatype/uber/uber-sample.json[]
 ----
@@ -470,60 +610,94 @@ include::{test-dir}/support/WebMvcEmployeeController.java[tag=alps-profile]
 
 您可以手动编写它们,而不必将每个字段"自动”链接到域对象的字段. 也可以使用 Spring Framework 的消息包和 `MessageSource` 界面. 这使您能够将这些值委托给特定于区域设置的消息束,甚至可以使元数据国际化.
 
+[[mediatypes.community]]
+== 基于社区的媒体类型
+
+由于能够 <<mediatypes.custom, 创建自己的媒体类型>> , 因此社区做出了许多努力来构建其他媒体类型.
+
+[[mediatypes.community.json:api]]
+=== JSON:API
+
+* https://jsonapi.org[Specification]
+* Media type designation: `application/vnd.api+json`
+* Latest Release
+** https://toedter.github.io/spring-hateoas-jsonapi/release/reference/index.html[Reference documentation]
+** https://toedter.github.io/spring-hateoas-jsonapi/release/api/index.html[API documentation]
+* Current Snapshot
+** https://toedter.github.io/spring-hateoas-jsonapi/snapshot/reference/index.html[Reference documentation]
+** https://toedter.github.io/spring-hateoas-jsonapi/snapshot/api/index.html[API documentation]
+* https://github.com/toedter/spring-hateoas-jsonapi[Source]
+* Project Lead: https://github.com/toedter[Kai Toedter]
+
+.Maven coordinates
+[source,xml,tabsize=2]
+----
+<dependency>
+    <groupId>com.toedter</groupId>
+    <artifactId>spring-hateoas-jsonapi</artifactId>
+    <version>{see project page for current version}</version>
+</dependency>
+----
+
+.Gradle coordinates
+[source,tabsize=2]
+----
+implementation 'com.toedter:spring-hateoas-jsonapi:{see project page for current version}'
+----
+
+如果要快照版本, 请访问项目页面以获取更多详细信息.
+
+[[mediatypes.community.siren]]
+=== Siren
+
+* https://github.com/kevinswiber/siren[Specification]
+* Media type designation: `application/vnd.siren+json`
+* https://spring-hateoas-siren.ingogriebsch.de[Reference documentation]
+* https://spring-hateoas-siren.ingogriebsch.de/apidocs[javadocs]
+* https://github.com/ingogriebsch/spring-hateoas-siren[Source]
+* Project Lead: https://github.com/ingogriebsch[Ingo Griebsch]
+
+.Maven coordinates
+[source,xml,tabsize=2]
+----
+<dependency>
+    <groupId>de.ingogriebsch.hateoas</groupId>
+    <artifactId>spring-hateoas-siren</artifactId>
+    <version>{see project page for current version}</version>
+    <scope>compile</scope>
+</dependency>
+----
+
+.Gradle coordinates
+[source,tabsize=2]
+----
+implementation 'de.ingogriebsch.hateoas:spring-hateoas-siren:{see project page for current version}'
+----
+
 [[mediatypes.custom]]
 == 注册自定义媒体类型
 
-Spring HATEOAS 允许通过第三方可以实现的一组SPI集成对自定义媒体类型的支持. 这样的实现的构造块是:
+Spring HATEOAS 允许通过第三方可以实现的一组 SPI 集成对自定义媒体类型的支持. 这样的实现的构造块是:
 
-1. 某种形式的Jackson ObjectMapper定制. 在最简单的情况下,这就是Jackson模块的实现.
+1. 某种形式的 Jackson ObjectMapper 定制. 在最简单的情况下,这就是 Jackson 模块的实现.
 2. `LinkDiscoverer` 实现,以便客户端支持能够检测生成的表示形式中的链接.
 3. 一些配置基础结构将允许 Spring HATEOAS 查找自定义实现并选择其配置.
 
 [[mediatypes.custom.configuration]]
 === 自定义媒体类型配置
 
-自定义媒体类型实现是通过 Spring 的 `SpringFactories` 机制获得的,类似于 Java ServiceLoader API. 每个媒体类型实现都需要在 `META-INF` 中附带一个 `spring.factories`,其中包含 `org.springframework.hateoas.config.MediaTypeConfigurationProvider` key 的实现类条目:
+Spring HATEOAS 通过扫描应用程序上下文中是否有 `HypermediaMappingInformation` 接口的任何实现, 来获取自定义媒体类型的实现. 每种媒体类型都必须实现此接口, 以便:
 
-.An example `MediaTypeConfigurationProvider` declaration
-====
-[source]
-org.springframework.hateoas.config.MediaTypeConfigurationProvider=\
-  com.acme.mymediatype.MyMediaTypeConfigurationProvider
-====
+* 应用于 `WebClient`, `WebTestClient` 或 `RestTemplate` 实例.
+* 支持从 Spring Web MVC 和 Spring WebFlux 控制器提供该媒体类型的服务.
 
-该实现类如下所示:
-
-.An example `MediaTypeConfigurationProvider` implementation in `META-INF/spring.factories`
-====
-[source, java]
-----
-class MyMediaTypeConfigurationProvider
-  implements MediaTypeConfigurationProvider {
-
-  @Override
-  public Class<? extends HypermediaMappingInformation> getConfiguration() {
-    return MyMediaTypeConfiguration.class; <1>
-  }
-
-  @Override
-  public boolean supportsAny(Collection<MediaType> mediaTypes) {
-    return mediaTypes.contains(MediaTypes.HAL_JSON); <2>
-  }
-}
-----
-配置类需要具有默认的构造函数并暴露两个方法:
-
-<1> 一种返回Spring配置类的方法,该方法将在激活Spring HATEOAS时(包括通过Spring Boot自动配置或通过  `@EnableHypermediaSupport` 隐式地)包含在应用程序引导程序中.).
-<2> 一种回调方法,将通过应用程序选择的媒体类型进行激活. 这使媒体类型实现可以在何时激活时进行控制.
-====
-
-配置类必须实现 `HypermediaMappingInformation`.它看起来像这样简单:
+定义自己的媒体类型看起来像这样简单:
 
 ====
 [source, java]
 ----
 @Configuration
-class MyMediaTypeConfiguration implements HypermediaMappingInformation {
+public class MyMediaTypeConfiguration implements HypermediaMappingInformation {
 
   @Override
   public List<MediaType> getMediaTypes() {
@@ -532,7 +706,7 @@ class MyMediaTypeConfiguration implements HypermediaMappingInformation {
 
   @Override
   public Module getJacksonModule() {
-    return new Jackson2MediaTypeModule(); <2>
+    return new Jackson2MyMediaTypeModule(); <2>
   }
 
   @Bean
@@ -541,14 +715,18 @@ class MyMediaTypeConfiguration implements HypermediaMappingInformation {
   }
 }
 ----
-<1> 配置类返回要设置 Spring MVC/Spring WebFlux 支持的媒体类型.
+<1> 配置类返回它支持的媒体类型.  这适用于服务器端和客户端方案. .
 <2> 它重写 `getJacksonModule()` 以提供自定义序列化程序来创建特定于媒体类型的表示形式.
-<3> 它还声明了用于客户端支持的自定义 `LinkDiscoverer` 实现.
+<3> 它还声明了用于客户端支持的自定义 `LinkDiscoverer` 实现, 以提供进一步的客户端支持.
 ====
 
-Jackson模块通常为表示模型类型 `RepresentationModel`,`EntityModel`,`CollectionModel` 和 `PagedModel` 声明 `Serializer` 和 `Deserializer` 实现. 如果您需要进一步自定义 Jackson 的 ObjectMapper(如自定义的 `HandlerInstantiator`),
+Jackson 模块通常为表示模型类型 `RepresentationModel`,`EntityModel`,`CollectionModel` 和 `PagedModel` 声明 `Serializer` 和 `Deserializer` 实现. 如果您需要进一步自定义 Jackson 的 ObjectMapper(如自定义的 `HandlerInstantiator`),
 则可以替代重写 `configureObjectMapper(…)`.
 
+[IMPORTANT]
+====
+之前的参考文档提到了实现 `MediaTypeConfigurationProvider` 接口并将其注册到 `spring.factories` 中.  这不是必需的.  该 SPI 仅用于 Spring HATEOAS 提供的现成的媒体类型.  只需要实现 `HypermediaMappingInformation` 接口并将其注册为 Spring bean.
+====
 
 [[mediatypes.custom.recommendation]]
 === 建议
@@ -556,3 +734,4 @@ Jackson模块通常为表示模型类型 `RepresentationModel`,`EntityModel`,`Co
 实现媒体类型表示的首选方法是通过提供与预期格式匹配的类型层次结构,并且可以由Jackson进行序列化. 在为 `RepresentationModel` 注册的序列化器和反序列化器实现中,将实例转换为特定于媒体类型的模型类型,然后为这些实例查找 Jackson 序列化器.
 
 默认情况下支持的媒体类型使用与第三方实现相同的配置机制.因此,值得研究  https://github.com/spring-projects/spring-hateoas/tree/master/src/main/java/org/springframework/hateoas/mediatype[ `mediatype` 包] 中的实现.
+请注意, 内置媒体类型实现通过 `@EnableHypermediaSupport` 激活后, 将其配置类包保持私有.  自定义实现可能应该公开这些配置, 以确保用户可以从其应用程序包中导入那些配置类.
