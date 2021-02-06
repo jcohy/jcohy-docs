@@ -306,7 +306,7 @@ with [convention plugins](samples/sample_convention_plugins.html).
 
 ## Promoted features
 Promoted features are features that were incubating in previous versions of Gradle but are now supported and subject to backwards compatibility.
-See the User Manual section on the “[Feature Lifecycle](userguide/feature_lifecycle.html)” for more information.
+See the User Manual section on the "[Feature Lifecycle](userguide/feature_lifecycle.html)"  for more information.
 
 * [File system watching is now stable](#file-system-watching-is-ready-for-production-use)
 
