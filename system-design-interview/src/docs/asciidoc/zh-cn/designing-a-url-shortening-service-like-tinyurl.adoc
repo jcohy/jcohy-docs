@@ -213,54 +213,27 @@ id=design, and http://www.educative.io/distributed.php%3Fid%3Ddesign 除URL编�
 另一种解决方案是可以追加用户ID（应该是唯一的）到输入的URL上，如果用户没有登录，那么必须让用户选择一个唯一值。即使在此之后，如果发生冲突，我们也必须生成键，直到获得一个唯一的键值。
 
 
-=== 6.2. Generating keys offline
-We can have a standalone Key Generation Service (KGS) that generates random six letter strings
-beforehand and stores them in a database (let’s call it key-DB). Whenever we want to shorten a URL,
-we will just take one of the already-generated keys and use it. This approach will make things quite
-simple and fast. Not only are we not encoding the URL, but we won’t have to worry about duplications
-or collisions. KGS will make sure all the keys inserted into key-DB are unique
+=== 6.2. 离线生成密钥
+我们可以拥有一个独立的密钥生成服务（KGS），该服务可以预先生成随机的六个字母并将其存储到数据库中（我们称之为密钥数据库）。每当我们想要压缩URL时，我们将会获取某个已经生成的密钥并使用它。这种方法会使用URL压缩变得简单、快捷。我们不但不用编码URL，而且不必担心重复和冲突问题。KGS将会确保所有新增到数据库的密钥是唯一的。
 
-*Can concurrency cause problems?* As soon as a key is used, it should be marked in the database to
-ensure it doesn’t get used again. If there are multiple servers reading keys concurrently, we might get a
-scenario where two or more servers try to read the same key from the database. How can we solve this
-concurrency problem?
+*并发会导致问题吗？* 一旦一个密钥被使用，应在数据库中对其进行标记，确保它不会再次被使用。如果有多个服务同时读取密钥，可能会发生这样一种情况，两个或多个服务试图从数据库中读取同一个密钥。该如何解决这个并发问题呢？
 
-Servers can use KGS to read/mark keys in the database. KGS can use two tables to store keys: one for
-keys that are not used yet, and one for all the used keys. As soon as KGS gives keys to one of the
-servers, it can move them to the used keys table. KGS can always keep some keys in memory so that it
-can quickly provide them whenever a server needs them.
+服务器会使用KGS读取/标记数据库中的密钥。KGS可以使用两个表存储密钥：一个表存储没有使用过的密钥，一个表存储所有使用过的密钥。一旦KGS将密钥提供给某一个服务器，它将会把密钥移动到被使用过的密钥表中。KGS总会存储一些密钥在内存中，以便于当某个服务需要他们时，可以很快地获取到密钥。
 
-For simplicity, as soon as KGS loads some keys in memory, it can move them to the used keys table.
-This ensures each server gets unique keys. If KGS dies before assigning all the loaded keys to some
-server, we will be wasting those keys–which is acceptable, given the huge number of keys we have.
-KGS also has to make sure not to give the same key to multiple servers. For that, it must synchronize
-(or get a lock on) the data structure holding the keys before removing keys from it and giving them to a
-server
+为了简单起见，一旦KGS将密钥加载到内存中，就可以将他们移动到被使用过的密钥表中。这确保每个服务器获取唯一的密钥。如果KGS在将所有已加载到内存的密钥分配给服务器之前宕机，那么我们将会浪费掉这些密钥-鉴于我们有大量的密钥，这个结果是可接受的。KGS也必须确保同一个密钥不会分配给多个服务器。为此，它必须同步持有（或锁定）密钥的数据结构，然后再把它分配给服务器并删除它。
 
-*What would be the key-DB size?* With base64 encoding, we can generate 68.7B unique six letters
-keys. If we need one byte to store one alpha-numeric character, we can store all these keys in:
+*密钥数据库的大小是多少？* 使用base64编码，我们将生成68.7B个唯一的六位字母的密钥。如果我们需要一个字节存储一个字母数字的字符，则可以将所有的字符存储在：
 
 [source,text]
 ----
 6 (characters per key) * 68.7B (unique keys) = 412 GB.
 ----
 
-Isn’t KGS a single point of failure? Yes, it is. To solve this, we can have a standby replica of KGS.
-Whenever the primary server dies, the standby server can take over to generate and provide keys.
-Can each app server cache some keys from key-DB? Yes, this can surely speed things up. Although
-in this case, if the application server dies before consuming all the keys, we will end up losing those
-keys. This can be acceptable since we have 68B unique six letter keys.
-How would we perform a key lookup? We can look up the key in our database or key-value store to
-get the full URL. If it’s present, issue an “HTTP 302 Redirect” status back to the browser, passing the
-stored URL in the “Location” field of the request. If that key is not present in our system, issue an
-“HTTP 404 Not Found” status or redirect the user back to the homepage.
-Should we impose size limits on custom aliases? Our service supports custom aliases. Users can pick
-any ‘key’ they like, but providing a custom alias is not mandatory. However, it is reasonable (and often
-desirable) to impose a size limit on a custom alias to ensure we have a consistent URL database. Let’s
-assume users can specify a maximum of 16 characters per customer key (as reflected in the above
-database schema).
+KGS不是一个单点故障吗？是的，它是单点故障。为了解决这个问题，我们可以添加KGS的备份副本。每当主服务宕机时，备份服务可以接管主服务生成并提供密钥。每个应用服务器可以缓存密钥数据库的数据吗？是的，这可以加快服务提供的速度。虽然在这种情况下，应用服务器在消耗完所有密钥之前宕机时会丢失这些密钥。但这是可以接收的，因为我们有680亿个唯一的6个字符的密钥。我们将如何执行键查找？我们可以在数据库或者键值存储中查找密钥，以获取完整的URL。如果URL存在，发送“HTTP 302 Redirect”状态到浏览器，并在存储的URL设置到请求中的“Location”字段中进行传递。如果在系统中没有找到这个密钥，发送一个“HTTP 404 Not Found”状态或者将用户重定向到首页。我们应该对自定义别名设置大小限制吗？我们的服务支持自定义别名。用户可以选择自己喜欢的任何“键”，但提供自定义别名不是强制的。但是，限制自定义别名的大小是合理的（并且通常是值得做的），以确保我们拥有一致的URL数据库。假设用户可以为每个客户密钥指定最多16个字符（如上述数据库架构所示）。
 
-High level system design for URL shortening
+image::../image/image-2021-05-15-23-13-24-229.png[]
+
+URL压缩的高级系统设计
 
 == 7. Data Partitioning and Replication
 
