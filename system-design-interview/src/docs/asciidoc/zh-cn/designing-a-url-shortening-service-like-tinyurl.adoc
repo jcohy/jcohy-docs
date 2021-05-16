@@ -229,27 +229,25 @@ id=design, and http://www.educative.io/distributed.php%3Fid%3Ddesign 除URL编�
 6 (characters per key) * 68.7B (unique keys) = 412 GB.
 ----
 
-KGS不是一个单点故障吗？是的，它是单点故障。为了解决这个问题，我们可以添加KGS的备份副本。每当主服务宕机时，备份服务可以接管主服务生成并提供密钥。每个应用服务器可以缓存密钥数据库的数据吗？是的，这可以加快服务提供的速度。虽然在这种情况下，应用服务器在消耗完所有密钥之前宕机时会丢失这些密钥。但这是可以接收的，因为我们有680亿个唯一的6个字符的密钥。我们将如何执行键查找？我们可以在数据库或者键值存储中查找密钥，以获取完整的URL。如果URL存在，发送“HTTP 302 Redirect”状态到浏览器，并在存储的URL设置到请求中的“Location”字段中进行传递。如果在系统中没有找到这个密钥，发送一个“HTTP 404 Not Found”状态或者将用户重定向到首页。我们应该对自定义别名设置大小限制吗？我们的服务支持自定义别名。用户可以选择自己喜欢的任何“键”，但提供自定义别名不是强制的。但是，限制自定义别名的大小是合理的（并且通常是值得做的），以确保我们拥有一致的URL数据库。假设用户可以为每个客户密钥指定最多16个字符（如上述数据库架构所示）。
+KGS是不是一个单点故障吗？是的，它是单点故障。为了解决这个问题，我们可以添加KGS的备份副本。每当主服务宕机时，备份服务可以接管主服务生成并提供密钥。每个应用服务器可以缓存密钥数据库的数据吗？是的，这可以加快服务提供的速度。虽然在这种情况下，应用服务器在消耗完所有密钥之前宕机时会丢失这些密钥。但这是可以接收的，因为我们有680亿个唯一的6个字符的密钥。我们将如何执行键查找？我们可以在数据库或者键值存储中查找密钥，以获取完整的URL。如果URL存在，发送“HTTP 302 Redirect”状态到浏览器，并在存储的URL设置到请求中的“Location”字段中进行传递。如果在系统中没有找到这个密钥，发送一个“HTTP 404 Not Found”状态或者将用户重定向到首页。我们应该对自定义别名设置大小限制吗？我们的服务支持自定义别名。用户可以选择自己喜欢的任何“键”，但提供自定义别名不是强制的。但是，限制自定义别名的大小是合理的（并且通常是值得做的），以确保我们拥有一致的URL数据库。假设用户可以为每个客户密钥指定最多16个字符（如上述数据库架构所示）。
 
 image::../image/image-2021-05-15-23-13-24-229.png[]
 
 URL压缩的高级系统设计
 
-== 7. Data Partitioning and Replication
+== 7. 数据分区和备份
 
-To scale out our DB, we need to partition it so that it can store information about billions of URLs. We
-need to come up with a partitioning scheme that would divide and store our data to different DB servers.
+为了扩展我们的数据库，我们需要对数据库进行分区，以便可以存储数十亿条URL。我们需要提出一个分区方案，将数据划分并存储到不同的数据库服务器中。
 
-.. Range Based Partitioning: We can store URLs in separate partitions based on the first letter of the URL or the hash key. Hence we save all the URLs starting with letter ‘A’ in one partition, save those that start with letter ‘B’ in another partition and so on. This approach is called range-based partitioning. We can even combine certain less frequently occurring letters into one database partition. We should come up with a static partitioning scheme so that we can always store/find a file in a predictable manner.
+.. *基于范围的分区：* 我们可以基于URL的首字母或者哈希值将URL存储到单独的分区中。因此，以字母‘A’开头的所有URL存储在一个分区中，以字母‘B’开头的所有URL存储在一个分区中，以此类推。这种方法成为之基于范围的分区。我们甚至可以将不常出现的字母开头的URL存储到同一个数据库分区中。我们应该提出一个静态分区方案，以便于我们始终可以以可预测的方式存储或发现文件。
 
-The main problem with this approach is that it can lead to unbalanced servers. For example: we decide to put all URLs starting with letter ‘E’ into a DB partition, but later we realize that we have too many URLs that start with letter ‘E’.
+这种方法的主要问题是会导致数据不均衡。例如：我们决定把所有以字母‘E’开始的URL存储到一个数据库分区，但是随后我们发现有大量的以字母‘Ｅ’开始的URL。
 
-.. Hash-Based Partitioning: In this scheme, we take a hash of the object we are storing. We then calculate which partition to use based upon the hash. In our case, we can take the hash of the ‘key’ or the actual URL to determine the partition in which we store the data object.
+.. *基于Hash的分区：* 在这个方案中，我们对存储对象的进行哈希处理。然后，我们根据哈希值计算要使用哪个分区。在我们的例子中，我们可以使用‘key’或者实际URL的哈希值来决定使用哪个分区来存储数据对象。
 
-Our hashing function will randomly distribute URLs into different partitions (e.g., our hashing function can always map any key to a number between [1…256]), and this number would represent the partition in which we store our object.
+哈希函数会将URL随机地分配到不同的分区中（例如：哈希函数总是映射任意密钥到１－６的之间数字中），并且该数字代表我们储存对象的分区。
 
-This approach can still lead to overloaded partitions, which can be solved by using https://www.educative.io/collection/page/5668639101419520/5649050225344512/5709068098338816/[ConsistentHashing].
-
+这种方法仍热会导致分区过载，可以使用　https://www.educative.io/collection/page/5668639101419520/5649050225344512/5709068098338816/[一致性哈希]　来解决这个问题。
 
 == 8. Cache
 
