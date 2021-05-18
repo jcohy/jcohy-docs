@@ -239,11 +239,18 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 
 `JtaTransactionManager` 不需要了解 `DataSource`(或任何其他特定资源) ,因为它使用容器的全局事务管理基础结构.
 
-NOTE: `dataSource`  bean 的前面定义使用 `jee` 命名空间中的 `<jndi-lookup/>` 标签.  有关更多信息,请参阅<<integration.adoc#xsd-schemas-jee, 参阅JEE架构>>.
+NOTE: `dataSource`  bean 的前面定义使用 `jee` 命名空间中的 `<jndi-lookup/>` 标签.  有关更多信息,请参阅<<integration.adoc#xsd-schemas-jee, 参阅 JEE 架构>>.
 
-如以下示例所示,您还可以轻松使用Hibernate本地事务.  在这种情况下,您需要定义一个 Hibernate `LocalSessionFactoryBean`,您的应用程序 代码可以使用它来获取 Hibernate `Session` 实例.
+NOTE: 如果您使用 JTA,那么无论您使用何种数据访问技术,无论是 JDBC,Hibernate JPA 还是任何其他支持的技术, 您的事务管理器定义都应该看起来相同.  这是因为 JTA 事务是全局事务,可以登记任何事务资源
 
-NOTE: 如果 `DataSource`(由任何非JTA事务管理器使用) 通过JNDI查找并由Java EE容器管理,则它应该是非事务性的,因为Spring Framework (而不是Java EE容器) 管理事务.
+在所有这些情况下,应用程序代码不需要更改.  您可以仅通过更改配置来更改事务的管理方式,即使该更改意味着从本地事务转移到全局事务,反之亦然. .
+
+[[transaction-strategies-hibernate]]
+==== Hibernate Transaction 设置
+
+如以下示例所示,您还可以轻松使用 Hibernate 本地事务.  在这种情况下,您需要定义一个 Hibernate `LocalSessionFactoryBean`,您的应用程序 代码可以使用它来获取 Hibernate `Session` 实例.
+
+NOTE: 如果 `DataSource`(由任何非JTA事务管理器使用) 通过 JNDI 查找并由 Java EE 容器管理,则它应该是非事务性的,因为Spring Framework (而不是Java EE容器) 管理事务.
 
 在这种情况下,`txManager`  bean 是 `HibernateTransactionManager` 类型.  与 `DataSourceTransactionManager` 需要对 `DataSource` 的引用一样, `HibernateTransactionManager` 需要应用 `SessionFactory` 的引用.  以下示例声明了 `SessionFactory` 和 `txManager` bean:
 
@@ -268,16 +275,50 @@ NOTE: 如果 `DataSource`(由任何非JTA事务管理器使用) 通过JNDI查找
 	</bean>
 ----
 
-如果使用Hibernate和Java EE容器管理的JTA事务,则应使用与之前的JDBC JTA示例相同的 `JtaTransactionManager`,如以下示例所示:
+如果使用 Hibernate 和 Java EE 容器管理的 JTA 事务,则应使用与之前的 JDBC JTA 示例相同的 `JtaTransactionManager`,如以下示例所示,另外,建议让 Hibernate 通过它的 JTA 了解事务协调器,可能还有其连接释放配置:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
+	<bean id="sessionFactory" class="org.springframework.orm.hibernate5.LocalSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<property name="mappingResources">
+			<list>
+				<value>org/springframework/samples/petclinic/hibernate/petclinic.hbm.xml</value>
+			</list>
+		</property>
+		<property name="hibernateProperties">
+			<value>
+				hibernate.dialect=${hibernate.dialect}
+				hibernate.transaction.coordinator_class=jta
+				hibernate.connection.handling_mode=DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT
+			</value>
+		</property>
+	</bean>
+
 	<bean id="txManager" class="org.springframework.transaction.jta.JtaTransactionManager"/>
 ----
 
-NOTE: 	如果您使用JTA,那么无论您使用何种数据访问技术,无论是JDBC,Hibernate JPA还是任何其他支持的技术, 您的事务管理器定义都应该看起来相同.  这是因为JTA事务是全局事务,可以登记任何事务资源.
+或者,您可以将 `JtaTransactionManager` 传递到 `LocalSessionFactoryBean` 中. 强制执行相同的操作
 
-在所有这些情况下,应用程序代码不需要更改.  您可以仅通过更改配置来更改事务的管理方式,即使该更改意味着从本地事务转移到全局事务,反之亦然. .
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean id="sessionFactory" class="org.springframework.orm.hibernate5.LocalSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<property name="mappingResources">
+			<list>
+				<value>org/springframework/samples/petclinic/hibernate/petclinic.hbm.xml</value>
+			</list>
+		</property>
+		<property name="hibernateProperties">
+			<value>
+				hibernate.dialect=${hibernate.dialect}
+			</value>
+		</property>
+		<property name="jtaTransactionManager" ref="txManager"/>
+	</bean>
+
+	<bean id="txManager" class="org.springframework.transaction.jta.JtaTransactionManager"/>
+----
 
 [[tx-resource-synchronization]]
 === 事务和资源同步
@@ -341,15 +382,23 @@ Spring Framework的声明式事务管理类似于EJB CMT,因为您可以将事�
 [[tx-decl-explained]]
 ==== 理解Spring Framework的声明式事务的实现
 
-仅仅通过 `@Transactional` 注解告诉您注解您的类是不够的,将 `@EnableTransactionManagement` 添加到您的配置中,并期望您 了解它是如何工作的.  为了更深入地理解,本节解释了在发生与事务相关的问题时 Spring Framework 的声明式事务基础结构的内部工作原理.
+仅仅通过 `@Transactional` 注解是不够的,将 `@EnableTransactionManagement` 添加到您的配置中,并期望您了解它是如何工作的.  为了更深入地理解,本节解释了在发生与事务相关的问题时 Spring Framework 的声明式事务基础结构的内部工作原理.
 
-关于 Spring Framework 的声明式事务支持,最重要的概念是<<core.adoc#aop-understanding-aop-proxies, 通过AOP代理>>启用此支持,并且事务性 的通知由元数据(当前基于XML或基于注解) 驱动.
-AOP与事务元数据的组合产生一个AOP代理,该代理使用 `TransactionInterceptor` 和适当的 `TransactionManager` 实现来驱动方法调用事务.
+关于 Spring Framework 的声明式事务支持,最重要的概念是<<core.adoc#aop-understanding-aop-proxies, 通过 AOP 代理>>启用此支持,并且事务性的通知由元数据(当前基于 XML或基于注解) 驱动.
+AOP 与事务元数据的组合产生一个 AOP 代理,该代理使用 `TransactionInterceptor` 和适当的 `TransactionManager` 实现来驱动方法调用事务.
 
-NOTE: Spring AOP在<<core.adoc#aop,AOP部分>>介绍.
+NOTE: Spring AOP 在<<core.adoc#aop,AOP 部分>>介绍.
 
-Spring Framework 的 `TransactionInterceptor` 为命令式和响应式编程模型提供事务管理。 拦截器通过检查方法返回类型来检测所需的事务管理风格。 返回诸如 `Publisher` 或 Kotlin `Flow`(或它们的子类型)之类的响应式的方法符合响应式事务管理的条件。
-所有其他返回类型(包括 `void`)都将代码路径用于命令式事务管理。
+Spring Framework 的 `TransactionInterceptor` 为命令式和响应式编程模型提供事务管理. 拦截器通过检查方法返回类型来检测所需的事务管理风格. 返回诸如 `Publisher` 或 Kotlin `Flow`(或它们的子类型)之类的响应式的方法符合响应式事务管理的条件.
+所有其他返回类型(包括 `void`)都将代码路径用于命令式事务管理.
+
+[NOTE]
+====
+`@Transactional` 通常与由 `PlatformTransactionManager` 事务管理的线程绑定在一起使用 ,将事务暴露给所有内部正在执行数据访问操作的线程
+. 注意: 在方法内部不会 _not_ 传播到新启动的线程.
+
+由 `ReactiveTransactionManager` 管理的响应式事务使用 Reactor 上下文而不是线程局部属性. 所以,所有执行数据访问的操作需要在相同的响应式 pipeline 中的相同 Reactor 上下文中执行.
+====
 
 以下图像显示了在事务代理上调用方法的概念视图:
 
@@ -1512,14 +1561,14 @@ NOTE: 本章不涉及详细解释AOP(除非它适用于事务) .  有关AOP配�
 
 		<!-- this is the aspect -->
 		<bean id="profiler" class="x.y.SimpleProfiler">
-			<!-- execute before the transactional advice (hence the lower order number) -->
+			<!-- run before the transactional advice (hence the lower order number) -->
 			<property name="order" value="1"/>
 		</bean>
 
 		<tx:annotation-driven transaction-manager="txManager" order="200"/>
 
 		<aop:config>
-				<!-- this advice will execute around the transactional advice -->
+				<!-- this advice runs around the transactional advice -->
 				<aop:aspect id="profilingAspect" ref="profiler">
 					<aop:pointcut id="serviceMethodWithReturnValue"
 							expression="execution(!void x.y..*Service.*(..))"/>
@@ -1564,13 +1613,13 @@ NOTE: 本章不涉及详细解释AOP(除非它适用于事务) .  有关AOP配�
 
 		<!-- the profiling advice -->
 		<bean id="profiler" class="x.y.SimpleProfiler">
-			<!-- execute before the transactional advice (hence the lower order number) -->
+			<!-- run before the transactional advice (hence the lower order number) -->
 			<property name="order" value="1"/>
 		</bean>
 
 		<aop:config>
 			<aop:pointcut id="entryPointMethod" expression="execution(* x.y..*Service.*(..))"/>
-			<!-- will execute after the profiling advice (c.f. the order attribute) -->
+			<!-- runs after the profiling advice (c.f. the order attribute) -->
 
 			<aop:advisor advice-ref="txAdvice" pointcut-ref="entryPointMethod" order="2"/>
 			<!-- order value is higher than the profiling aspect -->
@@ -1672,7 +1721,7 @@ NOTE: 如下面的示例所示,使用 `TransactionTemplate` 绝对将您与Sprin
 
 		public Object someServiceMethod() {
 			return transactionTemplate.execute(new TransactionCallback() {
-				// the code in this method executes in a transactional context
+				// the code in this method runs in a transactional context
 				public Object doInTransaction(TransactionStatus status) {
 					updateOperation1();
 					return resultOfUpdateOperation2();
@@ -1829,7 +1878,7 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 
 		public Mono<Object> someServiceMethod() {
 
-			// the code in this method executes in a transactional context
+			// the code in this method runs in a transactional context
 
             Mono<Object> update = updateOperation1();
 
@@ -1951,7 +2000,7 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 
 	TransactionStatus status = txManager.getTransaction(def);
 	try {
-		// execute your business logic here
+		// put your business logic here
 	}
 	catch (MyException ex) {
 		txManager.rollback(status);
@@ -1969,7 +2018,7 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 
 	val status = txManager.getTransaction(def)
 	try {
-		// execute your business logic here
+		// put your business logic here
 	} catch (ex: MyException) {
 		txManager.rollback(status)
 		throw ex
@@ -1995,7 +2044,7 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 
 	reactiveTx.flatMap(status -> {
 
-		Mono<Object> tx = ...; // execute your business logic here
+		Mono<Object> tx = ...; // put your business logic here
 
 		return tx.then(txManager.commit(status))
 				.onErrorResume(ex -> txManager.rollback(status).then(Mono.error(ex)));
@@ -2012,7 +2061,7 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 	val reactiveTx = txManager.getReactiveTransaction(def)
 	reactiveTx.flatMap { status ->
 
-		val tx = ... // execute your business logic here
+		val tx = ... // put your business logic here
 
 		tx.then(txManager.commit(status))
 				.onErrorResume { ex -> txManager.rollback(status).then(Mono.error(ex)) }
@@ -2060,9 +2109,14 @@ NOTE: 如以下示例所示，使用 `TransactionOperator` 绝对可以使您与
 	}
 ----
 
-`@TransactionalEventListener` 注解暴露了一个phase属性,该属性允许您自定义监听器应绑定到的事务的阶段.  有效阶段是 `BEFORE_COMMIT`、`AFTER_COMMIT`(默认值) 、 `AFTER_ROLLBACK` 和 `AFTER_COMPLETION`,它们聚合事务完成(无论是提交还是回滚) .
+`@TransactionalEventListener` 注解暴露了一个 phase 属性,该属性允许您自定义监听器应绑定到的事务的阶段.  有效阶段是 `BEFORE_COMMIT`、`AFTER_COMMIT`(默认值) 、 `AFTER_ROLLBACK` 和 `AFTER_COMPLETION`,它们聚合事务完成(无论是提交还是回滚) .
 
-如果没有事务正在运行,那么根本不会被调用监听器,因为我们无法遵守所需的语义.  然而,你可以通过设置注解的 `fallbackExecution` 属性值为 `true` 来覆盖该行为.
+如果没有事务正在运行,那么根本不会调用监听器,因为我们无法遵守所需的语义.  然而,你可以通过设置注解的 `fallbackExecution` 属性值为 `true` 来覆盖该行为.
+
+[NOTE]
+====
+`@TransactionalEventListener` 仅适用于由 `PlatformTransactionManager` 管理的线程绑定事务. 由 `ReactiveTransactionManager` 管理的响应式事务使用的是 Reactor 上下文而不是线程局部属性,因此事件监听器,没有可以参与的活动事务.
+====
 
 [[transaction-application-server-integration]]
 === 应用程序服务器集成
@@ -2111,14 +2165,15 @@ Spring中的数据访问对象(DAO) 支持旨在使您能够以一致的方式�
 [[dao-exceptions]]
 === 一致的异常层次结构
 
-Spring提供了从特定于技术的异常(例如 `SQLException`) 到其自己的异常类层次结构的便捷转换, 该异常类层次结构将 `DataAccessException` 作为父异常.  这些异常包装了原始异常,因此您可能永远不会丢失任何可能出错的信息.
 
-除了JDBC异常之外,Spring还可以包装特定于JPA和Hibernate的异常,将它们转换为一组集中的运行时异常.  这使您可以仅在适当的层中处理大多数不可恢复的持久性异常,而无需在DAO中使用恼人的样板catch-and-throw块和异常声明.  (您仍然可以在任何需要的位置捕获和处理异常. ) 如上所述,JDBC异常(包括特定于数据库的方言) 也会转换为相同的层次结构, 这意味着您可以在一致的编程模型中使用JDBC执行某些操作.
+Spring 提供了从特定于技术的异常(例如 `SQLException`) 到其自己的异常类层次结构的便捷转换, 该异常类层次结构将 `DataAccessException` 作为父异常.  这些异常包装了原始异常,因此您永远不会丢失任何可能出错的信息.
 
-前面的讨论适用于Spring对各种ORM框架的支持中的各种模板类.  如果使用基于拦截器的类, 则应用程序必须关心处理 `HibernateExceptions和PersistenceExceptions` 本身, 最好分别委托 `SessionFactoryUtils` 的 `convertHibernateAccessException(..)`
-或 `convertJpaAccessException()` 方法.  这些方法将异常转换为与 `org.springframework.dao` 异常层次结构中兼容的异常.  由于 `PersistenceExceptions` 未被检测的异常,它们也可能被抛出(尽管就异常而言牺牲了通用DAO抽象) .
+除了 JDBC 异常之外,Spring 还可以包装特定于 JPA 和 Hibernate 的异常,将它们转换为一组集中的运行时异常.  这使您可以仅在适当的层中处理大多数不可恢复的持久性异常,而无需在 DAO 中使用恼人的样板 catch-and-throw 块和异常声明.  (您仍然可以在任何需要的位置捕获和处理异常. ) 如上所述,JDBC 异常(包括特定于数据库的方言) 也会转换为相同的层次结构, 这意味着您可以在一致的编程模型中使用 JDBC 执行某些操作.
 
-下图显示了Spring提供的异常层次结构.  (请注意,图像中详细说明的类层次结构仅显示整个 `DataAccessException` 层次结构的子集. )
+前面的讨论适用于 Spring 对各种 ORM 框架的支持中的各种模板类.  如果使用基于拦截器的类, 则应用程序必须关心处理 `HibernateExceptions` 和 `PersistenceExceptions` 本身, 最好分别委托 `SessionFactoryUtils` 的 `convertHibernateAccessException(..)`
+或 `convertJpaAccessException()` 方法.  这些方法将异常转换为与 `org.springframework.dao` 异常层次结构中兼容的异常.  由于 `PersistenceExceptions` 未被检测的异常,它们也可能被抛出(尽管就异常而言牺牲了通用 DAO 抽象) .
+
+下图显示了 Spring 提供的异常层次结构.  (请注意,图中详细说明的类层次结构仅显示整个 `DataAccessException` 层次结构的子集. )
 
 image::{image-resource}/DataAccessException.png[]
 
@@ -2293,12 +2348,12 @@ Spring Framework负责处理所有可能使JDBC成为繁琐API的低级细节.
 [[jdbc-choose-style]]
 === 选择JDBC数据库访问方法
 
-您可以选择多种方法来构成JDBC数据库访问的基础.  除了三种类型的 `JdbcTemplate` 之外, 新的 `SimpleJdbcInsert` 和 `SimpleJdbcCall` 方法还优化了数据库元数据, 而RDBMS Object样式采用了类似于JDO Query设计的面向对象方法.  一旦开始使用这些方法之一,您仍然可以混合和匹配以包含来自不同方法的功能.  所有方法都需要JDBC 2.0兼容的驱动程序,而某些高级功能需要JDBC 3.0驱动程序.
+您可以选择多种方法来构成 JDBC 数据库访问的基础.  除了三种类型的 `JdbcTemplate` 之外, 新的 `SimpleJdbcInsert` 和 `SimpleJdbcCall` 方法还优化了数据库元数据, 而 RDBMS Object 样式采用了类似于 JDO Query 设计的面向对象方法.  一旦开始使用这些方法之一,您仍然可以混合和匹配以包含来自不同方法的功能.  所有方法都需要 JDBC 2.0 兼容的驱动程序,而某些高级功能需要 JDBC 3.0 驱动程序.
 
-* `JdbcTemplate` 是经典且最流行的Spring JDBC方法.  这种 "最低级别" 的方法和所有其他方法都使用了 JdbcTemplate.
-* `NamedParameterJdbcTemplate` 包装 `JdbcTemplate` 以提供命名参数而不是传统的JDBC `?` 占位符.  当您有多个SQL语句参数时,此方法可提供更好的文档和易用性.
+* `JdbcTemplate` 是经典且最流行的 Spring JDBC 方法.  这种 "最低级别" 的方法和所有其他方法都使用了 JdbcTemplate.
+* `NamedParameterJdbcTemplate` 包装 `JdbcTemplate` 以提供命名参数而不是传统的JDBC `?` 占位符.  当您有多个 SQL 语句参数时,此方法可提供更好的文档和易用性.
 * `SimpleJdbcInsert` 和 `SimpleJdbcCall` 优化数据库元数据以限制必要的配置量.  此方法简化了编码,因此您只需提供表或过程的名称,并提供与列名匹配的参数映射.  仅当数据库提供足够的元数据时,这才有效.  如果数据库未提供此元数据,则必须提供参数的显式配置.
-* RDBMS对象(包括 `MappingSqlQuery`、`SqlUpdate` 和 `StoredProcedure`) 要求您在数据访问层初始化期间创建可重用且线程安全的对象.  此方法以JDO Query为模型,其中您定义查询字符串、声明参数和编译查询.  执行此操作后,可以使用各种参数值多次调用 `execute` 方法.
+* RDBMS - 对象(包括 `MappingSqlQuery`、`SqlUpdate` 和 `StoredProcedure`) 要求您在数据访问层初始化期间创建可重用且线程安全的对象.  此方法以 JDO Query 为模型,其中您定义查询字符串、声明参数和编译查询.  执行此操作后,可以使用各种参数值多次调用   `execute(...)`, `update(...)`, 和 `findObject(...)` 方法.
 
 [[jdbc-packages]]
 === 包层次结构
@@ -5272,11 +5327,11 @@ Spring的ORM集成的主要目标是清晰的应用程序分层(使用任何数�
 
 我们首先在Spring环境中介绍 https://hibernate.org/[Hibernate 5] ,然后使用它来演示Spring对集成OR映射器的方法.  本节详细介绍了许多问题,并展示了DAO实现和事务划分的不同变体. 大多数这些模式可以直接转换为所有其他支持的ORM工具.  然后,本章后面的部分将介绍其他ORM技术并展示简要示例.
 
-NOTE: 从Spring Framework 5.0开始,Spring需要Hibernate ORM 4.3或更高版本来支持JPA,甚至还需要Hibernate ORM 5.0+来针对本地Hibernate Session API进行编程.  请注意,Hibernate团队不再维护5.1之前的任何版本,很可能很快就会专注于5.3+.
+NOTE: 从Spring Framework 5.0开始,Spring需要Hibernate ORM 4.3或更高版本来支持JPA,甚至还需要Hibernate ORM 5.0+来针对本地Hibernate Session API进行编程.  请注意,Hibernate团队不再维护5.1之前的任何版本,很可能很快就会专注于 5.4+.
 
 
 [[orm-session-factory-setup]]
-==== 在Spring容器中设置 `SessionFactory`
+==== 在 Spring 容器中设置 `SessionFactory`
 
 为避免将应用程序对象绑定到硬编码资源查找,您可以将资源(例如JDBC `DataSource` 或Hibernate `SessionFactory`) 定义为Spring容器中的bean.  需要访问资源的应用程序对象通过bean引用接收对此类预定义实例的引用,如<<orm-hibernate-straight, 下一节>>中的DAO定义所示.
 
@@ -5581,7 +5636,7 @@ JCA连接器需要特定于容器的部署步骤,并且首先需要JCA支持. �
 [[orm-hibernate-invalid-jdbc-access-error]]
 ==== Hibernate的虚假应用程序服务器警告
 
-在一些具有非常严格的 `XADataSource` 实现的JTA环境中(当前只有一些WebLogic Server和WebSphere版本) , 当配置Hibernate而不考虑该环境的JTA `PlatformTransactionManager` 对象时,虚假警告或异常可以显示在应用程序服务器日志中.  这些警告或异常表明正在访问的连接不再有效或JDBC访问不再有效,可能是因为事务不再处于 active 状态.  例如,以下是WebLogic的实际异常:
+在一些具有非常严格的 `XADataSource` 实现的 JTA 环境中(当前只有一些 WebLogic Server 和 WebSphere 版本) , 当配置 Hibernate 而不考虑该环境的 JTA 事务管理时,虚假警告或异常可以显示在应用程序服务器日志中.  这些警告或异常表明正在访问的连接不再有效或 JDBC 访问不再有效,可能是因为事务不再处于 active 状态.  例如,以下是 WebLogic 的实际异常:
 
 [literal]
 [subs="verbatim,quotes"]
@@ -5590,29 +5645,29 @@ java.sql.SQLException: The transaction is no longer active - status: 'Committed'
 further JDBC access is allowed within this transaction.
 ----
 
-您可以通过让Hibernate知道它同步的JTA `PlatformTransactionManager` 实例(以及Spring) 来解决此警告. 您有两种选择:
+另一个常见的问题是 JTA 事务后的连接泄漏，并且 Hibernate 会话（以及潜在的 JDBC 连接）无法正确关闭。
 
-* 如果在您的应用程序上下文中,您已经直接获取JTA `PlatformTransactionManager` 对象(可能是从JNDI到 `JndiObjectFactoryBean` 或 `<jee:jndi-lookup>`)  并将其提供给Spring的 `JtaTransactionManager`,最简单的方法是指定对定义此JTA `PlatformTransactionManager` 实例的bean, 作为 `LocalSessionFactoryBean` 的 `jtaTransactionManager` 属性的值.  Spring然后使该对象可用于Hibernate.
-* 更有可能的是,您还没有JTA `PlatformTransactionManager` 实例,因为Spring的 `JtaTransactionManager` 可以自己找到它.  因此,您需要配置Hibernate以直接查找 JTA `PlatformTransactionManager`.  您可以通过在Hibernate配置中配置特定于应用程序服务器的 `TransactionManagerLookup` 类来完成此操作,如Hibernate手册中所述.
+您可以通过让 Hibernate 知道它同步的 JTA `PlatformTransactionManager` 实例(以及Spring) 来解决此警告. 您有两种选择:
 
-本节的其余部分描述了在Hibernate知道或不知道JTA `PlatformTransactionManager` 的情况下发生的事件序列.
+* 将您的 Spring `JtaTransactionManager` bean 传递到您的 Hibernate 设置中。 最简单的方法是对 `LocalSessionFactoryBean` bean 的 `jtaTransactionManager` 属性进行 bean 引用（请参见 <<transaction-strategies-hibernate>>）。 然后，Spring 将相应的 JTA 策略提供给 Hibernate。
+* 您还可以在 `LocalSessionFactoryBean` 的 "hibernateProperties" 中显式配置与 Hibernate 的 JTA 相关的属性，尤其是 "hibernate.transaction.coordinator_class"，"hibernate.connection.handling_mode" 以及可能的  "hibernate.transaction.jta.platform"（请参见 Hibernate 的手册）。 有关这些属性的详细信息）
 
-当Hibernate配置为不知道JTA `PlatformTransactionManager` 时,JTA事务提交时会发生以下事件:
+本节的其余部分描述了在 Hibernate 不了解 JTA `PlatformTransactionManager` 的情况下发生的事件的顺序。
 
-* JTA事务提交.
-* Spring的 `JtaTransactionManager` 与JTA事务同步,因此JTA事务管理器通过 `afterCompletion` 回调调用它.
-* 在其他 active 中,这种同步可以触发Spring对Hibernate的回调,通过Hibernate的 `afterTransactionCompletion` 方法回调(用于清除Hibernate缓存) , 然后在Hibernate会话上进行显式的 `close()` 调用,这会导致Hibernate尝试调用 `close()` 关闭JDBC连接.
+当 Hibernate 配置为不知道 JTA 事务管理 时,JTA 事务提交时会发生以下事件:
+
+* JTA 事务提交.
+* Spring 的 `JtaTransactionManager` 与 JTA 事务同步,因此 JTA 事务管理器通过 `afterCompletion` 回调调用它.
+* 在其他 active 中,这种同步可以触发 Spring 对 Hibernate 的回调,通过 Hibernate 的 `afterTransactionCompletion` 方法回调(用于清除 Hibernate 缓存) , 然后在 Hibernate 会话上进行显式的 `close()` 调用,这会导致 Hibernate 尝试调用 `close()` 关闭 JDBC 连接.
 * 在某些环境中,此 `Connection.close()` 调用会触发警告或错误,因为应用程序服务器不再认为 `Connection` 可用,因为事务已经提交.
 
-当Hibernate配置为知道JTA `PlatformTransactionManager` 时,JTA事务提交时会发生以下事件:
+当 Hibernate 配置为知道 JTA 事务管理 时,JTA 事务提交时会发生以下事件:
 
-* JTA事务已准备好提交.
-* Spring的 `JtaTransactionManager` 与JTA事务同步,因此JTA事务管理器通过 `beforeCompletion` 回调方法调用该事务.
-* Spring知道Hibernate本身与JTA事务同步,其行为与前一个场景不同. 假设Hibernate Session需要完全关闭,Spring现在关闭它.
-* JTA事务提交.
-* Hibernate与JTA事务同步,因此事务由JTA事务管理器通过 `afterCompletion` 回调调用,并可以正确清除其缓存.
-
-
+* JTA 事务已准备好提交.
+* Spring 的 `JtaTransactionManager` 与 JTA 事务同步,因此JTA事务管理器通过 `beforeCompletion` 回调方法调用该事务.
+* Spring 知道 Hibernate 本身与 JTA 事务同步,其行为与前一个场景不同. 特别是它与 Hibernate 的事务性资源管理.
+* JTA 事务提交.
+* Hibernate 与 JTA 事务同步,因此事务由 JTA 事务管理器通过 `afterCompletion` 回调调用,并可以正确清除其缓存.
 
 [[orm-jpa]]
 === JPA
@@ -5673,7 +5728,7 @@ Spring JPA支持提供了三种设置JPA `EntityManagerFactory` 的方法,该方
 您可以在基于Spring的应用程序环境中将此选项用于完整的JPA功能.  这包括Web容器,如Tomcat、独立应用程序以及具有复杂持久性要求的集成测试.
 
 NOTE:
-如果你想专门配置一个Hibernate设置,一个直接的选择是使用Hibernate 5.2或5.3 并设置一个本机Hibernate `LocalSessionFactoryBean` 而不是一个普通的JPA `LocalContainerEntityManagerFactoryBean`, 让它与JPA访问代码以及本地Hibernate访问代码交互.  有关详细信息,请参阅<<orm-jpa-hibernate,本地JPAHibernate设置>>.
+如果你想专门配置一个Hibernate设置,一个直接的选择是使用Hibernate 5.2/5.3/5.4 并设置一个本机Hibernate `LocalSessionFactoryBean` 而不是一个普通的JPA `LocalContainerEntityManagerFactoryBean`, 让它与JPA访问代码以及本地Hibernate访问代码交互.  有关详细信息,请参阅<<orm-jpa-hibernate,本地JPAHibernate设置>>.
 
 `LocalContainerEntityManagerFactoryBean` 完全控制 `EntityManagerFactory` 配置,适用于需要细粒度自定义的环境.  `LocalContainerEntityManagerFactoryBean` 基于 `persistence.xml` 文件, 提供的 `dataSourceLookup` 策略和指定的 `loadTimeWeaver` 创建 `PersistenceUnitInfo` 实例.
 因此,可以使用JNDI之外的自定义数据源并控制织入过程.  以下示例显示了 `LocalContainerEntityManagerFactoryBean` 的典型bean定义:
@@ -5936,7 +5991,7 @@ Spring JPA还允许配置的 `JpaTransactionManager` 将JPA事务暴露给访问
 有关 `JpaDialect` 机制的详细信息,请参阅<<orm-jpa-dialect, 下一节>>.
 
 NOTE:
-作为一种直接替代方案,Spring的本机 `HibernateTransactionManager` 能够与Spring Framework 5.1和Hibernate 5.2 / 5.3中的JPA访问代码交互,适应多种特定的Hibernate细节并提供JDBC交互.  这与 `LocalSessionFactoryBean` 设置结合使用特别有意义.
+作为一种直接替代方案,Spring的本机 `HibernateTransactionManager` 能够与Spring Framework 5.1和Hibernate 5.2/5.3/5.4 中的JPA访问代码交互,适应多种特定的Hibernate细节并提供JDBC交互.  这与 `LocalSessionFactoryBean` 设置结合使用特别有意义.
 有关详细信息,请参阅<<orm-jpa-hibernate, JPA交互的本地Hibernate设置>> .
 b
 [[orm-jpa-dialect]]
@@ -5958,19 +6013,19 @@ TIP: 	作为一个更广泛的提供者适配工具,主要用于Spring的全功�
 [[orm-jpa-jta]]
 ==== 使用JTA事务管理设置JPA
 
-作为 `JpaTransactionManager` 的替代方案,Spring还允许通过JTA进行多资源事务协调,无论是在Java EE环境中还是在独立的事务协调器(如Atomikos) 上.  除了选择Spring的 `JtaTransactionManager` 而不是 `JpaTransactionManager` 之外,您还需要采取以下几个步骤:
+作为 `JpaTransactionManager` 的替代方案,Spring 还允许通过 JTA 进行多资源事务协调,无论是在 Java EE 环境中还是在独立的事务协调器(如 Atomikos) 上.  除了选择 Spring 的 `JtaTransactionManager` 而不是 `JpaTransactionManager` 之外,您还需要采取以下几个步骤:
 
-* 底层JDBC连接池需要具备XA功能,并与事务协调器集成. 这在Java EE环境中通常很简单,通过JNDI暴露不同类型的 `DataSource`.  有关详细信息,请参阅应用程序服器文档. 类似地,独立的事务协调器通常带有特殊的XA集成的 `DataSource` 实现. 再次检查其文档.
-* 需要为JTA配置JPA `EntityManagerFactory` 设置. 这是特定于提供者的, 通常通过在 `LocalContainerEntityManagerFactoryBean` 上指定为 `jpaProperties` 的特殊属性.  在Hibernate的情况下,这些属性甚至是特定于版本的. 有关详细信息,请参阅Hibernate文档.
-* Spring的 `HibernateJpaVendorAdapter` 强制执行某些面向Spring的默认设置,例如连接释放模式 on-close, 它与Hibernate在Hibernate 5.0中的默认设置相匹配,但在5.1 / 5.2中则不再匹配.
-对于JTA设置,要么不声明 `HibernateJpaVendorAdapter` 去开始或关闭其 `prepareConnection` 标志.  或者,将Hibernate 5.2的 `hibernate.connection.handling_mode` 属性 设置为 `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` 以恢复Hibernate自己的默认值.
-有关WebLogic的相关说明,请参阅 <<orm-hibernate-invalid-jdbc-access-error,Hibernate的虚假应用程序服务器警告>> .
-* 或者,考虑从应用程序服务器本身获取 `EntityManagerFactory`(即,通过JNDI查找而不是本地声明的 `LocalContainerEntityManagerFactoryBean`) .  服务器提供的 `EntityManagerFactory` 可能需要在服务器配置中使用特殊的定义(使部署不那么可移植) ,而是由服务器的JTA环境设置.
+* 底层 JDBC 连接池需要具备 XA 功能,并与事务协调器集成. 这在 Java EE 环境中通常很简单,通过 JNDI 暴露不同类型的 `DataSource`.  有关详细信息,请参阅应用程序服器文档. 类似地,独立的事务协调器通常带有特殊的 XA 集成的 `DataSource` 实现. 再次检查其文档.
+* 需要为 JTA 配置 JPA `EntityManagerFactory` 设置. 这是特定于提供者的, 通常通过在 `LocalContainerEntityManagerFactoryBean` 上指定为 `jpaProperties` 的特殊属性.  在 Hibernate 的情况下,这些属性甚至是特定于版本的. 有关详细信息,请参阅 Hibernate 文档.
+* Spring 的 `HibernateJpaVendorAdapter` 强制执行某些面向 Spring 的默认设置,例如连接释放模式 on-close, 它与 Hibernate 在 Hibernate 5.0 中的默认设置相匹配,但在 5.1+ 中则不再匹配.
+对于 JTA 设置,确保声明您的持久性单元事务类型为 "JTA".  或者,将 Hibernate 5.2的 `hibernate.connection.handling_mode` 属性 设置为 `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` 以恢复 Hibernate 自己的默认值.
+有关 WebLogic 的相关说明,请参阅 <<orm-hibernate-invalid-jdbc-access-error,Hibernate 的虚假应用程序服务器警告>> .
+* 或者,考虑从应用程序服务器本身获取 `EntityManagerFactory`(即,通过 JNDI 查找而不是本地声明的 `LocalContainerEntityManagerFactoryBean`) .  服务器提供的 `EntityManagerFactory` 可能需要在服务器配置中使用特殊的定义(使部署不那么可移植) ,而是由服务器的 JTA 环境设置.
 
 [[orm-jpa-hibernate]]
 ==== 用于JPA交互的本地Hibernate设置和本地Hibernate事务
 
-从Spring Framework 5.1和Hibernate 5.2/5.3开始,本机 `LocalSessionFactoryBean` 设置与 `HibernateTransactionManager` 结合使用, 可以与 `@PersistenceContext` 和其他JPA访问代码进行交互.
+从Spring Framework 5.1和Hibernate 5.2/5.3/5.4 开始,本机 `LocalSessionFactoryBean` 设置与 `HibernateTransactionManager` 结合使用, 可以与 `@PersistenceContext` 和其他JPA访问代码进行交互.
 Hibernate `SessionFactory` 现在在本地实现JPA的 `EntityManagerFactory` 接口,而Hibernate Session句柄本身就是JPA `EntityManager`.  Spring的JPA支持工具自动检测本机Hibernate会话.
 
 因此,在许多场景中,这种本机Hibernate设置可以替代标准JPA `LocalContainerEntityManagerFactoryBean` 和 `JpaTransactionManager` 组合, 允许在同一本地事务中与 `@PersistenceContext` `EntityManager` 旁边的 `SessionFactory.getCurrentSession()`(以及 `HibernateTemplate`) 进行交互.  这样的设置还提供了更强大的Hibernate集成和更多的配置灵活性,因为它不受JPA引导程序契约的约束.
@@ -6470,4 +6525,4 @@ XStream是一个简单的库,用于将对象序列化为XML并再次返回. 它�
 
 NOTE: 请注意,XStream是XML序列化库,而不是数据绑定库. 因此,它具有有限的命名空间支持. 因此,它非常不适合在Web服务中使用.
 
-include::data-access-appendix.adoc[leveloffset=+1]
+include::data-access/data-access-appendix.adoc[leveloffset=+1]
