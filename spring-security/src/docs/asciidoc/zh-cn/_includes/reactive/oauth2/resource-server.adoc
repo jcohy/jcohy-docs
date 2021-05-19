@@ -118,7 +118,7 @@ JWK Set uri尚未标准化,但通常可以在授权服务器的文档中找到
 [NOTE]
 此属性也可以直接在<<webflux-oauth2resourceserver-jwt-jwkseturi-dsl,DSL>>上提供.
 
-[[webflux-oauth2resourceserver-jwt-sansboot]]
+[[webflux-oauth2resourceserver-sansboot]]
 === 覆盖或替换引导自动配置
 
 Spring Boot代表Resource Server生成了两个 `@Bean`.
@@ -130,8 +130,9 @@ Spring Boot代表Resource Server生成了两个 `@Bean`.
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
-			.anyExchange().authenticated()
+		.authorizeExchange(exchanges ->
+			exchanges
+				.anyExchange().authenticated()
 		)
 		.oauth2ResourceServer(OAuth2ResourceServerSpec::jwt)
 	return http.build();
@@ -147,12 +148,14 @@ SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
-			.pathMatchers("/message/**").hasAuthority("SCOPE_message:read")
-			.anyExchange().authenticated()
+		.authorizeExchange(exchanges ->
+			exchanges
+				.pathMatchers("/message/**").hasAuthority("SCOPE_message:read")
+				.anyExchange().authenticated()
 		)
-		.oauth2ResourceServer(oauth2 -> oauth2
-			.jwt(withDefaults())
+		.oauth2ResourceServer(oauth2ResourceServer ->
+			oauth2ResourceServer
+				.jwt(withDefaults())
 		);
 	return http.build();
 }
@@ -188,13 +191,16 @@ public ReactiveJwtDecoder jwtDecoder() {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
-			.anyExchange().authenticated()
+		.authorizeExchange(exchanges ->
+			exchanges
+				.anyExchange().authenticated()
 		)
-		.oauth2ResourceServer(oauth2 -> oauth2
-			.jwt(jwt -> jwt
-				.jwkSetUri("https://idp.example.com/.well-known/jwks.json")
-			)
+		.oauth2ResourceServer(oauth2ResourceServer ->
+			oauth2ResourceServer
+				.jwt(jwt ->
+					jwt
+						.jwkSetUri("https://idp.example.com/.well-known/jwks.json")
+				)
 		);
 	return http.build();
 }
@@ -212,14 +218,12 @@ SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
+		.authorizeExchange()
 			.anyExchange().authenticated()
-		)
-		.oauth2ResourceServer(oauth2 -> oauth2
-			.jwt(jwt -> jwt
-				.decoder(myCustomDecoder())
-			)
-		);
+			.and()
+		.oauth2ResourceServer()
+			.jwt()
+				.decoder(myCustomDecoder());
     return http.build();
 }
 ----
@@ -247,7 +251,7 @@ public ReactiveJwtDecoder jwtDecoder() {
 您可以通过<<webflux-oauth2resourceserver-jwt-boot-algorithm,Spring Boot>>或  <<webflux-oauth2resourceserver-jwt-decoder-builder,`NimbusJwtDecoder` 构建器>>对此进行自定义.
 
 [[webflux-oauth2resourceserver-jwt-boot-algorithm]]
-=== 通过 Spring Boot
+==== 通过 Spring Boot
 
 设置算法的最简单方法是作为属性:
 
@@ -263,7 +267,7 @@ spring:
 ----
 
 [[webflux-oauth2resourceserver-jwt-decoder-builder]]
-=== 使用 Builder
+==== 使用 Builder
 
 但是,为了获得更大的功能,我们可以使用 `NimbusReactiveJwtDecoder` 附带的构建器:
 
@@ -389,7 +393,7 @@ public ReactiveJwtDecoder jwtDecoder() {
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
+		.authorizeExchange(exchanges ->exchanges
 			.mvcMatchers("/contacts/**").hasAuthority("SCOPE_contacts")
 			.mvcMatchers("/messages/**").hasAuthority("SCOPE_messages")
 			.anyExchange().authenticated()
@@ -421,14 +425,12 @@ public Flux<Message> getMessages(...) {}
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
+		.authorizeExchange()
 			.anyExchange().authenticated()
-		)
-		.oauth2ResourceServer(oauth2 -> oauth2
-			.jwt(jwt -> jwt
-				.jwtAuthenticationConverter(grantedAuthoritiesExtractor())
-			)
-		);
+			.and()
+		.oauth2ResourceServer()
+			.jwt()
+				.jwtAuthenticationConverter(grantedAuthoritiesExtractor());
 	return http.build();
 }
 
@@ -451,11 +453,10 @@ static class GrantedAuthoritiesExtractor
         implements Converter<Jwt, Collection<GrantedAuthority>> {
 
     public Collection<GrantedAuthority> convert(Jwt jwt) {
-        Collection<?> authorities = (Collection<?>)
-                jwt.getClaims().getOrDefault("mycustomclaim", Collections.emptyList());
+        Collection<String> authorities = (Collection<String>)
+                jwt.getClaims().get("mycustomclaim");
 
         return authorities.stream()
-                .map(Object::toString)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
     }
@@ -660,9 +661,9 @@ Spring Boot代表Resource Server生成了两个 `@Bean`.
 @Bean
 SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
 	http
-		.authorizeExchange(exchanges -> exchanges
+		.authorizeExchange()
 			.anyExchange().authenticated()
-		)
+			.and()
 		.oauth2ResourceServer(ServerHttpSecurity.OAuth2ResourceServerSpec::opaqueToken)
 	return http.build();
 }
@@ -679,15 +680,13 @@ public class MyCustomSecurityConfiguration {
     @Bean
     SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
         http
-            .authorizeExchange(exchanges -> exchanges
+            .authorizeExchange()
                 .pathMatchers("/messages/**").hasAuthority("SCOPE_message:read")
                 .anyExchange().authenticated()
-            )
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .opaqueToken(opaqueToken -> opaqueToken
-                    .introspector(myIntrospector())
-                )
-            );
+                .and()
+            .oauth2ResourceServer()
+                .opaqueToken()
+                    .introspector(myIntrospector());
         return http.build();
     }
 }
@@ -749,14 +748,12 @@ public class DirectlyConfiguredIntrospector {
     @Bean
     SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
         http
-            .authorizeExchange(exchanges -> exchanges
+            .authorizeExchange()
                 .anyExchange().authenticated()
-            )
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .opaqueToken(opaqueToken -> opaqueToken
-                    .introspector(myCustomIntrospector())
-                )
-            );
+                .and()
+            .oauth2ResourceServer()
+                .opaqueToken()
+                    .introspector(myCustomIntrospector());
         return http.build();
     }
 }

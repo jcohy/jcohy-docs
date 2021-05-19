@@ -30,7 +30,7 @@ public class HelloRSocketSecurityConfig {
 }
 -----
 
-此配置启用<<rsocket-authentication-simple,simple authentication>>,并设置 <<rsocket-authorization,rsocket-authorization>>  以要求经过身份验证的用户才能进行任何请求.
+此配置启用<<rsocket-authentication-basic,basic authentication>>,并设置 <<rsocket-authorization,rsocket-authorization>>  以要求经过身份验证的用户才能进行任何请求.
 
 == Adding SecuritySocketAcceptorInterceptor
 
@@ -62,10 +62,10 @@ RSocket身份验证是通过 `AuthenticationPayloadInterceptor` 来执行的,该
 
 在某些情况下,设置和按请求进行身份验证是有意义的.  考虑一个如上所述的Web应用程序.  如果我们需要限制与Web应用程序本身的连接,则可以在连接时提供具有 `SETUP` 权限的凭据.  这样,每个用户将具有不同的权限,但没有SETUP权限.  这意味着单个用户可以发出请求,但不能建立其他连接.
 
-[[rsocket-authentication-simple]]
-=== Simple Authentication
+[[rsocket-authentication-basic]]
+=== Basic Authentication
 
-Spring Security对RSocket的 https://github.com/rsocket/rsocket/blob/5920ed374d008abb712cb1fd7c9d91778b2f4a68/Extensions/Security/Simple.md[Simple Authentication Metadata Extension].
+Spring Security 对 RSocket 的 https://github.com/rsocket/rsocket/issues/272[RSocket's Basic Authentication Metadata Extension].
 
 [NOTE]
 ====
@@ -73,7 +73,7 @@ Spring Security对RSocket的 https://github.com/rsocket/rsocket/blob/5920ed374d0
 请参阅  `RSocketSecurity.basicAuthentication(Customizer)` 进行设置.
 ====
 
-RSocket接收器可以使用 `AuthenticationPayloadExchangeConverter` 来对凭据进行解码,`而AuthenticationPayloadExchangeConverter` 可以使用DSL的 `simpleAuthentication` 部分自动设置.
+RSocket接收器可以使用 `AuthenticationPayloadExchangeConverter` 来对凭据进行解码,`BasicAuthenticationPayloadExchangeConverter` 可以使用DSL的 `basicAuthentication` 部分自动设置.
 可以在下面找到显式配置.
 
 [source,java]
@@ -86,28 +86,26 @@ PayloadSocketAcceptorInterceptor rsocketInterceptor(RSocketSecurity rsocket) {
 					.anyRequest().authenticated()
 					.anyExchange().permitAll()
 		)
-		.simpleAuthentication(Customizer.withDefaults());
+		.basicAuthentication(Customizer.withDefaults());
 	return rsocket.build();
 }
 ----
 
-RSocket发送者可以使用 `SimpleAuthenticationEncoder` 发送凭证,该凭证可以添加到Spring的 `RSocketStrategies` 中.
+RSocket发送者可以使用 `BasicAuthenticationEncoder` 发送凭证,该凭证可以添加到 Spring 的 `RSocketStrategies` 中.
 
 [source,java]
 ----
 RSocketStrategies.Builder strategies = ...;
-strategies.encoder(new SimpleAuthenticationEncoder());
+strategies.encoder(new BasicAuthenticationEncoder());
 ----
 
 然后可以使用它在设置中向接收者发送用户名和密码:
 
 [source,java]
 ----
-MimeType authenticationMimeType =
-	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
 UsernamePasswordMetadata credentials = new UsernamePasswordMetadata("user", "password");
 Mono<RSocketRequester> requester = RSocketRequester.builder()
-	.setupMetadata(credentials, authenticationMimeType)
+	.setupMetadata(credentials, UsernamePasswordMetadata.BASIC_AUTHENTICATION_MIME_TYPE)
 	.rsocketStrategies(strategies.build())
 	.connectTcp(host, port);
 ----
@@ -122,7 +120,7 @@ UsernamePasswordMetadata credentials = new UsernamePasswordMetadata("user", "pas
 public Mono<AirportLocation> findRadar(String code) {
 	return this.requester.flatMap(req ->
 		req.route("find.radar.{code}", code)
-			.metadata(credentials, authenticationMimeType)
+			.metadata(credentials, UsernamePasswordMetadata.BASIC_AUTHENTICATION_MIME_TYPE)
 			.retrieveMono(AirportLocation.class)
 	);
 }
@@ -131,7 +129,7 @@ public Mono<AirportLocation> findRadar(String code) {
 [[rsocket-authentication-jwt]]
 === JWT
 
-Spring Security对RSocket的 https://github.com/rsocket/rsocket/blob/5920ed374d008abb712cb1fd7c9d91778b2f4a68/Extensions/Security/Bearer.md[Bearer Token Authentication Metadata Extension].
+Spring Security对RSocket的 https://github.com/rsocket/rsocket/issues/272[RSocket's Bearer Token Authentication Metadata Extension].
 支持以对JWT进行身份验证(确定JWT有效) 的形式出现,然后使用JWT做出授权决策.
 
 RSocket接收器可以使用 `BearerPayloadExchangeConverter` 解码凭据,而 `BearerPayloadExchangeConverter` 使用DSL的 `jwt` 部分自动设置.  可以在下面找到示例配置:
@@ -166,11 +164,9 @@ RSocket发送方不需要执行任何特殊操作即可发送令牌,因为该值
 
 [source,java]
 ----
-MimeType authenticationMimeType =
-	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
-BearerTokenMetadata token = ...;
+String token = ...;
 Mono<RSocketRequester> requester = RSocketRequester.builder()
-	.setupMetadata(token, authenticationMimeType)
+	.setupMetadata(token, BearerTokenMetadata.BEARER_AUTHENTICATION_MIME_TYPE)
 	.connectTcp(host, port);
 ----
 
@@ -178,15 +174,13 @@ Mono<RSocketRequester> requester = RSocketRequester.builder()
 
 [source,java]
 ----
-MimeType authenticationMimeType =
-	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
 Mono<RSocketRequester> requester;
-BearerTokenMetadata token = ...;
+String token = ...;
 
 public Mono<AirportLocation> findRadar(String code) {
 	return this.requester.flatMap(req ->
 		req.route("find.radar.{code}", code)
-	        .metadata(token, authenticationMimeType)
+	        .metadata(token, BearerTokenMetadata.BEARER_AUTHENTICATION_MIME_TYPE)
 			.retrieveMono(AirportLocation.class)
 	);
 }
