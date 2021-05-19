@@ -204,6 +204,7 @@ public interface UserRepository extends Repository<User, Long> {
 [options = "header, autowidth"]
 |===============
 |关键字|Sample|JPQL snippet
+|`Distinct`|`findDistinctByLastnameAndFirstname`|`select distinct ... where x.lastname = ?1 and x.firstname = ?2`
 |`And`|`findByLastnameAndFirstname`|`… where x.lastname = ?1 and x.firstname = ?2`
 |`Or`|`findByLastnameOrFirstname`|`… where x.lastname = ?1 or x.firstname = ?2`
 |`Is`, `Equals`|`findByFirstname`,`findByFirstnameIs`,`findByFirstnameEquals`|`… where x.firstname = ?1`
@@ -227,7 +228,7 @@ public interface UserRepository extends Repository<User, Long> {
 |`NotIn`|`findByAgeNotIn(Collection<Age> ages)`|`… where x.age not in ?1`
 |`True`|`findByActiveTrue()`|`… where x.active = true`
 |`False`|`findByActiveFalse()`|`… where x.active = false`
-|`IgnoreCase`|`findByFirstnameIgnoreCase`|`… where UPPER(x.firstame) = UPPER(?1)`
+|`IgnoreCase`|`findByFirstnameIgnoreCase`|`… where UPPER(x.firstname) = UPPER(?1)`
 |===============
 
 NOTE: `In` 和 `NotIn` 也将 `Collection` 的任何子类作为参数以及 `varargs` 的数组.  对于同一逻辑运算符的其他语法版本,请选中 "`<<repository-query-keywords,存储库查询关键字>>`".
@@ -387,13 +388,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
   List<Object[]> findByAsArrayAndSort(String lastname, Sort sort);
 }
 
-repo.findByAndSort("lannister", new Sort("firstname"));               <1>
-repo.findByAndSort("stark", new Sort("LENGTH(firstname)"));           <2>
+repo.findByAndSort("lannister", Sort.by("firstname"));                <1>
+repo.findByAndSort("stark", Sort.by("LENGTH(firstname)"));            <2>
 repo.findByAndSort("targaryen", JpaSort.unsafe("LENGTH(firstname)")); <3>
-repo.findByAsArrayAndSort("bolton", new Sort("fn_len"));              <4>
+repo.findByAsArrayAndSort("bolton", Sort.by("fn_len"));               <4>
 ----
 <1> 指向 domain 模型中属性的有效 `Sort` 表达式.
-<2> 包含函数调用的无效 `Sort`  Thows异常.
+<2> 包含函数调用的无效 `Sort`  Throws 异常.
 <3> 有效  `Sort` 包含明显不安全的  `Order`.
 <4> 指向别名函数的有效 `Sort` 表达式.
 ====
@@ -772,24 +773,17 @@ Specifications 可以轻松地用于在实体之上构建可扩展的断言集�
 ----
 public class CustomerSpecs {
 
-  public static Specification<Customer> isLongTermCustomer() {
-    return new Specification<Customer>() {
-      public Predicate toPredicate(Root<Customer> root, CriteriaQuery<?> query,
-            CriteriaBuilder builder) {
 
-         LocalDate date = new LocalDate().minusYears(2);
-         return builder.lessThan(root.get(Customer_.createdAt), date);
-      }
+  public static Specification<Customer> isLongTermCustomer() {
+    return (root, query, builder) -> {
+      LocalDate date = LocalDate.now().minusYears(2);
+      return builder.lessThan(root.get(Customer_.createdAt), date);
     };
   }
 
   public static Specification<Customer> hasSalesOfMoreThan(MonetaryAmount value) {
-    return new Specification<Customer>() {
-      public Predicate toPredicate(Root<T> root, CriteriaQuery<?> query,
-            CriteriaBuilder builder) {
-
-         // build query here
-      }
+    return (root, query, builder) -> {
+      // build query here
     };
   }
 }
@@ -876,6 +870,8 @@ class UserManagementImpl implements UserManagement {
 }
 ----
 此示例使对 `addRoleToAllUsers(…)`  的调用在事务内运行 (参与现有事务或在没有事务的情况下创建新事务) .  然后忽略存储库中的事务配置,因为外部事务配置确定了实际使用的事务配置.  请注意,必须激活 `<tx:annotation-driven />` 或显式使用 `@EnableTransactionManagement` 才能使立面的基于注解的配置生效.  本示例假定您使用组件扫描.
+
+请注意，从 JPA 的角度来看，对 `save` 的调用不是必须的，但为了与 Spring Data 提供的存储库抽象保持一致，仍然应该存在。
 ====
 
 [[transactional-query-methods]]
@@ -931,7 +927,7 @@ interface UserRepository extends Repository<User, Long> {
 interface UserRepository extends Repository<User, Long> {
 
   // Redeclaration of a CRUD method
-  @Lock(LockModeType.READ);
+  @Lock(LockModeType.READ)
   List<User> findAll();
 }
 ----
@@ -1094,7 +1090,7 @@ class EntityManagerFactoryProducer {
   @Produces
   @ApplicationScoped
   public EntityManagerFactory createEntityManagerFactory() {
-    return Persistence.createEntityManagerFactory("my-presistence-unit");
+    return Persistence.createEntityManagerFactory("my-persistence-unit");
   }
 
   public void close(@Disposes EntityManagerFactory entityManagerFactory) {
