@@ -302,6 +302,8 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 . 只有 `random.*` 属性的 `RandomValuePropertySource`.
 . 在已打包的 jar 外部的 <<boot-features-external-config-profile-specific-properties,指定 profile 的应用属性文件>> (`application-\{profile}.properties` 和 YAML 变量).
 . 在已打包的 jar 内部的<<boot-features-external-config-profile-specific-properties,指定 profile 的应用属性文件>> (`application-\{profile}.properties` 和 YAML 变量).
+. <<boot-features-external-config-application-property-files,Application properties>> outside of your packaged jar (`application.properties` and YAML variants).
+. <<boot-features-external-config-application-property-files,Application properties>> packaged inside your jar (`application.properties` and YAML variants).
 . 在已打包的 jar 外部的应用属性文件 (`application.properties` 和 YAML 变量).
 . 在已打包的 jar 内部的应用属性文件 (`application.properties` 和 YAML 变量).
 . 在 `@Configuration` 类上的 {spring-framework-api}/context/annotation/PropertySource.html[`@PropertySource`]  注解.
@@ -355,6 +357,8 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 或者将 JSON 作为一个 JNDI 变量: `java:comp/env/spring.application.json`.
 ====
 
+NOTE: 尽管来自 JSON 的 `null` 值将被添加到最终的属性源中，但是 `PropertySourcesPropertyResolver` 会将 `null` 属性视为缺失值。
+这意味着 JSON 无法使用 `null` 值覆盖优先级低的属性源中的属性.
 
 
 [[boot-features-external-config-random-values]]
@@ -412,6 +416,8 @@ WARNING: `spring.config.name` 和 `spring.config.location` 在程序启动早期
 
 如果 `spring.config.location` 包含目录 (而不是文件) ,则它们应该以 `/` 结尾 (并且在运行期间,在加载之前追加从 `spring.config.name` 生成的名称,包括指定 profile 的文件名) .
 `spring.config.location` 中指定的文件按原样使用,不支持指定 profile 形式,并且可被任何指定 profile 的文件的属性所覆盖.
+无论是直接指定还是包含在目录中，配置文件都必须在名称中包含文件扩展名。
+开箱即用的典型扩展名是 `.properties`，`.yaml` 和 `.yml`。
 
 配置位置以相反的顺序搜索. 默认情况下,配置的位置为 `classpath:/,classpath:/config/,file:./,file:./config/`. 生成的搜索顺序如下:
 
@@ -817,6 +823,8 @@ NOTE: 要使用构造函数绑定,必须使用 `@EnableConfigurationProperties` 
 
 TIP: 如果您的类具有多个构造函数,则还可以直接在应绑定的构造函数上使用 `@ConstructorBinding`.
 
+NOTE: 不建议将 `java.util.Optional` 与 `@ConfigurationProperties` 一起使用，因为它主要用于返回类型。
+因此，它不太适合配置属性注入。为了与其他类型的属性保持一致，如果您确实声明了 `Optional` 属性并且没有任何值，则将绑定 `null` 而不是空的 `Optional`.
 
 
 [[boot-features-external-config-enabling]]
@@ -1163,6 +1171,8 @@ include::{code-examples}/context/properties/bind/AppSystemProperties.java[tag=ex
 * `d` 天
 
 默认单位是毫秒,可以使用 `@DurationUnit` 配合上面的单位示例重写.
+请注意，只有使用 getter 和 setter 的 JavaBean 的属性绑定才支持 `@DurationUnit`。
+构造函数绑定不支持此功能。
 
 TIP: 要从先前仅使用 `Long` 来表示持续时间的版本进行升级,如果切换到 `Duration` 时不是毫秒,请定义单位 (使用 `@DurationUnit`) . 这样做可以提供透明的升级路径,同时支持更丰富的格式.
 
@@ -1257,7 +1267,7 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 
 | <<boot-features-external-config-relaxed-binding,宽松绑定>>
 | Yes
-| Limited (see note below)
+| Limited (see <<boot-features-external-config-vs-value-note,note below>>)
 
 | <<appendix-configuration-metadata.adoc#configuration-metadata,元数据支持>>
 | Yes
@@ -1268,13 +1278,11 @@ TIP: `spring-boot-actuator` 模块包括一个暴露所有 `@ConfigurationProper
 | Yes
 |===
 
+NOTE: [[boot-features-external-config-vs-value-note]]如果您确实想使用 `@Value`，我们建议您以规范形式引用属性名称(kebab-case 仅使用小写字母),这与 Spring Boot `@ConfigurationProperties` 宽松绑定使用相同的逻辑.例如,`@Value("{demo.item-price}")` 将从 `application.properties` 文件以及 DEMO_ITEMPRICE 环境变量中获取 `demo.item-price` 和 `demo.itemPrice` 形式.
+如果您使用的是 `@Value("{demo.itemPrice}")`，则不会考虑 `demo.item-price` 和 `DEMO_ITEMPRICE` 环境变量。
+
 如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中.
 这样做将为您提供结构化，类型安全的对象，您可以将其注入到自己的 bean 中。
-
-如果您确实想使用 `@Value`，我们建议您以规范形式引用属性名称(kebab-case仅使用小写字母),这与 Spring Boot `@ConfigurationProperties` 宽松绑定使用相同的逻辑
-
-例如,`@Value("{demo.item-price}")` 将从 `application.properties` 文件以及 DEMO_ITEMPRICE 环境变量中获取 `demo.item-price` 和 `demo.itemPrice` 形式.
-如果您使用的是 `@Value("{demo.itemPrice}")`，则不会考虑 `demo.item-price` 和 `DEMO_ITEMPRICE` 环境变量。
 
 最后,虽然您可以在 `@Value` 中编写 SpEL 表达式,但来自<<boot-features-external-config-application-property-files,应用程序属性文件>>的此类表达式并不会被处理.
 
@@ -1980,6 +1988,10 @@ TIP: IntelliJ IDEA 根据您运行应用程序的方式来对 classpath 进行�
 [[boot-features-error-handling]]
 ==== 错误处理
 默认情况下,Spring Boot 提供了一个使用了比较合理的方式来处理所有错误的 `/error` 映射,其在 servlet 容器中注册了一个全局错误页面. 对于机器客户端而言,它将产生一个包含错误、HTTP 状态和异常消息的 JSON 响应. 对于浏览器客户端而言,将以 HTML 格式呈现相同数据的 whitelabel 错误视图 (可添加一个解析到 `error` 的 `View` 进行自定义) .
+
+如果要自定义默认错误处理行为，可以设置多个 `server.error` 属性. 请参阅附录的 <<appendix-application-properties.adoc#common-application-properties-server, "`Server Properties`">> 部分.
+
+
 要完全替换默认行为,您可以实现 `ErrorController` 并注册该类型的 bean,或者简单地添加一个类型为 `ErrorAttributes` 的 bean 来替换内容,但继续使用现用机制.
 
 TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,这非常有用,尤其是在您想添加一个新的内容类型 (默认专门处理 `text/html`,并为其他内容提供后备) 处理器的情况下. 要做到这点,您只需要继承 `BasicErrorController` 并添加一个带有 `produces` 属性的 `@RequestMapping` 注解的公共方法,之后创建一个新类型的 bean.
@@ -3319,6 +3331,11 @@ https://www.mongodb.com/[MongoDB] 是一个开源的 NoSQL 文档数据库,其�
 ----
 
 如果您已经定义了自己的 `MongoClient`,它将被用于自动配置合适的 `MongoDbFactory`. 支持 `com.mongodb.MongoClient` 和 `com.mongodb.client.MongoClient`.
+
+自动配置的 `MongoClient` 是使用 `MongoClientSettings` 创建的.
+要修改其属性，请声明一个或多个  `MongoClientSettingsBuilderCustomizer` beans.
+每个都将与用于构建  `MongoClientSettings` 的 `MongoClientSettings.Builder` 依次调用.
+
 
 NOTE: 如果您使用 Mongo 3.0 Java 驱动,则不支持 `spring.data.mongodb.host` 和 `spring.data.mongodb.port`. 这种情况下,应该使用 `spring.data.mongodb.uri` 来提供所有配置.
 
@@ -4814,6 +4831,7 @@ Spring Boot 提供了几种使用  https://www.quartz-scheduler.org/[Quartz 调�
 WARNING: 默认将使用 Quartz 库提供的标准脚本检测并初始化数据库. 这些脚本会删除现有表,在每次重启时删除所有触发器. 可以通过设置 `spring.quartz.jdbc.schema` 属性来提供自定义脚本.
 
 要让 Quartz 使用除应用程序主 `DataSource` 之外的 `DataSource`,请声明一个 `DataSource` bean,使用 `@QuartzDataSource` 注解其 `@Bean` 方法. 这样做可确保 `SchedulerFactoryBean` 和 schema 初始化都使用 Quartz 指定的 `DataSource`.
+类似地，要让 Quartz 使用应用程序的主 `TransactionManager` 之外的 `TransactionManager` 来声明 `TransactionManager` bean，并用 `@QuartzTransactionManager` 注解其 `@Bean` 方法。
 
 默认情况下,配置创建的 job 不会覆盖已从持久 job 存储读取的已注册的 job. 要启用覆盖现有的 job 定义,请设置 `spring.quartz.overwrite-existing-jobs` 属性.
 
@@ -4897,10 +4915,14 @@ Spring Boot 为各种数据存储提供 {spring-session}[Spring Session]  自动
 * Hazelcast
 * MongoDB
 
+Servlet 自动配置取代了使用 `@Enable*HttpSession`.
+
 构建响应式 Web 应用程序时,可以自动配置以下存储:
 
 * Redis
 * MongoDB
+
+reactive 自动配置取代了使用 `@Enable*WebSession`.
 
 如果 classpath 上存在单个 Spring Session 模块,则 Spring Boot 会自动使用该存储实现. 如果您有多个实现,则必须选择要用于存储会话的 {spring-boot-autoconfigure-module-code}/session/StoreType.java[`StoreType`].  例如,要使用 JDBC 作为后端存储,您可以按如下方式配置应用程序:
 
@@ -4919,6 +4941,10 @@ TIP: 可以将 `store-type` 设置为 `none` 来禁用 Spring Session.
 ----
 
 可以使用 `spring.session.timeout` 属性来设置会话的超时时间. 如果未设置该属性,则自动配置将使用 `server.servlet.session.timeout` 的值.
+
+您可以使用 `@Enable*HttpSession` (Servlet) 或 `@Enable*WebSession` (Reactive) 来控制 Spring Session 的配置。
+这将导致自动配置失效. 然后可以使用注解的属性而不是之前描述的配置属性来配置 Spring Session.
+
 
 [[boot-features-jmx]]
 == 通过 JMX 监控和管理
@@ -5189,6 +5215,9 @@ NOTE: Spring的测试框架在测试之间缓存应用程序上下文,并为共�
 
 TIP: 如果您使用 `@SpyBean` 通过 `@Cacheable` 方法监视通过名称引用参数的 bean,则必须使用 `-parameters` 编译应用程序.  这样可以确保一旦侦察到bean,参数名称就可用于缓存基础结构.
 
+TIP: 当您使用 `@SpyBean` 监视由 Spring 代理的 bean 时，在某些情况下，例如使用 `given` 或 `when` 设置期望值时，您可能需要删除 Spring 的代理。
+使用 `AopTestUtils.getTargetObject(yourProxiedSpy)` 执行此操作.
+
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-tests]]
 ==== 自动配置测试
 Spring Boot的自动配置系统适用于应用程序,但有时对测试来说可能有点过多.  它通常仅有助于加载测试应用程序 "切片" 所需的配置部分.  例如,您可能想要测试Spring MVC控制器是否正确映射了URL,并且您不想在这些测试中涉及数据库调用,或者您想要测试JPA实体,并且对那些JPA实体不感兴趣.  测试运行.
@@ -5267,7 +5296,8 @@ assertThat(json.write(message))
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-mvc-tests]]
 ==== 自动配置的 Spring MVC 测试
-要测试Spring MVC控制器是否按预期工作,请使用 `@WebMvcTest` 注解.  `@WebMvcTest` 自动配置Spring MVC基础结构,并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `Filter`, `HandlerInterceptor`, `WebMvcConfigurer`, 和 `HandlerMethodArgumentResolver`.  使用此注解时,不扫描常规 `@Component` bean.
+要测试Spring MVC控制器是否按预期工作,请使用 `@WebMvcTest` 注解.  `@WebMvcTest` 自动配置Spring MVC基础结构,并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `Filter`, `HandlerInterceptor`, `WebMvcConfigurer`, 和 `HandlerMethodArgumentResolver`.  当使用 `@WebMvcTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`.
+`@EnableConfigurationProperties` 可以用来包含 `@ConfigurationProperties` bean。
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@WebMvcTest` 启用的自动配置设置的列表.
 
@@ -5313,7 +5343,7 @@ TIP: 您还可以通过在非 `@WebMvcTest` (例如 `@SpringBootTest`) 中使用
 
 TIP: 如果您需要配置自动配置的元素 (例如,当应该应用servlet过滤器时) ,则可以使用 `@AutoConfigureMockMvc` 注解中的属性.
 
-如果使用HtmlUnit或Selenium,则自动配置还会提供HtmlUnit `WebClient` bean和/或Selenium `WebDriver` bean.  以下示例使用 HtmlUnit:
+如果使用 HtmlUnit 或 Selenium,则自动配置还会提供 HtmlUnit `WebClient` bean 和 / 或 Selenium `WebDriver` bean.  以下示例使用 HtmlUnit:
 
 [source,java,indent=0]
 ----
@@ -5357,7 +5387,8 @@ TIP: 有时编写Spring MVC测试是不够的.  Spring Boot可以帮助您在 <<
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-webflux-tests]]
 ==== 自动配置的 Spring WebFlux 测试
 要测试 {spring-framework-docs}/web-reactive.html[Spring WebFlux] 控制器是否按预期工作,可以使用 `@WebFluxTest` 注解.  `@WebFluxTest` 自动配置Spring WebFlux基础结构,
-并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `WebFilter` 和 `WebFluxConfigurer`.  使用 `@WebFluxTest` 注解时,不扫描常规 `@Component` bean.
+并将扫描的bean限制为 `@Controller`, `@ControllerAdvice`, `@JsonComponent`, `Converter`, `GenericConverter`, `WebFilter` 和 `WebFluxConfigurer`.  使用 `@WebFluxTest` 注解时,不会扫描常规的 `@Component` 和 `@ConfigurationProperties`.
+`@EnableConfigurationProperties` 可以用来包含 `@ConfigurationProperties` bean.
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@WebFluxTest` 启用的自动配置的列表.  .
 
@@ -5400,18 +5431,18 @@ TIP: 您还可以通过在非 `@WebFluxTest` (例如 `@SpringBootTest`) 中自�
 	}
 ----
 
-TIP: WebFlux应用程序仅支持此设置,因为在模拟的Web应用程序中使用 `WebTestClient` 目前仅与WebFlux一起使用.
+TIP: WebFlux 应用程序仅支持此设置,因为在模拟的Web应用程序中使用 `WebTestClient` 目前仅与WebFlux一起使用.
 
-NOTE: `@WebFluxTest` 无法检测通过功能Web框架注册的路由.  为了在上下文中测试 `RouterFunction` bean,请考虑自己通过 `@Import` 或使用 `@SpringBootTest` 导入 `RouterFunction`.
+NOTE: `@WebFluxTest` 无法检测通过功能 Web 框架注册的路由.  为了在上下文中测试 `RouterFunction` bean,请考虑自己通过 `@Import` 或使用 `@SpringBootTest` 导入 `RouterFunction`.
 
-NOTE: `@WebFluxTest` 无法检测通过 `SecurityWebFilterChain` 类型的 `@Bean` 注册的自定义安全配置.  要将其包括在测试中,您将需要通过 `@Import` 导入或使用 `@SpringBootTest` 导入用于注册bean的配置.
-To include that in your test, you will need to import the configuration that registers the bean via `@Import` or use `@SpringBootTest`.
+NOTE: `@WebFluxTest` 无法检测通过 `SecurityWebFilterChain` 类型的 `@Bean` 注册的自定义安全配置.  要将其包括在测试中,您将需要通过 `@Import` 导入或使用 `@SpringBootTest` 导入用于注册 bean 的配置.
 
-TIP: 有时编写Spring WebFlux测试是不够的.  Spring Boot可以帮助您在<<boot-features-testing-spring-boot-applications-testing-with-running-server, 实际服务器上运行完整的端到端测试>>.
+TIP: 有时编写 Spring WebFlux 测试是不够的.  Spring Boot可以帮助您在<<boot-features-testing-spring-boot-applications-testing-with-running-server, 实际服务器上运行完整的端到端测试>>.
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jpa-test]]
 ==== 自动配置的 Data JPA 测试
-您可以使用 `@DataJpaTest` 注解来测试JPA应用程序.  默认情况下,它将扫描 `@Entity` 类并配置 Spring Data JPA 存储库.  如果在类路径上有嵌入式数据库,它也将配置一个.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@DataJpaTest` 注解来测试JPA应用程序.  默认情况下,它将扫描 `@Entity` 类并配置 Spring Data JPA 存储库.  如果在类路径上有嵌入式数据库,它也将配置一个.  使用 `@DataJpaTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataJpaTest` 启用的自动配置设置的列表.
 
@@ -5476,7 +5507,8 @@ TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jdbc-test]]
 ==== 自动配置的 JDBC 测试
-`@JdbcTest` 与 `@DataJpaTest` 相似,但适用于仅需要数据源并且不使用Spring Data JDBC的测试.  默认情况下,它配置一个内存嵌入式数据库和一个 `JdbcTemplate`.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+`@JdbcTest` 与 `@DataJpaTest` 相似,但适用于仅需要数据源并且不使用Spring Data JDBC的测试.  默认情况下,它配置一个内存嵌入式数据库和一个 `JdbcTemplate`.  使用 `@JdbcTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@JdbcTest` 启用的自动配置的列表.
 
@@ -5500,7 +5532,8 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-data-jdbc-test]]
 ==== 自动配置的 Data JDBC 测试
-`@DataJdbcTest` 与 `@JdbcTest` 相似,但适用于使用 Spring Data JDBC 存储库的测试.  默认情况下,它配置一个内存嵌入式数据库,一个 `JdbcTemplate` 和 Spring Data JDBC 存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+`@DataJdbcTest` 与 `@JdbcTest` 相似,但适用于使用 Spring Data JDBC 存储库的测试.  默认情况下,它配置一个内存嵌入式数据库,一个 `JdbcTemplate` 和 Spring Data JDBC 存储库.  使用 `@DataJdbcTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataJdbcTest` 启用的自动配置的列表.
 
@@ -5510,8 +5543,9 @@ TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jooq-test]]
 ==== 自动配置的 jOOQ Tests
-您可以以与 `@JdbcTest` 类似的方式使用 `@JooqTest`,但可以用于与jOOQ相关的测试.  由于jOOQ严重依赖与数据库模式相对应的基于Java的模式,因此将使用现有的 `DataSource`.
-如果要将其替换为内存数据库,则可以使用 `@AutoConfigureTestDatabase` 覆盖这些设置.   (有关在Spring Boot中使用jOOQ的更多信息,请参阅本章前面的 "<<boot-features-jooq,使用 jOOQ>>". ) 常规 `@Component` Bean未加载到 `ApplicationContext` 中.
+您可以以与 `@JdbcTest` 类似的方式使用 `@JooqTest`,但可以用于与jOOQ相关的测试.  由于jOOQ严重依赖与数据库模式相对应的基于 Java 的模式,因此将使用现有的 `DataSource`.
+如果要将其替换为内存数据库,则可以使用 `@AutoConfigureTestDatabase` 覆盖这些设置.   (有关在Spring Boot中使用jOOQ的更多信息,请参阅本章前面的 "<<boot-features-jooq,使用 jOOQ>>". ) 使用 `@JooqTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean.
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到 `@JooqTest` 启用的自动配置的列表.
 
@@ -5535,7 +5569,8 @@ JOOQ测试是事务性的,默认情况下会在每个测试结束时回滚.  如
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-mongo-test]]
 ==== 自动配置的 Data MongoDB 测试
-您可以使用 `@DataMongoTest` 测试MongoDB应用程序.  默认情况下,它配置内存嵌入式MongoDB (如果可用) ,配置 `MongoTemplate`,扫描 `@Document` 类,并配置 Spring Data MongoDB 存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@DataMongoTest` 测试MongoDB应用程序.  默认情况下,它配置内存嵌入式MongoDB (如果可用) ,配置 `MongoTemplate`,扫描 `@Document` 类,并配置 Spring Data MongoDB 存储库.  使用 `@DataMongoTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean.
  (有关将 MongoDB 与 Spring Boot 结合使用的更多信息,请参阅本章前面的 "<<boot-features-mongodb,MongoDB>>")
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataMongoTest` 启用的自动配置设置的列表.
@@ -5573,8 +5608,9 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-neo4j-test]]
 ==== 自动配置的 Data Neo4j 测试
-您可以使用 `@DataNeo4jTest` 来测试Neo4j应用程序.  默认情况下,它使用内存中嵌入式Neo4j (如果有嵌入式驱动程序可用) ,扫描 `@NodeEntity` 类,并配置 Spring Data Neo4j 存储库.
-常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将Neo4J与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-neo4j,Neo4j>>". )
+您可以使用 `@DataNeo4jTest` 来测试 Neo4j 应用程序.  默认情况下,它使用内存中嵌入式 Neo4j (如果有嵌入式驱动程序可用) ,扫描 `@NodeEntity` 类,并配置 Spring Data Neo4j 存储库.
+使用 `@DataNeo4jTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`。
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean.   (有关将 Neo4J 与 Spring Boot 结合使用的更多信息,请参阅本章前面的 "<<boot-features-neo4j,Neo4j>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataNeo4jTest` 启用的自动配置设置的列表.
 
@@ -5610,11 +5646,10 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 	}
 ----
 
-
-
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-redis-test]]
 ==== 自动配置的 Data Redis 测试
-您可以使用 `@DataRedisTest` 测试Redis应用程序.  默认情况下,它会扫描 `@RedisHash` 类并配置Spring Data Redis存储库.  常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将Redis与Spring Boot结合使用的更多信息,请参阅本章前面的"<<boot-features-redis,Redis>>". )
+您可以使用 `@DataRedisTest` 测试Redis应用程序.  默认情况下,它会扫描 `@RedisHash` 类并配置Spring Data Redis存储库.  使用 `@DataRedisTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`.
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean.   (有关将 Redis 与 Spring Boot 结合使用的更多信息,请参阅本章前面的"<<boot-features-redis,Redis>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataRedisTest` 启用的自动配置设置的列表.
 
@@ -5635,12 +5670,11 @@ The following example shows the `@DataRedisTest` annotation in use:
 	}
 ----
 
-
-
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-ldap-test]]
 ==== 自动配置的 Data LDAP 测试
 您可以使用 `@DataLdapTest` 来测试LDAP应用程序.  默认情况下,它配置内存嵌入式LDAP (如果可用) ,配置 `LdapTemplate`,扫描 `@Entry` 类,并配置 Spring Data LDAP 存储库.
-常规 `@Component` bean未加载到 `ApplicationContext` 中.   (有关将LDAP与Spring Boot结合使用的更多信息,请参阅本章前面的 "<<boot-features-ldap,LDAP>>". )
+使用 `@DataLdapTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`.
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean.  (有关将 LDAP 与 Spring Boot 结合使用的更多信息,请参阅本章前面的 "<<boot-features-ldap,LDAP>>". )
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataLdapTest` 启用的自动配置设置的列表.
 
@@ -5675,11 +5709,10 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 	}
 ----
 
-
-
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-client]]
 ==== 自动配置的 REST Clients
-您可以使用 `@RestClientTest` 注解来测试REST客户端.  默认情况下,它会自动配置Jackson,GSON和Jsonb支持,配置 `RestTemplateBuilder`,并添加对 `MockRestServiceServer` 的支持.  常规 `@Component` bean未加载到 `ApplicationContext` 中.
+您可以使用 `@RestClientTest` 注解来测试REST客户端.  默认情况下,它会自动配置 Jackson,GSON 和 Jsonb 支持,配置 `RestTemplateBuilder`,并添加对 `MockRestServiceServer` 的支持.  使用 `@RestClientTest` 注解时，不会扫描常规的 `@Component` 和 `@ConfigurationProperties`.
+`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` bean..
 
 TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@RestClientTest` 启用的自动配置设置的列表.
 
@@ -5710,13 +5743,13 @@ TIP: 可以在 <<appendix-test-auto-configuration.adoc#test-auto-configuration,�
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-docs]]
 ==== 自动配置的 Spring REST Docs 测试
-您可以使用 `@AutoConfigureRestDocs` 注解在Mock MVC,REST Assured或 `WebTestClient` 的测试中使用 {spring-restdocs}[Spring REST Docs].  它消除了Spring REST Docs中对JUnit扩展的需求.
+您可以使用 `@AutoConfigureRestDocs` 注解在 Mock MVC,REST Assured 或 `WebTestClient` 的测试中使用 {spring-restdocs}[Spring REST Docs].  它消除了 Spring REST Docs 中对 JUnit 扩展的需求.
 
-`@AutoConfigureRestDocs` 可用于覆盖默认输出目录 (如果使用Maven,则为 `target/generated-snippets` 如果使用Gradle,则为 `build/generated-snippets` ) .  它也可以用于配置出现在任何记录的URI中的主机,方案和端口.
+`@AutoConfigureRestDocs` 可用于覆盖默认输出目录 (如果使用Maven,则为 `target/generated-snippets` 如果使用 Gradle,则为 `build/generated-snippets` ) .  它也可以用于配置出现在任何记录的 URI 中的主机,方案和端口.
 
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-rest-docs-mock-mvc]]
-===== 使用 Mock MVC 自动配置的Spring REST Docs测试
-`@AutoConfigureRestDocs` 自定义 `MockMvc` bean以使用Spring REST Docs.  您可以使用 `@Autowired` 注入它,并像通常使用Mock MVC和Spring REST Docs一样,在测试中使用它,如以下示例所示:
+===== 使用 Mock MVC 自动配置的 Spring REST Docs 测试
+`@AutoConfigureRestDocs` 自定义 `MockMvc` bean以使用 Spring REST Docs.  您可以使用 `@Autowired` 注入它,并像通常使用 Mock MVC 和 Spring REST Docs 一样,在测试中使用它,如以下示例所示:
 
 [source,java,indent=0]
 ----
@@ -6066,6 +6099,9 @@ NOTE: 必须以这种方式加载自动配置. 确保它们在特定的包空间
 
 如果您想排序某些不应该彼此直接了解的自动配置,您也可以使用 `@AutoConfigureOrder`. 该注解与常规 `@Order` 注解有相同的语义,但它为自动配置类提供了专用顺序.
 
+与标准的 `@Configuration` 类一样，自动配置类的应用顺序仅会影响其 bean 的定义顺序。
+随后创建这些 bean 的顺序不受影响，并由每个 bean 的依赖关系和任何 `@DependsOn` 关系确定。
+
 [[boot-features-condition-annotations]]
 === 条件注解
 您几乎总希望在自动配置类中包含一个或多个 `@Conditional` 注解. `@ConditionalOnMissingBean` 是一个常用的注解,其允许开发人员在对您的默认值不满意用于覆盖自动配置.
@@ -6137,6 +6173,11 @@ TIP: 您需要非常小心地添加 bean 定义的顺序,因为这些条件是�
 
 NOTE:  `@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 不会阻止创建 `@Configuration` 类. 在类级别使用这些条件并使用注解标记每个包含 `@Bean` 方法的唯一区别是,如果条件不匹配,前者会阻止将 `@Configuration` 类注册为 bean.
 
+TIP: 当声明一个 `@Bean` 方法时，在方法的返回类型中提供尽可能多的类型信息。
+例如，如果 bean 的具体类实现接口，则bean方法的返回类型应该是具体类而不是接口。
+在使用 bean 条件时，在 `@Bean` 方法中提供尽可能多的类型信息尤为重要，因为它们的评估只能依赖于方法签名中可用的类型信息.
+
+
 [[boot-features-property-conditions]]
 ==== 属性条件
 `@ConditionalOnProperty` 注解允许基于 Spring Environment 属性包含配置. 使用 `prefix` 和 `name` 属性指定需要检查的属性. 默认情况下,匹配存在且不等于 `false` 的所有属性. 您还可以使用 `havingValue` 和 `matchIfMissing` 属性创建更高级的检查.
@@ -6166,7 +6207,7 @@ include::{test-examples}/autoconfigure/UserServiceAutoConfigurationTests.java[ta
 
 TIP: 如果必须定义多个自动配置,则无需按照与运行应用程序时完全相同的顺序调用它们的声明.
 
-每个测试都可以使用 runner 来表示特定的用例. 例如,下面的示例调用用户配置 (`UserConfiguration`) 并检查自动配置是否正确退回. 调用 `run` 提供了一个可以与 `Assert4J` 一起使用的回调上下文.
+每个测试都可以使用 runner 来表示特定的用例. 例如,下面的示例调用用户配置 (`UserConfiguration`) 并检查自动配置是否正确退回. 调用 `run` 提供了一个可以与 `AssertJ` 一起使用的回调上下文.
 
 [source,java,indent=0]
 ----
@@ -6287,6 +6328,30 @@ Spring Boot 使用注解处理器来收集元数据文件 (`META-INF/spring-auto
 		<artifactId>spring-boot-autoconfigure-processor</artifactId>
 		<optional>true</optional>
 	</dependency>
+----
+
+如果您直接在应用程序中定义了自动配置，请确保配置 `spring-boot-maven-plugin`，以防止 `repackage`  goal 将依赖添加到 fat jar 中:
+
+[source,xml,indent=0,subs="verbatim,quotes,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<excludes>
+							<exclude>
+								<groupId>org.springframework.boot</groupId>
+								<artifactId>spring-boot-autoconfigure-processor</artifactId>
+							</exclude>
+						</excludes>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
 ----
 
 使用 Gradle 4.5 及更早版本时,应在 `compileOnly` 配置中声明依赖,如下所示:

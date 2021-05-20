@@ -38,7 +38,7 @@ The following example registers `ProjectConstraintViolationFailureAnalyzer`:
 	com.example.ProjectConstraintViolationFailureAnalyzer
 ----
 
-NOTE: If you need access to the `BeanFactory` or the `Environment`, your `FailureAnalyzer` can simply implement `BeanFactoryAware` or `EnvironmentAware` respectively.
+NOTE: If you need access to the `BeanFactory` or the `Environment`, your `FailureAnalyzer` can implement `BeanFactoryAware` or `EnvironmentAware` respectively.
 
 
 
@@ -177,7 +177,6 @@ You also need to include the following element inside `<plugins/>`:
 	<plugin>
 		<groupId>org.apache.maven.plugins</groupId>
 		<artifactId>maven-resources-plugin</artifactId>
-		<version>2.7</version>
 		<configuration>
 			<delimiters>
 				<delimiter>@</delimiter>
@@ -414,8 +413,8 @@ Many Spring Boot starters include default embedded containers.
 * For servlet stack applications, the `spring-boot-starter-web` includes Tomcat by including `spring-boot-starter-tomcat`, but you can use `spring-boot-starter-jetty` or `spring-boot-starter-undertow` instead.
 * For reactive stack applications, the `spring-boot-starter-webflux` includes  Reactor Netty by including `spring-boot-starter-reactor-netty`, but you can use `spring-boot-starter-tomcat`, `spring-boot-starter-jetty`, or `spring-boot-starter-undertow` instead.
 
-When switching to a different HTTP server, you need to exclude the default dependencies in addition to including the one you need.
-Spring Boot provides separate starters for HTTP servers to help make this process as easy as possible.
+When switching to a different HTTP server, you need to swap the default dependencies for those that you need instead.
+To help with this process, Spring Boot provides a separate starter for each of the supported HTTP servers.
 
 The following Maven example shows how to exclude Tomcat and include Jetty for Spring MVC:
 
@@ -444,19 +443,20 @@ The following Maven example shows how to exclude Tomcat and include Jetty for Sp
 
 NOTE: The version of the Servlet API has been overridden as, unlike Tomcat 9 and Undertow 2.0, Jetty 9.4 does not support Servlet 4.0.
 
-The following Gradle example shows how to exclude Netty and include Undertow for Spring WebFlux:
+The following Gradle example shows how to use Undertow in place of Reactor Netty for Spring WebFlux:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations {
-		// exclude Reactor Netty
-		compile.exclude module: 'spring-boot-starter-reactor-netty'
+	configurations.all {
+		resolutionStrategy.dependencySubstitution.all { dependency ->
+			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-reactor-netty') {
+				dependency.useTarget("org.springframework.boot:spring-boot-starter-undertow:$dependency.requested.version", 'Use Undertow instead of Reactor Netty')
+			}
+		}
 	}
 
 	dependencies {
 		compile 'org.springframework.boot:spring-boot-starter-webflux'
-		// Use Undertow instead
-		compile 'org.springframework.boot:spring-boot-starter-undertow'
 		// ...
 	}
 ----
@@ -496,8 +496,8 @@ To scan for a free port (using OS natives to prevent clashes) use `server.port=0
 
 [[howto-discover-the-http-port-at-runtime]]
 === Discover the HTTP Port at Runtime
-You can access the port the server is running on from log output or from the `ServletWebServerApplicationContext` through its `WebServer`.
-The best way to get that and be sure that it has been initialized is to add a `@Bean` of type `ApplicationListener<ServletWebServerInitializedEvent>` and pull the container out of the event when it is published.
+You can access the port the server is running on from log output or from the `WebServerApplicationContext` through its `WebServer`.
+The best way to get that and be sure it has been initialized is to add a `@Bean` of type `ApplicationListener<WebServerInitializedEvent>` and pull the container out of the event when it is published.
 
 Tests that use `@SpringBootTest(webEnvironment=WebEnvironment.RANDOM_PORT)` can also inject the actual port into a field by using the `@LocalServerPort` annotation, as shown in the following example:
 
@@ -505,9 +505,6 @@ Tests that use `@SpringBootTest(webEnvironment=WebEnvironment.RANDOM_PORT)` can 
 ----
 	@SpringBootTest(webEnvironment=WebEnvironment.RANDOM_PORT)
 	public class MyWebIntegrationTests {
-
-		@Autowired
-		ServletWebServerApplicationContext server;
 
 		@LocalServerPort
 		int port;
@@ -584,23 +581,10 @@ This support depends on the chosen web server and the application environment, s
 
 [NOTE]
 ====
-Spring Boot does not support `h2c`, the cleartext version of the HTTP/2 protocol.
-So you must <<howto-configure-ssl, configure SSL first>>.
+Spring Boot does not advise using `h2c`, the cleartext version of the HTTP/2 protocol.
+As a result, the next sections require to <<howto-configure-ssl, configure SSL first>>.
+If you still choose to use `h2c`, you can check <<howto-configure-http2-h2c, the dedicated section>>.
 ====
-
-
-
-[[howto-configure-http2-undertow]]
-==== HTTP/2 with Undertow
-As of Undertow 1.4.0+, HTTP/2 is supported without any additional requirement on JDK8.
-
-
-
-[[howto-configure-http2-jetty]]
-==== HTTP/2 with Jetty
-As of Jetty 9.4.8, HTTP/2 is also supported with the https://www.conscrypt.org/[Conscrypt library].
-To enable that support, your application needs to have two additional dependencies: `org.eclipse.jetty:jetty-alpn-conscrypt-server` and `org.eclipse.jetty.http2:http2-server`.
-
 
 
 [[howto-configure-http2-tomcat]]
@@ -623,6 +607,13 @@ This error is not fatal, and the application still starts with HTTP/1.1 SSL supp
 
 
 
+[[howto-configure-http2-jetty]]
+==== HTTP/2 with Jetty
+As of Jetty 9.4.8, HTTP/2 is also supported with the https://www.conscrypt.org/[Conscrypt library].
+To enable that support, your application needs to have two additional dependencies: `org.eclipse.jetty:jetty-alpn-conscrypt-server` and `org.eclipse.jetty.http2:http2-server`.
+
+
+
 [[howto-configure-http2-netty]]
 ==== HTTP/2 with Reactor Netty
 The `spring-boot-webflux-starter` is using by default Reactor Netty as a server.
@@ -632,6 +623,71 @@ To enable that, your application needs to have an additional dependency.
 
 Spring Boot manages the version for the `io.netty:netty-tcnative-boringssl-static` "uber jar", containing native libraries for all platforms.
 Developers can choose to import only the required dependencies using a classifier (see https://netty.io/wiki/forked-tomcat-native.html[the Netty official documentation]).
+
+
+
+[[howto-configure-http2-undertow]]
+==== HTTP/2 with Undertow
+As of Undertow 1.4.0+, HTTP/2 is supported without any additional requirement on JDK8.
+
+
+
+[[howto-configure-http2-h2c]]
+==== h2c with supported servers
+To enable `h2c`, you need to leave the configprop:server.http2.enabled[] property set to `false`,
+and instead apply a customizer specific to your choice of server:
+
+For Tomcat, we need to add an upgrade protocol:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+	@Bean
+	public TomcatConnectorCustomizer connectorCustomizer() {
+		return (connector) -> connector.addUpgradeProtocol(new Http2Protocol());
+	}
+----
+
+For Jetty, we need to add a connection factory to the existing connector:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+	@Bean
+	public JettyServerCustomizer serverCustomizer() {
+		return (server) -> {
+			HttpConfiguration configuration = new HttpConfiguration();
+			configuration.setSendServerVersion(false);
+			Arrays.stream(server.getConnectors())
+					.filter(connector -> connector instanceof ServerConnector)
+					.map(ServerConnector.class::cast)
+					.forEach(connector -> {
+						connector.addConnectionFactory(new HTTP2CServerConnectionFactory(configuration));
+					});
+		};
+	}
+----
+
+For Netty, we need to add `h2c` as a supported protocol:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+	@Bean
+	public NettyServerCustomizer serverCustomizer() {
+		return (server) -> server.protocol(HttpProtocol.H2C);
+	}
+----
+
+For Undertow, we need to enable the HTTP2 option:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+	@Bean
+	public UndertowBuilderCustomizer builderCustomizer() {
+		return (builder) -> {
+			builder.setServerOption(ENABLE_HTTP2, true);
+		};
+	}
+----
+
 
 
 
@@ -781,7 +837,7 @@ Finally, access logging for Jetty can also be configured as follows:
 ----
 
 By default, logs are redirected to `System.err`.
-For more details, see {jetty-docs}/configuring-jetty-request-logs.html[the Jetty documentation].
+For more details, see the Jetty documentation.
 
 
 
@@ -799,6 +855,9 @@ With this option, the Web servers themselves natively support this feature; you 
 
 If this is not enough, Spring Framework provides a {spring-framework-docs}web.html#filters-forwarded-headers[ForwardedHeaderFilter].
 You can register it as a Servlet Filter in your application by setting `server.forward-headers-strategy` is set to `FRAMEWORK`.
+
+TIP: If you are using Tomcat and terminating SSL at the proxy, configprop:server.tomcat.redirect-context-root[] should be set to `false`.
+This allows the `X-Forwarded-Proto` header to be honored before any redirects are performed.
 
 NOTE: If your application runs in Cloud Foundry or Heroku, the configprop:server.forward-headers-strategy[] property defaults to `NATIVE`.
 In all other instances, it defaults to `NONE`.
@@ -1029,7 +1088,7 @@ The `ObjectMapper` (or `XmlMapper` for Jackson XML converter) instance (created 
 Spring Boot also has some features to make it easier to customize this behavior.
 
 You can configure the `ObjectMapper` and `XmlMapper` instances by using the environment.
-Jackson provides an extensive suite of simple on/off features that can be used to configure various aspects of its processing.
+Jackson provides an extensive suite of on/off features that can be used to configure various aspects of its processing.
 These features are described in six enums (in Jackson) that map onto properties in the environment:
 
 |===
@@ -1290,7 +1349,7 @@ This ensures efficient sharing of resources for the server receiving requests an
 == Logging
 Spring Boot has no mandatory logging dependency, except for the Commons Logging API, which is typically provided by Spring Framework's `spring-jcl` module.
 To use https://logback.qos.ch[Logback], you need to include it and `spring-jcl` on the classpath.
-The simplest way to do that is through the starters, which all depend on `spring-boot-starter-logging`.
+The recommended way to do that is through the starters, which all depend on `spring-boot-starter-logging`.
 For a web application, you need only `spring-boot-starter-web`, since it depends transitively on the logging starter.
 If you use Maven, the following dependency adds logging for you:
 
@@ -1405,7 +1464,7 @@ Spring Boot supports https://logging.apache.org/log4j/2.x/[Log4j 2] for logging 
 If you use the starters for assembling dependencies, you have to exclude Logback and then include log4j 2 instead.
 If you do not use the starters, you need to provide (at least) `spring-jcl` in addition to Log4j 2.
 
-The simplest path is probably through the starters, even though it requires some jiggling with excludes.
+The recommended path is through the starters, even though it requires some jiggling.
 The following example shows how to set up the starters in Maven:
 
 [source,xml,indent=0,subs="verbatim,quotes,attributes"]
@@ -1436,19 +1495,21 @@ And the following example shows one way to set up the starters in Gradle:
 ----
 	dependencies {
 		compile 'org.springframework.boot:spring-boot-starter-web'
-		compile 'org.springframework.boot:spring-boot-starter-log4j2'
 	}
 
-	configurations {
-		all {
-			exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	configurations.all {
+		resolutionStrategy.dependencySubstitution.all { dependency ->
+			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-logging') {
+				dependency.useTarget("org.springframework.boot:spring-boot-starter-log4j2:$dependency.requested.version", 'Use Log4j2 instead of Logback')
+			}
 		}
 	}
+}
 ----
 
 NOTE: The Log4j starters gather together the dependencies for common logging requirements (such as having Tomcat use `java.util.logging` but configuring the output using Log4j 2).
 
-NOTE: To ensure that debug logging performed using `java.util.logging` is routed into Log4j 2, configure its https://logging.apache.org/log4j/2.0/log4j-jul/index.html[JDK logging adapter] by setting the `java.util.logging.manager` system property to `org.apache.logging.log4j.jul.LogManager`.
+NOTE: To ensure that debug logging performed using `java.util.logging` is routed into Log4j 2, configure its https://logging.apache.org/log4j/2.x/log4j-jul/index.html[JDK logging adapter] by setting the `java.util.logging.manager` system property to `org.apache.logging.log4j.jul.LogManager`.
 
 
 
@@ -1708,10 +1769,12 @@ The fully qualified class name of the physical and the implicit strategy impleme
 Alternatively, if `ImplicitNamingStrategy` or `PhysicalNamingStrategy` beans are available in the application context, Hibernate will be automatically configured to use them.
 
 By default, Spring Boot configures the physical naming strategy with `SpringPhysicalNamingStrategy`.
-This implementation provides the same table structure as Hibernate 4: all dots are replaced by underscores and camel casing is replaced by underscores as well.
-By default, all table names are generated in lower case, but it is possible to override that flag if your schema requires it.
+This implementation provides the same table structure as Hibernate 4: all dots are replaced by underscores and camel casing is replaced by underscores as well. Additionally, by default, all table names are generated in lower case.  For example, a `TelephoneNumber` entity is mapped to the `telephone_number` table. If your schema requires mixed-case identifiers, define a custom `SpringPhysicalNamingStrategy` bean, as shown in the following example:
 
-For example, a `TelephoneNumber` entity is mapped to the `telephone_number` table.
+[source,java,indent=0]
+----
+include::{code-examples}/jpa/CaseSensitiveSpringPhysicalNamingStrategyExample.java[tag=naming-strategy]
+----
 
 If you prefer to use Hibernate 5's default instead, set the following property:
 
@@ -1739,8 +1802,7 @@ See {spring-boot-autoconfigure-module-code}/orm/jpa/HibernateJpaAutoConfiguratio
 Hibernate {hibernate-docs}#caching[second-level cache] can be configured for a range of cache providers.
 Rather than configuring Hibernate to lookup the cache provider again, it is better to provide the one that is available in the context whenever possible.
 
-If you're using JCache, this is pretty easy.
-First, make sure that `org.hibernate:hibernate-jcache` is available on the classpath.
+To do this with JCache, first make sure that `org.hibernate:hibernate-jcache` is available on the classpath.
 Then, add a `HibernatePropertiesCustomizer` bean as shown in the following example:
 
 [source,java,indent=0]
@@ -1771,10 +1833,9 @@ Spring Boot auto-configuration switches off its entity manager in the presence o
 
 [[howto-use-two-entity-managers]]
 === Use Two EntityManagers
-Even if the default `EntityManagerFactory` works fine, you need to define a new one.
-Otherwise, the presence of the second bean of that type switches off the default.
-To make it easy to do, you can use the convenient `EntityManagerBuilder` provided by Spring Boot.
-Alternatively, you can just the `LocalContainerEntityManagerFactoryBean` directly from Spring ORM, as shown in the following example:
+Even if the default `EntityManagerFactory` works fine, you need to define a new one, otherwise the presence of the second bean of that type switches off the default.
+You can use the `EntityManagerBuilder` provided by Spring Boot to help you to create one.
+Alternatively, you can use the `LocalContainerEntityManagerFactoryBean` directly from Spring ORM, as shown in the following example:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -1966,9 +2027,8 @@ Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
 	spring.jpa.hibernate.ddl-auto=none
 ----
 
-If you are using a <<spring-boot-features.adoc#howto-use-a-higher-level-database-migration-tool,Higher-level Database Migration Tool>>, like Flyway or Liquibase, you cannot use basic SQL scripts to create and initialize the schema.
-In this situation, if `schema.sql` and `data.sql` are present, they will be ignored.
-It is not possible to use a Database Migration Tool to manage schema creation, and a basic SQL script to initialize it.
+If you are using a <<spring-boot-features.adoc#howto-use-a-higher-level-database-migration-tool,Higher-level Database Migration Tool>>, like Flyway or Liquibase, you should use them alone to create and initialize the schema.
+Using the basic `schema.sql` and `data.sql` scripts alongside Flyway or Liquibase is not recommended and support will be removed in a future release.
 ====
 
 By default, Spring Boot enables the fail-fast feature of the Spring JDBC initializer.
@@ -2033,7 +2093,7 @@ If you need more control over the configuration, consider registering a `FlywayC
 Spring Boot calls `Flyway.migrate()` to perform the database migration.
 If you would like more control, provide a `@Bean` that implements {spring-boot-autoconfigure-module-code}/flyway/FlywayMigrationStrategy.java[`FlywayMigrationStrategy`].
 
-Flyway supports SQL and Java https://flywaydb.org/documentation/callbacks.html[callbacks].
+Flyway supports SQL and Java https://flywaydb.org/documentation/concepts/callbacks[callbacks].
 To use SQL-based callbacks, place the callback scripts in the `classpath:db/migration` folder.
 To use Java-based callbacks, create one or more beans that implement `Callback`.
 Any such beans are automatically registered with `Flyway`.
@@ -2216,7 +2276,7 @@ Overriding the error page with your own depends on the templating technology tha
 For example, if you use Thymeleaf, you can add an `error.html` template.
 If you use FreeMarker, you can add an `error.ftlh` template.
 In general, you need a `View` that resolves with a name of `error` or a `@Controller` that handles the `/error` path.
-Unless you replaced some of the default configuration, you should find a `BeanNameViewResolver` in your `ApplicationContext`, so a `@Bean` named `error` would be a simple way of doing that.
+Unless you replaced some of the default configuration, you should find a `BeanNameViewResolver` in your `ApplicationContext`, so a `@Bean` named `error` would be one way of doing that.
 See {spring-boot-autoconfigure-module-code}/web/servlet/error/ErrorMvcAutoConfiguration.java[`ErrorMvcAutoConfiguration`] for more options.
 
 See also the section on "`<<spring-boot-features.adoc#boot-features-error-handling, Error Handling>>`" for details of how to register handlers in the servlet container.
@@ -2230,10 +2290,13 @@ Information returned by the `env` and `configprops` endpoints can be somewhat se
 
 The patterns to use can be customized using the `management.endpoint.env.keys-to-sanitize` and `management.endpoint.configprops.keys-to-sanitize` respectively.
 
-Spring Boot uses sensible defaults for such keys: any key ending with the word "password", "secret", "key", "token", "vcap_services", "sun.java.command", "uri", "uris", "address" or "addresses" is sanitized.
+Spring Boot uses sensible defaults for such keys: any key ending with the word "password", "secret", "key", "token", "vcap_services", "sun.java.command" is entirely sanitized.
 Additionally, any key that holds the word `credentials` as part of the key is sanitized (configured as a regular expression, i.e. `+*credentials.*+`).
 
-If any of the keys to sanitize are URI format (i.e. `<scheme>://<username>:<password>@<host>:<port>/`), only the password part is sanitized.
+Furthermore, Spring Boot only sanitizes the sensitive portion of URIs for keys which end with "uri", "uris", "address", or "addresses".
+The sensitive portion of the URI is identified using the format `<scheme>://<username>:<password>@<host>:<port>/`.
+For example, for the property `myclient.uri=http://user1:password1@localhost:8081`, the resulting sanitized value is
+`++http://user1:******@localhost:8081++`.
 
 
 
@@ -2401,7 +2464,6 @@ To generate build information with Maven, add an execution for the `build-info` 
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<version>{spring-boot-version}</version>
 				<executions>
 					<execution>
 						<goals>
@@ -2513,7 +2575,6 @@ However, you must additionally add an `<executions>` section, as follows:
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<version>{spring-boot-version}</version>
 				<executions>
 					<execution>
 						<goals>
@@ -2774,8 +2835,7 @@ This means that, in addition to being deployable to a servlet container, you can
 
 [[howto-convert-an-existing-application-to-spring-boot]]
 === Convert an Existing Application to Spring Boot
-For a non-web application, it should be easy to convert an existing Spring application to a Spring Boot application.
-To do so, throw away the code that creates your `ApplicationContext` and replace it with calls to `SpringApplication` or `SpringApplicationBuilder`.
+To convert an existing non-web Spring application to a Spring Boot application, replace the code that creates your `ApplicationContext` and replace it with calls to `SpringApplication` or `SpringApplicationBuilder`.
 Spring MVC web applications are generally amenable to first creating a deployable war application and then migrating it later to an executable war or jar.
 See the https://spring.io/guides/gs/convert-jar-to-war/[Getting Started Guide on Converting a jar to a war].
 
@@ -2810,7 +2870,7 @@ If you have other features in your application (for instance, using other servle
 * A `@Bean` of type `Servlet` or `ServletRegistrationBean` installs that bean in the container as if it were a `<servlet/>` and `<servlet-mapping/>` in `web.xml`.
 * A `@Bean` of type `Filter` or `FilterRegistrationBean` behaves similarly (as a `<filter/>` and `<filter-mapping/>`).
 * An `ApplicationContext` in an XML file can be added through an `@ImportResource` in your `Application`.
-  Alternatively, simple cases where annotation configuration is heavily used already can be recreated in a few lines as `@Bean` definitions.
+  Alternatively, cases where annotation configuration is heavily used already can be recreated in a few lines as `@Bean` definitions.
 
 Once the war file is working, you can make it executable by adding a `main` method to your `Application`, as shown in the following example:
 
@@ -2914,7 +2974,7 @@ You can do so by adding a `WEB-INF/weblogic.xml` file with the following content
 === Use Jedis Instead of Lettuce
 By default, the Spring Boot starter (`spring-boot-starter-data-redis`) uses https://github.com/lettuce-io/lettuce-core/[Lettuce].
 You need to exclude that dependency and include the https://github.com/xetorthio/jedis/[Jedis] one instead.
-Spring Boot manages these dependencies to help make this process as easy as possible.
+Spring Boot manages both of these dependencies so you can switch to Jedis without specifying a version.
 
 The following example shows how to do so in Maven:
 

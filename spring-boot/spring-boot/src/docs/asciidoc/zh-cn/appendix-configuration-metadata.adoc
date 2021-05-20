@@ -3,7 +3,7 @@
 = 配置元数据
 include::attributes.adoc[]
 
-Spring Boot jar包含元数据文件，提供所有支持的配置属性的详细信息。这些文件旨在允许IDE开发人员在用户使用application.properties 或application.yml文件时提供上下文帮助和“代码完成” 。
+Spring Boot jar 包含元数据文件，提供所有支持的配置属性的详细信息。这些文件旨在允许 IDE 开发人员在用户使用 `application.properties` 或 `application.yml` 文件时提供上下文帮助和“代码完成” 。
 
 主要的元数据文件是在编译器通过处理所有被 `@ConfigurationProperties` 注解的节点来自动生成的.但是,对于极端情况或更高级的用例,可以<<configuration-metadata-additional-metadata,手动编写部分元数据>> .
 
@@ -82,7 +82,7 @@ Spring Boot jar包含元数据文件，提供所有支持的配置属性的详�
 	server.address=127.0.0.1
 ----
 
-"`groups`" 是高级别的节点,它们本身不指定一个值，但为 properties 提供一个有上下文关联的分组.  例如,`server.port` 和 `server.address` 属性是 `server` 组的一部分.
+"`groups`" 是高级别的节点,它们本身不指定一个值，但为 `properties` 提供一个有上下文关联的分组.  例如,`server.port` 和 `server.address` 属性是 `server` 组的一部分.
 
 NOTE: 不需要每个  "`property`" 都有一个 "`group`".  一些属性可以以自己的形式存在。
 
@@ -585,7 +585,12 @@ NOTE: binder 不会自动装配日这些元数据,如果提供了该提示,则�
 [[configuration-metadata-annotation-processor]]
 == 使用注解处理器生成您自己的元数据
 您可以使用 `spring-boot-configuration-processor` jar 从带有 `@ConfigurationProperties` 注解的项目中轻松生成自己的配置元数据文件.
-该 jar 包含一个 Java 注解处理器,在您的项目被编译时会被调用.  要使用处理器,请添加 `spring-boot-configuration-processor` 的依赖.
+该 jar 包含一个 Java 注解处理器,在您的项目被编译时会被调用.
+
+[[configuration-metadata-annotation-processor-setup]]
+=== 配置注解处理器
+
+要使用处理器,请添加 `spring-boot-configuration-processor` 的依赖.
 
 使用 Maven,依赖应声明为可选,如以下示例所示:
 
@@ -598,16 +603,31 @@ NOTE: binder 不会自动装配日这些元数据,如果提供了该提示,则�
 	</dependency>
 ----
 
-对于 Gradle 4.6和更高版本,应在  `compileOnly` 配置中声明依赖,如以下示例所示:
+如果在应用程序中定义了 `@ConfigurationProperties`，请确保配置 `spring-boot-maven-plugin` 插件，`以防止repackage` 任务将依赖项添加到 jar 中：
 
-[source,groovy,indent=0,subs="verbatim,quotes,attributes"]
+[source,xml,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	dependencies {
-		compileOnly "org.springframework.boot:spring-boot-configuration-processor"
-	}
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<excludes>
+							<exclude>
+								<groupId>org.springframework.boot</groupId>
+								<artifactId>spring-boot-configuration-processor</artifactId>
+							</exclude>
+						</excludes>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
 ----
 
-对于 Gradle 4.6和更高版本,应在 `annotationProcessor` 配置中声明依赖,如以下示例所示:
+对于 Gradle,应在 `annotationProcessor` 配置中声明依赖,如以下示例所示:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -625,13 +645,66 @@ NOTE: binder 不会自动装配日这些元数据,如果提供了该提示,则�
 
 这种依赖确保注解处理器在编译期间运行时,其他元数据可用.
 
-处理器选择用 `@ConfigurationProperties` 注解的类和方法.  配置类中字段值的Javadoc用于填充 `description` 属性.
+[NOTE]
+====
+如果在项目中使用 AspectJ,则需要确保注解处理器仅运行一次.  有几种方法可以做到这一点.  使用 Maven,您可以显式配置 `maven-apt-plugin` 并将依赖仅添加到注解处理器中.
+您还可以让 AspectJ 插件在 `maven-compiler-plugin` 配置中运行所有处理并禁用注解处理,如下所示:
 
-NOTE: 您仅应将简单文本与 `@ConfigurationProperties` 字段Javadoc一起使用,因为在将它们添加到JSON之前不会对其进行处理.
+[source,xml,indent=0,subs="verbatim,quotes,attributes"]
+----
+	<plugin>
+		<groupId>org.apache.maven.plugins</groupId>
+		<artifactId>maven-compiler-plugin</artifactId>
+		<configuration>
+			<proc>none</proc>
+		</configuration>
+	</plugin>
+----
+====
 
-如果该类具有一个带有至少一个参数的构造函数,则为每个构造函数参数创建一个属性.  否则,将通过存在标准的 `getter` 和 `setter` 并对集合类型进行特殊处理来发现属性(即使仅存在getter也会被检测到) .
+[[configuration-metadata-annotation-processor-metadata-generation]]
+=== 自动生成元数据
 
-注解处理器还支持使用 `@Data`,`@Getter` 和 `@Setter` lombok注解.
+处理器选择用 `@ConfigurationProperties` 注解的类和方法.  配置类中字段值的 Javadoc 用于填充 `description` 属性.
+
+如果该类也用 `@ConstructorBinding` 注解,则应使用单个构造函数,则为每个构造函数参数创建一个属性.  否则,将通过存在标准的 `getter` 和 `setter` 并对集合或 Map 类型进行特殊处理来发现属性(即使仅存在 getter 也会被检测到) .
+
+注解处理器还支持使用 `@Data`,`@Getter` 和 `@Setter` lombok 注解.
+
+考虑下面的示例:
+
+[source,java,indent=0,subs="verbatim,attributes"]
+----
+	@ConfigurationProperties(prefix="server")
+	public class ServerProperties {
+
+	    /**
+	    * Name of the server.
+	    */
+		private String name;
+
+		/**
+         * IP address to listen to.
+         */
+		private String ip = "127.0.0.1";
+
+		/**
+		* Port to listener to.
+		*/
+		private int port = 9797;
+
+		// ... getter and setters
+
+	}
+----
+
+上面暴露了三个属性，其中 `server.name` 没有默认值，`server.ip` 和 `server.port` 分别默认为 `"127.0.0.1"` 和 `9797`.
+字段上的 Javadoc 用于填充 `description`  属性。 例如， `server.ip`  的 `description` 是 "IP address to listen to".
+
+NOTE: 您仅应将简单文本与 `@ConfigurationProperties` 字段 Javadoc 一起使用,因为在将它们添加到 JSON 之前不会对其进行处理.
+
+注释处理器应用多种启发式方法从源模型中提取默认值.
+必须静态提供默认值。 特别是不要引用另一个类中定义的常量.
 
 注解处理器无法自动检测  ``Enum`` 和 ``Collections` 的默认值.  在 `Collection` 或 `Enum` 属性具有非空默认值的情况下,应提供<<configuration-metadata-additional-metadata,手动元数据>>.
 
@@ -674,29 +747,12 @@ NOTE: 您仅应将简单文本与 `@ConfigurationProperties` 字段Javadoc一起
 	]}
 ----
 
-只需要属性 `name`  即可记录带有手动元数据的其他字段.
+NOTE: 只需要属性 `name`  即可记录带有手动元数据的其他字段.
 
-[NOTE]
-====
-如果在项目中使用 AspectJ,则需要确保注解处理器仅运行一次.  有几种方法可以做到这一点.  使用Maven,您可以显式配置 `maven-apt-plugin` 并将依赖仅添加到注解处理器中.
-您还可以让 AspectJ 插件在 `maven-compiler-plugin` 配置中运行所有处理并禁用注解处理,如下所示:
+[[configuration-metadata-annotation-processor-metadata-generation-nested]]
+==== 嵌套属性
 
-[source,xml,indent=0,subs="verbatim,quotes,attributes"]
-----
-	<plugin>
-		<groupId>org.apache.maven.plugins</groupId>
-		<artifactId>maven-compiler-plugin</artifactId>
-		<configuration>
-			<proc>none</proc>
-		</configuration>
-	</plugin>
-----
-====
-
-[[configuration-metadata-nested-properties]]
-=== 嵌套属性
-
-注解处理器自动将内部类视为嵌套属性.  考虑以下类:
+注解处理器自动将内部类视为嵌套属性. 与其在命名空间的根部记录 `ip` 和 `port`，不如为它创建一个子命名空间 考虑以下类:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----

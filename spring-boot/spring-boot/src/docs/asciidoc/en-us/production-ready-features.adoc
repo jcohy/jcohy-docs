@@ -11,7 +11,7 @@ Auditing, health, and metrics gathering can also be automatically applied to you
 [[production-ready-enabling]]
 == Enabling Production-ready Features
 The {spring-boot-code}/spring-boot-project/spring-boot-actuator[`spring-boot-actuator`] module provides all of Spring Boot's production-ready features.
-The simplest way to enable the features is to add a dependency to the `spring-boot-starter-actuator` '`Starter`'.
+The recommended way to enable the features is to add a dependency on the `spring-boot-starter-actuator` '`Starter`'.
 
 .Definition of Actuator
 ****
@@ -445,6 +445,13 @@ If you add a `@Bean` annotated with `@Endpoint`, any methods annotated with `@Re
 Endpoints can be exposed over HTTP using Jersey, Spring MVC, or Spring WebFlux.
 If both Jersey and Spring MVC are available, Spring MVC will be used.
 
+The following example exposes a read operation that returns a custom object:
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/endpoint/CustomEndpointExample.java[tag=read]
+----
+
 You can also write technology-specific endpoints by using `@JmxEndpoint` or `@WebEndpoint`.
 These endpoints are restricted to their respective technologies.
 For example, `@WebEndpoint` is exposed only over HTTP and not over JMX.
@@ -475,10 +482,15 @@ Consider the following JSON request body:
 	}
 ----
 
-This can be used to invoke a write operation that takes `String name` and `int counter` parameters.
+This can be used to invoke a write operation that takes `String name` and `int counter` parameters, as shown in the following example:
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/endpoint/CustomEndpointExample.java[tag=write]
+----
 
 TIP: Because endpoints are technology agnostic, only simple types can be specified in the method signature.
-In particular declaring a single parameter with a custom type defining a `name` and `counter` properties is not supported.
+In particular declaring a single parameter with a `CustomData` type defining a `name` and `counter` properties is not supported.
 
 NOTE: To allow the input to be mapped to the operation method's parameters, Java code implementing an endpoint should be compiled with `-parameters`, and Kotlin code implementing an endpoint should be compiled with `-java-parameters`.
 This will happen automatically if you are using Spring Boot's Gradle plugin or if you are using Maven and `spring-boot-starter-parent`.
@@ -669,7 +681,7 @@ The following `HealthIndicators` are auto-configured by Spring Boot when appropr
 | {spring-boot-actuator-module-code}/jdbc/DataSourceHealthIndicator.java[`DataSourceHealthIndicator`]
 | Checks that a connection to `DataSource` can be obtained.
 
-| {spring-boot-actuator-module-code}/elasticsearch/ElasticSearchRestHealthContributorAutoConfiguration.java[`ElasticSearchRestHealthContributorAutoConfiguration`]
+| {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchRestHealthIndicator.java[`ElasticsearchRestHealthIndicator`]
 | Checks that an Elasticsearch cluster is up.
 
 | {spring-boot-actuator-module-code}/hazelcast/HazelcastHealthIndicator.java[`HazelcastHealthIndicator`]
@@ -1309,14 +1321,7 @@ You can apply customizations to particular registry implementations by being mor
 	}
 ----
 
-With that setup in place you can inject `MeterRegistry` in your components and register metrics:
-
-[source,java,indent=0]
-----
-include::{code-examples}/actuate/metrics/SampleBean.java[tag=example]
-----
-
-Spring Boot also <<production-ready-metrics-meter,configures built-in instrumentation>> (i.e. `MeterBinder` implementations) that you can control via configuration or dedicated annotation markers.
+Spring Boot also <<production-ready-metrics-meter,configures built-in instrumentation>> that you can control via configuration or dedicated annotation markers.
 
 
 
@@ -1328,7 +1333,7 @@ Spring Boot also <<production-ready-metrics-meter,configures built-in instrument
 [[production-ready-metrics-export-appoptics]]
 ==== AppOptics
 By default, the AppOptics registry pushes metrics to `https://api.appoptics.com/v1/measurements` periodically.
-To export metrics to SaaS {micrometer-registry-docs}/appoptics[AppOptics], your API token must be provided:
+To export metrics to SaaS {micrometer-registry-docs}/appOptics[AppOptics], your API token must be provided:
 
 [source,properties,indent=0,configprops]
 ----
@@ -1559,8 +1564,9 @@ To enable Prometheus Pushgateway support, add the following dependency to your p
 </dependency>
 ----
 
-When the Prometheus Pushgateway dependency is present on the classpath, Spring Boot auto-configures a `PrometheusPushGatewayManager` bean.
+When the Prometheus Pushgateway dependency is present on the classpath and the configprop:management.metrics.export.prometheus.pushgateway.enabled[] property is set to `true`, a `PrometheusPushGatewayManager` bean is auto-configured.
 This manages the pushing of metrics to a Prometheus Pushgateway.
+
 The `PrometheusPushGatewayManager` can be tuned using properties under `management.metrics.export.prometheus.pushgateway`.
 For advanced configuration, you can also provide your own `PrometheusPushGatewayManager` bean.
 
@@ -1568,7 +1574,7 @@ For advanced configuration, you can also provide your own `PrometheusPushGateway
 
 [[production-ready-metrics-export-signalfx]]
 ==== SignalFx
-SignalFx registry pushes metrics to {micrometer-registry-docs}/signalfx[SignalFx] periodically.
+SignalFx registry pushes metrics to {micrometer-registry-docs}/signalFx[SignalFx] periodically.
 To export metrics to https://www.signalfx.com[SignalFx], your access token must be provided:
 
 [source,properties,indent=0,configprops]
@@ -1603,7 +1609,7 @@ You can also disable it explicitly:
 [[production-ready-metrics-export-statsd]]
 ==== StatsD
 The StatsD registry pushes metrics over UDP to a StatsD agent eagerly.
-By default, metrics are exported to a {micrometer-registry-docs}/statsd[StatsD] agent running on your local machine.
+By default, metrics are exported to a {micrometer-registry-docs}/statsD[StatsD] agent running on your local machine.
 The StatsD agent host and port to use can be provided using:
 
 [source,properties,indent=0,configprops]
@@ -1916,8 +1922,16 @@ To register custom metrics, inject `MeterRegistry` into your component, as shown
 include::{code-examples}/actuate/metrics/MetricsMeterRegistryInjectionExample.java[tag=component]
 ----
 
-If you find that you repeatedly instrument a suite of metrics across components or applications, you may encapsulate this suite in a `MeterBinder` implementation.
+If you metrics depend on other beans, it is recommend that you use a `MeterBinder` to register them, as shown in the following example:
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag=example]
+----
+
+Using a `MeterBinder` ensures that the correct dependency relationships are set up and that the bean is available when the metric's value is retrieved.
 By default, metrics from all `MeterBinder` beans will be automatically bound to the Spring-managed `MeterRegistry`.
+A `MeterBinder` implementation can also be useful if you find that you repeatedly instrument a suite of metrics across components or applications..
 
 
 
@@ -2009,7 +2023,7 @@ You can also add any number of `tag=KEY:VALUE` query parameters to the end of th
 ====
 The reported measurements are the _sum_ of the statistics of all meters matching the meter name and any tags that have been applied.
 So in the example above, the returned "Value" statistic is the sum of the maximum memory footprints of "Code Cache", "Compressed Class Space", and "Metaspace" areas of the heap.
-If you just wanted to see the maximum size for the "Metaspace", you could add an additional `tag=id:Metaspace`, i.e. `/actuator/metrics/jvm.memory.max?tag=area:nonheap&tag=id:Metaspace`.
+If you only wanted to see the maximum size for the "Metaspace", you could add an additional `tag=id:Metaspace`, i.e. `/actuator/metrics/jvm.memory.max?tag=area:nonheap&tag=id:Metaspace`.
 ====
 
 

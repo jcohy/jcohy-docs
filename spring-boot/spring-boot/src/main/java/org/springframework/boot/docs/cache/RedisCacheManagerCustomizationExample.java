@@ -16,12 +16,12 @@
 
 package org.springframework.boot.docs.cache;
 
+import java.time.Duration;
+
 import org.springframework.boot.autoconfigure.cache.RedisCacheManagerBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
-
-import java.time.Duration;
 
 /**
  * An example how to customize {@code RedisCacheManagerBuilder} via
