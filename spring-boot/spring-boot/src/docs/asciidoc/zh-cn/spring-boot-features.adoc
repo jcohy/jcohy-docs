@@ -125,6 +125,17 @@ TIP: 如果您想以编程的方式生成 banner,可以使用 `SpringApplication
 
 打印的 banner 的单例 bean 名为 `springBootBanner` .
 
+[NOTE]
+====
+只有在使用 Spring Boot 启动时，`$ {application.version}` 和 `${application.formatted-version}` 属性才可用。
+如果您运行的是未打包的 jar 并以 `java -cp <classpath> <mainclass>` 开头，则无法解析这些值。
+
+这就是为什么我们建议您始终使用通过 `java org.springframework.boot.loader.JarLauncher` 来启动未打包的 jar 的原因。
+这将在构建类路径并启动您的应用程序之前初始化 `application.*` 变量.
+====
+
+
+
 [[boot-features-customizing-spring-application]]
 === 自定义 SpringApplication
 如果 `SpringApplication` 的默认设置不符合您的想法,您可以创建本地实例进行定制化. 例如,要关闭 banner,您可以这样:
@@ -409,6 +420,9 @@ Spring Boot 使用了一个非常特别的 `PropertySource` 指令,用于智能�
 ----
 
 在您的应用程序的 classpath 中 (比如在 jar 中) ,您可以有一个 `application.properties`,它为 name 提供了一个合适的默认属性值. 当在新环境中运行时,您可以在 jar 外面提供一个 `application.properties` 来覆盖 `name`. 对于一次性测试,您可以使用命令行指定形式启动 (比如 `java -jar app.jar --name="Spring"`) .
+
+TIP: `env` 和 `configprops` 端点在确定属性的特定值时很有用。您可以使用这两个端点来诊断意外的属性值。
+有关详细信息，请参见 "<<production-ready-features.adoc#production-ready-endpoints, 生产就绪>>" 部分.
 
 加载配置文件时,Spring Boot 还支持通配符位置. 默认情况下,jar 支持通配符 `config/*/` 位置. 指定 `spring.config.additional-location` 和 `spring.config.location` 时,也支持通配符位置.
 
@@ -1088,15 +1102,20 @@ TIP: 我们建议,属性尽可能以小写的短横线格式存储,比如 `my.pr
 ----
 	acme:
 	  map:
-	    "[/key1]": value1
-	    "[/key2]": value2
-	    /key3: value3
+	    "[/key1]": "value1"
+	    "[/key2]": "value2"
+	    "/key3": "value3"
 
 ----
 
-上面的属性将绑定到一个 `Map` 上,其中 `/key1`,`/key2` 和 `key3` 作为 map 的 key.
-
 NOTE: 对于 YAML 文件,方括号需要用引号引起来,以便正确解析 keys.
+
+上面的属性将绑定到一个 `Map` 上,其中 `/key1`,`/key2` 和 `key3` 作为 map 的 key.
+该斜杠已从 `key3` 中删除，因为它没有被方括号包围。.
+
+如果您的 `key` 包含  `.` 并且绑定为非数值类型，则有可能也需要使用方括号表示法.
+例如, 将 `a.b=c` 绑定到 `Map<String, Object>` 将返回一个带有 `{"a"={"b"="c"}}` entry 的 Map,其中 `[a.b]=c` 会返回一个带有 `{"a.b"="c"}` entry 的 Map.
+
 
 [[boot-features-external-config-relaxed-binding-from-environment-variables]]
 ===== 从环境变量绑定
@@ -1379,7 +1398,7 @@ NOTE: [[boot-features-external-config-vs-value-note]] 如果您确实想使用 `
 
 如果您要为自己的组件定义一组配置 key,我们建议您将它们分组到使用 `@ConfigurationProperties` 注解的 POJO 中.这样做将为您提供结构化,类型安全的对象,您可以将其注入到自己的 bean 中.
 
-解析这些文件并填充环境时,不会处理来自应用程序属性文件的 SpEL 表达式. 但是,可以在 `@Value` 中编写 SpEL 表达式. 如果 <<boot-features-external-config-application-property-files,应用程序属性文件>> 中的属性值是 SpEL 表达式,则在通过 `@Value` 进行使用时将对其进行评估.
+解析这些文件并填充环境时,不会处理来自 <<boot-features-external-config-application-property-files, 应用程序属性文件>> 的 SpEL 表达式. 但是,可以在 `@Value` 中编写 SpEL 表达式. 如果 <<boot-features-external-config-application-property-files,应用程序属性文件>> 中的属性值是 SpEL 表达式,则在通过 `@Value` 进行使用时将对其进行评估.
 
 [[boot-features-profiles]]
 == Profiles
@@ -1626,7 +1645,22 @@ Spring Boot 包含以下预定义的日志记录组,可以直接使用:
 | `org.springframework.jdbc.core`, `org.hibernate.SQL`, `org.jooq.tools.LoggerListener`
 |===
 
+[[boot-features-log-shutdown-hook]]
+=== 使用日志 Shutdown 钩子
+为了释放日志记录资源，通常最好的做法就是在应用程序终止时停止日志记录系统。
+不幸的是，没有一种方法可以适用于所有应用程序类型。
+如果您的应用程序具有复杂的上下文层次结构或作为 war 文件部署，则需要研究基础日志系统直接提供的选项。
+例如，Logback 提供了 http://logback.qos.ch/manual/loggingSeparation.html[context selectors]，它允许在自己的上下文中创建每个 Logger。
 
+对于在自己的 JVM 中部署的简单 “jar” 应用程序，可以使用 `logging.register-shutdown-hook`  属性。
+将 `logging.register-shutdown-hook` 设置为 `true` 将注册一个关闭钩子，当 JVM 退出时，该钩子将触发日志系统清理。
+
+您可以在 `application.properties` 或 `application.yaml` 文件中设置属性:
+
+[source,properties,indent=0,configprops]
+----
+	logging.register-shutdown-hook=true
+----
 
 [[boot-features-custom-log-configuration]]
 === 自定义日志配置
@@ -1889,6 +1923,15 @@ Spring Boot 提供了适用于大多数 Spring MVC 应用的自动配置 (auto-c
 如果您想自定义 `RequestMappingHandlerMapping`、`RequestMappingHandlerAdapter` 或者 `ExceptionHandlerExceptionResolver` 实例,可以声明一个 `WebMvcRegistrationsAdapter` 实例来提供这些组件.
 
 如果您想完全掌控 Spring MVC,可以添加自定义注解了 `@EnableWebMvc` 的 `@Configuration` 配置类. 或者添加自己的 `@Configuration` 注解的 `DelegatingWebMvcConfiguration`,如Java文档中的 `@EnableWebMvc` 所述.  .
+
+[NOTE]
+====
+Spring MVC 使用了一种不同的 `ConversionService`，该转换器用于转换 `application.properties` 或 `application.yaml` 文件中的值。
+这意味着 `Period`，`Duration` 和 `DataSize` 转换器不可用，而 `@DurationUnit` 和 `@DataSizeUnit` 注解将被忽略.
+
+如果您想自定义 Spring MVC 使用的 `ConversionService`，则可以为 `WebMvcConfigurer` bean 提供 `addFormatters` 方法。
+通过此方法，您可以注册所需的任何转换器，也可以委托给 `ApplicationConversionService` 上可用的静态方法.
+====
 
 [[boot-features-spring-mvc-message-converters]]
 ==== HttpMessageConverters
@@ -3203,7 +3246,12 @@ Spring Data 资源库通常继承自 {spring-data-commons-api}/repository/Reposi
 
 Spring Data JPA 资源库支持三种不同的引导模式: `default`、`deferred` 和 `lazy`. 要启用延迟或懒惰引导,请将 `spring.data.jpa.repositories.bootstrap-mode` 分别设置为 `deferred` 或 `lazy`. 使用延迟或延迟引导时,自动配置的 `EntityManagerFactoryBuilder` 将使用上下文的 `AsyncTaskExecutor`  (如果有) 作为 `applicationTaskExecutor`.
 
-NOTE: 使用 deferred 或 lazy bootstraping 时,请确保在应用程序上下文阶段之后,延迟对 JPA 的任何访问.
+[NOTE]
+====
+使用 deferred 或 lazy bootstraping 时,请确保在应用程序上下文阶段之后,延迟对 JPA 的任何访问.
+您可以使用  `SmartInitializingSingleton`  来调用任何需要 JPA 基础结构的初始化。
+对于以 Spring Bean 创建的 JPA 组件（例如转换器），请使用 `ObjectProvider` 延迟对依赖项的解析(如果有)
+====
 
 TIP: 我们几乎没有接触到 Spring Data JPA 的表面内容. 有关详细信息,请查阅 {spring-data-jdbc-docs}[Spring Data JPA 参考文档].
 
@@ -3731,6 +3779,9 @@ TIP: 有关 Spring Data Neo4j 的完整详细信息,包括其对象映射技术,
 [[boot-features-solr]]
 === Solr
 https://lucene.apache.org/solr/[Apache Solr] 是一个搜素引擎. Spring Boot 为 Solr 5 客户端类库提供了基本的自动配置,并且  https://github.com/spring-projects/spring-data-solr[Spring Data Solr] 为其提供给了顶层抽象. 相关的依赖包含在了 `spring-boot-starter-data-solr` starter 中.
+
+NOTE: 从 Spring Boot 2.3 开始，已弃用对 Spring Data Solr 的支持，并将在以后的发行版中将其删除.
+
 
 [[boot-features-connecting-to-solr]]
 ==== 连接 Solr
@@ -5377,7 +5428,7 @@ Spring Boot包含一个 `@MockBean` 注解,可用于为 `ApplicationContext` 中
 
 [source,java,indent=0]
 ----
-	@TestExecutionListeners(MockitoTestExecutionListener.class)
+	@TestExecutionListeners({ MockitoTestExecutionListener.class, ResetMocksTestExecutionListener.class })
 ----
 
 ====
@@ -5650,7 +5701,8 @@ TIP: 有时编写 Spring WebFlux 测试是不够的.  Spring Boot可以帮助您
 [[boot-features-testing-spring-boot-applications-testing-autoconfigured-jpa-test]]
 ==== 自动配置的 Data JPA 测试
 您可以使用 `@DataJpaTest` 注解来测试 JPA 应用程序.  默认情况下,它将扫描 `@Entity` 类并配置 Spring Data JPA 存储库.  如果在类路径上有嵌入式数据库,它也将配置一个.  使用 `@DataJpaTest` 注解时,不扫描常规 `@Component`,`@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean
-
+默认情况下，通过将 `spring.jpa.show-sql` 属性设置为 `true` 来记录 SQL 查询。
+可以使用注解的 `showSql()` 属性禁用此功能。
 
 TIP: 可以在<<appendix-test-auto-configuration.adoc#test-auto-configuration,附录中>>找到由 `@DataJpaTest` 启用的自动配置设置的列表.
 
