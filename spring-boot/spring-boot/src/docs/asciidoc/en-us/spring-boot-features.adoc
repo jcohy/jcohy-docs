@@ -150,6 +150,15 @@ You can also use the configprop:spring.main.banner-mode[] property to determine 
 
 The printed banner is registered as a singleton bean under the following name: `springBootBanner`.
 
+[NOTE]
+====
+The `${application.version}` and `${application.formatted-version}` properties are only available if you are using Spring Boot launchers.
+The values won't be resolved if you are running an unpacked jar and starting it with `java -cp <classpath> <mainclass>`.
+
+This is why we recommend that you always use launch unpacked jars using `java org.springframework.boot.loader.JarLauncher`.
+This will initialize the `application.*` banner variables before building the classpath and launching your app.
+====
+
 
 
 [[boot-features-customizing-spring-application]]
@@ -495,6 +504,10 @@ To provide a concrete example, suppose you develop a `@Component` that uses a `n
 On your application classpath (for example, inside your jar) you can have an `application.properties` file that provides a sensible default property value for `name`.
 When running in a new environment, an `application.properties` file can be provided outside of your jar that overrides the `name`.
 For one-off testing, you can launch with a specific command line switch (for example, `java -jar app.jar --name="Spring"`).
+
+TIP: The `env` and `configprops` endpoints can be useful in determining why a property has a particular value.
+You can use these two endpoints to diagnose unexpected property values.
+See the "<<production-ready-features.adoc#production-ready-endpoints, Production ready features>>" section for details.
 
 Spring Boot also supports wildcard locations when loading configuration files.
 By default, a wildcard location of `config/*/` outside of your jar is supported.
@@ -1265,23 +1278,29 @@ TIP: We recommend that, when possible, properties are stored in lower-case kebab
 
 [[boot-features-external-config-relaxed-binding-maps]]
 ===== Binding Maps
-When binding to `Map` properties, if the `key` contains anything other than lowercase alpha-numeric characters or `-`, you need to use the bracket notation so that the original value is preserved.
-If the key is not surrounded by `[]`, any characters that are not alpha-numeric or `-` are removed.
-For example, consider binding the following properties to a `Map`:
+When binding to `Map` properties you may need to use a special bracket notation so that the original `key` value is preserved.
+If the key is not surrounded by `[]`, any characters that are not alpha-numeric, `-` or `.` are removed.
+
+For example, consider binding the following properties to a `Map<String,String>`:
 
 [source,yaml,indent=0]
 ----
 	acme:
 	  map:
-	    "[/key1]": value1
-	    "[/key2]": value2
-	    /key3: value3
+	    "[/key1]": "value1"
+	    "[/key2]": "value2"
+	    "/key3": "value3"
 
 ----
 
-The properties above will bind to a `Map` with `/key1`, `/key2` and `key3` as the keys in the map.
-
 NOTE: For YAML files, the brackets need to be surrounded by quotes for the keys to be parsed properly.
+
+The properties above will bind to a `Map` with `/key1`, `/key2` and `key3` as the keys in the map.
+The slash has been removed from `key3` because it wasn't surrounded by square brackets.
+
+You may also occasionally need to use the bracket notation if your `key` contains a `.` and you are binding to non-scalar value.
+For example, binding `a.b=c` to `Map<String, Object>` will return a Map with the entry `{"a"={"b"="c"}}` where as `[a.b]=c` will return a Map with the entry `{"a.b"="c"}`. 
+
 
 
 [[boot-features-external-config-relaxed-binding-from-environment-variables]]
@@ -1612,7 +1631,7 @@ If you used `@Value("{demo.itemPrice}")` instead, `demo.item-price` and `DEMO_IT
 If you define a set of configuration keys for your own components, we recommend you group them in a POJO annotated with `@ConfigurationProperties`.
 Doing so will provide you with structured, type-safe object that you can inject into your own beans.
 
-`SpEL` expressions from   are not processed at time of parsing these files and populating the environment.
+`SpEL` expressions from  <<boot-features-external-config-application-property-files,application property files>> are not processed at time of parsing these files and populating the environment.
 However, it is possible to write a `SpEL` expression in `@Value`.
 If the value of a property from an application property file is a `SpEL` expression, it will be evaluated when consumed via `@Value`.
 
@@ -1912,6 +1931,25 @@ Spring Boot includes the following pre-defined logging groups that can be used o
 | sql
 | `org.springframework.jdbc.core`, `org.hibernate.SQL`, `org.jooq.tools.LoggerListener`
 |===
+
+
+
+[[boot-features-log-shutdown-hook]]
+=== Using a Log Shutdown Hook
+In order to release logging resources it is usually a good idea to stop the logging system when your application terminates.
+Unfortunately, there's no single way to do this that will work with all application types.
+If your application has complex context hierarchies or is deployed as a war file, you'll need to investigate the options provided directly by the underlying logging system.
+For example, Logback offers http://logback.qos.ch/manual/loggingSeparation.html[context selectors] which allow each Logger to be created in its own context.
+
+For simple "single jar" applications deployed in their own JVM, you can use the `logging.register-shutdown-hook` property.
+Setting `logging.register-shutdown-hook` to `true` will register a shutdown hook that will trigger log system cleanup when the JVM exits.
+
+You can set the property in your `application.properties` or `application.yaml` file:
+
+[source,properties,indent=0,configprops]
+----
+	logging.register-shutdown-hook=true
+----
 
 
 
@@ -2238,6 +2276,16 @@ If you want to keep those Spring Boot MVC customizations and make more {spring-f
 If you want to provide custom instances of `RequestMappingHandlerMapping`, `RequestMappingHandlerAdapter`, or `ExceptionHandlerExceptionResolver`, and still keep the Spring Boot MVC customizations, you can declare a bean of type `WebMvcRegistrations` and use it to provide custom instances of those components.
 
 If you want to take complete control of Spring MVC, you can add your own `@Configuration` annotated with `@EnableWebMvc`, or alternatively add your own `@Configuration`-annotated `DelegatingWebMvcConfiguration` as described in the Javadoc of `@EnableWebMvc`.
+
+[NOTE]
+====
+Spring MVC uses a different `ConversionService` to the one used to convert values from your `application.properties` or `application.yaml` file.
+The means that `Period`, `Duration` and `DataSize` converters are not available and that `@DurationUnit` and `@DataSizeUnit` annotations will be ignored.
+
+If you want to customize the `ConversionService` used by Spring MVC, you can provide a `WebMvcConfigurer` bean with an `addFormatters` method.
+From this method you can register any converter that you like, or you can delegate to the static methods available on `ApplicationConversionService`.
+====
+
 
 
 [[boot-features-spring-mvc-message-converters]]
@@ -3845,7 +3893,13 @@ To enable deferred or lazy bootstrapping, set the configprop:spring.data.jpa.rep
 When using deferred or lazy bootstrapping, the auto-configured `EntityManagerFactoryBuilder` will use the context's `AsyncTaskExecutor`, if any, as the bootstrap executor.
 If more than one exists, the one named `applicationTaskExecutor` will be used.
 
-NOTE: When using deferred or lazy bootstraping, make sure to defer any access to the JPA infrastructure after the application context bootstrap phase.
+[NOTE]
+====
+When using deferred or lazy bootstraping, make sure to defer any access to the JPA infrastructure after the application context bootstrap phase.
+You can use `SmartInitializingSingleton` to invoke any initialization that requires the JPA infrastructure.
+For JPA components (such as converters) that are created as Spring beans, use `ObjectProvider` to delay the resolution of dependencies, if any.
+====
+
 
 TIP: We have barely scratched the surface of Spring Data JPA.
 For complete details, see the {spring-data-jdbc-docs}[Spring Data JPA reference documentation].
@@ -4494,6 +4548,7 @@ https://lucene.apache.org/solr/[Apache Solr] is a search engine.
 Spring Boot offers basic auto-configuration for the Solr 5 client library and the abstractions on top of it provided by https://github.com/spring-projects/spring-data-solr[Spring Data Solr].
 There is a `spring-boot-starter-data-solr` "`Starter`" for collecting the dependencies in a convenient way.
 
+NOTE: As of Spring Boot 2.3, support for Spring Data Solr has been deprecated and will be removed in a future release.
 
 
 [[boot-features-connecting-to-solr]]
@@ -4730,7 +4785,7 @@ There are `spring-boot-starter-data-couchbase` and `spring-boot-starter-data-cou
 ==== Connecting to Couchbase
 You can get a `Cluster` by adding the Couchbase SDK and some configuration.
 The `spring.couchbase.*` properties can be used to customize the connection.
-Generally, you provide the , username, and password, as shown in the following example:
+Generally, you provide the https://github.com/couchbaselabs/sdk-rfcs/blob/master/rfc/0011-connection-string.md[connection string], username, and password, as shown in the following example:
 
 [source,properties,indent=0,configprops]
 ----
@@ -5107,7 +5162,7 @@ See https://github.com/infinispan/infinispan-spring-boot[Infinispan's documentat
 
 [[boot-features-caching-provider-couchbase]]
 ==== Couchbase
-If Spring Data Couchbase is available and Couchbase is , a `CouchbaseCacheManager` is auto-configured.
+If Spring Data Couchbase is available and Couchbase is <<boot-features-couchbase,configured>>, a `CouchbaseCacheManager` is auto-configured.
 It is possible to create additional caches on startup by setting the configprop:spring.cache.cache-names[] property and cache defaults can be configured by using `spring.cache.couchbase.*` properties.
 For instance, the following configuration creates `cache1` and `cache2` caches with an entry _expiration_ of 10 minutes:
 
@@ -6540,11 +6595,11 @@ Mock beans are automatically reset after each test method.
 [NOTE]
 ====
 If your test uses one of Spring Boot's test annotations (such as `@SpringBootTest`), this feature is automatically enabled.
-To use this feature with a different arrangement, a listener must be explicitly added, as shown in the following example:
+To use this feature with a different arrangement, listeners must be explicitly added, as shown in the following example:
 
 [source,java,indent=0]
 ----
-	@TestExecutionListeners(MockitoTestExecutionListener.class)
+	@TestExecutionListeners({ MockitoTestExecutionListener.class, ResetMocksTestExecutionListener.class })
 ----
 
 ====
@@ -6863,6 +6918,9 @@ TIP: Sometimes writing Spring WebFlux tests is not enough; Spring Boot can help 
 You can use the `@DataJpaTest` annotation to test JPA applications.
 By default, it scans for `@Entity` classes and configures Spring Data JPA repositories.
 If an embedded database is available on the classpath, it configures one as well.
+SQL queries are logged by default by setting the `spring.jpa.show-sql` property to `true`.
+This can be disabled using the `showSql()` attribute of the annotation.
+
 Regular `@Component` and `@ConfigurationProperties` beans are not scanned when the `@DataJpaTest` annotation is used.
 `@EnableConfigurationProperties` can be used to include `@ConfigurationProperties` beans.
 
@@ -7384,7 +7442,7 @@ Additional auto-configurations can be added on a test-by-test basis by creating 
 
 NOTE: Make sure to not use the regular `@Import` annotation to import auto-configurations as they are handled in a specific way by Spring Boot.
 
-Alternatively, additional auto-configurations can be added for any use of a slice annotation by registering them in  as shown in the following example:
+Alternatively, additional auto-configurations can be added for any use of a slice annotation by registering them in `META-INF/spring.factories` as shown in the following example:
 
 [indent=0]
 ----
