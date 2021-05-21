@@ -1,0 +1,881 @@
+[[verifying-dependencies]]
+= 验证依赖
+
+使用外部依赖和第三方仓库上发布的插件会使您的构建面临风险. 特别是,您需要知道哪些二进制文件是传递的,以及它们是否合法. 为了减轻安全风险并避免在项目中集成受损的依赖,Gradle 支持依赖验证.
+
+[IMPORTANT]
+====
+本质上,依赖验证是一个使用不便的功能. 这意味着,每当您要更新依赖时,构建都可能会失败. 这意味着合并分支将变得更加困难,因为每个分支可以具有不同的依赖. 这意味着您很想将其关闭.
+
+那你为什么要感到困扰?
+
+依赖验证是关于对所获得和所交付产品的信任.
+
+如果没有依赖验证,攻击者很容易破坏您的供应链. 现实世界中有许多通过添加恶意依赖而受到破坏的工具的示例. 依赖验证旨在通过迫使您确保构建中包含的 artifacts 与您期望的 artifacts 相同,从而保护自己免受那些攻击. 但是,这并不意味着阻止您包括易受攻击的依赖.
+
+很难在安全性和便利性之间找到适当的平衡,但是 Gradle 会尝试让您为您选择“正确的级别”.
+====
+
+依赖性验证包含两个不同的互补操作:
+
+- _checksum verification_, 可以判断依赖的完整性
+- _signature verification_, 可以判断依赖的来源
+
+Gradle 支持 checksum 和和 signature 验证,但是默认情况下不执行依赖验证.本节将指导您根据需要正确配置依赖验证.
+
+
+此功能可用于:
+
+- 检测受损的依赖
+- 检测被入侵的插件
+- 在本地依赖缓存中检测被篡改的依赖
+
+[NOTE]
+====
+依赖性验证是一个孵化功能: 详细信息可能会更改.
+====
+
+[[sub:enabling-verification]]
+== 启用依赖验证
+
+[[sub:verification-metadata]]
+=== 验证元数据文件
+
+[NOTE]
+====
+当前,依赖验证元数据的唯一来源是此XML配置文件. Gradle 的未来版本可能包括其他来源 (例如,通过外部服务) .
+====
+
+一旦发现用于依赖性验证的配置文件,就会自动启用依赖性验证. 该配置文件位于 `$PROJECT_ROOT/gradle/verification-metadata.xml`. 该文件至少包含以下内容:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+    </configuration>
+</verification-metadata>
+----
+
+这样做,Gradle 将使用 <<#sec:checksum-verification,checksums>> 和来验证所有 artifacts ,但不会验证 <<#sec:signature-verification,signatures>>. Gradle 将验证使用其依赖管理引擎下载的任何 artifacts ,包括但不限于:
+
+- 构建期间使用的 artifact files (例如 jar files, zips, ...)
+- metadata artifacts (POM files, Ivy descriptors, Gradle Module Metadata)
+- plugins (both project and settings plugins)
+- artifacts resolved using the advanced dependency resolution APIs
+
+Gradle 不会验证变化的依赖 (尤其是 `SNAPSHOT` 依赖) ,也不会验证本地产生的 artifacts (通常是在构建本身过程中产生的 jar) ,因为它们的 checksum 和和 signatures 本质上总是会改变的.
+
+
+有了如此少的配置文件,使用任何外部依赖或插件的项目将立即开始失败,因为它不包含任何 checksum 和.
+
+依赖验证配置是全局的: 单个文件用于配置整个构建的验证. 特别是, (子) 项目和 `buildSrc` 使用相同的文件.
+
+因此,一种简单的入门方法是为现有构建生成最小的配置.
+
+[[sec:verification-console-output]]
+=== 配置控制台输出
+
+默认情况下,如果依赖验证失败,则 Gradle 将生成有关验证失败的小摘要以及包含有关失败的完整信息的 HTML 报告. 如果您的环境阻止您阅读此 HTML 报告文件 (例如,如果您在 CI 上运行构建,并且获取远程 artifacts 并不容易) ,
+则 Gradle 提供了一种选择加入详细控制台报告的方法. 为此,您需要将此 Gradle 属性添加到 `gradle.properties` 文件中:
+
+----
+org.gradle.dependency.verification.console=verbose
+----
+
+[[sec:bootstrapping-verification]]
+=== 引导依赖验证
+
+值得一提的是,虽然 Gradle 可以为您生成依赖验证文件,但是您应该始终检查为您生成的 Gradle,因为您的构建可能已经包含受损的依赖,而您对此一无所知. 请参阅相应的 <<#sec:checksum-verification,checksum verification>> 或 <<#sec:signature-verification,signature verification>> 部分以获取更多信息.
+
+如果您打算使用 <<#sec:signature-verification,signature verification>>,请另外阅读文档的 <<sec:bootstrapping-signature-verification,相应部分>>.
+
+引导程序既可以用来从头开始创建文件,也可以使用新信息来更新现有文件. 因此,建议您在启动引导程序后始终使用相同的参数.
+
+可以使用以下 CLI 指令来生成依赖验证文件:
+
+----
+gradle --write-verification-metadata sha256 help
+----
+
+The `write-verification-metadata` 标志要求您要生成 <<#sec:signature-verification,signatures>>的 <<#sec:checksum-verification,checksums>> 和或 `pgp` 的列表.
+
+执行此命令行将使Gradle执行以下操作:
+
+* 解决所有 <<declaring_dependencies.adoc#sec:resolvable-consumable-configs,可解决的配置>>,包括:
+** 根项目中的配置
+** 所有子项目的配置
+** 来自 `buildSrc` 的配置
+** 包含的构建配置
+** 插件使用的配置
+* 下载在解析过程中发现的所有 artifacts
+* 计算请求的 checksums,并可能根据您的要求验证 signatures
+* 在构建结束时,生成配置文件,其中将包含推断的验证元数据
+
+结果,在后续的构建中将使用 `verification-metadata.xml`  文件来验证依赖.
+
+[WARNING]
+====
+Gradle 无法通过这种方式发现某些依赖. 特别是,您会注意到上面的 CLI 使用 `help` 任务. 如果您未指定任何任务,Gradle 也会自动运行默认任务并在构建结束时生成配置文件.
+
+不同之处在于 Gradle 可能会发现更多依赖和 artifacts ,具体取决于您执行的任务. 事实上,Gradle 无法自动发现分离的配置,这些分离的配置基本上是作为任务执行的内部实现细节解析的依赖图: 由于它们有效地依赖于它们,因此,它们尤其不声明为任务的输入. 执行时任务的配置.
+
+一个好的开始方法就是使用最简单的任务,即 `help`,它将尽可能多地发现,并且如果后续的构建因验证错误而失败,则可以使用适当的任务重新执行生成,以 "discover" 更多的依赖.
+
+Gradle 不会验证使用自己 HTTP 客户端的插件的 checksums 或签名. 只有使用Gradle提供的基础结构来执行请求的插件才能看到其请求已验证.
+====
+
+如果使用包含的版本:
+
+- 当前版本的配置文件用于验证
+- 因此,如果包含的内部版本本身使用验证,则会忽略其配置,而使用当前版本
+- 这意味着包含构建的工作方式与升级依赖相似: 它可能需要您更新当前的验证元数据
+
+[[sec:verification-dry-mode]]
+=== 使用 dry 模式
+
+默认情况下,引导是增量的,这意味着如果您多次运行它,信息会添加到文件中,尤其是您可以依靠 VCS 来检查差异. 在某些情况下,您只想查看生成的验证元数据文件的外观,而无需实际更改现有的覆盖或覆盖它.
+
+为此,您只需添加 `--dry-run` 即可:
+
+----
+gradle --write-verification-metadata sha256 help --dry-run
+----
+
+然后,将生成一个名为 `verification-metadata.dryrun.xml` 的新文件,而不是生成 `verification-metadata.xml`.
+
+[NOTE]
+====
+因为 `--dry-run` doesn't 不执行任务,这样会快得多,但是会错过在任务执行时发生的任何解决方案.
+====
+
+[[sec:disabling-metadata-verification]]
+=== 禁用元数据验证
+
+默认情况下,Gradle 不仅会验证 artifacts  (jar,...) ,还会验证与这些 artifacts 相关的元数据 (通常是 POM 文件) . 验证这一点可以确保最大程度的安全性: 元数据文件通常会告诉您将包括哪些传递性依赖,
+因此受损的元数据文件可能会导致在图形中引入不希望的依赖. 但是,由于所有 artifacts 都经过验证,因此您通常会很容易发现这些 artifacts ,因为它们会导致 checksum 验证失败 (checksum 会从验证元数据中丢失) .
+因为元数据验证会大大增加配置文件的大小,所以您可能要禁用元数据验证. 如果您了解这样做的风险,请在配置文件中将  `<verify-metadata>` 标志设置为 `false`:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>false</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+    </configuration>
+    <!-- the rest of this file doesn't need to declare anything about metadata files -->
+</verification-metadata>
+----
+
+[[sec:checksum-verification]]
+== 验证依赖 checksums
+
+ checksums 验证使您可以确保 artifacts 的完整性. 这是 Gradle 可以确保您使用的 artifacts 不受篡改的最简单的操作.
+
+Gradle 支持 MD5,SHA1,SHA-256 和 SHA-512 checksums. 但是,如今仅 SHA-256 和 SHA-512 checksums 被认为是安全的.
+
+=== 为 artifact 添加 checksums
+
+外部组件由 GAV 坐标标识,然后由每个 artifacts 的文件名标识. 要声明 artifacts 的 checksums,您需要在验证元数据文件中添加相应的部分. 例如,声明 https://pdfbox.apache.org[Apache PDFBox] 的 checksums. GAV 坐标为:
+
+- group `org.apache.pdfbox`
+- name `pdfbox`
+- version `2.0.17`
+
+使用此依赖将触发 2 个不同文件的下载
+
+- `pdfbox-2.0.17.jar` 这是主要 artifacts 
+- `pdfbox-2.0.17.pom` 是与此 artifacts 关联的元数据文件
+
+因此,您需要声明它们的 checksums  (除非您 <<sec:disabling-metadata-verification,禁用了元数据验证>>) :
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+   </configuration>
+   <components>
+      <component group="org.apache.pdfbox" name="pdfbox" version="2.0.17">
+         <artifact name="pdfbox-2.0.17.jar">
+            <sha512 value="7e11e54a21c395d461e59552e88b0de0ebaf1bf9d9bcacadf17b240d9bbc29bf6beb8e36896c186fe405d287f5d517b02c89381aa0fcc5e0aa5814e44f0ab331" origin="PDFBox Official site (https://pdfbox.apache.org/download.cgi)"/>
+         </artifact>
+         <artifact name="pdfbox-2.0.17.pom">
+            <sha512 value="82de436b38faf6121d8d2e71dda06e79296fc0f7bc7aba0766728c8d306fd1b0684b5379c18808ca724bf91707277eba81eb4fe19518e99e8f2a56459b79742f" origin="Generated by Gradle"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>
+----
+
+=== 从哪里获得 from?
+
+通常, checksums 与 artifacts 一起在公共仓库中发布. 但是,如果某个依赖在仓库中遭到破坏,则其 checksums 可能也会受到影响,因此,最好从另一个位置 (通常是 library 本身的网站) 获取 checksums .
+
+实际上,在与托管 artifacts 本身的服务器不同的服务器上发布 artifacts 的 checksums 是一种很好的安全做法: 很难破坏仓库和官方网站上的库.
+
+在上面的示例中, checksums 在网站上发布了 JAR,但未发布 POM 文件. 这就是为什么让 <<sec:bootstrapping-verification,Gradle 生成 checksums>> 并通过仔细检查生成的文件进行验证通常更容易的原因.
+
+在此示例中,我们不仅可以检查 checksums 是否正确,还可以在官方网站上找到它,这就是为什么我们将 `origin` 标签从 Gradle 更改为 `PDFBox Official site` 的原因. 更改原点可让用户了解您的构建的可信度.
+
+有趣的是,使用 `pdfbox` 将比这两个 artifacts 需要更多的东西,因为它还会带来可传递的依赖. 如果依赖性验证文件仅包含您使用的主要 artifacts 的 checksums ,则构建将失败,并显示如下错误:
+
+----
+Execution failed for task ':compileJava'.
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact commons-logging-1.2.jar (commons-logging:commons-logging:1.2) in repository 'MavenRepo': checksum is missing from verification metadata.
+    - On artifact commons-logging-1.2.pom (commons-logging:commons-logging:1.2) in repository 'MavenRepo': checksum is missing from verification metadata.
+----
+
+这表明您的版本在执行 `compileJava`, 时需要 `commons-logging`,但是验证文件没有足够的信息供 Gradle 验证依赖的完整性,这意味着您需要将所需信息添加到验证元数据文件中.
+
+有关在这种情况下的处理方法的更多信息,请参阅对 <<sec:troubleshooting-verification,依赖性验证进行故障诊断>>.
+
+=== 哪些 checksum 被验证?
+
+如果依赖验证元数据文件声明了一个依赖的多个 checksums ,则 Gradle 将验证所有 checksums,如果其中任何一个失败,则失败. 例如,以下配置将同时检查 `md5` 和 `sha256` checksums:
+
+[source,xml]
+----
+<component group="org.apache.pdfbox" name="pdfbox" version="2.0.17">
+   <artifact name="pdfbox-2.0.17.jar">
+      <md5 value="c713a8e252d0add65e9282b151adf6b4" origin="official site"/>
+      <sha1 value="b5c8dff799bd967c70ccae75e6972327ae640d35" origin="official site"/>
+   </artifact>
+</component>
+----
+
+您这样做的原因有多种:
+
+1. 官方网站不会发布安全 checksums  (SHA-256,SHA-512) ,但会发布多个不安全的 checksums  (MD5,SHA1) . 虽然伪造 MD5  checksums 很容易,但伪造 SHA1  checksums 却很可能,但为相同的 artifacts 伪造它们两者却更加困难.
+2. 您可能想将生成的 checksums 添加到上面的列表中
+3. 使用更安全的 checksums 更新依赖验证文件时,您不想意外删除 checksums
+
+[[sec:signature-verification]]
+== 验证依赖签名
+
+除了 <<sec:checksum-verification,checksums>>,Gradle 还支持签名验证. 签名用于评估依赖的来源 (它告诉谁签署了 artifacts ,通常对应于谁生成了该 artifacts ) .
+
+由于启用签名验证通常意味着更高的安全性,因此您可能希望将签名和校验替换为 checksums 验证.
+
+[WARNING]
+====
+与 checksums 类似,签名也可以用于评估依赖的完整性. 签名是人工产物哈希的签名,而不是人工产物本身. 这意味着,如果签名是在不安全的哈希值 (甚至是SHA1) 上完成的,则说明您没有正确评估文件的完整性. 因此,如果您同时关心两者,则需要将签名和 checksums 都添加到验证元数据中.
+====
+
+然而:
+
+- Gradle 仅支持验证以 ASCII 包装的 PGP 文件形式发布在远程仓库上的签名
+- 并非所有 artifacts 都带有签名发布
+- 好的签名并不意味着签名人是合法的
+
+因此,签名验证通常会与 checksums 验证一起使用.
+
+[NOTE]
+.关于过期密钥
+====
+通常会发现使用过期密钥签名的 artifacts . 这对于验证不是问题: 密钥有效期通常用于避免使用被盗的密钥进行签名. 如果 artifacts 在到期前已签名,则该 artifacts 仍然有效.
+====
+
+=== 启用签名验证
+
+由于验证签名的成本较高 (包括 I/O  和 CPU) ,并且难以手动检查,因此默认情况下未启用该功能.
+
+启用它需要您更改 `verification-metadata.xml` 文件中的配置选项:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-signatures>true</verify-signatures>
+   </configuration>
+</verification-metadata>
+----
+
+[[sec:understanding-signature-verification]]
+== 了解签名验证
+
+启用签名验证后,对于每个 artifacts ,Gradle 将:
+
+* 尝试下载相应的 `.asc` 文件
+* 如果存在
+** 自动下载执行签名验证所需的密钥
+** 使用下载的公共密钥验证 artifacts 
+** 如果签名验证通过,则执行其他请求的 checksums 验证
+* 如果不存在,则退回到 checksums 验证
+
+也就是说,如果启用了签名验证,则 Gradle 验证机制要比仅使用 checksums 验证强得多. 尤其是:
+
+- 如果 artifacts 使用多个密钥签名,则所有密钥都必须通过验证,否则构建将失败
+- 如果 artifacts 通过验证,则还将检查为 artifacts 配置的任何其他 checksums
+
+但是,这不是因为 artifacts 通过了您可以信任的签名验证: 您需要信任密钥.
+
+实际上,这意味着您需要列出每个 artifacts 所信任的密钥,这是通过添加 `pgp`  条目而不是 `sha1` 来完成的,例如:
+
+[source,xml]
+----
+<component group="com.github.javaparser" name="javaparser-core" version="3.6.11">
+   <artifact name="javaparser-core-3.6.11.jar">
+      <pgp value="8756c4f765c9ac3cb6b85d62379ce192d401ab61"/>
+   </artifact>
+</component>
+----
+
+[TIP]
+====
+Gradle 支持 `pgp` 中的完整指纹ID或长 (64位) 密钥ID,`trusted-key` 和 `ignore-key` 元素. 为了获得最大的安全性,您应该使用完整的指纹,因为长密钥ID可能会发生冲突.
+====
+
+这实际上表示您信任 `com.github.javaparser:javaparser-core:3.6.11` (如果它使用密钥 `8756c4f765c9ac3cb6b85d62379ce192d401ab61` 签名) .
+
+否则,构建将因以下错误而失败:
+
+----
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact javaparser-core-3.6.11.jar (com.github.javaparser:javaparser-core:3.6.11) in repository 'MavenRepo': Artifact was signed with key '8756c4f765c9ac3cb6b85d62379ce192d401ab61' (Bintray (by JFrog) <****>) and passed verification but the key isn't in your trusted keys list.
+----
+
+[NOTE]
+====
+Gradle 在错误消息中显示的密钥 ID 是它试图验证的签名文件中找到的密钥 ID. 这并不意味着它一定是您应该信任的密钥. 特别是,如果签名是正确的但是由恶意实体完成的,则 Gradle 不会告诉您.
+====
+
+[[sec:trusting-keys-globally]]
+=== Trusting keys globally
+
+签名验证的优点是,不必显式列出仅用于 checksums 验证的所有 artifacts ,就可以使依赖验证的配置更加容易. 实际上,通常可以使用同一密钥对多个 artifacts 进行签名. 在这种情况下,可以将可信密钥从 artifacts 级别移至全局配置块:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>true</verify-signatures>
+      <trusted-keys>
+         <trusted-key id="379ce192d401ab61" group="com.github.javaparser"/>
+      </trusted-keys>
+   </configuration>
+   <components/>
+</verification-metadata>
+----
+
+上面的配置意味着,对于属于 `com.github.javaparser` 组的任何 artifacts ,如果它用 `379ce192d401ab61` 签名,我们都相信它.
+
+`trusted-key` 元素的工作方式与 <<sec:trusting-artifacts,trusted-artifact>> 元素类似:
+
+- `group`, 要信任的 artifacts 组
+- `name`, 要信任的 artifacts 的名称
+- `version`,要信任的 artifacts 的版本
+- `file`, 要信任的 artifacts 文件的名称
+- `regex`, 用布尔值表示是否需要将 `group`, `name`, `version` and `file` 属性解释为正则表达式 (默认为 `false`)
+
+[WARNING]
+====
+全局信任密钥时应该小心: 尝试将其限制为适当的组或 artifacts :
+
+- 有效密钥可能已用于签署您信任的 artifacts  `A`
+- 之后,密钥被盗并用于对 artifacts  `B` 进行签名
+
+这意味着您可以信任第一个 artifacts 的密钥 `A`,可能仅信任密钥被盗之前的发行版本,而不能信任 `B`.
+
+请记住,任何人在生成 PGP 密钥时都可以输入任意名称,因此永远不要仅基于密钥名称来信任密钥. 验证密钥是否在官方站点上列出. 例如,Apache 项目通常提供您可以信任的 KEYS.txt 文件
+====
+
+[[sec:ignoring-keys]]
+=== 指定密钥服务器并忽略密钥
+
+Gradle 将自动下载验证签名所需的公钥. 为此,它使用了一系列知名且受信任的密钥服务器 (该列表可能会在 Gradle 版本之间发生变化,请参考实现以了解默认情况下使用的服务器) .
+
+您可以通过将它们添加到配置中来显式设置要使用的密钥服务器的列表:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>true</verify-signatures>
+      <key-servers>
+         <key-server uri="hkp://my-key-server.org"/>
+         <key-server uri="https://my-other-key-server.org"/>
+      </key-servers>
+   </configuration>
+</verification-metadata>
+----
+
+尽管如此,仍然可能无法使用密钥:
+
+- 因为它没有发布到公钥服务器
+- 因为它丢失了
+
+在这种情况下,您可以忽略配置块中的 key:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>true</verify-signatures>
+      <ignored-keys>
+         <ignored-key id="abcdef1234567890" reason="Key is not available in any key server"/>
+      </ignored-keys>
+   </configuration>
+</verification-metadata>
+----
+
+一旦密钥被忽略,即使签名文件中提到了密钥,也不会将其用于验证.但是,如果不能使用至少一个其他密钥来验证签名,则 Gradle 将要求您提供 checksums .
+
+[[sec:local-keyring]]
+=== 导出密钥以加快验证速度
+
+Gradle 自动下载所需的密钥,但是此操作可能会很慢,并且需要每个人都下载密钥. 为了避免这种情况,Gradle 提供了使用包含所需公共密钥的本地密钥环文件的功能.
+
+如果存在 `gradle/verification-keyring.gpg` 文件,则 Gradle 将优先在那里搜索密钥.
+
+您可以使用 GPG 生成此文件,例如发出以下命令 (语法可能取决于您使用的工具) :
+
+[source,bash]
+----
+$ gpg --no-default-keyring --keyring gradle/verification-keyring.gpg --recv-keys 379ce192d401ab61
+
+gpg: keybox 'gradle/verification-keyring.gpg' created
+gpg: key 379CE192D401AB61: public key "Bintray (by JFrog) <****>" imported
+gpg: Total number processed: 1
+gpg:               imported: 1
+
+$ gpg --no-default-keyring --keyring gradle/verification-keyring.gpg --recv-keys 6a0975f8b1127b83
+
+gpg: key 0729A0AFF8999A87: public key "Kotlin Release <****>" imported
+gpg: Total number processed: 1
+gpg:               imported: 1
+----
+
+或者,您也可以要求 Gradle 在引导过程中将用于验证此版本的所有密钥导出到密钥环:
+
+
+----
+./gradlew --write-verification-metadata pgp,sha256 --export-keys
+----
+
+[NOTE]
+====
+最好将此文件提交到 VCS (只要您信任 VCS) .如果使用 git,请通过将其添加到 `.gitattributes` 文件中,确保将其视为二进制文件:
+
+----
+*.gpg           binary
+----
+====
+
+[[sec:bootstrapping-signature-verification]]
+=== 引导和签名验证
+
+[WARNING]
+====
+签名验证引导采用乐观的观点,即签名验证就足够了. 因此,如果您还关心完整性,则**必须**首先使用 checksums 验证进行引导,然后再使用签名验证.
+====
+
+与引导 checksums 类似,Gradle 提供了一种在启用签名验证的情况下引导配置文件的便利. 为此,只需将 pgp 选项添加到要生成的验证列表中即可. 但是,由于可能存在验证失败,密钥丢失或签名文件丢失的情况,因此您必须提供后备 checksums 验证算法:
+
+----
+./gradlew --write-verification-metadata pgp,sha256
+----
+
+这意味着 Gradle 将在出现问题时验证签名并回退到 SHA-256  checksums .
+
+引导时,Gradle 会进行乐观验证,因此会假定构建环境合理. 因此,它将:
+
+- 验证通过后自动添加受信任的密钥
+- 自动为无法从公共密钥服务器下载的密钥添加忽略的密钥
+- 自动为没有签名或 `ignore-key` 的 artifacts 生成 checksums 
+
+如果由于某种原因在生成过程中验证失败,Gradle 将自动生成一个忽略的密钥条目,但警告您必须绝对检查会发生什么.
+
+如 <<sec:trusting-several-checksums,本节>> 所述,这种情况很常见: 一种典型情况是,一个依赖的 POM 文件在一个仓库与另一个仓库之间有所不同 (通常是无意义的) .
+
+另外,Gradle 会尝试自动对密钥进​​行分组并生成 `trusted-keys` 块,这会尽可能减少配置文件的大小.
+
+[[sec:troubleshooting-verification]]
+== 对依赖验证进行故障排除
+
+[[sec:dealing-verification-failure]]
+=== 处理验证失败
+
+依赖性验证可能会以不同的方式失败,本节说明了如何处理各种情况.
+
+==== 缺少验证元数据
+
+您可能遇到的最简单的故障是,依赖验证文件中缺少验证元数据. 例如,如果您使用 <<sec:checksum-verification,checksum verification>>,更新了依赖并且引入了新版本的依赖 (以及潜在的可传递依赖) ,就是这种情况.
+
+Gradle 会告诉您缺少哪些元数据:
+
+----
+Execution failed for task ':compileJava'.
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact commons-logging-1.2.jar (commons-logging:commons-logging:1.2) in repository 'MavenRepo': checksum is missing from verification metadata.
+----
+
+- 缺少的模块 group 是 `commons-logging`,artifact name 是 `commons-logging`,version 是 `1.2`.对应的 artifact 是  `commons-logging-1.2.jar`,因此您需要在验证文件中添加以下条目:
+
+[source,xml]
+----
+<component group="commons-logging" name="commons-logging" version="1.2">
+   <artifact name="commons-logging-1.2.jar">
+      <sha256 value="daddea1ea0be0f56978ab3006b8ac92834afeefbd9b7e4e6316fca57df0fa636" origin="official distribution"/>
+   </artifact>
+</component>
+----
+
+另外,您可以要求 Gradle 通过使用 <<#sec:bootstrapping-verification,bootstrapping mechanism>> 来生成丢失的信息: 元数据文件中的现有信息将被保留,Gradle 将仅添加丢失的验证元数据
+
+==== checksums 错误
+
+另一个问题是实际 checksums 验证失败时:
+
+
+----
+Execution failed for task ':compileJava'.
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact commons-logging-1.2.jar (commons-logging:commons-logging:1.2) in repository 'MavenRepo': expected a 'sha256' checksum of '91f7a33096ea69bac2cbaf6d01feb934cac002c48d8c8cfa9c240b40f1ec21df' but was 'daddea1ea0be0f56978ab3006b8ac92834afeefbd9b7e4e6316fca57df0fa636'
+----
+
+这次,Gradle 告诉您什么依赖有问题,期望的 checksums 是什么 (您在验证元数据文件中声明的 checksums ) 是什么,以及在验证期间实际计算的 checksums .
+
+这样的失败表明依赖可能已经被破坏. 在此阶段,您必须执行手动验证并检查会发生什么. 可能会发生几件事:
+
+* Gradle 的本地依赖缓存中的依赖被篡改. 这通常是无害的: 从缓存中删除文件,Gradle 将重新下载依赖.
+* 依赖在二进制格式略有不同的多个源中可用 (附加空白,…)
+** 请通知库的维护者他们有这样的问题
+** 您可以使用 <<#sec:trusting-several-checksums,`also-trust`>> 接受其他 checksums 
+* 依赖性受到损害
+** 立即通知库的维护者
+** 通知仓库维护者受损的库
+
+请注意,当黑客使用看起来合法但实际上相差一个字符的 GAV 坐标时,被入侵库的变体通常是域名抢注,或者当在恶意仓库中发布了具有官方GAV坐标的依赖时,仓库阴影 首先在您的构建中.
+
+==== 不受信任的签名
+
+如果启用了签名验证,则 Gradle 将执行签名验证,但不会自动信任它们:
+
+----
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact javaparser-core-3.6.11.jar (com.github.javaparser:javaparser-core:3.6.11) in repository 'MavenRepo': Artifact was signed with key '379ce192d401ab61' (Bintray (by JFrog) <****>) and passed verification but the key isn't in your trusted keys list.
+----
+
+在这种情况下,这意味着您需要检查自己是否可以信任用于验证 (因此是签名) 的密钥,在这种情况下,请参考 <<#sec:understanding-signature-verification,文档的本部分>> 以了解如何声明可信密钥.
+
+==== 签名验证失败
+
+如果 Gradle 无法验证签名,则您将需要采取措施并手动验证 artifacts ,因为这可能表示依赖已损坏.
+
+如果发生这种情况,Gradle 将失败并显示:
+
+----
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact javaparser-core-3.6.11.jar (com.github.javaparser:javaparser-core:3.6.11) in repository 'MavenRepo': Artifact was signed with key '379ce192d401ab61' (Bintray (by JFrog) <****>) but signature didn't match
+----
+
+有几种选择:
+
+1. 首先,签名是错误的,这种错误经常发生在 <<#sec:trusting-several-checksums,不同仓库中发布的依赖>> 中. .
+2. 签名是正确的,但是 artifacts 已被破坏 (在本地依赖缓存中或在远程)
+
+正确的方法是访问依赖的官方站点,并查看它们是否发布其 artifacts 的签名. 如果是这样,请验证 Gradle 下载的签名与发布的签名匹配.
+
+如果您检查了<<#sec:manual-checking-dependency,依赖性没有受到损害>>,并且签名是 "only" 错误签名,则应声明 artifacts 级别密钥排除:
+
+[source,xml]
+----
+   <components>
+       <component group="com.github.javaparser" name="javaparser-core" version="3.6.11">
+          <artifact name="javaparser-core-3.6.11.pom">
+             <ignored-keys>
+                <ignored-key id="379ce192d401ab61" reason="internal repo has corrupted POM"/>
+             </ignored-keys>
+          </artifact>
+       </component>
+   </components>
+----
+
+但是,如果仅这样做,则 Gradle 仍然会失败,因为此 artifacts 的所有 key 都将被忽略,并且您未提供 checksums :
+
+[source,xml]
+----
+   <components>
+       <component group="com.github.javaparser" name="javaparser-core" version="3.6.11">
+          <artifact name="javaparser-core-3.6.11.pom">
+             <ignored-keys>
+                <ignored-key id="379ce192d401ab61" reason="internal repo has corrupted POM"/>
+             </ignored-keys>
+             <sha256 value="a2023504cfd611332177f96358b6f6db26e43d96e8ef4cff59b0f5a2bee3c1e1"/>
+          </artifact>
+       </component>
+   </components>
+----
+
+[[sec:manual-checking-dependency]]
+==== 手动验证依赖
+
+您可能会遇到依赖性验证失败 ( checksums 验证或签名验证) ,并且需要确定依赖性是否受到破坏.
+
+在本节中,我们举一个示例,说明如何手动检查依赖是否受到破坏.
+
+为此,我们将以失败为例:
+
+----
+> Dependency verification failed for configuration ':compileClasspath':
+- On artifact j2objc-annotations-1.1.jar (com.google.j2objc:j2objc-annotations:1.1) in repository 'MyCompany Mirror': Artifact was signed with key '29579f18fa8fd93b' but signature didn't match
+----
+
+此错误消息为我们提供了有问题的依赖的GAV坐标,并指出了从何处获取了依赖. 在这里,依赖来自 `MyCompany Mirror`,这是我们的构建中声明的仓库.
+
+因此,要做的第一件事是从镜像手动下载 artifacts 及其签名:
+
+----
+$ curl https://my-company-mirror.com/repo/com/google/j2objc/j2objc-annotations/1.1/j2objc-annotations-1.1.jar --output j2objc-annotations-1.1.jar
+$ curl https://my-company-mirror.com/repo/com/google/j2objc/j2objc-annotations/1.1/j2objc-annotations-1.1.jar.asc --output j2objc-annotations-1.1.jar.asc
+----
+
+然后,我们可以使用错误消息中提供的密钥信息在本地导入密钥:
+
+----
+$ gpg --recv-keys 29579f18fa8fd93b
+----
+
+并执行验证:
+
+----
+$ gpg --verify j2objc-annotations-1.1.jar.asc
+gpg: assuming signed data in 'j2objc-annotations-1.1.jar'
+gpg: Signature made Thu 19 Jan 2017 12:06:51 AM CET
+gpg:                using RSA key 29579F18FA8FD93B
+gpg: BAD signature from "Tom Ball <****>" [unknown]
+----
+
+这说明问题不在本地计算机上: 仓库已经包含错误的签名.
+
+下一步是通过下载 Maven Central 上实际的内容来执行相同的操作:
+
+----
+$ curl https://my-company-mirror.com/repo/com/google/j2objc/j2objc-annotations/1.1/j2objc-annotations-1.1.jar  --output central-j2objc-annotations-1.1.jar
+$ curl https://my-company-mirror.com/repo/com/google/j2objc/j2objc-annotations/1/1/j2objc-annotations-1.1.jar.asc  --output central-j2objc-annotations-1.1.jar.asc
+----
+
+现在我们可以再次检查签名:
+
+----
+$ gpg --verify central-j2objc-annotations-1.1.jar.asc
+
+gpg: assuming signed data in 'central-j2objc-annotations-1.1.jar'
+gpg: Signature made Thu 19 Jan 2017 12:06:51 AM CET
+gpg:                using RSA key 29579F18FA8FD93B
+gpg: Good signature from "Tom Ball <****>" [unknown]
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+Primary key fingerprint: B801 E2F8 EF03 5068 EC11  39CC 2957 9F18 FA8F D93B
+----
+
+这表明该依赖在 Maven Central 上有效. 在此阶段,我们已经知道问题出在镜像中,它可能已经被妥协,但是我们需要进行验证.
+
+一个好主意是比较这两个 artifacts ,您可以使用  https://try.diffoscope.org/[diffoscope] 之类的工具来完成.
+
+然后,我们发现该意图不是恶意的,而是某种程度上某个版本已被较新的版本覆盖 (Central 中的版本比我们仓库中的版本新) .
+
+在这种情况下,您可以决定:
+
+- 忽略此 artifacts 的签名,并信任不同的可能 checksums  (旧 artifacts 和新版本均适用)
+- 或清理您的镜像,使其包含与 Maven Central 中相同的版本
+
+值得注意的是,如果您选择从仓库中删除该版本,则还需要将其从本地 Gradle 缓存中删除.
+
+错误消息告诉您文件所在的位置,这很容易实现:
+
+----
+> Dependency verification failed for configuration ':compileClasspath':
+    - On artifact j2objc-annotations-1.1.jar (com.google.j2objc:j2objc-annotations:1.1) in repository 'MyCompany Mirror': Artifact was signed with key '29579f18fa8fd93b' but signature didn't match
+
+  This can indicate that a dependency has been compromised. Please carefully verify the signatures and checksums.
+
+  For your information here are the path to the files which failed verification:
+    - GRADLE_USER_HOME/caches/modules-2/files-2.1/com.google.j2objc/j2objc-annotations/1.1/976d8d30bebc251db406f2bdb3eb01962b5685b3/j2objc-annotations-1.1.jar (signature: GRADLE_USER_HOME/caches/modules-2/files-2.1/com.google.j2objc/j2objc-annotations/1.1/82e922e14f57d522de465fd144ec26eb7da44501/j2objc-annotations-1.1.jar.asc)
+
+  GRADLE_USER_HOME = /home/jiraya/.gradle
+----
+
+您可以安全地删除 artifacts 文件,因为 Gradle 会自动重新下载它:
+
+----
+rm -rf ~/.gradle/caches/modules-2/files-2.1/com.google.j2objc/j2objc-annotations/1.1
+----
+
+[[sec:disabling-verification]]
+=== 禁用验证或使其宽松
+
+依赖验证可能会很昂贵,或者有时会妨碍日常开发 (例如,由于频繁的依赖升级) .
+
+或者,您可能要在 CI 服务器上启用验证,但在本地计算机上不启用.
+
+Gradle 实际上提供了 3 种不同的验证模式:
+
+- `strict`, 这是默认设置. 验证会尽早失败,以避免在构建过程中使用受损的依赖.
+- `lenient`, 即使存在验证失败,也将运行构建. 验证错误将在构建过程中显示,而不会导致构建失败.
+- `off` 完全忽略验证时关闭.
+
+可以使用  `--dependency-verification` 标志在 CLI 上激活所有这些模式:
+
+----
+./gradlew --dependency-verification lenient build
+----
+
+或者,您可以在 CLI 上设置  `org.gradle.dependency.verification`  系统属性:
+
+----
+./gradlew -Dorg.gradle.dependency.verification=lenient build
+----
+
+或在  `gradle.properties` 文件中:
+
+----
+org.gradle.dependency.verification=lenient
+----
+
+[[sec:trusting-artifacts]]
+=== 信任一些特定的 artifacts 
+
+您可能要比其他人更信任某些 artifacts .例如,有理由认为您公司生产并在内部仓库中找到的 artifacts 仅是安全的,但您要检查每个外部组件.
+
+[NOTE]
+====
+这是典型的公司政策.实际上,没有什么可以阻止您的内部仓库被盗用,因此最好检查一下内部 artifacts ！
+====
+
+为此,Gradle 提供了一种自动信任某些 artifacts 的方法.您可以通过将其添加到配置中来信任组中的所有 artifacts :
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <trusted-artifacts>
+         <trust group="com.mycompany"/>
+      </trusted-artifacts>
+   </configuration>
+</verification-metadata>
+----
+
+这意味着将自动信任组为  `com.mycompany` 的所有组件.信任意味着 Gradle 不会执行任何验证.
+
+`trust` 元素接受这些属性:
+
+- `group`, 要信任的 artifacts 的组
+- `name`, 要信任的 artifacts 的名称
+- `version`, 要信任的 artifacts 的版本
+- `file`, 要信任的 artifacts 文件的名称
+- `regex`, 一个布尔值,表示是否需要将 `group`, `name`, `version` 和 `file` 属性解释为正则表达式(默认为 `false`)
+
+在上面的示例中,它意味着受信任的是 `com.mycompany` artifacts,不是 `com.mycompany.other` artifacts.如何要信任 `com.mycompany` 和他的子 artifacts ,您可以使用:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata>
+   <configuration>
+      <trusted-artifacts>
+         <trust group="^com[.]mycompany($|([.].*))" regex="true"/>
+      </trusted-artifacts>
+   </configuration>
+</verification-metadata>
+----
+
+[[sec:trusting-several-checksums]]
+=== 信任 artifacts 的多个 checksums 
+
+在野外对同一 artifacts 有不同的 checksums 是很常见的. 那怎么可能?  尽管取得了进展,但通常情况下,开发人员会使用不同的版本分别发布到 Maven Central 和 JCenter. 通常,这不是问题,但是有时这意味着元数据文件会有所不同 (不同的时间戳,附加的空格等) .
+除此之外,您的构建可能会使用多个仓库或仓库镜像,这很可能使单个构建可以 "看到" 同一组件的不同元数据文件！ 通常,它不是恶意的 (但您必须验证 artifacts 是正确的) ,因此 Gradle 可让您声明其他 artifacts  checksums . 例如:
+
+[source,xml]
+----
+      <component group="org.apache" name="apache" version="13">
+         <artifact name="apache-13.pom">
+            <sha256 value="2fafa38abefe1b40283016f506ba9e844bfcf18713497284264166a5dbf4b95e">
+               <also-trust value="ff513db0361fd41237bef4784968bc15aae478d4ec0a9496f811072ccaf3841d"/>
+            </sha256>
+         </artifact>
+      </component>
+----
+
+您可以根据需要设置任意数量的 `also-trust` 条目,但通常不应超过 2 个.
+
+[[sec:skipping-javadocs]]
+=== 跳过 Javadocs 和源代码
+
+默认情况下 Gradle 会验证所有下载的 artifacts ,包括 Javadocs 和 源代码.一般来说,这不是问题,但是您可能会遇到 ide 的问题,它会在导入过程中自动尝试下载它们:如果您没有为它们设置 checksums ,导入就会失败.
+
+为了避免这种情况,你可以配置 Gradle 来自动信任所有 javadocs/sources:
+
+[source,xml]
+----
+<trusted-artifacts>
+   <trust file=".*-javadoc[.]jar" regex="true"/>
+   <trust file=".*-sources[.]jar" regex="true"/>
+</trusted-artifacts>
+----
+
+[[sec:verification-metadata-hygiene]]
+=== 清理验证文件
+
+如果不执行任何操作,则依赖验证元数据会随着时间的增长而增加新的依赖或更改版本: Gradle 不会自动从此文件中删除未使用的条目. 原因是 Gradle 无法预先知道在构建过程中是否会有效使用依赖.
+
+结果,添加依赖或更改依赖版本可以轻松导致文件中的更多条目,同时将不必要的条目留在那里.
+
+清理文件的一种方法是将现有的 `verification-metadata.xml` 文件移动到其他位置,并以  <<#sec:verification-dry-mode,`--dry-run` mode>> 模式调用 Gradle: 虽然不是很完美 (它不会注意到依赖仅在配置时解决) ,
+生成一个新文件,您可以将其与现有文件进行比较.
+
+我们需要移动现有文件,因为引导模式和空运行模式都是增量的: 它们会复制现有元数据验证文件中的信息 (特别是可信密钥) .
+
+[[sec:refreshing-missing-keys]]
+=== 刷新丢失的密钥
+
+Gradle 将丢失的密钥缓存 24 小时,这意味着它在失败后的 24 小时内不会尝试重新下载丢失的密钥.
+
+如果要立即重试,可以使用 `--refresh-keys` CLI标志运行:
+
+----
+./gradlew build --refresh-keys
+----
+
+[[sub:disabling-specific-verification]]
+== 仅对某些配置禁用依赖性验证
+
+为了提供可能的最强安全级别,全局启用依赖验证. 例如,这将确保您信任所使用的所有插件. 但是,插件本身可能需要解决其他依赖性,要求用户接受这些依赖性是没有意义的. 为此,Gradle 提供了一个 API,该 API 允许在某些特定配置上禁用依赖性验证.
+
+[WARNING]
+====
+如果您关心安全性,则禁用依赖验证不是一个好主意. 该API主要用于检查依赖没有意义的情况. 但是,为了安全起见,每当禁用特定配置的验证时,Gradle都会系统地打印警告.
+====
+
+例如,一个插件可能要检查是否有可用的较新版本的库并列出这些版本. 在这种情况下,要求用户放入较新版本的POM文件的 checksums 是没有意义的,因为根据定义,他们不知道它们. 因此,该插件可能需要独立于依赖验证配置来运行其代码.
+
+为此,您需要调用 `ResolutionStrategy#disableDependencyVerification` 方法:
+
+.Disabling dependency verification
+====
+include::{snippets-dir}/dependencyManagement/dependencyVerification-disablingVerification/groovy/build.gradle[tags=disabling-one-configuration]
+include::{snippets-dir}/dependencyManagement/dependencyVerification-disablingVerification/kotlin/build.gradle.kts[tags=disabling-one-configuration]
+====
+
+如下例所示,也可以对分离的配置禁用验证:
+
+.Disabling dependency verification
+====
+include::{snippets-dir}/dependencyManagement/dependencyVerification-disablingVerification/groovy/build.gradle[tags=disabling-detached-configuration]
+include::{snippets-dir}/dependencyManagement/dependencyVerification-disablingVerification/kotlin/build.gradle.kts[tags=disabling-detached-configuration]
+====

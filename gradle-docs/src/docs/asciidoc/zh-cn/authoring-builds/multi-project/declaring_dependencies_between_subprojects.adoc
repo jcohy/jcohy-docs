@@ -1,0 +1,105 @@
+[[declaring_dependencies_between_subprojects]]
+= 声明子项目之间的依赖
+
+[[sec:project_jar_dependencies]]
+== 项目依赖
+
+如果一个项目需要另一个项目在其编译类路径上生成的jar,该怎么办?  如果它还需要另一个项目的传递依赖,该怎么办?  显然,这是 Java 多项目构建的非常常见的用例.
+如 <<declaring_dependencies.adoc#sub:project_dependencies,项目依赖>>中所述,Gradle 为此提供了项目依赖.
+
+.Project dependencies
+====
+[.multi-language-sample]
+=====
+.Project layout
+[source, groovy]
+----
+.
+├── buildSrc
+│   ...
+├── api
+│   ├── src
+│   │   └──...
+│   └── build.gradle
+├── services
+│   └── person-service
+│       ├── src
+│       │   └──...
+│       └── build.gradle
+├── shared
+│   ├── src
+│   │   └──...
+│   └── build.gradle
+└── settings.gradle
+----
+=====
+[.multi-language-sample]
+=====
+.Project layout
+[source, kotlin]
+----
+.
+├── buildSrc
+│   ...
+├── api
+│   ├── src
+│   │   └──...
+│   └── build.gradle.kts
+├── services
+│   └── person-service
+│       ├── src
+│       │   └──...
+│       └── build.gradle.kts
+├── shared
+│   ├── src
+│   │   └──...
+│   └── build.gradle.kts
+└── settings.gradle.kts
+----
+=====
+====
+
+我们有 `shared`, `api` 和 `person-service` 项目. `person-service` 项目依赖于其他两个项目. `api` 项目依赖 `shared` 项目. 它没有构建脚本,并且没有任何内容由另一个构建脚本注入.
+我们使用 `:` 分隔符来定义项目路径. 有关定义项目路径的更多信息,请查阅 link:{groovyDslPath}++/org.gradle.api.initialization.Settings.html#org.gradle.api.initialization.Settings:include(java.lang.String[])++[Settings.include(java.lang.String[\])] 的 DSL 文档.
+
+[[javadependencies_2]]
+====
+include::{snippets-dir}/multiproject/dependencies-java/groovy/settings.gradle[];buildSrc/src/main/groovy/myproject.java-conventions.gradle[];api/build.gradle[];shared/build.gradle[];services/person-service/build.gradle[]
+include::{snippets-dir}/multiproject/dependencies-java/kotlin/settings.gradle.kts[];buildSrc/src/main/kotlin/myproject.java-conventions.gradle.kts[];api/build.gradle.kts[];shared/build.gradle.kts[];services/person-service/build.gradle.kts[]
+====
+
+共享的构建逻辑被提取到一个 _convention plugin_ 中,这些约定被应用在子项目的构建脚本中,该脚本也定义了项目依赖性. 项目依赖是执行依赖的一种特殊形式.
+它导致首先构建另一个项目,并将具有另一个项目的类的 jar 添加到类路径. 还将另一个项目的依赖添加到类路径中. 您可以触发 `gradle :api:compile`. 首先构建 `shared` 项目,然后构建 `api` 项目. 项目依赖可实现部分多项目构建.
+
+[[sec:depending_on_output_of_another_project]]
+== 由另一个项目生成的 artifacts 决定
+
+<<#sec:project_jar_dependencies,项目依赖>>模型在模块之间的依赖.实际上,您说的是您依赖于另一个项目的主要输出.在基于 Java 的项目中,通常是一个 JAR 文件.
+
+有时您可能想依赖于另一个任务产生的输出. 反过来,您需要确保预先执行任务以产生该输出. 声明一个项目到另一个项目的任务依赖是建模这种关系并引入不必要的耦合的一种糟糕方法.
+对这种依赖建模的推荐方法是产生输出,将其标记为 "outgoing" artifact,或者将其添加到您可以在使用项目中依赖的主要 `main` source 的输出中.
+
+假设您正在与两个子项目的 `producer` 和 `consumer` 进行多项目构建. 子项目 `producer` 定义了一个名为 `buildInfo` 的任务,该任务生成包含构建信息的属性文件,例如 项目版本. 然后,您可以将任务提供程序映射到其输出文件,Gradle将自动建立任务依赖.
+
+.Task generating a property file containing build information
+====
+include::{snippets-dir}/multiproject/dependencies-outgoingArtifact/groovy/producer/build.gradle[]
+include::{snippets-dir}/multiproject/dependencies-outgoingArtifact/kotlin/producer/build.gradle.kts[]
+.buildSrc/src/main/java/BuildInfo.java
+[source, java]
+----
+include::{snippets-dir}/multiproject/dependencies-outgoingArtifact/groovy/buildSrc/src/main/java/BuildInfo.java[tags=task]
+----
+====
+
+消费项目应该能够在运行时读取属性文件. 在生产项目上声明项目依赖需要事先创建属性并将其提供给运行时类路径.
+
+.Declaring a project dependency on the project producing the properties file
+====
+include::{snippets-dir}/multiproject/dependencies-outgoingArtifact/groovy/consumer/build.gradle[tags=producer-project-dependency]
+include::{snippets-dir}/multiproject/dependencies-outgoingArtifact/kotlin/consumer/build.gradle.kts[tags=producer-project-dependency]
+====
+
+在上面的示例中,使用者现在声明了对 `producer` 项目输出的依赖.
+
+仅依赖于另一个项目的主要输出 artifacts . Gradle 具有最强大的 <<core_dependency_management#sec:dependency-mgmt-in-gradle,依赖管理引擎>> 之一,可让您在项目之间共享任意 artifacts ,并让 Gradle 按需构建它们. 有关更多详细信息,请参见有关 <<cross_project_publications#cross_project_publications,在项目之间共享输出的部分>>.

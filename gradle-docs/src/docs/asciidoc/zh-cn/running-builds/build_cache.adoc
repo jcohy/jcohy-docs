@@ -1,0 +1,330 @@
+[[build_cache]]
+= Build Cache
+
+TIP: 有兴趣配置构建缓存以加快构建速度吗? 在 https://gradle.com/training/build-cache-deep-dive/?bid=docs-build-cache[此处注册] 以参加我们的 Build Cache 培训课程,以了解顶级工程团队用来提高构建速度的一些技巧.
+
+NOTE: 此处描述的构建缓存功能不同于 https://developer.android.com/studio/build/build-cache.html[ Android 插件的构建缓存].
+
+[[sec:build_cache_intro]]
+== 概述
+
+Gradle _构建缓存_ 是一种缓存机制,旨在通过重用其他构建生成的输出来节省时间. 构建缓存通过以下方式工作: 存储(本地或远程)构建输出,并允许构建在确定输入未更改时从缓存中获取这些输出,从而避免了重新生成它们的昂贵工作.
+
+使用构建缓存的第一个功能是任务输出缓存. 本质上,任务输出缓存利用了与 Gradle 用来避免工作的 <<more_about_tasks.adoc#sec:up_to_date_checks,up-to-date checks(新检查)>> 最相同的情报,而先前的本地构建已经产生了一组任务输出时,Gradle 可以避免工作.
+但是,任务输出缓存不仅限于同一个工作区中的先前版本,还允许 Gradle 在本地计算机上的任何位置重用任何较早版本的任务输出. 当使用共享的构建缓存进行任务输出缓存时,这甚至可以在开发人员机器和构建代理之间使用.
+
+除任务外,<<artifact_transforms.adoc#sec:abm_artifact_transforms,artifact transforms>> 还可以利用构建缓存并类似于任务输出缓存来重用其输出.
+
+TIP: 有关学习如何使用生成缓存的动手方法,请尝试 https://guides.gradle.org/using-build-cache/[Using the Build Cache 指南] . 它涵盖了可以改进缓存的不同方案,并详细讨论了在为构建启用缓存时需要注意的不同警告.
+
+[[sec:build_cache_enable]]
+== 启用构建缓存
+
+默认情况下,不启用构建缓存. 您可以通过以下两种方式启用构建缓存:
+
+在命令行上使用 `--build-cache`::
+Gradle 仅将构建缓存用于此构建.
+将 `org.gradle.caching=true` 写进 `gradle.properties` 中::
+Gradle 将尝试为所有内部版本重用先前内部版本的输出,除非使用 `--No Build Cache` 明确禁用.
+
+启用构建缓存后,它将在 Gradle 用户主目录中存储构建输出.
+有关配置此目录或其他类型的构建缓存的信息,请参见 <<#sec:build_cache_configure,配置构建缓存>>
+
+[[sec:task_output_caching]]
+== 任务输出缓存
+
+除了<<more_about_tasks.adoc#sec:up_to_date_checks,最新检查>>中描述的增量构建之外,Gradle 还可以通过将任务的输入匹配来重用任务以前执行的输出,从而节省时间.
+任务输出可以通过构建缓存在一台计算机上的构建之间,甚至在不同计算机上运行的构建之间重复使用.
+
+我们关注的用例是用户拥有整个组织范围内的远程构建缓存,该缓存由连续的集成构建定期填充.
+开发人员和其他持续集成代理应从远程构建缓存加载缓存条目.
+我们预计将不允许开发人员填充远程构建缓存,并且所有连续集成构建都将在运行 `clean` 命令后填充构建缓存.
+
+为了使您的构建能够很好地使用任务输出缓存,它必须与<<more_about_tasks.adoc#sec:up_to_date_checks,增量构建>>功能一起正常工作. 例如,当连续两次运行构建时,所有带有输出的任务都应为 `UP-TO-DATE`.
+在不满足此先决条件的情况下启用任务输出缓存时,您不能期望更快的构建或正确的构建.
+
+启用构建缓存时,任务输出缓存将自动启用,请参阅 <<#sec:build_cache_enable,启用构建缓存>>.
+
+[[sec:task_output_caching_example]]
+=== 它是什么样子的
+
+让我们从使用 Java 插件的项目开始,该项目具有一些 Java 源文件.我们是第一次运行构建.
+
+----
+> gradle --build-cache compileJava
+:compileJava
+:processResources
+:classes
+:jar
+:assemble
+
+BUILD SUCCESSFUL
+----
+
+我们在输出中看到本地构建缓存使用的目录.除此之外,构建与没有构建缓存的情况相同.
+让我们清理并再次运行构建.
+
+----
+> gradle clean
+:clean
+
+BUILD SUCCESSFUL
+----
+
+----
+> gradle --build-cache assemble
+:compileJava FROM-CACHE
+:processResources
+:classes
+:jar
+:assemble
+
+BUILD SUCCESSFUL
+----
+
+现在我们看到,不是执行  `:compileJava` 任务,而是从构建缓存中加载了任务的输出.由于其他任务不可缓存,因此尚未从构建缓存中加载其他任务.
+这是由于 `:classes` 和 `:assemble` 是 <<more_about_tasks.adoc#sec:lifecycle_tasks,lifecycle tasks>> 和 `:processResources` 和  `:jar`  是类似复制的任务,因为它们是不可缓存的通常更快地执行它们.
+
+[[sec:task_output_caching_details]]
+== Cacheable tasks
+
+由于任务描述了它的所有输入和输出,因此 Gradle 可以计算  _build cache key_ ,它根据其输入唯一地定义任务的输出.
+该构建缓存键用于从构建缓存请求先前的输出或将新的输出存储在构建缓存中.
+如果先前的构建输出已经被其他人存储在缓存中,例如您的持续集成服务器或其他开发人员,您可以避免在本地执行大多数任务.
+
+下列输入以与对 <<more_about_tasks.adoc#sec:how_does_it_work,up-to-date checks>> 相同的方式为任务的构建高速缓存键提供帮助:
+
+* 任务类型及其类路径
+* 输出属性的名称
+* 注解的属性的名称和值,如 <<more_about_tasks.adoc#sec:task_input_output_annotations,the section called "Custom task types">>中所述.
+* DSL 通过  link:{javadocPath}/org/gradle/api/tasks/TaskInputs.html[TaskInputs] 添加的属性的名称和值
+* Gradle 发行版,buildSrc 和插件的类路径
+* 当构建脚本影响任务执行时的内容
+
+任务类型需要使用 link:{javadocPath}/org/gradle/api/tasks/CacheableTask.html[@CacheableTask] 注解选择加入任务输出缓存. 请注意,link:{javadocPath}/org/gradle/api/tasks/CacheableTask.html[@CacheableTask] 不是子类继承的. 自定义任务类型默认情况下不可缓存.
+
+[[sec:task_output_caching_cacheable_tasks]]
+=== 内置可缓存任务
+
+当前,以下内置 Gradle 任务是可缓存的:
+
+* Java toolchain:
+    link:{groovyDslPath}/org.gradle.api.tasks.compile.JavaCompile.html[JavaCompile],
+    link:{groovyDslPath}/org.gradle.api.tasks.javadoc.Javadoc.html[Javadoc]
+* Groovy toolchain:
+    link:{groovyDslPath}/org.gradle.api.tasks.compile.GroovyCompile.html[GroovyCompile],
+    link:{groovyDslPath}/org.gradle.api.tasks.javadoc.Groovydoc.html[Groovydoc]
+* Scala toolchain:
+    link:{groovyDslPath}/org.gradle.api.tasks.scala.ScalaCompile.html[ScalaCompile],
+    link:{javadocPath}/org/gradle/language/scala/tasks/PlatformScalaCompile.html[PlatformScalaCompile],
+    link:{groovyDslPath}/org.gradle.api.tasks.scala.ScalaDoc.html[ScalaDoc]
+* Native toolchain:
+    link:{javadocPath}/org/gradle/language/cpp/tasks/CppCompile.html[CppCompile],
+    link:{javadocPath}/org/gradle/language/c/tasks/CCompile.html[CCompile],
+    link:{javadocPath}/org/gradle/language/swift/tasks/SwiftCompile.html[SwiftCompile]
+* Testing:
+    link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test]
+* Code quality tasks:
+    link:{groovyDslPath}/org.gradle.api.plugins.quality.Checkstyle.html[Checkstyle],
+    link:{groovyDslPath}/org.gradle.api.plugins.quality.CodeNarc.html[CodeNarc],
+    link:{groovyDslPath}/org.gradle.api.plugins.quality.Pmd.html[Pmd]
+* JaCoCo:
+    link:{groovyDslPath}/org.gradle.testing.jacoco.tasks.JacocoMerge.html[JacocoMerge],
+    link:{groovyDslPath}/org.gradle.testing.jacoco.tasks.JacocoReport.html[JacocoReport]
+* Other tasks:
+    link:{groovyDslPath}/org.gradle.api.plugins.antlr.AntlrTask.html[AntlrTask],
+    link:{javadocPath}/org/gradle/plugin/devel/tasks/ValidatePlugins.html[ValidatePlugins],
+    link:{groovyDslPath}/org.gradle.api.tasks.WriteProperties.html[WriteProperties]
+
+所有其他内置任务当前都不可缓存.
+
+某些任务,例如 link:{groovyDslPath}/org.gradle.api.tasks.Copy.html[Copy] 或 link:{groovyDslPath}/org.gradle.api.tasks.bundling.Jar.html[Jar],通常使缓存变得没有意义,
+因为 Gradle 只是将文件从一个位置复制到另一个位置. 使不产生输出或没有任务动作的可缓存任务也没有意义.
+
+[[sec:task_output_caching_cacheable_3rd_party]]
+=== 第三方插件
+
+有一些第三方插件可以很好地与构建缓存配合使用.
+最突出的示例是 https://developer.android.com/studio/releases/gradle-plugin.html[Android plugin 3.1+] 和 https://blog.gradle.org/kotlin-build-cache-use[Kotlin plugin 1.2.21+].
+对于其他第三方插件,请查看其文档以了解它们是否支持构建缓存.
+
+[[sec:task_output_caching_inputs]]
+=== 声明 task 输入和输出
+
+具有可缓存任务的输入和输出的完整图片非常重要,这样一个构建的结果可以安全地在其他地方重复使用.
+
+缺少任务输入会导致不正确的缓存命中,其中不同的结果被视为相同,因为两个执行都使用相同的缓存键.
+如果Gradle不能完全捕获给定任务的所有输出,则缺少任务输出会导致构建失败.
+错误声明的任务输入可能导致高速缓存未命中,尤其是在包含易失性数据或绝对路径时.
+(有关应声明为输入和输出的信息,请参见 <<more_about_tasks.adoc#sec:task_inputs_outputs,"任务输入和输出" 一节>>.)
+
+[NOTE]
+====
+task 路径不是构建缓存键的输入.
+这意味着具有不同任务路径的任务可以重用彼此的输出,只要 Gradle 确定执行它们会产生相同的结果即可.
+====
+
+为了确保正确声明了输入和输出,请使用集成测试(例如,使用 TestKit )来检查任务是否为相同的输入产生相同的输出并捕获该任务的所有输出文件.
+我们建议添加测试以确保任务输入可重定位,即可以将任务从缓存加载到其他构建目录中 ( link:{javadocPath}/org/gradle/api/tasks/PathSensitive.html[@PathSensitive]).
+
+为了处理任务的易失性输入,请考虑 <<more_about_tasks.adoc#sec:configure_input_normalization,配置统一的输入>>.
+
+== 启用不可缓存任务的缓存
+
+如我们所见,如果内置任务或插件提供的任务可以通过 `Cacheable` 注解进行注解,则它们是可缓存的.
+但是,如果您想使可缓存任务的类不可缓存怎么办?
+让我们举一个具体的例子: 您的构建脚本使用一个通用的 `NpmTask` 任务通过委派给NPM(并运行 `npm run bundle`)来创建一个 JavaScript 包.
+这个过程类似于复杂的编译任务,但是 `NpmTask` 太通用了,默认情况下无法缓存: 它只接受参数并使用这些参数运行 npm.
+
+此任务的输入和输出很容易弄清楚.
+输入是包含 JavaScript 文件和 NPM 配置文件的目录.
+输出是此任务生成的捆绑文件.
+
+=== 使用注解
+
+我们创建 `NpmTask` 的子类,并使用注解 <<more_about_tasks.adoc#sec:task_input_output_annotations,annotations to declare the inputs and outputs>>.
+
+如果可能,最好使用委托而不是创建子类. 内置的 `JavaExec`,`Exec`,`Copy` 和 `Sync` 任务就是这种情况,在 `Project` 上有一种方法可以执行实际的工作.
+
+如果您是一名现代 JavaScript 开发人员,那么您就会知道捆绑可能会很长,值得缓存. 为此,我们需要使用 link:{javadocPath}/org/gradle/api/tasks/CacheableTask.html[@CacheableTask] 注解告知 Gradle 它可以缓存该任务的输出.
+
+这足以使任务可缓存在您自己的计算机上.
+但是,默认情况下,输入文件由其绝对路径标识.
+因此,如果需要在使用不同路径的几个开发人员或计算机之间共享缓存,则将无法按预期工作.
+所以我们还需要设置 https://guides.gradle.org/using-build-cache/#relocatability[path sensitivity].
+在这种情况下,可以使用输入文件的相对路径来标识它们.
+
+请注意,可以通过覆盖基类的getter并对该方法进行注解来覆盖基类的属性注解.
+
+.Custom cacheable BundleTask
+====
+include::{snippets-dir}/buildCache/cacheable-bundle-task/groovy/build.gradle[tags=bundle-task]
+include::{snippets-dir}/buildCache/cacheable-bundle-task/kotlin/build.gradle.kts[tags=bundle-task]
+====
+- (1) Add `@CacheableTask` to enable caching for the task.
+- (2) Override the getter of a property of the base class to change the input annotation to `@Internal`.
+- (3) (4) Declare the path sensitivity.
+
+=== 使用 runtime API
+
+如果由于某种原因无法创建新的自定义任务类,则还可以使用 <<more_about_tasks.adoc#sec:task_input_output_runtime_api,runtime API>> 声明输入和输出,从而使任务可缓存.
+
+要为任务启用缓存,您需要使用 link:{javadocPath}/org/gradle/api/tasks/TaskOutputs.html#cacheIf-org.gradle.api.specs.Spec-[TaskOutputs.cacheIf()] 方法.
+
+通过 runtime API 进行的声明与上述注解具有相同的效果. 请注意,您无法通过运行时 API 覆盖文件输入和输出. 通过指定相同的属性名称,可以覆盖输入属性.
+
+.Make the bundle task cacheable
+====
+include::{snippets-dir}/buildCache/cacheable-bundle/groovy/build.gradle[tags=bundle-task]
+include::{snippets-dir}/buildCache/cacheable-bundle/kotlin/build.gradle.kts[tags=bundle-task]
+====
+
+[[sec:build_cache_configure]]
+== 配置 Build Cache
+
+您可以使用 `settings.gradle` 中的 link:{groovyDslPath}/org.gradle.api.initialization.Settings.html#org.gradle.api.initialization.Settings:buildCache(org.gradle.api.Action)[Settings.buildCache(org.gradle.api.Action)]块来配置构建缓存.
+
+Gradle支持一个 `local` 和一个 `remote` 构建缓存,可以分别配置.
+当两个构建缓存都启用时,Gradle 首先尝试从本地构建缓存加载构建输出,然后如果找不到构建输出,则尝试远程构建缓存.
+如果在远程缓存中找到了输出,则它们也将存储在本地缓存中,因此下次将在本地找到它们.
+Gradle存储 ("pushes") 构建输出在已启用且 link:{javadocPath}/org/gradle/caching/configuration/BuildCache.html#isPush--[BuildCache.isPush()] 设置为 `true` 的任何构建缓存中.
+
+默认情况下,本地构建缓存已启用推送,而远程构建缓存已禁用推送.
+
+本地构建缓存已预先配置为 link:{groovyDslPath}/org.gradle.caching.local.DirectoryBuildCache.html[DirectoryBuildCache]  并默认启用. 可以通过指定要连接到的构建缓存的类型 (link:{groovyDslPath}/org.gradle.caching.configuration.BuildCacheConfiguration.html#org.gradle.caching.configuration.BuildCacheConfiguration:remote(java.lang.Class)[BuildCacheConfiguration.remote(java.lang.Class)]) 来配置远程构建缓存.
+
+[[sec:build_cache_configure_local]]
+=== 内置本地构建缓存
+
+内置的本地构建缓存 link:{groovyDslPath}/org.gradle.caching.local.DirectoryBuildCache.html[DirectoryBuildCache] 使用一个目录来存储构建缓存 artifacts .默认情况下,该目录位于 Gradle 用户的主目录中,但其位置是可配置的.
+
+Gradle 将通过删除最近未使用的条目来定期清理本地缓存目录,以节省磁盘空间.
+
+有关配置选项的更多详细信息,请参考 link:{groovyDslPath}/org.gradle.caching.local.DirectoryBuildCache.html[DirectoryBuildCache] 的 DSL 文档. 这是配置示例.
+
+.Configure the local cache
+====
+include::{snippets-dir}/buildCache/configure-built-in-caches/groovy/settings.gradle[tags=configure-directory-build-cache]
+include::{snippets-dir}/buildCache/configure-built-in-caches/kotlin/settings.gradle.kts[tags=configure-directory-build-cache]
+====
+
+[[sec:build_cache_configure_remote]]
+=== 远程 HTTP 构建缓存
+
+Gradle 内置支持通过 HTTP 连接到远程构建缓存后端.
+有关协议的更多详细信息,请参见 link:{groovyDslPath}/org.gradle.caching.http.HttpBuildCache.html[HttpBuildCache]. 请注意,通过使用以下配置,本地构建缓存将用于存储构建输出,而本地和远程构建缓存将用于检索构建输出.
+
+.Load from HttpBuildCache
+====
+include::{snippets-dir}/buildCache/http-build-cache/groovy/settings.gradle[tags=http-build-cache]
+include::{snippets-dir}/buildCache/http-build-cache/kotlin/settings.gradle.kts[tags=http-build-cache]
+====
+
+您可以配置 link:{groovyDslPath}/org.gradle.caching.http.HttpBuildCache.html[HttpBuildCache] 用于访问生成缓存服务器的凭据,如以下示例所示.
+
+.Configure remote HTTP cache
+====
+include::{snippets-dir}/buildCache/configure-built-in-caches/groovy/settings.gradle[tags=configure-http-build-cache]
+include::{snippets-dir}/buildCache/configure-built-in-caches/kotlin/settings.gradle.kts[tags=configure-http-build-cache]
+====
+
+[NOTE]
+====
+当您尝试将生成缓存后端与 HTTPS URL 结合使用时,可能会遇到不受信任的 SSL 证书问题.
+理想的解决方案是为某人添加有效的 SSL 证书到构建缓存后端,但是我们认识到您可能无法做到这一点.
+在这种情况下,请将 link:{groovyDslPath}/org.gradle.caching.http.HttpBuildCache.html#org.gradle.caching.http.HttpBuildCache:allowUntrustedServer[HttpBuildCache.isAllowUntrustedServer()] 设置为 `true`.
+
+这是一个方便的解决方法,但您不应将其用作长期解决方案.
+====
+
+.Allow untrusted cache server
+====
+include::{snippets-dir}/buildCache/http-build-cache/groovy/settings.gradle[tags=allow-untrusted-server]
+include::{snippets-dir}/buildCache/http-build-cache/kotlin/settings.gradle.kts[tags=allow-untrusted-server]
+====
+
+[[sec:build_cache_configure_use_cases]]
+=== 配置用例
+
+远程构建缓存的推荐用例是,连续集成服务器从干净的构建中填充它,而开发人员仅从其加载. 然后,配置将如下所示.
+
+.Recommended setup for CI push use case
+====
+include::{snippets-dir}/buildCache/developer-ci-setup/groovy/settings.gradle[tags=developer-ci-setup]
+include::{snippets-dir}/buildCache/developer-ci-setup/kotlin/settings.gradle.kts[tags=developer-ci-setup]
+====
+
+也可以从  <<init_scripts.adoc#sec:using_an_init_script,init script>> 配置构建缓存,该脚本可以在命令行中使用,可以添加到 Gradle 用户主目录中,也可以作为自定义 Gradle 发行版的一部分.
+
+.Init script to configure the build cache
+====
+include::{snippets-dir}/buildCache/configure-by-init-script/groovy/init.gradle[]
+include::{snippets-dir}/buildCache/configure-by-init-script/kotlin/init.gradle.kts[]
+====
+
+[[sec:build_cache_composite]]
+=== 构建缓存,复合构建和 `buildSrc`
+
+Gradle的 <<composite_builds.adoc#composite_builds,复合构建特性>>允许将其他完整的 Gradle 构建包含到另一个构建中. 无论所包含的构建是否自行定义构建缓存配置,此类包含的构建都会从顶级构建中继承构建缓存配置.
+
+对于任何包含的构建,当前存在的构建缓存配置都会被有效忽略,而有利于顶层构建的配置.
+
+这也适用于任何包含的内部版本的所有 `buildSrc` 项目.
+
+有效地忽略了所有包含的构建中存在的构建缓存配置,而采用了顶级构建的配置. 这也适用于任何包含的内部版本的所有buildSrc项目.
+
+<<organizing_gradle_projects.adoc#sec:build_sources,`buildSrc` directory>> 目录被视为 <<composite_builds.adoc#composite_build_intro,included build>>,因此它从顶级构建继承了构建缓存配置.
+
+[[sec:build_cache_setup_http_backend]]
+== 如何设置 HTTP 构建缓存后端
+
+Gradle为 link:https://hub.docker.com/r/gradle/build-cache-node/[构建缓存节点]提供了 Docker 镜像,该镜像可以与 Gradle Enterprise 连接以进行集中管理.
+缓存节点也可以在不安装功能受限的 Gradle Enterprise 的情况下使用.
+
+[[sec:build_cache_implement]]
+== 实现自己的构建缓存
+
+使用不同的构建缓存后端存储构建输出(连接到HTTP后端的内置支持未涵盖在内)需要实现自己的逻辑以连接到自定义构建缓存后端.
+为此,可以通过 link:{javadocPath}/org/gradle/caching/configuration/BuildCacheConfiguration.html#registerBuildCacheService-java.lang.Class-java.lang.Class-[BuildCacheConfiguration.registerBuildCacheService(java.lang.Class, java.lang.Class)] 注册自定义构建缓存类型.
+
+link:https://gradle.com/build-cache[Gradle Enterprise] 包含一个高性能,易于安装和操作的共享构建缓存后端.

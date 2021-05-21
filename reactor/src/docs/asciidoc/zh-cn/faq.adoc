@@ -1,0 +1,333 @@
+[[faq]]
+= FAQ,最佳实践,以及 "我如何...?"
+
+本节涵盖以下内容:
+
+* <<faq.wrap-blocking>>
+* <<faq.chain>>
+* <<faq.monoThen>>
+* <<faq.retryWhen>>
+* <<faq.exponentialBackoff>>
+* <<faq.thread-affinity-publishon>>
+* <<faq.mdc>>
+
+[[faq.wrap-blocking]]
+== 如何包装一个同步阻塞的调用?
+
+很多时候,信息源是同步和阻塞的.在 Reactor 中,我们用以下方式处理这种信息源:
+
+====
+[source,java]
+----
+Mono blockingWrapper = Mono.fromCallable(() -> { <1>
+    return /* make a remote synchronous call */ <2>
+});
+blockingWrapper = blockingWrapper.subscribeOn(Schedulers.boundedElastic()); <3>
+----
+<1> 使用 `fromCallable` 方法生成一个 `Mono`;
+<2> 返回同步、阻塞的资源;
+<3> 使用 `Schedulers.boundedElastic()` 确保对每一个订阅来说运行在一个专门的线程上.
+====
+
+因为调用返回一个值,所以你应该使用 `Mono`.你应该使用 `Schedulers.boundedElastic` 因为它会创建一个专门的线程来等待阻塞的调用返回.同时还确保可以创建的线程数量和可以在高峰期间被排队和推迟.
+
+注意 `subscribeOn` 方法并不会 "订阅" 这个 `Mono`.它只是指定了订阅操作使用哪个 `Scheduler`.
+
+[[faq.chain]]
+== 用在 `Flux` 上的操作符好像没起作用,为啥?
+
+请确认你确实对调用 `.subscribe()` 的发布者应用了这个操作符.
+
+Reactor 的操作符是装饰器(decorators).它们会返回一个不同的(发布者)实例, 这个实例对上游序列进行了包装并增加了一些的处理行为.所以,最推荐的方式是将操作符 "串" 起来.
+
+对比下边的两个例子:
+
+.没有串起来(不正确的)
+====
+[source,java]
+----
+Flux<String> flux = Flux.just("something", "chain");
+flux.map(secret -> secret.replaceAll(".", "*")); <1>
+flux.subscribe(next -> System.out.println("Received: " + next));
+----
+<1> The mistake is here. The result is not attached to the `flux` variable.
+====
+
+.串起来(正确的)
+====
+[source,java]
+----
+Flux<String> flux = Flux.just("something", "chain");
+flux = flux.map(secret -> secret.replaceAll(".", "*"));
+flux.subscribe(next -> System.out.println("Received: " + next));
+----
+====
+
+以下示例甚至更好(因为它更简单):
+
+.串起来(最好的)
+====
+[source,java]
+----
+Flux<String> secrets = Flux
+  .just("something", "chain")
+  .map(secret -> secret.replaceAll(".", "*"))
+  .subscribe(next -> System.out.println("Received: " + next));
+----
+====
+
+第一个例子的输出:
+
+====
+[source]
+----
+Received: something
+Received: chain
+----
+====
+
+后两个例子的输出:
+
+====
+[source]
+----
+Received: *********
+Received: *****
+----
+====
+
+[[faq.monoThen]]
+== `Mono` `zipWith/zipWhen` 没有被调用
+
+例子:
+
+====
+[source,java]
+----
+myMethod.process("a") // this method returns Mono<Void>
+        .zipWith(myMethod.process("b"), combinator) //this is never called
+        .subscribe();
+----
+====
+
+如果源 `Mono` 为空或是一个 `Mono<Void>`(`Mono<Void>` 通常用于 `empty` 的场景), 下边的组合操作就不会被调用.
+
+这是任何数据转换都有可能发生的典型情况,例如 `zip` 静态方法或 `zipWith` `zipWhen` 运算符,根据定义,这些操作符依赖于数据元素来转换为输出的元素.
+
+因此,在 `zip` 源上使用 data-suppressing 操作符是有问题的.  data-suppressing 的示例包括 `then()`, `thenEmpty(Publisher<Void>)`,
+`ignoreElements()` 和 `ignoreElement()`, 和 `when(Publisher...)`.
+
+同样,使用 `Function<T,?>`  来调整其行为的操作符(例如 `flatMap`)需要至少发出一个元素,该函数才有机会应用. 将它们应用于空(或 `<Void>`)序列永远不会产生元素.
+
+你可以使用 `.defaultIfEmpty(T)` 和 `.switchIfEmpty(Publisher<T>)` 将空序列替换为包含 `T` 类型默认值的 `Publisher<T>` 序列(而不是 `Void` 序列), 从而可以避免类似的情况出现.
+请注意,这不适用于 `Flux<Void>`/`Mono<Void>` 源,因为您只能切换到另一个 `Publisher<Void>`,但仍保证为空. 以下示例使用 `defaultIfEmpty`:
+
+
+.在 `zipWhen` 之前使用  `defaultIfEmpty`
+====
+[source,java]
+----
+myMethod.emptySequenceForKey("a") // this method returns empty Mono<String>
+        .defaultIfEmpty("") // this converts empty sequence to just the empty String
+        .zipWhen(aString -> myMethod.process("b")) //this is called with the empty String
+        .subscribe();
+----
+====
+
+[[faq.retryWhen]]
+== 如何用 `retryWhen` 来实现 `retry(3)` 的效果?
+
+`retryWhen` 方法比较复杂,希望下边的一段模拟 `retry(3)` 的代码能够帮你更好地理解它的工作方式:
+
+include::snippetRetryWhenRetry.adoc[]
+
+[[faq.exponentialBackoff]]
+== 如何使用 `retryWhen` 进行 exponential backoff?
+
+Exponential backoff 的意思是进行的多次重试之间的间隔越来越长, 从而避免对源系统造成过载,甚至宕机.基本原理是,如果源产生了一个错误, 那么已经是处于不稳定状态,可能不会立刻复原.
+所以,如果立刻就重试可能会产生另一个错误, 导致源更加不稳定.
+
+从 `3.3.4.RELEASE` 开始,Reactor 附带了用于此类重试的构建器,可与 `Flux#retryWhen`:`Retry.backoff` 一起使用.
+
+以下示例展示了构建器的简单用法,在重试尝试延迟之前和之后,hook 都记录了消息,每次重试的间隔都会递增 (伪代码: delay = attempt number * 100 milliseconds):
+
+====
+[source,java]
+----
+AtomicInteger errorCount = new AtomicInteger();
+Flux<String> flux =
+Flux.<String>error(new IllegalStateException("boom"))
+		.doOnError(e -> { // <1>
+			errorCount.incrementAndGet();
+			System.out.println(e + " at " + LocalTime.now());
+		})
+		.retryWhen(Retry
+				.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
+				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
+		);
+----
+<1> 记录错误出现的时间;
+<2> 我们配置了重试 3 次的效果.
+<3> 我们还会记录重试发生的时间.
+<4> 默认情况下,将抛出 `Exceptions.retryExhausted`  异常,并以最后一个  `failure()` 为异常原因. 在这里,我们将其自定义为直接原因并作为 `onError` 发出.
+====
+
+订阅后,它将失败并在打印出以下内容后终止:
+
+====
+----
+java.lang.IllegalArgumentException at 18:02:29.338
+retried at 18:02:29.459 <1>
+java.lang.IllegalArgumentException at 18:02:29.460
+retried at 18:02:29.663 <2>
+java.lang.IllegalArgumentException at 18:02:29.663
+retried at 18:02:29.964 <3>
+java.lang.IllegalArgumentException at 18:02:29.964
+----
+<1> 第一次重试延迟大约 100ms
+<2> 第二次重试延迟大约 200ms
+<3> 第三次重试延迟大约 300ms
+====
+
+[[faq.thread-affinity-publishon]]
+== 如何使用 `publishOn()` 确保线程 Affinity ?
+
+如  <<schedulers,Schedulers>> 所述,`publishOn()` 可以用来切换执行线程. `publishOn` 能够影响到其之后的操作符的执行线程,直到有新的 `publishOn` 出现. 所以 `publishOn` 的位置很重要.
+
+考虑下面的例子:
+
+====
+[source,java]
+----
+EmitterProcessor<Integer> processor = EmitterProcessor.create();
+processor.publishOn(scheduler1)
+         .map(i -> transform(i))
+         .publishOn(scheduler2)
+         .doOnNext(i -> processNext(i))
+         .subscribe();
+----
+====
+
+比如下边的例子, `map()` 中的 `transform` 方法是在 `scheduler1` 的一个工作线程上执行的, 而 `doOnNext()` 中的 `processNext` 方法是在 `scheduler2` 的一个工作线程上执行的.
+
+可能用于
+
+您可以使用单线程的调度器来确保对不同阶段的任务或不同的订阅者确保线程关联性.
+
+[[faq.mdc]]
+== 是你是上下文日志记录的最好模式? (MDC)
+
+大多数日志框架都允许进行上下文日志记录,用户通过一个 `Map` 记录日志中的变量,通常称为 MDC(“映射的诊断上下文”) . 这是 Java 中 `ThreadLocal` 的最经常使用的方法之一,因此,此模式假定所记录的代码与 Thread 是一对一关系.
+
+在 Java 8 之前,这可能是一个安全的假设,但是随着 Java 语言中函数式编程的出现,事情发生了一些变化...
+
+让我们模板方法模式的 API 为例,然后切换到更具函数式的样式. 使用模板方法模式,继承就发挥了作用. 现在,在函数式的方法中,传递了更高阶的函数来定义算法的 "步骤".
+现在,事情比声明式命令更具声明性,这使库可以自由决定每个步骤应该在哪里运行. 例如,知道基础算法的哪些步骤可以并行化,该库可以使用 `ExecutorService` 并行执行某些步骤.
+
+这种功能性API的一个具体示例是Java 8中引入的Stream API及其parallel()风格. 在并行Stream中使用MDC记录不是免费的午餐:需要确保在每个步骤中都捕获并重新应用MDC.
+
+函数式风格可实现此类优化,因为每个步骤都是线程不可知的,并且引用是透明的,但是它可能会破坏单个线程的 MDC 假设. 确保所有阶段都可以访问任何种类的上下文信息的最惯用的方法是将整个上下文传递给整个组合链.
+在 Reactor 的开发过程中,我们遇到了相同的一般问题,因此我们希望避免这种不实际的,明确的方法. 这就是引入 `Context` 的原因:只要让阶段(运算符)窥视下游阶段的 `Context`,只要它将 `Flux` 和 `Mono` 用作返回值,
+它就会在执行链中传播. 因此,Reactor 提供了此类似于 `Map` 的对象,该对象与 `Subscription` 而非 `Thread` 绑定,而不是使用 `ThreadLocal`.
+
+既然我们已经确定 MDC 并不是在声明性 API 中做出的最佳假设,那么如何在响应式流(`onNext`,`onError` 和 `onComplete`)中与事件相关地执行上下文化的日志语句?
+
+当人们想要以直接和明确的方式登录这些信号时,FAQ 的此项提供了一种可能的中间解决方案. 确保事先阅读  <<context>> 部分,尤其是如何在操作符链的底部进行写操作,以使上方的操作符可以看到它.
+
+要从 `Context` 到 MDC 获取上下文信息,最简单的方法是使用一点样板代码将日志记录语句包装在 `doOnEach` 操作符中. 该样板取决于您选择的日志记录框架/摘要以及要放入 MDC 中的信息,因此它必须在您的代码库中.
+
+以下是使用 Java 9 增强的 `Optional` API 围绕单个 MDC 变量的此类帮助器函数的示例,并着重于记录 `onNext` 事件:
+
+====
+[source,java]
+----
+public static <T> Consumer<Signal<T>> logOnNext(Consumer<T> logStatement) {
+	return signal -> {
+		if (!signal.isOnNext()) return; <1>
+		Optional<String> toPutInMdc = signal.getContext().getOrEmpty("CONTEXT_KEY"); <2>
+
+		toPutInMdc.ifPresentOrElse(tpim -> {
+			try (MDC.MDCCloseable cMdc = MDC.putCloseable("MDC_KEY", tpim)) { <3>
+				logStatement.accept(signal.get()); <4>
+			}
+		},
+		() -> logStatement.accept(signal.get())); <5>
+	};
+}
+----
+<1> `doOnEach` 信号包括 `onComplete` 和 `onError`. 在此示例中,我们仅对 `onNext` 感兴趣.
+<2> 我们将从Reactor `Context` 中提取一个有趣的值(请参见  <<context.api>> 部分)
+<3> 在此示例中,我们使用 SLF4J 2 中的 `MDCCloseable`,允许在使用 log 语句后使用 try-with-source 语法自动清除 MDC.
+<4> 调用者以 `Consumer<T>` 的形式提供正确的日志语句(使用 onNext 值)
+<5> 如果未在 `Context` 中设置预期的密钥,我们将使用替代路径,即在 MDC 中不添加任何内容
+====
+
+使用此样板代码可确保我们是MDC的良好公民:我们在执行日志记录语句之前立即设置了密钥,并在之后立即将其删除. 不会为后续的日志记录语句污染MDC.
+
+当然,这是一个建议. 您可能对从 `Context` 中提取多个值或在 `onError` 的情况下记录事件感兴趣. 您可能想要为这些情况创建其他辅助方法,或设计一个利用其他 lambda 覆盖更多区域的方法.
+
+无论如何,前面的辅助方法的用法可能类似于以下响应式 Web 控制器:
+
+====
+[source,java]
+----
+@GetMapping("/byPrice")
+public Flux<Restaurant> byPrice(@RequestParam Double maxPrice, @RequestHeader(required = false, name = "X-UserId") String userId) {
+	String apiId = userId == null ? "" : userId; <1>
+
+	return restaurantService.byPrice(maxPrice))
+			   .doOnEach(logOnNext(r -> LOG.debug("found restaurant {} for ${}", <2>
+					r.getName(), r.getPricePerPerson())))
+			   .subscriberContext(Context.of("CONTEXT_KEY", apiId)); <3>
+}
+----
+<1> We need to get the contextual information from the request header to put it in the `Context`
+<2> Here we apply our helper method to the `Flux`, using `doOnEach`. Remember: operators see `Context` values defined below them.
+<3> We write the value from the header to the `Context` using the chosen key `CONTEXT_KEY`.
+====
+
+在这种配置中,`restaurantService` 可以在共享线程上发出其数据,但是日志仍将为每个请求引用正确的 `X-UserId`.
+
+为了完整起见,我们还可以看到错误记录助手的外观:
+
+====
+[source,java]
+----
+public static Consumer<Signal<?>> logOnError(Consumer<Throwable> errorLogStatement) {
+	return signal -> {
+		if (!signal.isOnError()) return;
+		Optional<String> toPutInMdc = signal.getContext().getOrEmpty("CONTEXT_KEY");
+
+		toPutInMdc.ifPresentOrElse(tpim -> {
+			try (MDC.MDCCloseable cMdc = MDC.putCloseable("MDC_KEY", tpim)) {
+				errorLogStatement.accept(signal.getThrowable());
+			}
+		},
+		() -> errorLogStatement.accept(signal.getThrowable()));
+	};
+}
+----
+====
+
+除了我们检查 Signal 实际上是 `onError` 并向日志语句 lambda 提供上述错误(`Throwable`)这一事实之外,其他任何事情都没有改变.
+
+在控制器中应用此辅助程序与我们之前所做的非常相似:
+
+====
+[source,java]
+----
+@GetMapping("/byPrice")
+public Flux<Restaurant> byPrice(@RequestParam Double maxPrice, @RequestHeader(required = false, name = "X-UserId") String userId) {
+	String apiId = userId == null ? "" : userId;
+
+	return restaurantService.byPrice(maxPrice))
+			   .doOnEach(logOnNext(v -> LOG.info("found restaurant {}", v))
+			   .doOnEach(logOnError(e -> LOG.error("error when searching restaurants", e)) <1>
+			   .subscriberContext(Context.of("CONTEXT_KEY", apiId));
+}
+----
+<1> In case the `restaurantService` emits an error, it will be logged with MDC context here
+====
+
+//TODO reactive gems

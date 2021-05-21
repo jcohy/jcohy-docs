@@ -1,0 +1,268 @@
+[[dependency-locking]]
+= 锁定依赖版本
+
+使用动态依赖版本 (e.g. `1.+` or `[1.0,2.0)`) 会使构建不确定. 这会导致构建中断而没有任何明显的变化,更糟糕的是,可能是由构建作者无法控制的传递依赖导致的.
+
+为了实现  https://reproducible-builds.org/[reproducible builds],必须锁定依赖和传递性依赖的版本,以便具有相同输入的构建将始终解析相同的模块版本. 这称为依赖锁定.
+
+除其他外,它启用以下方案:
+
+* 处理多个存储库的公司不再需要依赖 `-SNAPSHOT` 或更改依赖,当依赖引入错误或不兼容时,有时会导致级联失败. 现在可以根据主要或次要版本范围声明依赖,从而可以在CI上测试最新版本,同时利用锁定来稳定开发人员构建.
+* 希望始终使用最新依赖的团队可以使用动态版本,仅针对发行版锁定其依赖. release标签将包含锁定状态,从而允许在需要开发错误修复程序时完全复制该内部版本..
+
+与 <<publishing_maven.adoc#publishing_maven:resolved_dependencies,publishing resolved versions>> 结合使用,您还可以在发布时替换声明的动态版本部件. 消费者将看到您的发行版已解决的版本.
+
+每个 <<declaring_dependencies.adoc#sec:what-are-dependency-configurations,dependency configuration>> 均启用锁定. 启用后,您必须创建一个初始锁定状态. 这将使 Gradle 验证分辨率结果是否保持不变,
+即使生成了新版本,也会导致选择的依赖相同. 对构建的修改会影响已解决的依赖集,将导致其失败. 这样可以确保发布的依赖或构建定义中的更改不会在不调整锁定状态的情况下更改分辨率.
+
+[NOTE]
+====
+依赖锁定仅对于 <<dynamic_versions.adoc#sub:declaring_dependency_with_dynamic_version,dynamic versions>> 才有意义. 尽管内容可能会更改,但它对坐标保持不变的 <<dynamic_versions.adoc#sub:declaring_dependency_with_changing_version,changing versions>> (例如 `-SNAPSHOT`) 没有影响.
+当解决方案结果中存在持久的锁定状态和变化的依赖性时,Gradle 甚至会发出警告.
+====
+
+== 启用对配置的锁定
+
+锁定配置是通过  link:{groovyDslPath}/org.gradle.api.artifacts.ResolutionStrategy.html[ResolutionStrategy] 进行的:
+
+.Locking a specific configuration
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleConfiguration/groovy/build.gradle[tags=locking-one]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleConfiguration/kotlin/build.gradle.kts[tags=locking-one]
+====
+
+或以下方法,作为锁定所有配置的一种方法:
+
+.Locking all configurations
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingAllConfigurations/groovy/build.gradle[tags=locking-all]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingAllConfigurations/kotlin/build.gradle.kts[tags=locking-all]
+====
+
+[NOTE]
+====
+仅可解析的配置将具有锁定状态. 在不可解析的配置上应用锁定只是一个禁忌.
+====
+
+[NOTE]
+====
+上面的代码将锁定所有项目配置,但不会锁定buildscript配置.
+====
+
+您还可以禁用对特定配置的锁定. 如果某个插件配置为锁定所有配置,但是您碰巧添加了一个不应锁定的插件,则这很有用..
+
+.Unlocking a specific configuration
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-unlockingSingleConfiguration/groovy/build.gradle[tags=locking-one]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-unlockingSingleConfiguration/kotlin/build.gradle.kts[tags=locking-one]
+====
+
+=== 锁定 buildscript 类路径配置
+
+如果将插件应用于构建,则可能还需要利用依赖锁定.为了锁定用于脚本插件的 <<plugins.adoc#sec:applying_plugins_buildscript,`classpath` configuration>> ,请执行以下操作:
+
+.Locking buildscript classpath configuration
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingClasspathConfiguration/groovy/build.gradle[tags=locking-classpath]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingClasspathConfiguration/kotlin/build.gradle.kts[tags=locking-classpath]
+====
+
+== 生成和更新依赖锁定
+
+为了生成或更新锁定状态,除了会触发要解析配置的常规任务之外,还指定 `--write-locks` 命令行参数. 这将导致在该构建执行中为每个已解析的配置创建锁定状态. 请注意,如果先前存在锁定状态,则将其覆盖.
+
+[[lock_all_configurations_in_one_build_execution]]
+=== 将所有配置锁定在一个构建执行中
+
+锁定多个配置时,您可能希望在单个构建执行过程中一次锁定所有配置.
+
+为此,您有两个选择:
+
+* 运行 `gradle dependencies --write-locks`. 这将有效地锁定所有启用了锁定的可解析配置. 请注意,在多项目设置中,`dependencies` 仅在一个项目上执行,在本例中为根.
+* 声明将解决所有配置的自定义任务
+
+.Resolving all configurations
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingAllConfigurations/groovy/build.gradle[tags=resolve-all]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingAllConfigurations/kotlin/build.gradle.kts[tags=resolve-all]
+====
+
+这第二个选项,用配置的正确选择,可以在本机世界唯一的选择,因为不是所有的配置可以在一个平台上得到解决.
+
+== 锁定状态位置和格式
+
+锁定状态将被保存在项目或子项目目录中的文件夹 `gradle/dependency-locks` 中.每个文件都根据其锁定的配置命名,并具有 `lockfile` 扩展名.这个规则的一个例外是对于 <<plugins.adoc#sec:applying_plugins_buildscript,buildscript itself>> 的配置.在这种情况下,配置名将以 `buildscript-` 作为前缀.
+
+文件的内容是每行模块表示法,头部给出一些上下文.模块表示法按字母顺序排列,以缓解差异.
+
+.Lockfile content
+[listing]
+.gradle/dependency-locks/compileClasspath.lockfile
+----
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleConfiguration/groovy/gradle/dependency-locks/compileClasspath.lockfile[]
+----
+
+匹配以下依赖声明:
+
+.Dynamic dependency declaration
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleConfiguration/groovy/build.gradle[tags=locking-deps]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleConfiguration/kotlin/build.gradle.kts[tags=locking-deps]
+====
+
+== 在存在锁定状态的情况下运行构建
+
+当构建需要解析启用了锁定的配置并找到匹配的锁定状态时,它将使用它来验证给定的配置仍解析相同的版本.
+
+成功的构建表示使用与锁定状态中存储的依赖相同的依赖,而不管是否已生成与动态选择器匹配的新版本.
+
+完整的验证如下:
+
+* 处于锁定状态的现有条目必须在构建中匹配
+** 版本不匹配或缺少已解决的模块会导致构建失败
+* 与锁定状态相比,解析结果不得包含额外的依赖
+
+[[fine_tuning_dependency_locking_behaviour_with_lock_mode]]
+=== 使用锁定模式微调依赖锁定行为
+
+虽然默认锁定模式的行为如上所述,但还有另外两种模式可用:
+
+Strict mode::
+在这种模式下,除了上述验证之外,如果标记为locked的配置没有与之关联的锁定状态,则依赖锁定将失败.
+
+Lenient mode::
+在此模式下,依存关系锁定仍将固定动态版本,但对依存关系分辨率的更改不再是错误.
+
+可以通过 `dependencyLocking` 块控制锁定模式,如下所示:
+
+.Setting the lock mode
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockModeSelection/groovy/build.gradle[tags=lock-mode]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockModeSelection/kotlin/build.gradle.kts[tags=lock-mode]
+====
+
+[[selectively_updating_lock_state_entries]]
+== 有选择地更新锁定状态条目
+
+为了仅更新配置的特定模块,可以使用 `--update-locks` 命令行标志. 它以逗号 (`,`) 分隔的模块符号列表. 在这种模式下,现有的锁定状态仍将用作解决方案的输入,从而过滤出更新目标模块.
+
+----
+❯ gradle classes --update-locks org.apache.commons:commons-lang3,org.slf4j:slf4j-api
+----
+
+用 `*` 表示的通配符可以在组名或模块名中使用. 它们可以是唯一字符,也可以分别出现在组或模块的末尾. 以下通配符表示法示例有效:
+
+* `org.apache.commons:*`: 将使属于 `org.apache.commons` 组的所有模块更新
+* `*:guava`: 无论名为 `guava` 的模块如何,都将对其进行更新
+* `org.springframework.spring*:spring*`: 将让所有模块的组 `org.springframework.spring` 开头,名称以 `spring` 更新开始
+
+[NOTE]
+====
+resolution 可能会导致其他模块版本更新,这取决于 Gradle resolution 规则.
+====
+
+== 禁用依赖锁定
+
+. 确保不再需要锁定的配置未配置锁定.
+. 删除与不再需要锁定的配置相匹配的文件.
+
+如果仅执行上面的第二步,则锁定将不再有效. 但是,如果将来在持久保留锁定状态时解决了该配置,它将再次被锁定
+
+== 每个项目一个锁文件
+
+Gradle 支持改进的锁定文件格式. 目标是每个项目只有一个锁定文件,其中包含该项目所有配置的锁定状态. 默认情况下,该文件名为 `gradle.lockfile`,位于项目目录中. 在项目目录内名为 `buildscript-gradle.lockfile` 的文件中找到buildscript本身的锁定状态.
+
+与每个锁定配置需要一个锁定文件的格式相比,主要优点是可以大大减少锁定文件的数量.
+
+此格式需要迁移现有的锁定用户,因此可以选择加入.
+
+[NOTE]
+====
+目标是在 Gradle 7.0 中默认为每个项目使用此单个锁定文件.
+====
+
+可以通过启用匹配 <<feature_lifecycle#feature_preview, feature preview>>  来激活格式:
+
+.Single lock file per project activation
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/groovy/settings.gradle[]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/kotlin/settings.gradle.kts[]
+====
+
+然后使用以下依赖声明和锁定的配置:
+
+.Explicit locking
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/groovy/build.gradle[tags=locking-explicit]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/kotlin/build.gradle.kts[tags=locking-explicit]
+====
+
+锁定文件将具有以下内容:
+
+[listing]
+.gradle.lockfile
+----
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/groovy/gradle.lockfile[]
+----
+
+* Each line still represents a single dependency in the `group:artifact:version` notation
+* 然后列出所有包含给定依赖性的配置
+* 文件的最后一行列出了所有空配置,即已知没有依赖性的配置
+
+=== 迁移到每个项目格式的单个锁定文件
+
+一旦激活了功能预览 (见上文) ,您就可以简单地按照文档来 <<#lock_all_configurations_in_one_build_execution, writing>> 或  <<#selectively_updating_lock_state_entries, updating>> 依赖锁定状态.
+
+然后,在确认每个项目的单个锁定文件包含给定配置的锁定状态后,可以从 `gradle/dependency-locks` 中删除每个配置锁定文件的匹配项
+
+[[configuring_the_per_project_lock_file_name_and_location]]
+=== 配置每个项目的锁定文件名和位置
+
+在每个项目中使用单个锁定文件时,可以配置其名称和位置. 提供此功能的主要原因是启用具有由某些项目属性确定的文件名,从而有效地允许单个项目针对不同的执行上下文存储不同的锁定状态.
+JVM 生态系统中的一个简单示例是 Scala 版本,该版本通常在 artifacts 坐标中找到.
+
+.Changing the lock file name
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/groovy/build.gradle[tags=locking-file-name]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/kotlin/build.gradle.kts[tags=locking-file-name]
+====
+
+[[ignoring_dependencies]]
+== 从锁定状态忽略特定的依赖
+
+在重现性不是主要目标的情况下,可以使用依赖锁定. 作为构建作者,您可能希望依赖版本更新的频率有所不同,例如,取决于它们的来源. 在这种情况下,忽略某些依赖可能很方便,因为您始终想使用最新版本.
+ 一个示例是组织中的内部依赖,该内部依赖应始终使用最新版本,而不是第三方依赖,后者具有不同的升级周期
+
+[WARNING]
+====
+此功能可能会破坏可重复性,应谨慎使用.在某些情况下,最好利用 <<#fine_tuning_dependency_locking_behaviour_with_lock_mode,different lock modes>> 或  <<#configuring_the_per_project_lock_file_name_and_location,using different names for lock files>>.
+====
+
+您可以在 `dependencyLocking` 项目扩展中配置忽略的依赖:
+
+.Ignoring dependencies for the lock state
+====
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/groovy/build.gradle[tags=ignore-dependencies]
+include::{snippets-dir}/dependencyManagement/dependencyLocking-lockingSingleFilePerProject/kotlin/build.gradle.kts[tags=ignore-dependencies]
+====
+
+该表示法是 `<group>:<name>` 依赖表示法,其中 `\*`  可用作尾随通配符. 有关更多详细信息,请参见有关更新锁定文件的 <<#selectively_updating_lock_state_entries,the description>>. 请注意,不接受值 `*:*`,因为它等效于禁用锁定.
+
+忽略依赖将具有以下效果:
+
+* 忽略的依赖性适用于所有锁定的配置. 该设置是项目范围的.
+* 忽略依赖并不意味着锁状态会忽略其传递性依赖.
+* 没有验证任何配置解析中都存在被忽略的依赖.
+* 如果依赖处于锁定状态,则加载它会过滤掉该依赖
+* 如果解析结果中存在依赖,则在验证分辨率与锁定状态匹配时将忽略该依赖.
+* 最后,如果在解决方案结果中存在依赖性并且锁定状态持续存在,则写入的锁定状态将不存在该依赖性.
+
+[[locking_limitations]]
+== 锁定限制
+
+* 锁定尚不能应用于源依赖
+
+== Nebula 锁定插件
+
+此功能受 https://github.com/nebula-plugins/gradle-dependency-lock-plugin[Nebula Gradle dependency lock plugin] 的启发.
+

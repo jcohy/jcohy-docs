@@ -1,0 +1,55 @@
+[[sec:understanding-diff-libraries-and-apps]]
+= 理解库和应用程序之间的不同
+
+[[sub:producers-vs-consumers]]
+== Producers vs consumers
+
+Gradle依赖管理中的一个关键概念是在消费者和生产者之间产生差异.
+
+构建库时,您实际上是在生产者方面: 您正在生产将由其他人 (消费者) 消费的 artifacts .
+
+传统构建系统存在很多问题,即它们无法在生产者和消费者之间发挥作用.
+
+需要从广义上理解消费者:
+
+- a project that depends on another project is a _consumer_
+- a _task_ that depends on an artifact is a finer grained consumer
+
+在依赖管理中,我们做出的许多决定取决于我们正在构建的项目的类型,<<#sub:being-respectful-consumers,即我们是什么样的消费者>> .
+
+[[sub:producer-variants]]
+== Producer variants
+
+生产者可能想为不同种类的消费者生成不同的 artifacts : 对于相同的源代码,会产生不同的二进制文件. 或者,一个项目可能会产生供其他项目 (相同仓库) 使用但不能供外部使用的 artifacts .
+
+Java 世界中的一个典型示例是 Guava 库,它以不同的版本发布: 一个用于 Java 项目,一个用于 Android 项目.
+
+但是,消费者的责任是告知要使用的版本,而依赖管理引擎的责任是确保图形的一致性 (例如,确保在类路径中不使用 Guava 的 Java 和 Android 版本)  . 这就是 Gradle <<variant_model.adoc#,variant model>> 发挥作用的地方.
+
+在 Gradle 中,生产者变体通过 <<declaring_dependencies.adoc#sec:resolvable-consumable-configs,consumable configurations>> 公开.
+
+[[sub:strong-encapsulation]]
+== 强大的封装
+
+为了使生产者能够编译库,它需要所有实现依赖于编译类路径. 存在仅作为库的实现细节所需的依赖,并且某些库实际上是API的一部分.
+
+但是,依赖于此生成的库的库仅需要 "see" 库的公共API,因此也可以“查看”该API的依赖. 它是生产者的编译类路径的子集: 这是对依赖性的强封装.
+
+结果是,分配给库的 `implementation` 配置的依赖不会最终出现在使用者的编译类路径上. 另一方面,分配给库的 `api` 配置的依赖最终将出现在使用者的编译类路径上.
+但是,在运行时,需要所有依赖. 即使在单个项目中,Gradle也会在不同类型的使用者之间产生差异: 例如,Java编译任务与Java exec任务是不同的使用者.
+
+可以在 <<java_library_plugin.adoc#,此处找到>> 有关 Java 世界中 API 和运行时依赖分离的更多详细信息.
+
+[[sub:being-respectful-consumers]]
+== Being respectful of consumers
+
+每当作为开发人员,您决定包括一个依赖时,您必须了解对消费者有影响. 例如,如果将依赖添加到项目中,则它将成为使用者的传递性依赖,因此,如果使用者需要其他版本,则可能会参与冲突解决.
+
+Gradle处理的许多问题都与解决消费者和生产者的期望之间的不匹配有关.
+
+但是,某些项目比其他项目容易:
+
+- 如果您处于消费链的末端,也就是说您正在构建应用程序,那么实际上没有项目的使用者 (最终用户除外) : 添加 <<dependency_downgrade_and_exclude.adoc#sec:excluding-transitive-deps,exclusions>> 只会解决您的问题
+- 但是,如果您是 library,则添加 <<dependency_downgrade_and_exclude.adoc#sec:excluding-transitive-deps,exclusions>> 可能会阻止使用者正常工作,因为他们会使用您不喜欢的代码路径
+
+始终牢记,您选择解决问题的解决方案可能会“泄漏”给您的消费者. 本文档旨在指导您找到正确问题的正确解决方案,更重要的是,制定有助于决策引擎在发生冲突时做出正确决策的决策.

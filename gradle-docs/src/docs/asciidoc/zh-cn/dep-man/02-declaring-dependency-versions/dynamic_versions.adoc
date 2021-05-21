@@ -1,0 +1,175 @@
+ [[sec:dynamic_versions_and_changing_modules]]
+= 处理随时间变化的版本
+
+在许多情况下,您想使用特定模块依赖的最新版本或一系列版本中的最新版本. 这可能是开发过程中的要求,或者您可能正在开发旨在与一系列依赖版本一起使用的库. 您可以使用动态版本轻松地依赖这些不断变化的依赖.
+<<dynamic_versions.adoc#sub:declaring_dependency_with_dynamic_version,dynamic version>> 可以是版本范围 (例如 `2.+`) ,也可以是可用的最新版本的占位符,例如. `latest.integration`.
+
+或者,您请求的模块甚至可以针对相同版本 (即所谓的更改版本) 随时间更改. 此类 <<dynamic_versions.adoc#sub:declaring_dependency_with_changing_version,changing version>> 的一个示例是 Maven `SNAPSHOT` 模块,该模块始终指向最新发布的 artifacts . 换句话说,标准的Maven快照是一个不断发展的模块,它是一个"不断变化的模块" .
+
+[NOTE]
+====
+使用动态版本和更改模块可能导致无法复制的构建. 随着特定模块的新版本发布,其 API 可能与您的源代码不兼容. 请谨慎使用此功能！
+====
+
+[[sub:declaring_dependency_with_dynamic_version]]
+== 声明动态版本
+
+项目可能会采用更积极的方法来消耗对模块的依赖. 例如,您可能希望始终集成最新版本的依赖,以便在任何给定时间使用最先进的功能. 动态版本允许解析给定模块的最新版本或版本范围的最新版本.
+
+[NOTE]
+====
+在构建中使用动态版本会承担潜在破坏它的风险.包含不兼容的 API 更改的依赖的新版本发布后,您的源代码可能会停止编译.
+====
+
+.Declaring a dependency with a dynamic version
+====
+include::{snippets-dir}/dependencyManagement/declaringDependencies-dynamicVersion/groovy/build.gradle[tags=dependencies]
+include::{snippets-dir}/dependencyManagement/declaringDependencies-dynamicVersion/kotlin/build.gradle.kts[tags=dependencies]
+====
+
+link:https://scans.gradle.com/[build scan] 可以有效地可视化动态依赖版本及其各自的选定版本.
+
+.Dynamic dependencies in build scan
+image::{image-dir}/dependency-management-dynamic-dependency-build-scan.png[]
+
+默认情况下,Gradle 将动态版本的依赖缓存 24 小时. 在此时间范围内,Gradle 不会尝试从声明的存储库中解析较新的版本. 可以根据需要 <<#sec:controlling-dynamic-version-caching, 配置 threshold>>,例如,如果您想更早地解析新版本.
+
+[[sub:declaring_dependency_with_changing_version]]
+== 声明版本变更
+
+在发布应用程序或库的新版本之前,团队可能会决定实施一系列功能. 允许消费者尽早集成其成品的未完成版本的常见策略通常是发布具有所谓更改版本的模块. 版本变更表示该功能集仍在积极开发中,尚未发布稳定的版本以供普遍使用.
+
+在 Maven 存储库中,更改的版本通常称为 link:https://maven.apache.org/guides/getting-started/index.html#What_is_a_SNAPSHOT_version[snapshot versions]. 快照版本包含后缀 `-SNAPSHOT`. 以下示例演示了如何在 Spring 依赖上声明快照版本.
+
+.Declaring a dependency with a changing version
+====
+include::{snippets-dir}/dependencyManagement/declaringDependencies-changingVersion/groovy/build.gradle[tags=dependencies]
+include::{snippets-dir}/dependencyManagement/declaringDependencies-changingVersion/kotlin/build.gradle.kts[tags=dependencies]
+====
+
+默认情况下,Gradle将更改的依赖版本缓存24小时. 在此时间范围内,Gradle不会尝试从声明的存储库中解析较新的版本. 可以根据需要 <<#sec:controlling-dynamic-version-caching, 配置 threshold>>,例如,如果您想更早地解析新的快照版本.
+
+Gradle 足够灵活,可以将任何版本视为更改版本,例如 如果要为 Ivy module 建模快照行为. 您需要做的就是将属性 link:{javadocPath}/org/gradle/api/artifacts/ExternalModuleDependency.html#setChanging-boolean-[ExternalModuleDependency.setChanging(boolean)]设置为 `true`
+
+[[sec:controlling-dynamic-version-caching]]
+== 控制动态版本缓存
+
+默认情况下,Gradle 会在 24 小时内缓存动态版本和更改模块. 在这段时间内,Gradle 不会与任何已声明的远程存储库联系以获取新版本. 如果您希望 Gradle 更频繁地检查远程存储库或在每次执行构建时检查远程存储库,则需要更改生存时间 (TTL) 阈值.
+
+[NOTE]
+====
+由于HTTP (s) 调用的数量增加,因此对于动态版本或更改版本使用较短的TTL阈值可能会导致构建时间更长.
+====
+
+您可以使用 <<#sec:controlling_dependency_caching_command_line,command line options>> 覆盖默认的缓存模式. 您还可以使用解析策略 <<#sec:controlling_dependency_caching_programmatically,以编程方式更改构建中的缓存过期时间>>.
+
+[[sec:controlling_dependency_caching_programmatically]]
+== 以编程方式控制依赖缓存
+
+您可以使用 link:{javadocPath}/org/gradle/api/artifacts/ResolutionStrategy.html[ResolutionStrategy] 对配置进行编程来微调缓存的某些方面. 如果您想永久更改设置,则编程方式非常有用.
+
+默认情况下,Gradle 将动态版本缓存 24 小时. 要更改 Gradle 将解析后的版本缓存为动态版本的时间,请使用:
+
+.Dynamic version cache control
+====
+include::{snippets-dir}/dependencyManagement/troubleshooting-cache-dynamic/groovy/build.gradle[tags=dynamic-version-cache-control]
+include::{snippets-dir}/dependencyManagement/troubleshooting-cache-dynamic/kotlin/build.gradle.kts[tags=dynamic-version-cache-control]
+====
+
+默认情况下,Gradle 将更改的模块缓存 24 小时. 要更改 Gradle 将为更改的模块缓存元数据和 artifacts 的时间,请使用:
+
+.Changing module cache control
+====
+include::{snippets-dir}/dependencyManagement/troubleshooting-cache-changing/groovy/build.gradle[tags=changing-module-cache-control]
+include::{snippets-dir}/dependencyManagement/troubleshooting-cache-changing/kotlin/build.gradle.kts[tags=changing-module-cache-control]
+====
+
+[[sec:controlling_dependency_caching_command_line]]
+== Controlling dependency caching from the command line
+
+[[sec:offline-mode]]
+=== Avoiding network access with offline mode
+
+The `--offline` command line switch tells Gradle to always use dependency modules from the cache, regardless if they are due to be checked again. When running with offline, Gradle will never attempt to access the network to perform dependency resolution. If required modules are not present in the dependency cache, build execution will fail.
+
+[[sec:refreshing-dependencies]]
+=== Refreshing dependencies
+
+You can control the behavior of dependency caching for a distinct build invocation from the command line.
+Command line options are helpful for making a selective, ad-hoc choice for a single execution of the build.
+
+
+At times, the Gradle Dependency Cache can become out of sync with the actual state of the configured repositories.
+Perhaps a repository was initially misconfigured, or perhaps a "non-changing" module was published incorrectly.
+To refresh all dependencies in the dependency cache, use the `--refresh-dependencies` option on the command line.
+
+The `--refresh-dependencies` option tells Gradle to ignore all cached entries for resolved modules and artifacts.
+A fresh resolve will be performed against all configured repositories, with dynamic versions recalculated, modules refreshed, and artifacts downloaded.
+However, where possible Gradle will check if the previously downloaded artifacts are valid before downloading again.
+This is done by comparing published SHA1 values in the repository with the SHA1 values for existing downloaded artifacts.
+
+- new versions of dynamic dependencies
+- new versions of changing modules (modules which use the same version string but can have different contents)
+
+[NOTE]
+====
+Refreshing dependencies will cause Gradle to invalidate its listing caches.
+However:
+
+- it will perform HTTP HEAD requests on metadata files but _will not re-download them_ if they are identical
+- it will perform HTTP HEAD requests on artifact files but _will not re-download them_ if they are identical
+
+In other words, refreshing dependencies _only_ has an impact if you actually use dynamic dependencies _or_ that you have changing dependencies that you were not aware of (in which case it is your responsibility to declare them correctly to Gradle as changing dependencies).
+
+It's a common misconception to think that using `--refresh-dependencies` will force download of dependencies.
+This is **not** the case: Gradle will only perform what is strictly required to refresh the dynamic dependencies.
+This _may_ involve downloading new listing or metadata files, or even artifacts, but if nothing changed, the impact is minimal.
+====
+
+[[sec:component_selection_rules]]
+== Using component selection rules
+
+Component selection rules may influence which component instance should be selected when multiple versions are available that match a version selector.
+Rules are applied against every available version and allow the version to be explicitly rejected by rule.
+This allows Gradle to ignore any component instance that does not satisfy conditions set by the rule.
+Examples include:
+
+* For a dynamic version like `1.+` certain versions may be explicitly rejected from selection.
+* For a static version like `1.4` an instance may be rejected based on extra component metadata such as the Ivy branch attribute, allowing an instance from a subsequent repository to be used.
+
+Rules are configured via the link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelectionRules.html[ComponentSelectionRules] object.
+Each rule configured will be called with a link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] object as an argument which contains information about the candidate version being considered.
+Calling link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html#org.gradle.api.artifacts.ComponentSelection:reject(java.lang.String)[ComponentSelection.reject(java.lang.String)] causes the given candidate version to be explicitly rejected, in which case the candidate will not be considered for the selector.
+
+The following example shows a rule that disallows a particular version of a module but allows the dynamic version to choose the next best candidate.
+
+.Component selection rule
+====
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/groovy/build.gradle[tags=reject-version-1-1]
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=reject-version-1-1]
+====
+
+Note that version selection is applied starting with the highest version first.
+The version selected will be the first version found that all component selection rules accept.
+A version is considered accepted if no rule explicitly rejects it.
+
+Similarly, rules can be targeted at specific modules.
+Modules must be specified in the form of `group:module`.
+
+.Component selection rule with module target
+====
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/groovy/build.gradle[tags=targeted-component-selection]
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=targeted-component-selection]
+====
+
+Component selection rules can also consider component metadata when selecting a version.
+Possible additional metadata that can be considered are link:{javadocPath}/org/gradle/api/artifacts/ComponentMetadata.html[ComponentMetadata] and link:{javadocPath}/org/gradle/api/artifacts/ivy/IvyModuleDescriptor.html[IvyModuleDescriptor].
+Note that this extra information may not always be available and thus should be checked for `null` values.
+
+.Component selection rule with metadata
+====
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/groovy/build.gradle[tags=component-selection-with-metadata]
+include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=component-selection-with-metadata]
+====
+
+Note that a link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] argument is _always_ required as parameter when declaring a component selection rule.

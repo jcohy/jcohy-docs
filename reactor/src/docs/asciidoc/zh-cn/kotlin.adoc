@@ -1,0 +1,77 @@
+[[kotlin]]
+= Kotlin 支持
+
+[[kotlin-introduction]]
+https://kotlinlang.org[Kotlin] 是一种运行于 JVM(及其他平台)上的静态(statically-typed)语言. 使用它可以在拥有与现有 Java 库良好 https://kotlinlang.org/docs/reference/java-interop.html[互操作性] 的同时编写简介优雅的代码.
+
+本小节介绍了 Reactor 如何能够完美支持 Kotlin.
+
+[[kotlin-requirements]]
+== 前提
+
+Kotlin 支持 Kotlin 1.1+ 及依赖 https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib[`kotlin-stdlib`] (或 https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib-jre7[`kotlin-stdlib-jre7`]/https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib-jre8[`kotlin-stdlib-jre8`] 之一)
+
+[[kotlin-extensions]]
+== 扩展
+
+[WARNING]
+=====
+
+从 `Dysprosium-M1` (ie. `reactor-core 3.3.0.M1`) 开始,将 Kotlin 扩展移至专门的 https://github.com/reactor/reactor-kotlin-extensions[`reactor-kotlin-extensions`] 模块,
+该模块的包名称以 `reactor.kotlin` 开头,而不是简单的 `reactor`.
+
+结果,在 `reactor-core` 中已经废弃了 Kotlin 扩展.新依赖的 `groupId` 和 `artifactId` 为:
+
+====
+[source,gradle]
+----
+io.projectreactor.kotlin:reactor-kotlin-extensions
+----
+====
+=====
+
+多亏了其良好的 https://kotlinlang.org/docs/reference/java-interop.html[Java 互操作性] 以及 https://kotlinlang.org/docs/reference/extensions.html[Kotlin 扩展](extensions),
+Reactor Kotlin APIs 既可使用 Java APIs,还能够收益于一些 Reactor 内置的专门支持 Kotlin 的 APIs.
+
+NOTE: 注意 Kotlin 的扩展需要 `import` 才能够使用.所以比如 `Throwable.toFlux` 的 Kotlin 扩展必须在 `import reactor.core.publisher.toFlux` 后才可使用.
+多数场景下 IDE 应该能够自动给出这种类似 static import 的建议.
+
+例如,https://kotlinlang.org/docs/reference/inline-functions.html#reified-type-parameters[Kotlin 参数类型推导(reified type parameters)] 对于 JVM 的 https://docs.oracle.com/javase/tutorial/java/generics/erasure.html[通用类型擦除(generics type erasure)]提供了一种变通解决方案,
+Reactor 就可以通过扩展(extension)来应用到这种特性.
+
+下面是对 "Reactor with Java" 和 "Reactor with Kotlin + extensions" 的比较:
+
+|===
+|*Java*|*Kotlin with extensions*
+|`Mono.just("foo")`
+|`"foo".toMono()`
+|`Flux.fromIterable(list)`
+|`list.toFlux()`
+|`Mono.error(new RuntimeException())`
+|`RuntimeException().toMono()`
+|`Flux.error(new RuntimeException())`
+|`RuntimeException().toFlux()`
+|`flux.ofType(Foo.class)`
+|`flux.ofType<Foo>()` or `flux.ofType(Foo::class)`
+|`StepVerifier.create(flux).verifyComplete()`
+|`flux.test().verifyComplete()`
+|===
+
+可参考 https://projectreactor.io/docs/kotlin/release/kdoc-api/[Reactor KDoc API] 中详细的关于 Kotlin 扩展的文档.
+
+[[kotlin-null-safety]]
+== Null 值安全
+
+Kotlin的一个关键特性就是 https://kotlinlang.org/docs/reference/null-safety.html[null safety] —— 从而可以在编译时处理 `null` 值,而不是在运行时抛出著名的 `NullPointerException`.
+这样,通过“可能为空 "(nullability)" 的声明,以及能够表明“有值或空值”的语法(避免使用类似 `Optional` 来进行包装),使得应用程序更加安全.(Kotlin 允许在函数参数中使用可能为空的值,
+请参考 https://www.baeldung.com/kotlin-null-safety[comprehensive guide to Kotlin null-safety])
+
+尽管 Java 的类型系统不允许这样的 `null` 值安全的表达方式, <<null-safety,now provides null safety>> 对所有 Reactor API 通过工具友好的(tooling-friendly)注解(在 `reactor.util.annotation` 包中定义)来支持.
+默认情况下,Java APIs 用于 Kotlin 的话会被作为 平台类型(https://kotlinlang.org/docs/reference/java-interop.html#null-safety-and-platform-types[platform types]) 而放松对 `null` 的检查.
+Kotlin 对 https://github.com/Kotlin/KEEP/blob/jsr-305/proposals/jsr-305-custom-nullability-qualifiers.md[JSR 305 注解的支持] + Reactor 可为空(nullability)的注解,为所有 Reactor API 和 Kotlin 开发者确保 "null 值安全" 的特性 (在编译期处理 `null` 值).
+
+JSR 305 的检查可以通过增加 `-Xjsr305` 编译参数进行配置:  `-Xjsr305={strict|warn|ignore}`.
+
+对于 kotlin 1.1.50+,默认的配置为 `-Xjsr305=warn`.如果希望 Reactor API 能够全面支持 null 值安全 则需要配置为 `strict`.不过你可以认为这是实验性的(experimental),因为 Reactor API "可能为空" 的声明可能甚至在小版本的发布中都会不断改进,而且将来也可能增加新的检查.
+
+NOTE: 目前尚不支持通用类型参数、可变类型以及数组元素的 "可为空".不过应该包含在接下来的发布中,最新信息请看 这个 https://github.com/Kotlin/KEEP/issues/79[issues].

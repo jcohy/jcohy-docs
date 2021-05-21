@@ -1,0 +1,256 @@
+// Copyright 2017 the original author or authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+[[organizing_gradle_projects]]
+= 组织  Gradle 项目
+
+每个软件项目的源代码和构建逻辑都应以有意义的方式进行组织. 该页面列出了导致可读性,可维护性项目的最佳实践. 以下各节还探讨了常见问题以及如何避免它们.
+
+[[sec:separate_language_source_files]]
+== 区分特定语言的源文件
+
+Gradle 的语言插件建立了发现和编译源代码的约定. 例如,一个应用 <<java_plugin.adoc#java_plugin,Java plugin>> 的项目将自动编译 `src/main/java` 目录中的代码. 其他语言插件遵循相同的模式.
+目录路径的最后部分通常指示源文件的预期语言.
+
+一些编译器能够在同一源目录中交叉编译多种语言. Groovy 编译器可以处理混合位于 `src/main/groovy` 中的 Java 和 Groovy 源文件的情况. Gradle 建议您根据源语言将源放置在目录中,因为构建性能更高,并且用户和构建都可以做出更强的假设.
+
+以下源码树包含 Java 和 Kotlin 源文件. Java 文件位于 `src/main/java` 中,而 Kotlin 源文件位于 `src/main/kotlin` 中.
+
+====
+[.multi-language-sample]
+=====
+[source,groovy]
+----
+.
+├── build.gradle
+└── src
+    └── main
+        ├── java
+        │   └── HelloWorld.java
+        └── kotlin
+            └── Utils.kt
+----
+=====
+[.multi-language-sample]
+=====
+[source,kotlin]
+----
+.
+├── build.gradle.kts
+└── src
+    └── main
+        ├── java
+        │   └── HelloWorld.java
+        └── kotlin
+            └── Utils.kt
+----
+=====
+====
+
+[[sec:separate_test_type_source_files]]
+== 区分源文件的测试类型
+
+项目定义和执行不同类型的测试,例如 单元测试,集成测试,功能测试或冒烟测试.最好将每种测试类型的测试源代码存储在专用的源目录中.
+分离的测试源代码对可维护性和关注点分离有积极的影响,因为您可以彼此独立地运行测试类型.
+
+看一下该 link:../samples/sample_jvm_multi_project_with_additional_test_types.html[sample],该示例演示如何将单独的集成测试配置添加到基于 Java 的项目中.
+
+[[sec:use_standard_conventions]]
+== 尽可能使用标准约定
+
+所有 Gradle 核心插件在 link:https://en.wikipedia.org/wiki/Convention_over_configuration[配置方面] 均遵循软件工程范例约定. 插件逻辑可在特定上下文中为用户提供合理的默认值和标准约定. 让我们以 <<java_plugin.adoc#java_plugin,Java plugin>> 为例.
+
+* 它将目录 `src/main/java` 定义为编译的默认源目录.
+* 已编译源代码和其他 artifacts  (例如 JAR 文件) 的输出目录是  `build`.
+
+通过遵循默认约定,项目的新开发人员立即知道如何找到解决方法. 尽管可以重新配置这些约定,但使构建脚本用户和作者来管理构建逻辑及其结果变得更加困难. 除非您需要适应旧项目的布局,否则请尽量遵循默认约定. 请参阅相关插件的参考页面以了解其默认约定.
+
+== 始终定义一个 settings 文件
+
+Gradle 会在每次调用构建时尝试找到 `settings.gradle`  (Groovy DSL) 或 `settings.gradle.kts` (Kotlin DSL) 文件. 为此,运行时将目录树的层次结构移至根目录. 一旦找到 settings 文件,该算法即停止搜索.
+
+始终将 `settings.gradle` 添加到构建的根目录中,以避免对最初的性能产生影响. 此建议适用于单个项目构建以及多个项目构建. 该文件可以为空,也可以定义所需的项目名称.
+
+具有 settings 文件的典型 Gradle 项目如下所示:
+
+====
+[.multi-language-sample]
+=====
+[source,groovy]
+----
+.
+├── settings.gradle
+├── subproject-one
+│   └── build.gradle
+└── subproject-two
+    └── build.gradle
+----
+=====
+[.multi-language-sample]
+=====
+[source,kotlin]
+----
+.
+├── settings.gradle.kts
+├── subproject-one
+│   └── build.gradle.kts
+└── subproject-two
+    └── build.gradle.kts
+----
+=====
+====
+
+[[sec:build_sources]]
+== 使用  `buildSrc` 抽象命令式逻辑
+
+复杂的构建逻辑通常很适合作为自定义任务或二进制插件进行封装. 自定义任务和插件实现不应存在于构建脚本中. 只要不需要在多个独立项目之间共享代码,使用  `buildSrc` 即可非常方便.
+
+目录 `buildSrc` 被视为 <<composite_builds.adoc#composite_build_intro,included build>>. 发现目录后,Gradle 会自动编译并测试此代码,并将其放入构建脚本的类路径中.
+对于多项目构建,只能有一个 `buildSrc` 目录,该目录必须位于根项目目录中. 与脚本插件相比,应该首选 `buildSrc`,因为它更易于维护,重构和测试代码.
+
+`buildSrc`  使用适用于 Java 和 Groovy 项目的相同 <<java_plugin.adoc#javalayout,源代码约定>>. 它还提供对 Gradle API 的直接访问. 可以在 `buildSrc` 下的专用  `build.gradle` 中声明其他依赖.
+
+.Custom buildSrc build script
+====
+include::{snippets-dir}/java/multiproject/groovy/buildSrc/build.gradle[]
+include::{snippets-dir}/java/multiproject/kotlin/buildSrc/build.gradle.kts[]
+====
+
+包括 `buildSrc` 的典型项目具有以下布局. `buildSrc` 下的任何代码都应使用类似于应用程序代码的软件包.  (可选) 如果需要其他配置 (例如,应用插件或声明依赖) ,`buildSrc` 目录可以托管构建脚本.
+
+====
+[.multi-language-sample]
+=====
+[source,groovy]
+----
+.
+├── buildSrc
+│   ├── build.gradle
+│   └── src
+│       ├── main
+│       │   └── java
+│       │       └── com
+│       │           └── enterprise
+│       │               ├── Deploy.java
+│       │               └── DeploymentPlugin.java
+│       └── test
+│           └── java
+│               └── com
+│                   └── enterprise
+│                       └── DeploymentPluginTest.java
+├── settings.gradle
+├── subprojecto-one
+│   └── build.gradle.kts
+└── subproject-two
+    └── build.gradle.kts
+----
+=====
+[.multi-language-sample]
+=====
+[source,kotlin]
+----
+.
+├── buildSrc
+│   ├── build.gradle.kts
+│   └── src
+│       ├── main
+│       │   └── java
+│       │       └── com
+│       │           └── enterprise
+│       │               ├── Deploy.java
+│       │               └── DeploymentPlugin.java
+│       └── test
+│           └── java
+│               └── com
+│                   └── enterprise
+│                       └── DeploymentPluginTest.java
+├── settings.gradle.kts
+├── subproject-one
+│   └── build.gradle.kts
+└── subproject-two
+    └── build.gradle.kts
+----
+=====
+====
+
+NOTE:  `buildSrc` 中的更改会导致整个项目过时. 因此,在进行小的增量更改时, <<command_line_interface#sec:command_line_execution_options, `--no-rebuild` command-line option>> 通常有助于获得更快的反馈. 不过,请记住要定期或至少在完成后运行完整版本. causes the whole project to become out-of-date.
+
+== 在  `gradle.properties`  文件中声明属性
+
+在 Gradle 中,可以在构建脚本中,`gradle.properties` 文件中定义属性,也可以在命令行上将其定义为参数.
+
+在临时情况下,通常在命令行上声明属性. 例如,您可能希望仅针对构建的这一调用传递一个特定的属性值来控制运行时行为. 构建脚本中的属性很容易引起维护麻烦,并且使构建脚本逻辑复杂化.
+`gradle.properties` 有助于使属性与构建脚本分开,因此应将其作为可行的选项进行探索. 这是放置 <<build_environment.adoc#sec:gradle_configuration_properties,控制构建环境的属性>> 的理想位置.
+
+典型的项目设置将 `gradle.properties` 文件放置在构建的根目录中. 另外,如果您想将该文件应用于计算机上的所有内部版本,则该文件也可以位于 `GRADLE_USER_HOME` 目录中.
+
+====
+[.multi-language-sample]
+=====
+[source,groovy]
+----
+.
+├── gradle.properties
+└── settings.gradle
+├── subproject-a
+│   └── build.gradle
+└── subproject-b
+    └── build.gradle
+----
+=====
+[.multi-language-sample]
+=====
+[source,kotlin]
+----
+.
+├── gradle.properties
+└── settings.gradle.kts
+├── subproject-a
+│   └── build.gradle.kts
+└── subproject-b
+    └── build.gradle.kts
+----
+=====
+====
+
+== 避免任务输出重叠
+
+任务应定义输入和输出,以 <<more_about_tasks.adoc#sec:up_to_date_checks,增量构建功能>> 的性能优势. 在声明任务的输出时,请确保用于写入输出的目录在项目中的所有任务中都是唯一的.
+
+混合或覆盖由不同任务生成的输出文件会损害最新的检查,从而导致构建速度变慢. 反过来,这些文件系统更改可能会阻止 Gradle 的 <<build_cache.adoc#build_cache,build cache>> 正确识别和缓存本来可以缓存的任务.
+
+[[sec:custom_gradle_distribution]]
+== 使用自定义 Gradle  distributions 对构建进行标准化
+
+企业通常希望通过定义通用约定或规则来标准化组织中所有项目的构建平台. 您可以借助 <<init_scripts.adoc#init_scripts,Initialization scripts>> 来实现.
+初始化脚本使在单个计算机上的所有项目中应用构建逻辑变得极为容易. 例如,声明内部存储库及其凭证.
+
+该方法有一些缺点. 首先,您将必须在公司中所有开发人员之间交流设置过程. 此外,统一更新初始化脚本逻辑可能会带来挑战.
+
+自定义 Gradle distributions 是解决此问题的实用方法. 自定义 Gradle distributions 由标准 Gradle distributions 以及一个或多个自定义初始化脚本组成. 初始化脚本与发行版捆绑在一起,并在每次运行构建时应用. 开发人员仅需要将其签入的 <<gradle_wrapper.adoc#gradle_wrapper,Wrapper>> 文件指向自定义 Gradle 发行版的 URL.
+
+自定义 Gradle distributions 还可能在发行版的根目录中包含 `gradle.properties` 文件,该文件提供了组织范围内 <<build_environment.adoc#sec:gradle_configuration_properties,set of properties that control the build environment>>的一组属性.
+
+以下步骤是创建自定义Gradle distributions 的典型步骤:
+
+1. 实现用于下载和重新打包 Gradle distributions 的逻辑
+2. 用所需的逻辑定义一个或多个初始化脚本
+3. 将初始化脚本与 Gradle  distributions 捆绑在一起.
+4. 将 Gradle distributions  archive 上传到 HTTP 服务器.
+5. 更改所有项目的 Warpper 文件,以指向自定义 Gradle 分发的 URL.
+
+.Building a custom Gradle distribution
+====
+include::{snippets-dir}/organizingGradleProjects/customGradleDistribution/groovy/build.gradle[]
+====

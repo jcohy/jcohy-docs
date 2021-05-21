@@ -1,0 +1,127 @@
+[[version_alignment]]
+= 依赖版本对齐
+
+依赖版本对齐允许依赖于同一逻辑组 (平台) 的不同模块在依赖图中具有相同的版本.
+
+== 处理不一致的版本
+
+Gradle支持对齐属于同一 "platform" 的模块的版本.例如,通常最好是组件的API和实现模块使用相同的版本. 但是,由于传递依赖解析的博弈,属于同一平台的不同模块最终可能使用不同的版本.
+例如,您的项目可能依赖于 `jackson-databind` 和 `vert.x` 库,如下所示
+
+.Declaring dependencies
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=dependencies]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=dependencies]
+====
+
+因为 `vert.x` 依赖 `jackson-core`, 我们实际上将解决以下依赖版本:
+
+- `jackson-core` 版本 `2.9.5` (由 `vertx-core` 提供)
+- `jackson-databind` 版本 `2.9.5` (通过冲突解决)
+- `jackson-annotation` 版本 `2.9.0` (依赖于 `jackson-databind:2.9.5`)
+
+很容易导致一组版本不能很好地协同工作.为了解决这个问题,Gradle 支持依赖版本对齐,这是由 platforms 概念支持的.一个平台代表一组"很好地工作在一起" 的模块.
+要么是因为它们实际上是作为一个整体发布的(当发布平台的一个成员时,所有其他模块也会以相同的版本发布),要么是因为有人测试了模块并指出它们可以很好地协同工作(通常是 Spring 平台).
+
+== 将本地版本与 Gradle 对齐
+
+Gradle 本地支持 Gradle 生产的模块的对齐. 这是 <<dependency_constraints.adoc#sec:adding-constraints-transitive-deps, 依赖约束>> 的可传递性的直接结果. 因此,如果您具有多项目构建,并且希望使用者获得所有模块的相同版本,则 Gradle 提供了一种使用 <<java_platform_plugin.adoc#,Java Platform Plugin>> 进行此操作的简单方法.
+
+例如,如果您的项目包含 3 个模块:
+
+- `lib`
+- `utils`
+- `core` 依赖 `lib` 和 `utils`
+
+并声明以下依赖的使用者:
+
+- `core` 版本 1.0
+- `lib` 版本 1.1
+
+然后默认情况下,解析将选择 `core:1.0` 和 `lib:1.1` ,因为 `lib` 不依赖 `core`.我们可以通过在项目中添加一个新模块 (平台) 来解决此问题,该模块将对您项目的所有模块添加约束:
+
+.The platform module
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignmentWithPlatform/groovy/platform/build.gradle[tags=platform]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignmentWithPlatform/kotlin/platform/build.gradle.kts[tags=platform]
+====
+
+完成此操作后,我们需要确保所有模块现在都依赖于平台,如下所示:
+
+.Declaring a dependency on the platform
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignmentWithPlatform/groovy/core/build.gradle[tags=dependencies]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignmentWithPlatform/kotlin/core/build.gradle.kts[tags=dependencies]
+====
+
+platform 对所有组件都包含约束很重要,而且每个组件都对平台具有依赖关系很重要. 这样,每当 Gradle 将依赖关系添加到图上平台的模块时,它还将包括对平台其他模块的约束.
+ 这意味着,如果我们看到属于同一平台的另一个模块,我们将自动升级到相同版本.
+
+在我们的示例中,这意味着我们首先看到  `core:1.0`,它带来了受 `1.0` 和 `lib:1.0` 约束的平台 `1.0` . 然后我们添加 `lib:1.1`,它依赖于 `platform:1.1`.
+通过冲突解决,我们选择 `1.1` 平台,该平台对 `core:1.1` 有约束. 然后我们在 `core:1.0` and `core:1.1` 之间解决冲突,这意味着 `core` 和 `lib` 现在正确对齐了.
+
+
+NOTE: 仅当您使用 Gradle Module 元数据时,才对发布的组件强制执行此行为.
+
+[[sec:align-versions-unpublished]]
+== 对齐未随 Gradle 发布的模块版本
+
+每当发布者不使用 Gradle 时 (例如在我们的 Jackson 例子中) ,我们都可以向 Gradle 解释说,所有 Jackson 模块都"属于" 同一平台,并受益于与本机对齐方式相同的行为. 有两个选项可以表示一组模块属于某个平台:
+
+1. platform 作为  <<platforms.adoc#sub:bom_import,BOM>>  发布,可以使用: 例如,`com.fasterxml.jackson:jackson-bom` 可以用作平台. 在这种情况下,Gradle 缺少的信息是,如果使用平台的成员之一,则应将平台添加到依赖中.
+2. 无法使用现有平台.而是应由 Gradle 创建一个虚拟平台: 在这种情况下,Gradle 会根据使用的所有成员来构建平台本身:
+
+要将缺少的信息提供给 Gradle,您可以定义  <<component_metadata_rules.adoc#,组件元数据规则>>,如下所述.
+
+[[sec:align_bom_platform]]
+=== 使用已发布的 BOM 对齐模块的版本
+
+.A dependency version alignment rule
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=bom-alignment-rule]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=bom-alignment-rule]
+====
+
+通过使用带有 `false` (不是虚拟) 的 `belongsTo`,我们声明所有模块都属于同一发布平台. 在这种情况下,平台为 `com.fasterxml.jackson:jackson-bom`,并且 Gradle 会像在其他模块中一样在声明的存储库中查找它.
+
+.Making use of a dependency version alignment rule
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=use_bom_rule]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=use_bom_rule]
+====
+
+使用该规则,以上示例中的版本将与 `com.fasterxml.jackson:jackson-bom` 的所选版本定义的对齐. 在这种情况下,将选择 `com.fasterxml.jackson:jackson-bom:2.9.5`,因为 `2.9.5` 是所选模块的最高版本. 在该 BOM 中,
+定义并使用了以下版本: `jackson-core:2.9.5`,
+`jackson-databind:2.9.5` and
+`jackson-annotation:2.9.0`. 较低版本的 `jackson-annotation` 可能是所需的结果,因为它是 BOM 的建议.
+
+NOTE: 从Gradle 6.1开始,此行为工作可靠. 实际上,它类似于  <<component_metadata_rules.adoc#,组件元数据规则>>,该规则使用 `withDependencies` 将平台依赖添加到平台的所有成员.
+
+[[sec:virtual_platform]]
+=== 在没有发布平台的情况下对齐模块版本
+
+.A dependency version alignment rule
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=alignment-rule]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=alignment-rule]
+====
+
+通过使用无进一步参数 (平台是虚拟的) 的 `belongsTo` 关键字,我们声明所有模块都属于同一虚拟平台,该引擎特别对其进行了处理. 不会从存储库中检索虚拟平台. 标识符 (在本例中为 `com.fasterxml.jackson:jackson-virtual-platform`) 是构建作者定义的东西.
+平台的"内容" 然后由 Gradle 通过收集指向同一虚拟平台的所有 `belongsTo` 语句来动态创建.
+
+.Making use of a dependency version alignment rule
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=use_rule]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=use_rule]
+====
+
+使用该规则,以上示例中的所有版本将与 `2.9.5` 保持一致. 在这种情况下,还将采用 `jackson-annotation:2.9.5`,因为这是我们定义本地虚拟平台的方式.
+
+对于已发布平台和虚拟平台,Gradle 允许您通过在平台上指定强制依赖来覆盖平台本身的版本选择:
+
+.Forceful platform downgrade
+====
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/groovy/build.gradle[tags=enforced_platform]
+include::{snippets-dir}/dependencyManagement/managingTransitiveDependencies-dependencyAlignment/kotlin/build.gradle.kts[tags=enforced_platform]
+====
+
