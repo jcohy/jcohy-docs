@@ -27,8 +27,15 @@ include::version-note.adoc[]
 [[tx.spring]]
 == @Transactional 支持
 
-默认情况下,事务支持是禁用的,必须通过设置  `setEnableTransactionSupport(true)` 为正在使用的每个 `RedisTemplate` 显式启用. 这样做会强制将当前 `RedisConnection` 绑定到触发 `MULTI` 的当前线程.
-如果事务顺利完成,则调用 `EXEC`. 否则调用 `DISCARD`. 一旦进入 `MULTI`,`RedisConnection` 会将写入操作排队. 所有只读操作(例如 `KEYS`)都通过管道传递到新的(非线程绑定)`RedisConnection`.
+默认情况下,`RedisTemplate` 不参与 Spring 事务管理.如果您希望 `RedisTemplate` 在使用 `@ Transactional` 或 `TransactionTemplate` 时使用 Redis 事务，则需要通过设置 `setEnableTransactionSupport(true)` 显式地为每个 `RedisTemplate` 启用事务支持。
+
+启用事务支持会将 RedisConnection 绑定到由 ThreadLocal 支持的当前事务。
+如果事务顺利完成,则调用 `EXEC`. 否则调用 `DISCARD`。
+Redis 事务是面向批处理的。 在正在进行的事务期间发出的命令会排队，并且仅在提交事务时才应用。
+
+Spring Data Redis 在正在进行的事务中区分只读和写入命令。
+诸如 `KEYS` 之类的只读命令都通过管道传递到新的 (非线程绑定)`RedisConnection` 读取。
+写命令由 `RedisTemplate` 排队，并在提交时应用.
 
 以下示例显示如何配置事务管理:
 
