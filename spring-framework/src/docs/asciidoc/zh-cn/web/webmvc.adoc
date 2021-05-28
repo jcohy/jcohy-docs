@@ -578,12 +578,6 @@ Spring MVC 定义了 `ViewResolver` 和 `View` 接口,使您可以在浏览器�
 | `AbstractCachingViewResolver`
 | `AbstractCachingViewResolver` 的子类缓存它们解析的视图实例.  缓存可提高某些视图技术的性能.  您可以通过将 `cache` 属性设置为 `false`.来关闭缓存.  此外,如果必须在运行时刷新某个视图(例如,修改 `FreeMarker` 模板时) ,则可以使用 `removeFromCache(String viewName, Locale loc)` 方法.
 
-| `XmlViewResolver`
-| 实现 `ViewResolver`,它必须和 Spring 的 XML bean 工厂有相同的 DTD .  默认配置文件是 `/WEB-INF/views.xml`.
-
-| `ResourceBundleViewResolver`
-|  `ViewResolver` 的实现,它使用由 bundle 根路径指定的 `ResourceBundle` 中的 bean 定义作为配置.  对于它应该解析的每个视图,它使用属性 `[viewname].(class)` 的值作为视图类, 并使用属性 `[viewname].url` 的值作为视图 URL.  您可以在  <<mvc-view,视图技术>> 一章中找到示例.
-
 | `UrlBasedViewResolver`
 | `ViewResolver` 接口的简单实现,它不需要其他任何显式的映射说明,而直接使用 URL 来解析到逻辑视图名.  如果您的逻辑名称与真正的视图资源的名称匹配,则不需要任何映射.
 
@@ -595,6 +589,9 @@ Spring MVC 定义了 `ViewResolver` 和 `View` 接口,使您可以在浏览器�
 
 | `ContentNegotiatingViewResolver`
 | 实现 `ViewResolver` 接口,该接口根据请求文件名或 `Accept` 头解析视图.  请参阅  <<mvc-multiple-representations,内容协商>>.
+
+| `BeanNameViewResolver`
+| `ViewResolver` 接口的实现，该接口将视图名称解释为当前应用程序上下文中的 bean 名称。这是一个非常灵活的实现，它允许根据不同的视图名称来混合和匹配不同的视图类型。 每个这样的 `View` 都可以定义为一个 bean，例如 在 XML 或配置类中.
 |===
 
 
@@ -814,7 +811,7 @@ Spring 还提供了一个 `ThemeChangeInterceptor`,它允许通过简单的请�
 === Multipart 解析器
 [.small]#<<web-reactive.adoc#webflux-multipart, WebFlux>>#
 
-`org.springframework.web.multipart` 包中的 `MultipartResolver` 是一种用于解析包括文件上传在内的多部分请求的策略.  他包含了一个 https://jakarta.apache.org/commons/fileupload[Commons FileUpload] 的实现,另一个基于 Servlet 3.0 多部分请求解析.
+`org.springframework.web.multipart` 包中的 `MultipartResolver` 是一种用于解析包括文件上传在内的多部分请求的策略.  他包含了一个 https://commons.apache.org/proper/commons-fileupload[Commons FileUpload] 的实现,另一个基于 Servlet 3.0 多部分请求解析.
 
 要启用多部分处理,在 Spring 的配置文件中, 为 `DispatcherServlet` 配置名称为 `multipartResolver` 的 `MultipartResolver` bean.  `DispatcherServlet` 会自动检测并将其应用于请求中.
 当收到内容类型为 `multipart/form-data` 的 POST 请求时,解析器会解析内容并将当前的 `HttpServletRequest` 包装为 `MultipartHttpServletRequest`,以提供对已解析部分的访问,并将其作为请求参数暴露.
@@ -1158,38 +1155,23 @@ TIP: 有关 https://spring.io/guides[spring.io] 的指南和教程,请使用本�
 ==== URI 模式匹配
 [.small]#<<web-reactive.adoc#webflux-ann-requestmapping-uri-templates, WebFlux>>#
 
-您可以使用以下全局模式和通配符来映射请求:
+`@RequestMapping` 可以使用 URL patterns 来映射. 这里有两种选择:
 
-[cols="2,3,5"]
-|===
-|Pattern |Description |Example
+* `PathPattern` -- 与 URL 路径匹配的预解析模式（也预定义为“ PathContainer”）。 专为 web 使用而设计，该解决方案可有效处理编码和路径参数，并有效匹配.
+* `AntPathMatcher` -- 根据字符串路径匹配字符串模式。 这在 Spring 配置中还用于在类路径，文件系统和其他位置上选择资源的原始解决方案。 它效率较低，并且字符串路径输入对于有效处理 URL 的编码和其他问题是一个挑战.
 
-| `+?+`
-| 匹配一个字符
-| `+"/pages/t?st.html"+`
+`PathPattern` 是推荐用于 Web 应用程序的解决方案，它是 Spring WebFlux 中的唯一选择。 在 5.3 版之前，`AntPathMatcher` 是Spring MVC 中的唯一选择，并且是默认设置。 但是，可以在 <<mvc-config-path-matching, MVC config>> 启用 `PathPattern`
+.
 
-matches `+"/pages/test.html"+`
-and `+"/pages/t3st.html"+`
+`PathPattern` 与 `AntPathMatcher` 支持相同的语法. 此外，它还支持 capturing pattern, 例如. `+{*spring}+`, 用于匹配路径末尾 0 个或多个路径. `PathPattern` 还限制了 `+**+` 的使用，以匹配多个路径段，因此仅在模式末尾才允许使用. 当为给定请求选择最佳匹配模式时，这消除了许多歧义的情况.有关完整的语法，请参阅 {api-spring-framework}/web/util/pattern/PathPattern.html[PathPattern] 和 {api-spring-framework}/util/AntPathMatcher.html[AntPathMatcher].
 
-| `+*+`
-| 匹配路径段一个或多个字符
-| `+"/resources/*.png"+` matches `+"/resources/file.png"+`
+示例:
 
-`+"/projects/*/versions"+` matches `+"/projects/spring/versions"+` but does not match `+"/projects/spring/boot/versions"+`
-
-| `+**+`
-| 匹配 0 个或多个路径
-| `+"/resources/**"+` matches `+"/resources/file.png"+` and `+"/resources/images/file.png"+`
-
-| `+{name}+`
-| 将匹配到的路径命名为 "name" 的变量
-| `+"/projects/{project}/versions"+` matches `+"/projects/spring/versions"+` and captures `+project=spring+`
-
-| `+{name:[a-z]+}+`
-| 匹配路径正则表达式 `+"[a-z]+"+` 并将其命名为 "name" 变量
-| `+"/projects/{project:[a-z]+}/versions"+` matches `+"/projects/spring/versions"+` but not `+"/projects/spring1/versions"+`
-
-|===
+* `+"/resources/ima?e.png"+` - match one character in a path segment
+* `+"/resources/*.png"+` - match zero or more characters in a path segment
+* `+"/resources/**"+` - match multiple path segments
+* `+"/projects/{project}/versions"+` - match a path segment and capture it as a variable
+* `+"/projects/{project:[a-z]+}/versions"+` - match and capture a variable with a regex
 
 您还可以使用 `@PathVariable` 声明 URI 变量并访问它们的值,如以下示例所示:
 
@@ -1244,7 +1226,7 @@ URI 变量会自动转换为适当的类型,或者引发 `TypeMismatchException`
 
 你可以显示命名 URI 变量(例如, `@PathVariable("customId")` ),但是如果名称是相同的,并且代码是使用调试信息编译的,或者在 Java 8 中使用 `-parameters` 编译器标记.  则可以保留该详细信息.
 
-语法 `{varName:regex}` 声明一个具有正则表达式的 URI 变量,其语法为 `{varName:regex}`. 例如,给定 URL `"/spring-web-3.0.5 .jar"`,以下方法提取名称,版本和文件扩展名:
+语法 `{varName:regex}` 声明一个具有正则表达式的 URI 变量,其语法为 `{varName:regex}`. 例如,给定 URL `"/spring-web-3.0.5.jar"`,以下方法提取名称,版本和文件扩展名:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1263,45 +1245,41 @@ URI 变量会自动转换为适当的类型,或者引发 `TypeMismatchException`
 	}
 ----
 
-URI 路径模式还可以嵌入 `${…​}`,在启动时通过 `PropertyPlaceHolderConfigurer` 解析本地、系统、环境和其他属性源时解析的占位符. 例如,这种模式可以使用基于某些外部配置对基 URL 进行参数化
-
-NOTE: Spring MVC 使用 `PathMatcher` 联系和 `AntPathMatcher` 实现位于 `spring-core` URI 路径匹配.
+URI 路径模式还可以嵌入 `${…}`,在启动时通过 `PropertyPlaceHolderConfigurer` 解析本地、系统、环境和其他属性源时解析的占位符. 例如,这种模式可以使用基于某些外部配置对基 URL 进行参数化
 
 
 [[mvc-ann-requestmapping-pattern-comparison]]
 ==== 模式比较
 [.small]#<<web-reactive.adoc#webflux-ann-requestmapping-pattern-comparison, WebFlux>>#
 
-当多个模式与 URL 匹配时,必须对它们进行比较以找到最佳匹配.  这是通过使用 `AntPathMatcher.getPatternComparator(String path)` 来完成的,它会查找更具体的模式.
+当多个模式与 URL 匹配时，必须选择最佳匹配。 根据是否启用了已解析的 `PathPattern`，使用以下方法之一完成此操作:
+
+* {api-spring-framework}/web/util/pattern/PathPattern.html#SPECIFICITY_COMPARATOR[`PathPattern.SPECIFICITY_COMPARATOR`]
+* {api-spring-framework}/util/AntPathMatcher.html#getPatternComparator-java.lang.String-[`AntPathMatcher.getPatternComparator(String path)`]
+
+两者都有助于对模式进行排序，并将最匹配的放在顶层.当多个模式与 URL 匹配时,必须对它们进行比较以找到最佳匹配.  这是通过使用 `AntPathMatcher.getPatternComparator(String path)` 来完成的,它会查找更具体的模式.
 
 如果 URI 变量的数量较少且单个通配符计为 1 且双通配符计为 2,那么模式就不那么具体了. 如果模式得到的分数相等,那么会选择较长的模式匹配. 如果分数和长度都相同,则会选择拥有比通配符更多的 URI 变量的模式.
 
 默认映射模式(`/{asterisk}{asterisk}`)从评分中排除,并始终排在最后.  此外,前缀模式(例如 `/public/{asterisk}{asterisk}`) 被认为比没有双通配符的其他模式更不具体.
 
-有关详细信息,请参阅 {api-spring-framework}/util/AntPathMatcher.html[`AntPathMatcher`] 中的 {api-spring-framework}/util/AntPathMatcher.AntPatternComparator.html[`AntPatternComparator`].  您可以自定义 {api-spring-framework}/util/PathMatcher.html[`PathMatcher`]  的实现. 请参阅 配置中的  <<mvc-config-path-matching,Path Matching>>
-
+有关完整的详细信息，请单击上面的链接到模式比较。
 
 [[mvc-ann-requestmapping-suffix-pattern-match]]
 ==== 后缀匹配
 
-默认情况下,默认情况下,Spring MVC 执行 `.{asterisk}` 后缀模式匹配,以便映射到 `/person` 的控制器也隐式映射到 `/person.*`. 这里使用文件扩展名来解释用于响应的请求内容类型(即,而不是 `Accept` 请求头)  - 例如,`/person.pdf`,`/person.xml` 等.
+从 5.3 开始，默认情况下 Spring MVC 不再执行 `.{asterisk}` 后缀模式匹配,以便映射到 `/person` 的控制器也隐式映射到 `/person.*`. 路径扩展不再用于解释请求的响应内容类型  - 例如,`/person.pdf`,`/person.xml` 等.
 
 当浏览器用于发送难以持续交互的 `Accept` 头时,必须以这种方式使用文件扩展名. 目前,这不再是必需的,判断 `Accept` 头应该是首选.
 
 随着时间的推移,文件扩展名的使用已经证明有多种方式存在问题.  当使用 URI 变量,路径参数和 URI 编码进行覆盖时,它可能会导致歧义.  有关基于 URL 的授权和安全性的推理(有关更多详细信息,请参阅下一节) 也变得更加困难.
 
-要完全禁用文件扩展名,必须同时设置以下两项:
+要完全禁用 5.3 之前的版本中的路径扩展，请进行以下设置：:
 
 * `useSuffixPatternMatching(false)`,  <<mvc-config-path-matching, PathMatchConfigurer>>
 * `favorPathExtension(false)`,  <<mvc-config-content-negotiation, ContentNegotiationConfigurer>>
 
-基于 URL 的内容协商仍然有用(例如,在浏览器中输入 URL 时) .  为此,我们建议使用基于查询参数的策略来避免文件扩展名带来的大多数问题.  或者,如果必须使用文件扩展名,请考虑通过 `ContentNegotiationConfigurer` 的 `mediaTypes` 属性将它们限制为只允许注册的扩展名列表.
-
-[NOTE]
-====
-从 5.2.4 开始,已弃用与路径扩展相关的选项,这些选项用于 {api-spring-framework}/org/springframework/web/servlet/mvc/method/annotation/RequestMappingHandlerMapping.java[RequestMappingHandlerMapping] 中的请求映射
-和 {api-spring-framework}/org.springframework.web.accept/ContentNegotiationManagerFactoryBean.java[ContentNegotiationManagerFactoryBean] 中的内容协商.  有关更多计划,请参见 Spring Framework 第 https://github.com/spring-projects/spring-framework/issues/24179[#24179]  issues 和相关问题.
-====
+除了通过 `"Accept"` 头之外，还有一种方法可以请求内容类型，(例如,在浏览器中输入 URL 时)。 路径扩展的一种安全替代方法是使用查询参数策略。如果必须使用文件扩展名,请考虑通过 <<mvc-config-content-negotiation,ContentNegotiationConfigurer>> 的 `mediaTypes` 属性将它们限制为只允许注册的扩展名列表.
 
 [[mvc-ann-requestmapping-rfd]]
 ==== 后缀匹配和 RFD
@@ -1695,6 +1673,15 @@ JDK 8  `java.util.Optional` 作为方法参数来支持的,它与具有 `require
 如果参数声明为 `String` 以外的其他参数,则表示某些带注解的控制器方法参数(例如 `@RequestParam`, `@RequestHeader`, `@PathVariable`, `@MatrixVariable`, 和 `@CookieValue`) 可能需要进行类型转换.
 
 对于此类情况,将根据配置的转换器自动应用类型转换.  默认情况下,支持简单类型(`int`, `long`, `Date` 和其他) .  您可以通过 `WebDataBinder`(请参阅<<mvc-ann-initbinder,DataBinder>>) 或使用 `FormattingConversionService` 注册 `Formatters` 来自定义类型转换.  请参见 <<core.adoc#format, Spring Field Formatting>>.
+
+类型转换中的一个实际问题是处理空的 String 值。如果该值由于类型转换而变为 `null`，则将其视为丢失。`Long`, `UUID`, 和其他目标类型。 如果要允许注入 `null`，则可以在参数注解中使用 `required` 标志，或将参数声明为 `@Nullable`.
+
+[NOTE]
+====
+从 5.3 开始，即使在类型转换之后，也将强制使用非 `null` 参数。如果您的处理程序方法接受 `null` 值，请在相应的 `@RequestParam` 等注解中将您的参数声明为 `@Nullable` 或将其标记为 `required=false`。这是最佳实践，也是针对 5.3 升级中遇到的回归问题的推荐解决方案。
+
+另外，您也可以专门处理在必需的 `@PathVariable` 的情况下，生成的 `MissingPathVariableException`。转换后的空值将被视为空的原始值，因此将抛出相应的  `Missing...Exception`.
+====
 
 
 [[mvc-ann-matrix-variables]]
@@ -2624,7 +2611,11 @@ Content-Transfer-Encoding: 8bit
 	}
 ----
 
-Spring MVC 支持使用单值<<mvc-ann-async-reactive-types, reactive type>>异步生成 `ResponseEntity`,and/or 主体的单值和多值 reactive 类型.
+Spring MVC 支持使用单值<<mvc-ann-async-reactive-types, reactive type>>异步生成 `ResponseEntity`,and/or 主体的单值和多值 reactive 类型.这允许以下类型的异步响应:
+
+* `ResponseEntity<Mono<T>>` 或 `ResponseEntity<Flux<T>>` 可以立即获得响应状态和响应头,而在稍后以异步方式提供正文时.
+如果主体包含 0..1 个值, 请使用 `Mono`,如果主体可以产生多个值,请使用 `Flux`.
+* `Mono<ResponseEntity<T>>` 在稍后的时间异步提供所有的 -- response status, headers, 和 body. 这允许响应状态和响应头根据异步请求处理的结果而变化.
 
 
 [[mvc-ann-jackson]]
@@ -2861,7 +2852,7 @@ NOTE: 如果未明确指定名称,框架将根据属性的类型给予一个默�
 * 将基于字符串的请求值(例如请求参数,路径变量,请求头,cookie 等) 转换为目标类型的控制器方法参数.
 * 在呈现 HTML 表单时将模型对象值格式化为 `String` 值.
 
-`@InitBinder` 方法可以注册特定于控制器的 `java.bean.PropertyEditor` 或 Spring `Converter` 和 `Formatter` 组件.  此外,您可以使用<<mvc-config-conversion,MVC config>> 在全局共享的 `FormattingConversionService` 中注册 `Converter` 和 `Formatter` 类型.
+`@InitBinder` 方法可以注册特定于控制器的 `java.beans.PropertyEditor` 或 Spring `Converter` 和 `Formatter` 组件.  此外,您可以使用<<mvc-config-conversion,MVC config>> 在全局共享的 `FormattingConversionService` 中注册 `Converter` 和 `Formatter` 类型.
 
 `@InitBinder` 方法支持许多与 `@RequestMapping` 方法相同的参数,但 `@ModelAttribute`(命令对象) 参数除外.  通常,它们使用 `WebDataBinder` 参数(用于注册) 和 `void` 返回值进行声明.  以下清单显示了一个示例:
 
@@ -2970,7 +2961,7 @@ NOTE: 如果未明确指定名称,框架将根据属性的类型给予一个默�
 	}
 ----
 
-该异常可能与顶级异常(即抛出直接 `IOException`) 或顶级包装器中的异常(例如,包含在 `IllegalStateException` 内的 `IOException`) 相匹配.
+该异常可能与顶级异常(即抛出直接 `IOException`) 或包装器中的异常(例如,包含在 `IllegalStateException` 内的 `IOException`) 相匹配.从 5.3 开始，这可以在任意原因级别上匹配，而以前只考虑了直接原因。
 
 对于匹配的异常类型,最好将目标异常声明为方法参数,如前面的示例所示. 当多个异常方法匹配时,根(root)异常匹配通常优先于原因(cause )异常匹配.  更具体地说,`ExceptionDepthComparator` 用于根据抛出的异常类型的深度对异常进行排序.
 
@@ -3675,7 +3666,7 @@ Servlet API 最初是为通过 Filter-Servlet 链进行一次传递而构建的.
 Reactive 返回值的处理方式如下:
 
 * 如果返回类型有 `single-value` 流的语义,如 `Mono`(Reactor) 或 `Single`(RxJava),那么它是适配并等效于 `DeferredResult`.
-* 如果返回类型有multi-value流的语义,如 `Flux` (Reactor)或 `Observable` (RxJava),并且如果媒体类型也表示为流,(例如,`application/stream+json` 或 `text/event-stream`) .  则它是适配并等效于使用 `ResponseBodyEmitter` 或 `SseEmitter`. 还可以返回 `Flux<ServerSentEvent>` 或 `Observable<ServerSentEvent>`.
+* 如果返回类型有multi-value流的语义,如 `Flux` (Reactor)或 `Observable` (RxJava),并且如果媒体类型也表示为流,(例如,`application/x-ndjson` 或 `text/event-stream`) .  则它是适配并等效于使用 `ResponseBodyEmitter` 或 `SseEmitter`. 还可以返回 `Flux<ServerSentEvent>` 或 `Observable<ServerSentEvent>`.
 * 如果返回类型 multi-value 流的语义,但媒体类型并不表示为流. 例如 `application/json`,则它是适配并等效于使用 `DeferredResult<List<?>>`.
 
 TIP: 	Spring MVC 对使用中的响应式库进行了适配 – 例如,预计有多少值,这是在 `spring-core` 包的 {api-spring-framework}/core/ReactiveAdapterRegistry.html[`ReactiveAdapterRegistry`]  的帮助下完成的.  它为响应式和异步类型提供可插拔的支持. 注册表内置了对 RxJava 的支持,但其他可以注册.
@@ -4534,7 +4525,7 @@ MVC 命名空间提供专用的元素.  以下示例适用于 FreeMarker:
 
 此选项提供了一种从 {api-spring-framework}/core/io/Resource.html[`Resource`] 库位置列表中使用静态资源的便捷方法
 
-在下面的示例中,给定以 `/resources` 开头的请求,相对路径用于在 Web 应用程序根目录下或在或在 `/static` 下的类路径上查找和提供相对于 `/public` 的静态资源.  资源的有效期为 1 年,以确保最大程度地使用浏览器缓存,并减少浏览器发出的 HTTP 请求. 如果返回 304 状态代码,`Last-Modified` 头也会计算到.
+在下面的示例中,给定以 `/resources` 开头的请求,相对路径用于在 Web 应用程序根目录下或在或在 `/static` 下的类路径上查找和提供相对于 `/public` 的静态资源.  资源的有效期为 1 年,以确保最大程度地使用浏览器缓存,并减少浏览器发出的 HTTP 请求. `Last-Modified` 信息是从 `Resource#lastModified` 中推导出来的,以便 HTTP 条件请求带有 `"Last-Modified"` headers..
 
 以下清单显示了如何使用 Java 配置执行此操作:
 
@@ -4549,7 +4540,7 @@ MVC 命名空间提供专用的元素.  以下示例适用于 FreeMarker:
 		public void addResourceHandlers(ResourceHandlerRegistry registry) {
 			registry.addResourceHandler("/resources/**")
 				.addResourceLocations("/public", "classpath:/static/")
-				.setCachePeriod(31556926);
+				.setCacheControl(CacheControl.maxAge(Duration.ofDays(365)));
 		}
 	}
 ----
@@ -4563,7 +4554,7 @@ MVC 命名空间提供专用的元素.  以下示例适用于 FreeMarker:
 		override fun addResourceHandlers(registry: ResourceHandlerRegistry) {
 			registry.addResourceHandler("/resources/**")
 					.addResourceLocations("/public", "classpath:/static/")
-					.setCachePeriod(31556926)
+					.setCacheControl(CacheControl.maxAge(Duration.ofDays(365)))
 		}
 	}
 ----
@@ -4736,21 +4727,12 @@ https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceR
 		@Override
 		public void configurePathMatch(PathMatchConfigurer configurer) {
 			configurer
-				.setUseTrailingSlashMatch(false)
-				.setUseRegisteredSuffixPatternMatch(true)
-				.setPathMatcher(antPathMatcher())
-				.setUrlPathHelper(urlPathHelper())
+				.setPatternParser(new PathPatternParser())
 				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController.class));
 		}
 
-		@Bean
-		public UrlPathHelper urlPathHelper() {
-			//...
-		}
-
-		@Bean
-		public PathMatcher antPathMatcher() {
-			//...
+		private PathPatternParser patternParser() {
+			// ...
 		}
 	}
 ----
@@ -4763,21 +4745,11 @@ https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceR
 
 		override fun configurePathMatch(configurer: PathMatchConfigurer) {
 			configurer
-				.setUseSuffixPatternMatch(true)
-				.setUseTrailingSlashMatch(false)
-				.setUseRegisteredSuffixPatternMatch(true)
-				.setPathMatcher(antPathMatcher())
-				.setUrlPathHelper(urlPathHelper())
+				.setPatternParser(patternParser)
 				.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController::class.java))
 		}
 
-		@Bean
-		fun urlPathHelper(): UrlPathHelper {
-			//...
-		}
-
-		@Bean
-		fun antPathMatcher(): PathMatcher {
+		fun patternParser(): PathPatternParser {
 			//...
 		}
 	}
@@ -4789,9 +4761,7 @@ https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceR
 ----
 	<mvc:annotation-driven>
 		<mvc:path-matching
-			suffix-pattern="true"
 			trailing-slash="false"
-			registered-suffixes-only="true"
 			path-helper="pathHelper"
 			path-matcher="pathMatcher"/>
 	</mvc:annotation-driven>

@@ -69,8 +69,7 @@ Spring Framework 使您可以选择何时将应用程序扩展到完全加载的
 
 Spring 事务抽象的关键是事务策略的概念. 事务策略由 `TransactionManager` 定义,特别是用于命令式事务管理的 `org.springframework.transaction.PlatformTransactionManager` 接口和用于响应式事务管理的 `org.springframework.transaction.ReactiveTransactionManager` 接口. 以下清单显示了 `PlatformTransactionManager` API 的定义: 如下所示:
 
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface PlatformTransactionManager extends TransactionManager {
 
@@ -81,21 +80,6 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 		void rollback(TransactionStatus status) throws TransactionException;
 	}
 ----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	interface PlatformTransactionManager : TransactionManager {
-
-		@Throws(TransactionException::class)
-		fun getTransaction(definition: TransactionDefinition): TransactionStatus
-
-		@Throws(TransactionException::class)
-		fun commit(status: TransactionStatus)
-
-		@Throws(TransactionException::class)
-		fun rollback(status: TransactionStatus)
-	}
----- 
 
 尽管您可以从应用程序代码中以<<transaction-programmatic-ptm, 编程方式>> 使用它, 但这是一个 service provider interface (SPI) .  因为 `PlatformTransactionManager` 是一个接口,所以可以根据需要轻松地 mock 或者 stubbed. 它与查询策略无关,例如 JNDI.
 `PlatformTransactionManager` 实现的定义与 Spring Framework IoC 容器中的其他对象(或 bean ) 相同. 仅使用此优势使 Spring Framework 事务成为一种有价值的抽象,即使您使用 JTA 也是如此.  与直接使用JTA 相比,您可以更轻松地测试事务代码.
@@ -106,8 +90,7 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 
 从 Spring Framework 5.2 开始,Spring 还提供了一个抽象的事务管理用于使用响应式类型或 Kotlin 协程的响应式应用程序. 下列清单显示了由 `org.springframework.transaction.ReactiveTransactionManager` 定义的事务策略:
 
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface ReactiveTransactionManager extends TransactionManager {
 
@@ -116,21 +99,6 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 		Mono<Void> commit(ReactiveTransaction status) throws TransactionException;
 
 		Mono<Void> rollback(ReactiveTransaction status) throws TransactionException;
-	}
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	interface ReactiveTransactionManager : TransactionManager {
-
-		@Throws(TransactionException::class)
-		fun getReactiveTransaction(definition: TransactionDefinition): Mono<ReactiveTransaction>
-
-		@Throws(TransactionException::class)
-		fun commit(status: ReactiveTransaction): Mono<Void>
-
-		@Throws(TransactionException::class)
-		fun rollback(status: ReactiveTransaction): Mono<Void>
 	}
 ----
 
@@ -148,8 +116,7 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 
 `TransactionStatus` 接口为事务代码提供了一种控制事务执行和查询事务状态的简单方法.  这些概念应该被熟知的,因为它们对于所有事务 API 都是通用的.  以下清单显示了 `TransactionStatus` 接口:
 
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface TransactionStatus extends TransactionExecution, SavepointManager, Flushable {
 
@@ -168,24 +135,6 @@ Spring 事务抽象的关键是事务策略的概念. 事务策略由 `Transacti
 
 		@Override
 		boolean isCompleted();
-	}
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	interface TransactionStatus : TransactionExecution, SavepointManager, Flushable {
-
-		override fun isNewTransaction(): Boolean
-
-		fun hasSavepoint(): Boolean
-
-		override fun setRollbackOnly()
-
-		override fun isRollbackOnly(): Boolean
-
-		fun flush()
-
-		override fun isCompleted(): Boolean
 	}
 ----
 
@@ -1277,6 +1226,10 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `noRollbackForClassName`
 | Array of `String` class names, which must be derived from `Throwable.`
 | 必定不会导致回滚的可选异常类数组.
+
+| `label`
+| Array of `String` labels to add an expressive description to the transaction.
+| Labels 可以由事务管理器评估，并将特定于实现的行为与实际事务相关联.
 |===
 
 目前,你无法明确的控制事务的名称, 'name' 意味着在事务监视器(如果可适用,例如WebLogic的事务监视器) 和输出日志中的事物名称, 对于声明式事务,事务名称始终是完全限定的类名+ `.`+事务通知类的方法名.  例如,如果 `BusinessService` 类的方法 `handlePayment(..)`  开始一个事务,
@@ -1359,13 +1312,13 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 ----
 	@Target({ElementType.METHOD, ElementType.TYPE})
 	@Retention(RetentionPolicy.RUNTIME)
-	@Transactional("order")
+	@Transactional(transactionManager = "order", label = "causal-consistency")
 	public @interface OrderTx {
 	}
 
 	@Target({ElementType.METHOD, ElementType.TYPE})
 	@Retention(RetentionPolicy.RUNTIME)
-	@Transactional("account")
+	@Transactional(transactionManager = "account", label = "retryable")
 	public @interface AccountTx {
 	}
 ----
@@ -1374,12 +1327,12 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 ----
 	@Target(AnnotationTarget.FUNCTION, AnnotationTarget.TYPE)
 	@Retention(AnnotationRetention.RUNTIME)
-	@Transactional("order")
+	@Transactional(transactionManager = "order", label = ["causal-consistency"])
 	annotation class OrderTx
 
 	@Target(AnnotationTarget.FUNCTION, AnnotationTarget.TYPE)
 	@Retention(AnnotationRetention.RUNTIME)
-	@Transactional("account")
+	@Transactional(transactionManager = "account", label = ["retryable"])
 	annotation class AccountTx
 ----
 
@@ -1418,7 +1371,7 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 	}
 ----
 
-在前面的示例中,我们使用语法来定义事务管理器限定符,但我们也可以包含传播行为、回滚规则、超时和其他功能.
+在前面的示例中,我们使用语法来定义事务管理器限定符和事务标签,但我们也可以包含传播行为、回滚规则、超时和其他功能.
 
 [[tx-propagation]]
 ==== 事务传播属性
@@ -1937,7 +1890,7 @@ NOTE: 如以下示例所示,使用 `TransactionOperator` 可以使您与 Spring 
 ===== 取消信号
 
 在 Reactive Streams 中,`Subscriber` 可以取消其 `Subscription` 并终止其 `Publisher`. Project Reactor 以及其他库中的操作,例如 `next()`,`take(long)`, `timeout(Duration)` 等,都可以发出取消操作. 没有办法知道取消的原因,无论是由于错误还是仅仅是出于进一步消费的兴趣,
-并且在 5.2 版本中,`TransactionalOperator` 默认在取消时提交事务. 在 5.3 版本中,此行为将更改,并且取消事务回滚以创建可靠的确定性结果. 因此,重要的是要考虑 `Publisher` 下游使用的操作符. 特别是在 `Flux` 或其他多值的 `Publisher` 的情况下,全部输出必须被消费才允许事务完成.
+在 5.3 版本中,取消信号导致回滚. 因此,重要的是要考虑 `Publisher` 下游使用的操作符. 特别是在 `Flux` 或其他多值的 `Publisher` 的情况下,全部输出必须被消费才允许事务完成.
 
 [[tx-prog-operator-settings]]
 ===== 指定事务配置
@@ -3530,7 +3483,7 @@ API 会有所不同,具体取决于您是否使用命名参数.  对于命名参
 ====
 
 在这种情况下,通过在底层 `PreparedStatement` 上自动设置值,需要从给定的 Java 类型扩展每个值的相应 JDBC 类型.  虽然这通常很有效,但是存在潜在的问题(例如,使用包含 Map 的 null 值) .
-默认情况下,Spring 会在这种情况下调用 `ParameterMetaData.getParameterType`,这对于 JDBC 驱动程序来说可能开销很大.  您应该使用最新的驱动程序版本并考虑将 `spring.jdbc.getParameterType.ignore` 属性设置为 `true` (作为 JVM 系统属性或类路径根目录中的 `spring.properties` 文件) , 如果遇到性能问题 - 例如 ,如 Oracle 12c JBoss and PostgreSQL 所述.
+默认情况下,Spring 会在这种情况下调用 `ParameterMetaData.getParameterType`,这对于 JDBC 驱动程序来说可能开销很大.  您应该使用最新的驱动程序版本并考虑将 `spring.jdbc.getParameterType.ignore` 属性设置为 `true` (作为 JVM 系统属性或类路径根目录中的 <<appendix.adoc#appendix-spring-properties,`SpringProperties`>> 文件) , 如果遇到性能问题 - 例如 ,如 Oracle 12c JBoss and PostgreSQL 所述.
 
 或者您可以考虑通过 `BatchPreparedStatementSetter`(如前所示) ;  或者通过给予基于 `List <Object[]>` 的调用的显式类型数组; 或者通过在自定义 `MapSqlParameterSource` 的实例上 调用 `registerSqlType`;  或者通过从 Java 声明的属性类型扩展 SQL 类型- `BeanPropertySqlParameterSource`(即使对于空值) 来显式指定相应的 JDBC 类型.
 ====
@@ -5243,6 +5196,655 @@ ignore-`failures` 选项可以被设置为 `NONE`(默认值) 、`DROPS` (忽略�
 * 依赖于 Spring `BeanFactory` 的默认行为,即 bean 按注册顺序初始化.  您可以通过采用 XML 配置中的一组 `<import/>` 元素的通用实践来轻松安排初始化顺序, 这些元素可以对应用程序模块进行排序,并确保首先列出数据库和数据库初始化.
 * 将 `DataSource` 和使用它的业务组件分开并通过将它们放在单独的 `ApplicationContext` 实例中来控制它们的启动顺序 (例如,父上下文包含 `DataSource`,子上下文包含业务组件) .  这种结构在 Spring Web 应用程序中很常见,但可以更普遍地应用.
 
+[[r2dbc]]
+== Data Access with R2DBC
+
+https://r2dbc.io[R2DBC] ("Reactive Relational Database Connectivity") is a community-driven
+specification effort to standardize access to SQL databases using reactive patterns.
+
+
+[[r2dbc-packages]]
+=== Package Hierarchy
+
+The Spring Framework's R2DBC abstraction framework consists of two different packages:
+
+* `core`: The `org.springframework.r2dbc.core` package contains the `DatabaseClient`
+class plus a variety of related classes. See <<r2dbc-core>>.
+
+* `connection`: The `org.springframework.r2dbc.connection` package contains a utility class
+for easy `ConnectionFactory` access and various simple `ConnectionFactory` implementations
+that you can use for testing and running unmodified R2DBC. See <<r2dbc-connections>>.
+
+
+[[r2dbc-core]]
+=== Using the R2DBC Core Classes to Control Basic R2DBC Processing and Error Handling
+
+This section covers how to use the R2DBC core classes to control basic R2DBC processing,
+including error handling. It includes the following topics:
+
+* <<r2dbc-DatabaseClient>>
+* <<r2dbc-DatabaseClient-examples-statement>>
+* <<r2dbc-DatabaseClient-examples-query>>
+* <<r2dbc-DatabaseClient-examples-update>>
+* <<r2dbc-DatabaseClient-filter>>
+* <<r2dbc-auto-generated-keys>>
+
+[[r2dbc-DatabaseClient]]
+==== Using `DatabaseClient`
+
+`DatabaseClient` is the central class in the R2DBC core package. It handles the
+creation and release of resources, which helps to avoid common errors, such as
+forgetting to close the connection. It performs the basic tasks of the core R2DBC
+workflow (such as statement creation and execution), leaving application code to provide
+SQL and extract results. The `DatabaseClient` class:
+
+* Runs SQL queries
+* Update statements and stored procedure calls
+* Performs iteration over `Result` instances
+* Catches R2DBC exceptions and translates them to the generic, more informative, exception
+hierarchy defined in the `org.springframework.dao` package. (See <<dao-exceptions>>.)
+
+The client has a functional, fluent API using reactive types for declarative composition.
+
+When you use the `DatabaseClient` for your code, you need only to implement
+`java.util.function` interfaces, giving them a clearly defined contract.
+Given a `Connection` provided by the `DatabaseClient` class, a `Function`
+callback creates a `Publisher`. The same is true for mapping functions that
+extract a `Row` result.
+
+You can use `DatabaseClient` within a DAO implementation through direct instantiation
+with a `ConnectionFactory` reference, or you can configure it in a Spring IoC container
+and give it to DAOs as a bean reference.
+
+The simplest way to create a `DatabaseClient` object is through a static factory method, as follows:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	DatabaseClient client = DatabaseClient.create(connectionFactory);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val client = DatabaseClient.create(connectionFactory)
+----
+
+NOTE: The `ConnectionFactory` should always be configured as a bean in the Spring IoC
+container.
+
+The preceding method creates a `DatabaseClient` with default settings.
+
+You can also obtain a `Builder` instance from `DatabaseClient.builder()`.
+You can customize the client by calling the following methods:
+
+* `….bindMarkers(…)`: Supply a specific `BindMarkersFactory` to configure named
+parameter to database bind marker translation.
+* `….executeFunction(…)`: Set the `ExecuteFunction` how `Statement` objects get
+run.
+* `….namedParameters(false)`: Disable named parameter expansion. Enabled by default.
+
+TIP: Dialects are resolved by {api-spring-framework}/r2dbc/core/binding/BindMarkersFactoryResolver.html[`BindMarkersFactoryResolver`]
+from a `ConnectionFactory`, typically by inspecting `ConnectionFactoryMetadata`.
++
+You can let Spring auto-discover your `BindMarkersFactory` by registering a
+class that implements `org.springframework.r2dbc.core.binding.BindMarkersFactoryResolver$BindMarkerFactoryProvider`
+through `META-INF/spring.factories`.
+`BindMarkersFactoryResolver` discovers bind marker provider implementations from
+the class path using Spring's `SpringFactoriesLoader`.
++
+
+Currently supported databases are:
+
+* H2
+* MariaDB
+* Microsoft SQL Server
+* MySQL
+* Postgres
+
+All SQL issued by this class is logged at the `DEBUG` level under the category
+corresponding to the fully qualified class name of the client instance (typically
+`DefaultDatabaseClient`). Additionally, each execution registers a checkpoint in
+the reactive sequence to aid debugging.
+
+The following sections provide some examples of `DatabaseClient` usage. These examples
+are not an exhaustive list of all of the functionality exposed by the `DatabaseClient`.
+See the attendant {api-spring-framework}/r2dbc/core/DatabaseClient.html[javadoc] for that.
+
+[[r2dbc-DatabaseClient-examples-statement]]
+===== Executing Statements
+
+`DatabaseClient` provides the basic functionality of running a statement.
+The following example shows what you need to include for minimal but fully functional
+code that creates a new table:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<Void> completion = client.sql("CREATE TABLE person (id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), age INTEGER);")
+	        .then();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	client.sql("CREATE TABLE person (id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), age INTEGER);")
+	        .await()
+----
+
+`DatabaseClient` is designed for convenient, fluent usage.
+It exposes intermediate, continuation, and terminal methods at each stage of the
+execution specification. The preceding example above uses `then()` to return a completion
+`Publisher` that completes as soon as the query (or queries, if the SQL query contains
+multiple statements) completes.
+
+NOTE: `execute(…)` accepts either the SQL query string or a query `Supplier<String>`
+to defer the actual query creation until execution.
+
+[[r2dbc-DatabaseClient-examples-query]]
+===== Querying (`SELECT`)
+
+SQL queries can return values through `Row` objects or the number of affected rows.
+`DatabaseClient` can return the number of updated rows or the rows themselves,
+depending on the issued query.
+
+The following query gets the `id` and `name` columns from a table:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<Map<String, Object>> first = client.sql("SELECT id, name FROM person")
+	        .fetch().first();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val first = client.sql("SELECT id, name FROM person")
+	        .fetch().awaitSingle()
+----
+
+The following query uses a bind variable:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<Map<String, Object>> first = client.sql("SELECT id, name FROM person WHERE first_name = :fn")
+	        .bind("fn", "Joe")
+	        .fetch().first();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val first = client.sql("SELECT id, name FROM person WHERE WHERE first_name = :fn")
+	        .bind("fn", "Joe")
+	        .fetch().awaitSingle()
+----
+
+You might have noticed the use of `fetch()` in the example above. `fetch()` is a
+continuation operator that lets you specify how much data you want to consume.
+
+Calling `first()` returns the first row from the result and discards remaining rows.
+You can consume data with the following operators:
+
+* `first()` return the first row of the entire result. Its Kotlin Coroutine variant
+is named `awaitSingle()` for non-nullable return values and `awaitSingleOrNull()`
+if the value is optional.
+* `one()` returns exactly one result and fails if the result contains more rows.
+Using Kotlin Coroutines, `awaitOne()` for exactly one value or `awaitOneOrNull()`
+if the value may be `null`.
+* `all()` returns all rows of the result. When using Kotlin Coroutines, use `flow()`.
+* `rowsUpdated()` returns the number of affected rows (`INSERT`/`UPDATE`/`DELETE`
+count). Its Kotlin Coroutine variant is named `awaitRowsUpdated()`.
+
+Without specifying further mapping details, queries return tabular results
+as `Map` whose keys are case-insensitive column names that map to their column value.
+
+You can take control over result mapping by supplying a `Function<Row, T>` that gets
+called for each `Row` so it can can return arbitrary values (singular values,
+collections and maps, and objects).
+
+The following example extracts the `id` column and emits its value:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Flux<String> names = client.sql("SELECT name FROM person")
+	        .map(row -> row.get("id", String.class))
+	        .all();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val names = client.sql("SELECT name FROM person")
+	        .map{ row: Row -> row.get("id", String.class) }
+	        .flow()
+----
+
+
+[[r2dbc-DatabaseClient-mapping-null]]
+.What about `null`?
+****
+Relational database results can contain `null` values.
+The Reactive Streams specification forbids the emission of `null` values.
+That requirement mandates proper `null` handling in the extractor function.
+While you can obtain `null` values from a `Row`, you must not emit a `null`
+value. You must wrap any `null` values in an object (for example, `Optional`
+for singular values) to make sure a `null` value is never returned directly
+by your extractor function.
+****
+
+[[r2dbc-DatabaseClient-examples-update]]
+===== Updating (`INSERT`, `UPDATE`, and `DELETE`) with `DatabaseClient`
+
+The only difference of modifying statements is that these statements typically
+do not return tabular data so you use `rowsUpdated()` to consume results.
+
+The following example shows an `UPDATE` statement that returns the number
+of updated rows:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<Integer> affectedRows = client.sql("UPDATE person SET first_name = :fn")
+	        .bind("fn", "Joe")
+	        .fetch().rowsUpdated();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val affectedRows = client.sql("UPDATE person SET first_name = :fn")
+	        .bind("fn", "Joe")
+	        .fetch().awaitRowsUpdated()
+----
+
+[[r2dbc-DatabaseClient-named-parameters]]
+===== Binding Values to Queries
+
+A typical application requires parameterized SQL statements to select or
+update rows according to some input. These are typically `SELECT` statements
+constrained by a `WHERE` clause or `INSERT` and `UPDATE` statements that accept
+input parameters. Parameterized statements bear the risk of SQL injection if
+parameters are not escaped properly. `DatabaseClient` leverages R2DBC's
+`bind` API to eliminate the risk of SQL injection for query parameters.
+You can provide a parameterized SQL statement with the `execute(…)` operator
+and bind parameters to the actual `Statement`. Your R2DBC driver then runs
+the statement by using prepared statements and parameter substitution.
+
+Parameter binding supports two binding strategies:
+
+* By Index, using zero-based parameter indexes.
+* By Name, using the placeholder name.
+
+The following example shows parameter binding for a query:
+
+====
+[source,java]
+----
+db.sql("INSERT INTO person (id, name, age) VALUES(:id, :name, :age)")
+    .bind("id", "joe")
+    .bind("name", "Joe")
+    .bind("age", 34);
+----
+====
+
+.R2DBC Native Bind Markers
+****
+R2DBC uses database-native bind markers that depend on the actual database vendor.
+As an example, Postgres uses indexed markers, such as `$1`, `$2`, `$n`.
+Another example is SQL Server, which uses named bind markers prefixed with `@`.
+
+This is different from JDBC, which requires `?` as bind markers.
+In JDBC, the actual drivers translate `?` bind markers to database-native
+markers as part of their statement execution.
+
+Spring Framework's R2DBC support lets you use native bind markers or named bind
+markers with the `:name` syntax.
+
+Named parameter support leverages a `BindMarkersFactory` instance to expand named
+parameters to native bind markers at the time of query execution, which gives you
+a certain degree of query portability across various database vendors.
+****
+
+The query-preprocessor unrolls named `Collection` parameters into a series of bind
+markers to remove the need of dynamic query creation based on the number of arguments.
+Nested object arrays are expanded to allow usage of (for example) select lists.
+
+Consider the following query:
+
+[source,sql]
+----
+SELECT id, name, state FROM table WHERE (name, age) IN (('John', 35), ('Ann', 50))
+----
+
+The preceding query can be parametrized and run as follows:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	List<Object[]> tuples = new ArrayList<>();
+	tuples.add(new Object[] {"John", 35});
+	tuples.add(new Object[] {"Ann",  50});
+
+	client.sql("SELECT id, name, state FROM table WHERE (name, age) IN (:tuples)")
+	    .bind("tuples", tuples);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val tuples: MutableList<Array<Any>> = ArrayList()
+	tuples.add(arrayOf("John", 35))
+	tuples.add(arrayOf("Ann", 50))
+
+	client.sql("SELECT id, name, state FROM table WHERE (name, age) IN (:tuples)")
+	    .bind("tuples", tuples)
+----
+
+NOTE: Usage of select lists is vendor-dependent.
+
+The following example shows a simpler variant using `IN` predicates:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	client.sql("SELECT id, name, state FROM table WHERE age IN (:ages)")
+	    .bind("ages", Arrays.asList(35, 50));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val tuples: MutableList<Array<Any>> = ArrayList()
+	tuples.add(arrayOf("John", 35))
+	tuples.add(arrayOf("Ann", 50))
+
+	client.sql("SELECT id, name, state FROM table WHERE age IN (:ages)")
+	    .bind("tuples", arrayOf(35, 50))
+----
+
+NOTE: R2DBC itself does not support Collection-like values. Nevertheless,
+expanding a given `List` in the example above works for named parameters
+in Spring's R2DBC support, e.g. for use in `IN` clauses as shown above.
+However, inserting or updating array-typed columns (e.g. in Postgres)
+requires an array type that is supported by the underlying R2DBC driver:
+typically a Java array, e.g. `String[]` to update a `text[]` column.
+Do not pass `Collection<String>` or the like as an array parameter.
+
+[[r2dbc-DatabaseClient-filter]]
+===== Statement Filters
+
+Sometimes it you need to fine-tune options on the actual `Statement`
+before it gets run. Register a `Statement` filter
+(`StatementFilterFunction`) through `DatabaseClient` to intercept and
+modify statements in their execution, as the following example shows:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+	    .filter((s, next) -> next.execute(s.returnGeneratedValues("id")))
+	    .bind("name", …)
+	    .bind("state", …);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+				.filter { s: Statement, next: ExecuteFunction -> next.execute(s.returnGeneratedValues("id")) }
+				.bind("name", …)
+				.bind("state", …)
+----
+
+`DatabaseClient` exposes also simplified `filter(…)` overload accepting `Function<Statement, Statement>`:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+	    .filter(statement -> s.returnGeneratedValues("id"));
+
+	client.sql("SELECT id, name, state FROM table")
+	    .filter(statement -> s.fetchSize(25));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+	    .filter { statement -> s.returnGeneratedValues("id") }
+
+	client.sql("SELECT id, name, state FROM table")
+	    .filter { statement -> s.fetchSize(25) }
+----
+
+`StatementFilterFunction` implementations allow filtering of the
+`Statement` and filtering of `Result` objects.
+
+[[r2dbc-DatabaseClient-idioms]]
+===== `DatabaseClient` Best Practices
+
+Instances of the `DatabaseClient` class are thread-safe, once configured. This is
+important because it means that you can configure a single instance of a `DatabaseClient`
+and then safely inject this shared reference into multiple DAOs (or repositories).
+The `DatabaseClient` is stateful, in that it maintains a reference to a `ConnectionFactory`,
+but this state is not conversational state.
+
+A common practice when using the `DatabaseClient` class is to configure a `ConnectionFactory`
+in your Spring configuration file and then dependency-inject
+that shared `ConnectionFactory` bean into your DAO classes. The `DatabaseClient` is created in
+the setter for the `ConnectionFactory`. This leads to DAOs that resemble the following:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class R2dbcCorporateEventDao implements CorporateEventDao {
+
+		private DatabaseClient databaseClient;
+
+		public void setConnectionFactory(ConnectionFactory connectionFactory) {
+			this.databaseClient = DatabaseClient.create(connectionFactory);
+		}
+
+		// R2DBC-backed implementations of the methods on the CorporateEventDao follow...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class R2dbcCorporateEventDao(connectionFactory: ConnectionFactory) : CorporateEventDao {
+
+		private val databaseClient = DatabaseClient.create(connectionFactory)
+
+		// R2DBC-backed implementations of the methods on the CorporateEventDao follow...
+	}
+----
+
+An alternative to explicit configuration is to use component-scanning and annotation
+support for dependency injection. In this case, you can annotate the class with `@Component`
+(which makes it a candidate for component-scanning) and annotate the `ConnectionFactory` setter
+method with `@Autowired`. The following example shows how to do so:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Component // <1>
+	public class R2dbcCorporateEventDao implements CorporateEventDao {
+
+		private DatabaseClient databaseClient;
+
+		@Autowired // <2>
+		public void setConnectionFactory(ConnectionFactory connectionFactory) {
+			this.databaseClient = DatabaseClient.create(connectionFactory); // <3>
+		}
+
+		// R2DBC-backed implementations of the methods on the CorporateEventDao follow...
+	}
+----
+<1> Annotate the class with `@Component`.
+<2> Annotate the `ConnectionFactory` setter method with `@Autowired`.
+<3> Create a new `DatabaseClient` with the `ConnectionFactory`.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Component // <1>
+	class R2dbcCorporateEventDao(connectionFactory: ConnectionFactory) : CorporateEventDao { // <2>
+
+		private val databaseClient = DatabaseClient(connectionFactory) // <3>
+
+		// R2DBC-backed implementations of the methods on the CorporateEventDao follow...
+	}
+----
+<1> Annotate the class with `@Component`.
+<2> Constructor injection of the `ConnectionFactory`.
+<3> Create a new `DatabaseClient` with the `ConnectionFactory`.
+
+Regardless of which of the above template initialization styles you choose to use (or
+not), it is seldom necessary to create a new instance of a `DatabaseClient` class each
+time you want to run SQL. Once configured, a `DatabaseClient` instance is thread-safe.
+If your application accesses multiple
+databases, you may want multiple `DatabaseClient` instances, which requires multiple
+`ConnectionFactory` and, subsequently, multiple differently configured `DatabaseClient`
+instances.
+
+[[r2dbc-auto-generated-keys]]
+== Retrieving Auto-generated Keys
+
+`INSERT` statements may generate keys when inserting rows into a table
+that defines an auto-increment or identity column. To get full control over
+the column name to generate, simply register a `StatementFilterFunction` that
+requests the generated key for the desired column.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Mono<Integer> generatedId = client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+	    .filter(statement -> s.returnGeneratedValues("id"))
+			.map(row -> row.get("id", Integer.class))
+			.first();
+
+	// generatedId emits the generated key once the INSERT statement has finished
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val generatedId = client.sql("INSERT INTO table (name, state) VALUES(:name, :state)")
+	    .filter { statement -> s.returnGeneratedValues("id") }
+			.map { row -> row.get("id", Integer.class) }
+			.awaitOne()
+
+	// generatedId emits the generated key once the INSERT statement has finished
+----
+
+
+[[r2dbc-connections]]
+=== Controlling Database Connections
+
+This section covers:
+
+* <<r2dbc-ConnectionFactory>>
+* <<r2dbc-ConnectionFactoryUtils>>
+* <<r2dbc-SingleConnectionFactory>>
+* <<r2dbc-TransactionAwareConnectionFactoryProxy>>
+* <<r2dbc-R2dbcTransactionManager>>
+
+
+[[r2dbc-ConnectionFactory]]
+==== Using `ConnectionFactory`
+
+Spring obtains an R2DBC connection to the database through a `ConnectionFactory`.
+A `ConnectionFactory` is part of the R2DBC specification and is a common entry-point
+for drivers. It lets a container or a framework hide connection pooling
+and transaction management issues from the application code. As a developer,
+you need not know details about how to connect to the database. That is the
+responsibility of the administrator who sets up the `ConnectionFactory`. You
+most likely fill both roles as you develop and test code, but you do not
+necessarily have to know how the production data source is configured.
+
+When you use Spring's R2DBC layer, you can can configure your own with a
+connection pool implementation provided by a third party. A popular
+implementation is R2DBC Pool (`r2dbc-pool`). Implementations in the Spring
+distribution are meant only for testing purposes and do not provide pooling.
+
+To configure a `ConnectionFactory`:
+
+. Obtain a connection with `ConnectionFactory` as you typically obtain an R2DBC `ConnectionFactory`.
+. Provide an R2DBC URL
+(See the documentation for your driver for the correct value).
+
+The following example shows how to configure a `ConnectionFactory`:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	ConnectionFactory factory = ConnectionFactories.get("r2dbc:h2:mem:///test?options=DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE");
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val factory = ConnectionFactories.get("r2dbc:h2:mem:///test?options=DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE");
+----
+
+
+[[r2dbc-ConnectionFactoryUtils]]
+==== Using `ConnectionFactoryUtils`
+
+
+The `ConnectionFactoryUtils` class is a convenient and powerful helper class
+that provides `static` methods to obtain connections from `ConnectionFactory`
+and close connections (if necessary).
+
+It supports subscriber ``Context``-bound connections with, for example
+`R2dbcTransactionManager`.
+
+
+[[r2dbc-SingleConnectionFactory]]
+==== Using `SingleConnectionFactory`
+
+The `SingleConnectionFactory` class is an implementation of `DelegatingConnectionFactory`
+interface that wraps a single `Connection` that is not closed after each use.
+
+If any client code calls `close` on the assumption of a pooled connection (as when using
+persistence tools), you should set the `suppressClose` property to `true`. This setting
+returns a close-suppressing proxy that wraps the physical connection. Note that you can
+no longer cast this to a native `Connection` or a similar object.
+
+`SingleConnectionFactory` is primarily a test class and may be used for specific requirements
+such as pipelining if your R2DBC driver permits for such use.
+In contrast to a pooled `ConnectionFactory`, it reuses the same connection all the time, avoiding
+excessive creation of physical connections.
+
+
+[[r2dbc-TransactionAwareConnectionFactoryProxy]]
+==== Using `TransactionAwareConnectionFactoryProxy`
+
+`TransactionAwareConnectionFactoryProxy` is a proxy for a target `ConnectionFactory`.
+The proxy wraps that target `ConnectionFactory` to add awareness of Spring-managed transactions.
+
+NOTE: Using this class is required if you use a R2DBC client that is not integrated otherwise
+with Spring's R2DBC support. In this case, you can still use this client and, at
+the same time, have this client participating in Spring managed transactions. It is generally
+preferable to integrate a R2DBC client with proper access to `ConnectionFactoryUtils`
+for resource management.
+
+See the {api-spring-framework}/r2dbc/connection/TransactionAwareConnectionFactoryProxy.html[`TransactionAwareConnectionFactoryProxy`]
+javadoc for more details.
+
+
+[[r2dbc-R2dbcTransactionManager]]
+==== Using `R2dbcTransactionManager`
+
+The `R2dbcTransactionManager` class is a `ReactiveTransactionManager` implementation for
+single R2DBC datasources. It binds an R2DBC connection from the specified connection factory
+to the subscriber `Context`, potentially allowing for one subscriber connection for each
+connection factory.
+
+Application code is required to retrieve the R2DBC connection through
+`ConnectionFactoryUtils.getConnection(ConnectionFactory)`, instead of R2DBC's standard
+`ConnectionFactory.create()`.
+
+All framework classes (such as `DatabaseClient`) use this strategy implicitly.
+If not used with this transaction manager, the lookup strategy behaves exactly like the common one.
+Thus, it can be used in any case.
+
+The `R2dbcTransactionManager` class supports custom isolation levels that get applied to the connection.
+
+
 [[orm]]
 == 对象关系映射(ORM) 数据访问
 
@@ -5328,8 +5930,7 @@ Spring 的 ORM 集成的主要目标是清晰的应用程序分层(使用任何�
 
 我们首先在 Spring 环境中介绍 https://hibernate.org/[Hibernate 5] ,然后使用它来演示 Spring 对集成 ORM 映射器的方法.  本节详细介绍了许多问题,并展示了 DAO 实现和事务划分的不同变体. 大多数这些模式可以直接转换为所有其他支持的 ORM 工具.  然后,本章后面的部分将介绍其他 ORM 技术并展示简要示例.
 
-NOTE: 从 Spring Framework 5.0 开始,Spring 需要 Hibernate ORM 4.3 或更高版本来支持 JPA,甚至还需要 Hibernate ORM 5.0+ 来针对本地 Hibernate Session API 进行编程.  请注意,Hibernate 团队不再维护 5.1 之前的任何版本,很可能很快就会专注于 5.4+.
-
+NOTE: 从 Spring Framework 5.3 开始,Spring 需要 Hibernate ORM 5.2+ 用于 Spring 的 `HibernateJpaVendorAdapter` 以及本地的 Hibernate `SessionFactory` 设置.强烈建议将 Hibernate ORM 5.4 与新启动的应用程序一起使用。 为了与 `HibernateJpaVendorAdapter` 一起使用，Hibernate Search 需要升级到 5.11.6.
 
 [[orm-session-factory-setup]]
 ==== 在 Spring 容器中设置 `SessionFactory`
@@ -5728,8 +6329,7 @@ Spring JPA 支持提供了三种设置 JPA `EntityManagerFactory` 的方法,该�
 
 您可以在基于 Spring 的应用程序环境中将此选项用于完整的 JPA 功能.  这包括 Web 容器,如 Tomcat、独立应用程序以及具有复杂持久性要求的集成测试.
 
-NOTE:
-如果你想专门配置一个 Hibernate 设置,一个直接的选择是使用 Hibernate 5.2/5.3/5.4  并设置一个本机 Hibernate `LocalSessionFactoryBean` 而不是一个普通的 JPA `LocalContainerEntityManagerFactoryBean`, 让它与 JPA 访问代码以及本地 Hibernate 访问代码交互.  有关详细信息,请参阅<<orm-jpa-hibernate,本地 JPAHibernate 设置>>.
+NOTE: 如果你想专门配置一个 Hibernate 设置,一个直接的选择是设置一个本地 Hibernate `LocalSessionFactoryBean` 而不是一个普通的 JPA `LocalContainerEntityManagerFactoryBean`, 让它与 JPA 访问代码以及本地 Hibernate 访问代码交互.  有关详细信息,请参阅<<orm-jpa-hibernate,本地 JPAHibernate 设置>>.
 
 `LocalContainerEntityManagerFactoryBean` 完全控制 `EntityManagerFactory` 配置,适用于需要细粒度自定义的环境.  `LocalContainerEntityManagerFactoryBean` 基于 `persistence.xml` 文件, 提供的 `dataSourceLookup` 策略和指定的 `loadTimeWeaver` 创建 `PersistenceUnitInfo` 实例.
 因此,可以使用 JNDI 之外的自定义数据源并控制织入过程.  以下示例显示了 `LocalContainerEntityManagerFactoryBean` 的典型 bean 定义:
@@ -5992,7 +6592,7 @@ Spring JPA 还允许配置的 `JpaTransactionManager` 将 JPA 事务暴露给访
 有关 `JpaDialect` 机制的详细信息,请参阅<<orm-jpa-dialect, 下一节>>.
 
 NOTE:
-作为一种直接替代方案,Spring 的本机 `HibernateTransactionManager` 能够与 Spring Framework 5.1 和 Hibernate 5.2/5.3/5.4 中的 JPA 访问代码交互,适应多种特定的 Hibernate 细节并提供 JDBC 交互.  这与 `LocalSessionFactoryBean` 设置结合使用特别有意义.
+作为一种直接替代方案,Spring 的本机 `HibernateTransactionManager` 能够与 JPA 访问代码交互,适应多种特定的 Hibernate 细节并提供 JDBC 交互.  这与 `LocalSessionFactoryBean` 设置结合使用特别有意义.
 有关详细信息,请参阅<<orm-jpa-hibernate, JPA 交互的本地 Hibernate 设置>> .
 
 [[orm-jpa-dialect]]
@@ -6026,7 +6626,7 @@ TIP: 	作为一个更广泛的提供者适配工具,主要用于 Spring 的全�
 [[orm-jpa-hibernate]]
 ==== 用于 JPA 交互的本地 Hibernate 设置和本地 Hibernate 事务
 
-从 Spring Framework 5.1 和 Hibernate 5.2/5.3/5.4 开始,本地 `LocalSessionFactoryBean` 设置与 `HibernateTransactionManager` 结合使用, 可以与 `@PersistenceContext` 和其他 JPA 访问代码进行交互.
+本地 `LocalSessionFactoryBean` 设置与 `HibernateTransactionManager` 结合使用, 可以与 `@PersistenceContext` 和其他 JPA 访问代码进行交互.
 Hibernate `SessionFactory` 现在在本地实现 JPA 的 `EntityManagerFactory` 接口,而 Hibernate Session 句柄本身就是 JPA `EntityManager`.  Spring 的 JPA 支持工具自动检测本地 Hibernate 会话.
 
 因此,在许多场景中,这种本地 Hibernate 设置可以替代标准 JPA `LocalContainerEntityManagerFactoryBean` 和 `JpaTransactionManager` 组合, 允许在同一本地事务中与 `@PersistenceContext` `EntityManager` 旁边的 `SessionFactory.getCurrentSession()`(以及 `HibernateTemplate`) 进行交互.  这样的设置还提供了更强大的 Hibernate 集成和更多的配置灵活性,因为它不受 JPA 引导程序契约的约束.
@@ -6084,8 +6684,7 @@ Spring 提供从底层 O-X 映射工具的异常到其自己的异常层次结�
 
 Spring 抽象了 `org.springframework.oxm.Marshaller` 接口后面的所有编组操作,其主要方法如下:
 
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface Marshaller {
 
@@ -6093,21 +6692,6 @@ Spring 抽象了 `org.springframework.oxm.Marshaller` 接口后面的所有编�
 		 * Marshal the object graph with the given root into the provided Result.
 		 */
 		void marshal(Object graph, Result result) throws XmlMappingException, IOException;
-	}
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	interface Marshaller {
-
-		/**
-		* Marshal the object graph with the given root into the provided Result.
-		*/
-		@Throws(XmlMappingException::class, IOException::class)
-		fun marshal(
-				graph: Any,
-				result: Result
-		)
 	}
 ----
 
@@ -6134,8 +6718,7 @@ NOTE: 尽管 `marshal()` 方法接受普通对象作为其第一个参数,但大
 
 与 `Marshaller` 类似,我们有 `org.springframework.oxm.Unmarshaller` 接口,如下所示:
 
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface Unmarshaller {
 
@@ -6143,18 +6726,6 @@ NOTE: 尽管 `marshal()` 方法接受普通对象作为其第一个参数,但大
 		 * Unmarshal the given provided Source into an object graph.
 		 */
 		Object unmarshal(Source source) throws XmlMappingException, IOException;
-	}
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	interface Unmarshaller {
-
-		/**
-		* Unmarshal the given provided Source into an object graph.
-		*/
-		@Throws(XmlMappingException::class, IOException::class)
-		fun unmarshal(source: Source): Any
 	}
 ----
 
@@ -6326,8 +6897,7 @@ image::{image-resource}/oxm-exceptions.png[]
 
 您可以使用 OXM 命名空间中的标记更简洁地配置编组器. 要使这些标记可用,必须首先在 XML 配置文件的命名空间中引用相应的模式. 以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<?xml version="1.0" encoding="UTF-8"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"

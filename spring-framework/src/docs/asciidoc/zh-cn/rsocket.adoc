@@ -111,79 +111,29 @@ Spring Cloud Gateway 支持 RSocket 连接.
 [[rsocket-requester-client]]
 === Client Requester
 
-要在客户端获得 `RSocketRequester`,需要连接到服务器,同时准备并发送初始 RSocket `SETUP` 帧. `RSocketRequester` 为此提供了一个生成器. 内部使用 `io.rsocket.core.RSocketConnector` 构建.
+要在客户端获得 `RSocketRequester`,需要连接到服务器,该服务器涉及带有发送连接设置的 RSocket `SETUP` 帧. `RSocketRequester` 为此提供了一个生成器. 可以帮助准备 `io.rsocket.core.RSocketConnector` 构建,包括 `SETUP` 帧的连接设置.
 
 这是使用默认设置进行连接的最基本方法:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
-		.connectTcp("localhost", 7000);
+	RSocketRequester requester = RSocketRequester.builder().tcp("localhost", 7000);
 
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
-		.connectWebSocket(URI.create("https://example.org:8080/rsocket"));
+	URI url = URI.create("https://example.org:8080/rsocket");
+	RSocketRequester requester = RSocketRequester.builder().webSocket(url);
 ----
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-	import org.springframework.messaging.rsocket.connectWebSocketAndAwait
+	val requester = RSocketRequester.builder().tcp("localhost", 7000)
 
-	val requester = RSocketRequester.builder()
-			.connectTcpAndAwait("localhost", 7000)
-
-	val requester = RSocketRequester.builder()
-			.connectWebSocketAndAwait(URI.create("https://example.org:8080/rsocket"))
+	URI url = URI.create("https://example.org:8080/rsocket");
+	val requester = RSocketRequester.builder().webSocket(url)
 ----
 
-以上是推迟的. 实际连接和使用请求者:
-
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
-----
-	// Connect asynchronously
-	RSocketRequester.builder().connectTcp("localhost", 7000)
-		.subscribe(requester -> {
-			// ...
-		});
-
-	// Or block
-	RSocketRequester requester = RSocketRequester.builder()
-		.connectTcp("localhost", 7000)
-		.block(Duration.ofSeconds(5));
-----
-
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	// Connect asynchronously
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-
-	class MyService {
-
-		private var requester: RSocketRequester? = null
-
-		private suspend fun requester() = requester ?:
-			RSocketRequester.builder().connectTcpAndAwait("localhost", 7000).also { requester = it }
-
-		suspend fun doSomething() = requester().route(...)
-	}
-
-	// Or block
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-
-	class MyService {
-
-		private val requester = runBlocking {
-			RSocketRequester.builder().connectTcpAndAwait("localhost", 7000)
-		}
-
-		suspend fun doSomething() = requester.route(...)
-	}
-----
-
+上面没有立即连接。 发出请求时，将透明地建立并使用共享连接.
 
 [[rsocket-requester-client-setup]]
 ==== Connection Setup
@@ -214,16 +164,14 @@ Spring Cloud Gateway 支持 RSocket 连接.
 		.decoders(decoders -> decoders.add(new Jackson2CborDecoder()))
 		.build();
 
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+	RSocketRequester requester = RSocketRequester.builder()
 		.rsocketStrategies(strategies)
-		.connectTcp("localhost", 7000);
+		.tcp("localhost", 7000);
 ----
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-
 	val strategies = RSocketStrategies.builder()
 			.encoders { it.add(Jackson2CborEncoder()) }
 			.decoders { it.add(Jackson2CborDecoder()) }
@@ -231,7 +179,7 @@ Spring Cloud Gateway 支持 RSocket 连接.
 
 	val requester = RSocketRequester.builder()
 			.rsocketStrategies(strategies)
-			.connectTcpAndAwait("localhost", 7000)
+			.tcp("localhost", 7000)
 ----
 
 `RSocketStrategies` 设计为可重复使用. 在某些情况下,例如 客户和服务器在同一应用程序中,最好在Spring配置中声明它.
@@ -253,9 +201,9 @@ Spring Cloud Gateway 支持 RSocket 连接.
 	SocketAcceptor responder =
 		RSocketMessageHandler.responder(strategies, new ClientHandler()); // <2>
 
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+	RSocketRequester requester = RSocketRequester.builder()
 		.rsocketConnector(connector -> connector.acceptor(responder)) // <3>
-		.connectTcp("localhost", 7000);
+		.tcp("localhost", 7000);
 ----
 <1> 如果存在 `spring-web`,请使用 `PathPatternRouteMatcher`,以提高效率路线匹配.
 <2> 创建包含 `@MessageMaping` 或 `@ConnectMapping` 方法的响应者.
@@ -264,8 +212,6 @@ Spring Cloud Gateway 支持 RSocket 连接.
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-
 	val strategies = RSocketStrategies.builder()
 			.routeMatcher(PathPatternRouteMatcher())  // <1>
 			.build()
@@ -275,7 +221,7 @@ Spring Cloud Gateway 支持 RSocket 连接.
 
 	val requester = RSocketRequester.builder()
 			.rsocketConnector { it.acceptor(responder) } // <3>
-			.connectTcpAndAwait("localhost", 7000)
+			.tcp("localhost", 7000)
 ----
 <1> 如果存在 `spring-web`,请使用 `PathPatternRouteMatcher`,以提高效率路线匹配.
 <2> 创建包含 `@MessageMaping` 或 `@ConnectMapping` 方法的响应者.
@@ -289,23 +235,22 @@ Spring Cloud Gateway 支持 RSocket 连接.
 	ApplicationContext context = ... ;
 	RSocketMessageHandler handler = context.getBean(RSocketMessageHandler.class);
 
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+	RSocketRequester requester = RSocketRequester.builder()
 		.rsocketConnector(connector -> connector.acceptor(handler.responder()))
-		.connectTcp("localhost", 7000);
+		.tcp("localhost", 7000);
 ----
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	import org.springframework.beans.factory.getBean
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
 
 	val context: ApplicationContext = ...
 	val handler = context.getBean<RSocketMessageHandler>()
 
 	val requester = RSocketRequester.builder()
 			.rsocketConnector { it.acceptor(handler.responder()) }
-			.connectTcpAndAwait("localhost", 7000)
+			.tcp("localhost", 7000)
 ----
 
 对于上述情况,您可能还需要使用 `RSocketMessageHandler` 中的 `setHandlerPredicate` 来切换到用于检测客户端响应程序的其他策略,例如 基于自定义注解,例如 `@RSocketClientResponder` 与默认 `@Controller`.
@@ -321,22 +266,21 @@ Spring Cloud Gateway 支持 RSocket 连接.
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	Mono<RSocketRequester> requesterMono = RSocketRequester.builder()
+	RSocketRequester requester = RSocketRequester.builder()
 		.rsocketConnector(connector -> {
 			// ...
 		})
-		.connectTcp("localhost", 7000);
+		.tcp("localhost", 7000);
 ----
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	import org.springframework.messaging.rsocket.connectTcpAndAwait
-
 	val requester = RSocketRequester.builder()
 			.rsocketConnector {
 				//...
-			}.connectTcpAndAwait("localhost", 7000)
+			}
+			.tcp("localhost", 7000)
 ----
 
 
@@ -475,6 +419,8 @@ data(Object producer, ParameterizedTypeReference<?> elementTypeRef);
 
 对于 `Fire-and-Forget`,请使用返回 `Mono<Void>` 的  `send()`  方法. 请注意,`Mono` 仅指示消息已成功发送,而不是已被处理.
 
+`Metadata-Push` 使用 `sendMetadata()` 方法并返回一个 `Mono<Void>`.
+
 [[rsocket-annot-responders]]
 == Annotated Responders
 
@@ -536,7 +482,7 @@ RSocket 响应器可以实现为 `@MessageMapping` 和 `@ConnectMapping` 方法.
 
 	val server = RSocketServer.create(handler.responder())
 			.bind(TcpServerTransport.create("localhost", 7000))
-			.awaitFirst()
+			.awaitSingle()
 ----
 
 `RSocketMessageHandler` 默认情况下支持 {gh-rsocket-extentions}/CompositeMetadata.md[复合] 和 {gh-rsocket-extentions}/Routing.md[路由] 元数据. 如果需要切换到其他 mime 类型或注册其他元数据 mime 类型,则可以设置其 <<rsocket-metadata-extractor>>.

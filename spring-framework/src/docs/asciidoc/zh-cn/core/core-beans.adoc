@@ -2997,10 +2997,6 @@ Destroy 方法以相同的顺序调用:
 | 声明bean的名称.
 | <<beans-factory-aware>>
 
-| `BootstrapContextAware`
-| 容器运行的资源适配器 `BootstrapContext` . 通常仅在 `JCA-aware` 的 `ApplicationContext` 实例中可用
-| <<integration.adoc#cci, JCA CCI>>
-
 | `LoadTimeWeaverAware`
 | 定义的 weaver 用于在加载时处理类定义.
 | <<aop-aj-ltw>>
@@ -5582,7 +5578,7 @@ NOTE: 将 `@ComponentScan` 或 `<context: component-scan/>` 指令保留为是�
 
 NOTE: 在 IDE 中使用此模式时,必须将 `spring-context-indexer` 注册为注解处理器, 以确保更新候选组件时索引是最新的.
 
-TIP: 如果在类路径中找到 `META-INF/spring.components` 文件时,将自动启用索引. 如果某个索引对于某些库(或用例)是不可用的, 但不能为整个应用程序构建,则可以将 `spring.index.ignore` 设置为 `true`,从而将其回退到常规类路径的排列(即根本不存在索引), 或者作为 JVM 系统属性或在 `spring.properties` 文件位于类路径的根目录中.
+TIP: 如果在类路径中找到 `META-INF/spring.components` 文件时,将自动启用索引. 如果某个索引对于某些库(或用例)是不可用的, 但不能为整个应用程序构建,则可以将 `spring.index.ignore` 设置为 `true`,从而将其回退到常规类路径的排列(即根本不存在索引), 或者作为 JVM 系统属性或在 <<appendix.adoc#appendix-spring-properties,`SpringProperties`>> 文件位于类路径的根目录中.
 
 
 
@@ -8760,6 +8756,63 @@ TIP: 这不仅适用于 `ApplicationEvent` ,也适用于作为事件发送的任
 可以使用简单的字串路径指定资源,这需要依赖于特殊的 JavaBean `PropertyEditor`(由上下文自动注册) ,当 bean 部署时候它将转换资源中的字串为实际的资源对象.
 
 提供给 `ApplicationContext` 构造函数的一个或多个位置路径实际上是资源字符串,并且以简单形式对特定上下文实现进行适当处理.  `ClassPathXmlApplicationContext` 将一个简单的定位路径视为类路径位置. 开发者还可以使用带有特殊前缀的定位路径,这样就可以强制从 `classpath` 或者 `URL` 定义加载路径, 而不用考虑实际的上下文类型.
+
+[[context-functionality-startup]]
+=== 应用程序启动跟踪
+
+`ApplicationContext` 管理 Spring 应用程序的生命周期，并提供丰富的编程模型.因此，复杂的应用程序可以同时拥有
+复杂的组件依赖和启动阶段。
+
+使用特定指标跟踪应用程序的启动步骤可以帮助您了解在启动阶段的那块花了一些时间，它也是了解整体上下文生命周期更好的方法。
+
+`AbstractApplicationContext` (及其子类)配有一个 `ApplicationStartup`，它收集有关各个启动阶段的 `StartupStep` 数据:
+
+* 应用程序上下文生命周期(基本软件包扫描，配置类管理)
+* bean生命周期 (instantiation, smart initialization, post processing)
+* 应用程序事件处理
+
+这是 `AnnotationConfigApplicationContext` 中的检测示例:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// create a startup step and start recording
+	StartupStep scanPackages = this.getApplicationStartup().start("spring.context.base-packages.scan");
+	// add tagging information to the current step
+	scanPackages.tag("packages", () -> Arrays.toString(basePackages));
+	// perform the actual phase we're instrumenting
+	this.scanner.scan(basePackages);
+	// end the current step
+	scanPackages.end();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// create a startup step and start recording
+	val scanPackages = this.getApplicationStartup().start("spring.context.base-packages.scan")
+	// add tagging information to the current step
+	scanPackages.tag("packages", () -> Arrays.toString(basePackages))
+	// perform the actual phase we're instrumenting
+	this.scanner.scan(basePackages)
+	// end the current step
+	scanPackages.end()
+----
+
+应用程序上下文已经通过多个步骤进行了检测。记录后，可以使用特定工具收集，显示和分析这些启动步骤。
+有关现有启动步骤的完整列表，您可以查看 <<application-startup-steps, 此部分>>.
+
+默认的 `ApplicationStartup`  实现没有做任何操作.这意味着默认情况下，在应用程序启动期间不会收集任何指标。
+Spring Framework 附带了一个用于使用 Java Flight Recorder 跟踪启动步骤的实现：
+`FlightRecorderApplicationStartup`。要使用此实现，必须配置它的一个实例,创建后立即添加到 `ApplicationContext`。
+
+如果开发人员提供自己的应用程序，那么他们也可以使用 `ApplicationStartup` 基础结构 `AbstractApplicationContext` 子类，或者如果他们希望收集更精确的数据.
+
+WARNING: `ApplicationStartup` 只能在应用程序启动期间使用，用于核心容器；这绝不是 Java  profilers 的替代品，也不是
+metrics libraries，例如 https://micrometer.io[Micrometer].
+
+要开始收集自定义的 `StartupStep`，组件可以获取 `ApplicationStartup` 直接从应用程序上下文实例，使其组件实现 `ApplicationStartupAware`， 或在任何注入点上请求 `ApplicationStartup` 类型.
+
+NOTE: 创建自定义启动步骤时，开发人员不应使用 `"spring.*"` 命名空间,该名称空间保留给 Spring 内部使用，并且可能会发生变化.
 
 [[context-create]]
 === 快速对 Web 应用的 ApplicationContext 实例化

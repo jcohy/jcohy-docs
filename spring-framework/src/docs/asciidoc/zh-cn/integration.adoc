@@ -2,24 +2,290 @@
 = 集成
 include::attributes.adoc[]
 
-这部分参考文档涵盖了 Spring Framework 与许多 Java EE (及相关) 技术的集成.
+这部分参考文档涵盖了 Spring Framework 与许多技术的集成.
+
+[[rest-client-access]]
+== REST Endpoints
+
+Spring Framework 为调用 REST 端点提供了两种选择:
+
+* <<rest-resttemplate>>: 具有 synchronous, template method API 的原始的 Spring REST 客户端.
+* <<web-reactive.adoc#webflux-client, WebClient>>: 一种非阻塞的，响应式的替代方案，它支持同步,异步以及 streaming 场景.
+
+NOTE: 从 5.0 版本开始，`RestTemplate` 处于维护模式，以后只有很小的更改和错误请求被接受。 请考虑使用更现代的支持同步,异步和流方案的 <<web-reactive.adoc#webflux-client, WebClient>> API.
+
+[[rest-resttemplate]]
+=== `RestTemplate`
+
+`RestTemplate` 在 HTTP 客户端库上提供了更高级别的 API,它使得在一行中调用 REST 端点变得容易.  它暴露了以下重载方法组:
+
+[[rest-overview-of-resttemplate-methods-tbl]]
+.RestTemplate methods
+[cols="1,3"]
+|===
+| Method group | Description
+
+| `getForObject`
+| 通过 GET 获取响应.
+
+| `getForEntity`
+| 使用 GET 获取 `ResponseEntity` (即status, headers和body)
+
+| `headForHeaders`
+| 使用 HEAD 获取所有 headers
+
+| `postForLocation`
+| 使用 POST 创建新资源,并从响应中返回 `Location` 标头.
+
+| `postForObject`
+| 使用 POST 创建新资源并从响应中返回表示.
+
+| `postForEntity`
+| 使用 POST 创建新资源并从响应中返回表示.
+
+| `put`
+| 使用 PUT 创建或更新资源.
+
+
+| `patchForObject`
+| 使用 PATCH 更新资源并从响应中返回表示.  请注意,JDK `HttpURLConnection` 不支持 `PATCH`,但Apache `HttpComponents` 和其他一样.
+
+| `delete`
+| 使用 DELETE 删除指定 URI 处的资源.
+
+| `optionsForAllow`
+| 使用 ALLOW 检索资源的允许 HTTP 方法.
+
+| `exchange`
+| 上述方法的更通用 (且不太固定) 的版本,在需要时提供额外的灵活性.  它接受 `RequestEntity` (包括 HTTP 方法,URL,headers 和正文作为输入) 并返回 `ResponseEntity`.
+
+这些方法允许使用 `ParameterizedTypeReference` 而不是 `Class` 来指定具有泛型的响应类型.
+
+| `execute`
+| 执行请求的最通用方式,通过回调接口完全控制请求准备和响应提取.
+|===
+
+[[rest-resttemplate-create]]
+==== 初始化
+
+默认构造函数使用 `java.net.HttpURLConnection` 来执行请求.  您可以使用 `ClientHttpRequestFactory` 的实现切换到不同的 HTTP 库.  内置支持以下内容:
+
+* Apache HttpComponents
+* Netty
+* OkHttp
+
+例如,要切换到 Apache HttpComponents,您可以使用以下命令:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	RestTemplate template = new RestTemplate(new HttpComponentsClientHttpRequestFactory());
+----
+
+每个 `ClientHttpRequestFactory` 都暴露特定于底层 HTTP 客户端库的配置选项 - 例如,用于凭据,连接池和其他详细信息.
+
+TIP: 请注意,HTTP 请求的 `java.net` 实现在访问表示错误的响应的状态 (例如 401) 时可能引发异常.  如果这是一个问题,请切换到另一个 HTTP 客户端库.
+
+[[rest-resttemplate-uri]]
+===== URIs
+
+许多 `RestTemplate` 方法都接受 URI 模板和 URI 模板变量，作为 `String` 变量参数或 `Map<String,String>`.
+
+以下示例使用 `String` 变量参数:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String result = restTemplate.getForObject(
+			"https://example.com/hotels/{hotel}/bookings/{booking}", String.class, "42", "21");
+----
+
+以下示例使用 `Map<String, String>`:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Map<String, String> vars = Collections.singletonMap("hotel", "42");
+
+	String result = restTemplate.getForObject(
+			"https://example.com/hotels/{hotel}/rooms/{hotel}", String.class, vars);
+----
+
+请注意，URI 模板是自动编码的，如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	restTemplate.getForObject("https://example.com/hotel list", String.class);
+
+	// Results in request to "https://example.com/hotel%20list"
+----
+
+您可以使用 `RestTemplate` 的 `uriTemplateHandler` 属性来自定义 URI 的编码方式。 或者，您可以创建一个 `java.net.URI` , 并且使用 `RestTemplate`  中接受 URI 参数的方法之一.
+
+有关使用和编码 URI 的更多详细信息，请参阅 <<web.adoc#mvc-uri-building, URI Links>>.
+
+[[rest-template-headers]]
+===== Headers
+
+你可以使用 `exchange()` 方法指定特殊的请求头, 如下:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String uriTemplate = "https://example.com/hotels/{hotel}";
+	URI uri = UriComponentsBuilder.fromUriString(uriTemplate).build(42);
+
+	RequestEntity<Void> requestEntity = RequestEntity.get(uri)
+			.header(("MyRequestHeader", "MyValue")
+			.build();
+
+	ResponseEntity<String> response = template.exchange(requestEntity, String.class);
+
+	String responseHeader = response.getHeaders().getFirst("MyResponseHeader");
+	String body = response.getBody();
+----
+
+您可以通过许多返回 `ResponseEntity` 的 `RestTemplate` 方法来获取响应头.
+
+[[rest-template-body]]
+==== Body
+
+在 `HttpMessageConverter` 的帮助下，传递到 `RestTemplate` 方法和从 `RestTemplate` 方法返回的对象与原始内容进行转换.
+
+在 POST 请求中，输入对象被序列化到请求主体，如以下示例所示:
+
+----
+URI location = template.postForLocation("https://example.com/people", person);
+----
+
+您无需显式设置请求的 `Content-Type` 头。 在大多数情况下，您可以找到基于源对象类型的兼容消息转换器，并且所选消息转换器会相应地设置内容类型。 如有必要，可以使用 `exchange` 方法显式提供 `Content-Type` 请求头，从而影响选择哪种消息转换器。
+
+在 GET 上，响应主体反序列化为输出 `Object`，如以下示例所示:
+
+----
+Person person = restTemplate.getForObject("https://example.com/people/{id}", Person.class, 42);
+----
+
+不需要显式设置请求的 `Accept` 头。 在大多数情况下，可以根据预期的响应类型找到兼容的消息转换器，这有助于填充 `Accept` 头。 如有必要，可以使用  `exchange` 方法显式提供 `Accept` 头。
+
+默认情况下，`RestTemplate` 注册所有内置 <<rest-message-conversion, message converters>>，这取决于类路径检查，这些检查有助于确定存在哪些可选转换库。 您还可以将消息转换器设置为显式使用.
+
+[[rest-message-conversion]]
+==== Message Conversion
+[.small]#<<web-reactive.adoc#webflux-codecs, WebFlux>>#
+
+`spring-web` 模块包含 `HttpMessageConverter` ，用于通过 `InputStream` 和 `OutputStream` 读取和写入 HTTP 请求和响应正文。 在客户端（例如，在 `RestTemplate` 中）和服务器端（例如，在 Spring MVC REST 控制器中）使用 `HttpMessageConverter` 实例。
+
+框架中提供了主要的媒体（MIME）类型的具体实现，默认情况下，这些实现在客户端的 `RestTemplate` 和服务器的 `RequestMethodHandlerAdapter` 进行了注册（请参阅 <<web.adoc#mvc-config-message-converters, Configuring Message Converters>>）。
+
+以下各节介绍了 `HttpMessageConverter` 的实现。 对于所有转换器，都使用默认的媒体类型，但是您可以通过设置 `supportedMediaTypes` bean 属性来覆盖它。 下表描述了每种实现:
+
+[[rest-message-converters-tbl]]
+.HttpMessageConverter Implementations
+[cols="1,3"]
+|===
+| MessageConverter | Description
+
+| `StringHttpMessageConverter`
+| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `String` 实例.  默认情况下,此转换器支持所有文本媒体类型 (`text/*`) ,并使用 `Content-Type` 为 `text/plain` 进行写入.
+
+| `FormHttpMessageConverter`
+|
+一个 `HttpMessageConverter` 实现,可以从HTTP请求和响应中读取和写入表单数据.  默认情况下,此转换器读取和写入 `application/x-www-form-urlencoded` 媒体类型. 表单数据从 `MultiValueMap<String, String>` 读取并写入.
+转换器还可以将 `MultiValueMap<String, String>` 写入  (但不能读) multipart 数据,
+从 "MultiValueMap <String,Object>" 读取的数据.  默认情况下, `multipart/form-data` 是支持的.  从 Spring  Framework 5.2 开始,可以支持其他的多部分子类型. 编写表格数据.  有关更多详细信息,请查阅 Javadoc 中的 `FormHttpMessageConverter`.
+
+| `ByteArrayHttpMessageConverter`
+| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入字节数组.  默认情况下,此转换器支持所有媒体类型 (`*/*`) ,并使用 `Content-Type` 为 `application/octet-stream` 进行写入.  您可以通过设置 `supportedMediaTypes` 属性并覆盖 `getContentType(byte[])` 来覆盖它.
+
+| `MarshallingHttpMessageConverter`
+|
+一个 `HttpMessageConverter` 实现,可以使用 `org.springframework.oxm` 包中的 Spring 的 `Marshaller` 和 `Unmarshaller` 抽象来读写 XML.  该转换器需要 `Marshaller` 和 `Unmarshaller` 才能使用.  您可以通过构造函数或 bean 属性注入这些.  默认情况下,此转换器支持 `text/xml` 和 `application/xml`.
+
+| `MappingJackson2HttpMessageConverter`
+|
+一个 `HttpMessageConverter` 实现,可以使用Jackson的 `ObjectMapper` 读写JSON. 您可以根据需要通过使用 Jackson 提供的注解来自定义 JSON 映射.
+当您需要进一步控制时 (对于需要为特定类型提供自定义 JSON 序列化器/反序列化器的情况) ,您可以通过 `ObjectMapper` 属性注入自定义 `ObjectMapper`.  默认情况下,此转换器支持 `application/json`.
+
+| `MappingJackson2XmlHttpMessageConverter`
+| 一个 `HttpMessageConverter` 实现,可以使用 https://github.com/FasterXML/jackson-dataformat-xml[Jackson XML] 扩展的 `XmlMapper` 读写XML.  您可以根据需要通过使用 JAXB 或 Jackson 提供的注解来自定义XML映射.
+当您需要进一步控制时 (对于需要为特定类型提供自定义XML序列化器/反序列化器的情况) ,您可以通过 `ObjectMapper` 属性注入自定义 `XmlMapper`.  默认情况下,此转换器支持 `application/xml`.
+
+| `SourceHttpMessageConverter`
+| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `javax.xml.transform.Source`.  仅支持 `DOMSource`,`SAXSource` 和 `StreamSource`.  默认情况下,此转换器支持 `text/xml` 和 `application/xml`.
+
+| `BufferedImageHttpMessageConverter`
+| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `java.awt.image.BufferedImage`.  此转换器读取和写入 Java I/O API 支持的媒体类型.
+|===
+
+[[rest-template-jsonview]]
+==== Jackson JSON Views
+
+您可以指定 https://www.baeldung.com/jackson-json-view-annotation[Jackson JSON View] 来序列化对象属性的一部分，如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	MappingJacksonValue value = new MappingJacksonValue(new User("eric", "7!jd#h23"));
+	value.setSerializationView(User.WithoutPasswordView.class);
+
+	RequestEntity<MappingJacksonValue> requestEntity =
+		RequestEntity.post(new URI("https://example.com/user")).body(value);
+
+	ResponseEntity<String> response = template.exchange(requestEntity, String.class);
+----
+
+[[rest-template-multipart]]
+===== Multipart
+
+要发送 multipart data，您需要提供一个 `MultiValueMap<String, Object>`，其值可能是一个对象的部分内容，一个资源的文件部分，或一个 `HttpEntity` 的部分内容的头。例如:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+
+	parts.add("fieldPart", "fieldValue");
+	parts.add("filePart", new FileSystemResource("...logo.png"));
+	parts.add("jsonPart", new Person("Jason"));
+
+	HttpHeaders headers = new HttpHeaders();
+	headers.setContentType(MediaType.APPLICATION_XML);
+	parts.add("xmlPart", new HttpEntity<>(myBean, headers));
+----
+
+在大多数情况下，您不必为每个部分指定 `Content-Type` 头。 内容类型是根据选择用于序列化的 `HttpMessageConverter` 自动确定的，或者对于基于文件扩展名的 `Resource` 是自动确定的。 如有必要，可以为 `MediaType` 显式提供 `HttpEntity` 包装器。
+
+一旦 `MultiValueMap` 准备就绪，您可以将其传递给 `RestTemplate`，如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	MultiValueMap<String, Object> parts = ...;
+	template.postForObject("https://example.com/upload", parts, Void.class);
+----
+
+如果 `MultiValueMap` 包含至少一个非 `String` 值，则 `FormHttpMessageConverter` 将 `Content-Type` 设置为 `multipart/form-data`。 如果 `MultiValueMap` 具有字符串值，则 `Content-Type` 默认为 `application/x-www-form-urlencoded`。 如有必要，还可以显式设置 `Content-Type`.
+
+
+[[rest-async-resttemplate]]
+=== Using `AsyncRestTemplate` (已弃用)
+
+不推荐使用 `AsyncRestTemplate`。 对于您可能考虑使用 `AsyncRestTemplate` 的所有用例，请改用  <<web-reactive.adoc#webflux-client, WebClient>>.
 
 [[remoting]]
 == 远程处理和 Web 服务
 
-Spring 为使用各种远程技术支持的集成提供了便捷,远程处理支持可轻松使用常用(Spring)pojo实现的、由您提供的服务开发. 目前,Spring 支持以下远程技术:
+Spring 为使用各种远程技术支持的集成提供了便捷,远程处理支持可轻松使用常用 (Spring)pojo 实现的、由您提供的服务开发. 目前,Spring 支持以下远程技术:
+
+* <<remoting-web-services>>: Spring 通过 JAX-WS 提供对 Web 服务的远程支持.
+* <<remoting-amqp>>: 单独的 Spring AMQP 项目支持使用 AMQP 作为底层协议进行远程处理.
+
+WARNING: 从 Spring Framework 5.3 开始，出于安全原因和更广泛的行业支持，现已不支持多种远程技术。 支持的基础结构将从 Spring Framework 的下一个主要版本中删除.
+
+现在不推荐使用以下远程处理技术，并且不会被取代:
 
 * <<remoting-rmi,远程方法调用(RMI)>>: 通过使用 `RmiProxyFactoryBean` 和 `RmiServiceExporter`. Spring 支持传统的 RMI (使用 `java.rmi.Remote` 接口和 `java.rmi.RemoteException`) 以及通过 RMI 调用程序 (使用任何 Java 接口) 进行透明的远程处理.
 * <<remoting-httpinvoker,Spring的 HTTP 调用>>: Spring 提供了一种特殊的远程处理策略,允许通过 HTTP 进行 Java 序列化,支持任何 Java 接口 (如 RMI 调用者所做的那样) .  相应的支持类是 `HttpInvokerProxyFactoryBean` 和 `HttpInvokerServiceExporter`.
 * <<remoting-caucho-protocols-hessian,Hessian>>: 通过使用 Spring 的 `HessianProxyFactoryBean` 和 `HessianServiceExporter`,您可以使用 Caucho 提供的轻量级二进制 http 协议透明地暴露您的服务.
-* <<remoting-web-services,JAX-WS>>: Spring 通过 JAX-WS 为 Web 服务提供了远程处理支持(如 Java EE 5 和 Java 6 所介绍的那样, 它继承了 JAX-RPC).
 * <<remoting-jms,JMS>>: 通过 `spring-jms` 模块中的 `JmsInvokerServiceExporter` 和 `JmsInvokerProxyFactoryBean` 类支持使用 JMS 作为底层协议进行远程处理.
-* <<remoting-amqp,>>: Spring AMQP 项目支持使用 AMQP 作为底层协议进行远程处理.
 
 在讨论 Spring 的远程处理功能时,我们使用以下 domain 模型和相应的服务:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class Account implements Serializable{
 
@@ -35,8 +301,7 @@ Spring 为使用各种远程技术支持的集成提供了便捷,远程处理支
 	}
 ----
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface AccountService {
 
@@ -46,8 +311,7 @@ Spring 为使用各种远程技术支持的集成提供了便捷,远程处理支
 	}
 ----
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	// the implementation doing nothing at the moment
 	public class AccountServiceImpl implements AccountService {
@@ -64,289 +328,36 @@ Spring 为使用各种远程技术支持的集成提供了便捷,远程处理支
 
 本节首先使用 RMI 将服务暴露给远程客户端,然后再谈谈使用 RMI 的缺点.  然后继续使用 Hessian 作为协议的示例.
 
-[[remoting-rmi]]
-=== RMI
+[[remoting-amqp]]
+=== AMQP
+Spring AMQP 项目支持通过 AMQP 作为基础协议进行远程处理。 有关更多详细信息，请访问 Spring AMQP 参考的 {doc-spring-amqp}/html/#remoting[Spring Remoting].
 
-使用 Spring 对 RMI 的支持, 您可以通过 RMI 架构透明地暴露服务. 在用此设置之后, 您基本上拥有一个类似于远程 EJB 的配置, 但不存在安全上下文传播或远程事务传播的标准支持这一事实.
-Spring 在使用 RMI 调用器时提供了这样的附加调用上下文的钩子, 因此您可以在此处插入安全框架或自定义安全凭据.
+[[remoting-autodection-remote-interfaces]]
+[NOTE]
+====
+远程接口未实现自动检测
 
-[[remoting-rmi-server]]
-==== 使用 `RmiServiceExporter` 暴露服务
+远程接口不发生自动检测实现的接口的主要原因是避免向远程调用方打开太多的门,目标对象可能实现内部回调接口,例如 `InitializingBean` 或 `DisposableBean`,它们不希望向调用者暴露.
 
-使用 `RmiServiceExporter`,我们可以将 `AccountService` 对象的接口暴露为 RMI 对象. 可以使用 `RmiProxyFactoryBean` 访问该接口,或者在传统 RMI 服务的情况下通过普通 RMI 访问该接口.  `RmiServiceExporter` 明确支持通过 RMI 调用程序暴露任何非 RMI 服务.
+在本地情况下, 向代理提供由目标实现的所有接口通常并不重要. 但是, 当暴露远程服务时, 应暴露特定的服务接口, 并使用特定的操作来进行远程使用. 除内部回调接口外, 目标可能实现多个业务接口, 其中仅有一个用于远程暴露. 由于这些原因, 我们需要指定这样的服务接口.
 
-我们首先必须在 Spring 容器中设置我们的服务.  以下示例显示了如何执行此操作:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="accountService" class="example.AccountServiceImpl">
-		<!-- any additional properties, maybe a DAO? -->
-	</bean>
-----
-
-接下来,我们必须使用 `RmiServiceExporter` 暴露我们的服务.  以下示例显示了如何执行此操作:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean class="org.springframework.remoting.rmi.RmiServiceExporter">
-		<!-- does not necessarily have to be the same name as the bean to be exported -->
-		<property name="serviceName" value="AccountService"/>
-		<property name="service" ref="accountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-		<!-- defaults to 1099 -->
-		<property name="registryPort" value="1199"/>
-	</bean>
-----
-
-在前面的示例中,我们覆盖 RMI 注册表的端口. 通常情况下, 您的应用服务器还维护一个 RMI 注册表, 最好不要修改它. 此外, 服务名称用于绑定服务. 因此,在前面的示例中,服务绑定在  `'rmi://HOST:1199/AccountService'`.  我们稍后使用此 URL 链接客户端的服务.
-
-NOTE: `servicePort` 属性已被省略 (默认为 0) . 这意味着将使用匿名端口与服务进行通信.
-
-[[remoting-rmi-client]]
-==== 连接客户端和服务
-
-我们的客户端是一个使用 `AccountService` 管理帐户的简单对象,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class SimpleObject {
-
-		private AccountService accountService;
-
-		public void setAccountService(AccountService accountService) {
-			this.accountService = accountService;
-		}
-
-		// additional methods using the accountService
-	}
-----
-
-要在客户端上链接服务, 我们将创建一个单独的 Spring 容器, 其中包含简单对象和连接配置位的服务.
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean class="example.SimpleObject">
-		<property name="accountService" ref="accountService"/>
-	</bean>
-
-	<bean id="accountService" class="org.springframework.remoting.rmi.RmiProxyFactoryBean">
-		<property name="serviceUrl" value="rmi://HOST:1199/AccountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-这就是支持客户端连接远程帐户服务所需做的全部工作, Spring 将透明地创建一个调用, 并通过 `RmiServiceExporter` 远程启用帐户服务. 在客户端, 我们在其链接中使用 `RmiProxyFactoryBean`.
-
-[[remoting-caucho-protocols]]
-=== 使用 Hessian 通过 HTTP 远程调用服务
-
-Hessian 提供基于 HTTP 的二进制远程协议.  它由 Caucho 开发,您可以在 https://www.caucho.com/[] 找到有关 Hessian 本身的更多信息.
-
-[[remoting-caucho-protocols-hessian]]
-==== Hessian
-
-Hessian 通过 HTTP 进行通信,并使用自定义 servlet 进行通信. 通过使用 Spring 的 `DispatcherServlet` 原则 (参见<<webmvc.adoc#mvc-servlet>>) ,我们可以连接这样的 servlet 以暴露您的服务.
-首先,我们必须在我们的应用程序中创建一个新的 servlet,如以下摘自 `web.xml` 所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<servlet>
-		<servlet-name>remoting</servlet-name>
-		<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
-		<load-on-startup>1</load-on-startup>
-	</servlet>
-
-	<servlet-mapping>
-		<servlet-name>remoting</servlet-name>
-		<url-pattern>/remoting/*</url-pattern>
-	</servlet-mapping>
-----
-
-如果您熟悉 Spring 的 `DispatcherServlet` 原则,您可能知道现在必须在 `WEB-INF` 目录中创建一个名为 `remoting-servlet.xml` 的 Spring 容器配置资源 (在您的 servlet 名称之后) .  应用程序上下文将在下一节中使用.
-
-或者, 考虑使用 Spring 更简单的 `HttpRequestHandlerServlet`. 这使您可以在根应用程序上下文中嵌入远程暴露定义(默认情况下为 `WEB-INF/applicationContext.xml`), 并将单个 Servlet 定义指向特定的暴露 bean.
-在这种情况下, 每个 Servlet 名称都需要匹配其目标暴露的bean名称.
-
-[[remoting-caucho-protocols-hessian-server]]
-==== 使用 `HessianServiceExporter` 暴露您的Bean
-
-在新创建的名为 `remoting-servlet.xml` 的应用程序上下文中,我们创建了一个 `HessianServiceExporter` 来暴露我们的服务,如下例所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="accountService" class="example.AccountServiceImpl">
-		<!-- any additional properties, maybe a DAO? -->
-	</bean>
-
-	<bean name="/AccountService" class="org.springframework.remoting.caucho.HessianServiceExporter">
-		<property name="service" ref="accountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-现在, 我们已经准备好在客户端上链接服务了.未指定显式处理程序映射, 将请求 URL 映射到服务上, 因此将使用 `BeanNameUrlHandlerMapping`.  因此, 该服务将在包含 `DispatcherServlet` 映射(如上所述)的 URL 中通过其 bean 名称指示的网址暴露: `http://HOST:8080/remoting/AccountService`
-
-或者, 在您的根应用程序上下文中创建一个 `HessianServiceExporter` (例如在 `WEB-INF/applicationContext.xml`). 如下所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean name="accountExporter" class="org.springframework.remoting.caucho.HessianServiceExporter">
-		<property name="service" ref="accountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-在后一种情况下, 在 web.xml 中为该暴露定义一个相应的 Servlet, 并使用相同的最终结果:  暴露程序被映射到请求路径 `/remoting/AccountService`. 请注意, Servlet 名称需要与目标暴露方的 bean 名称匹配.
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<servlet>
-		<servlet-name>accountExporter</servlet-name>
-		<servlet-class>org.springframework.web.context.support.HttpRequestHandlerServlet</servlet-class>
-	</servlet>
-
-	<servlet-mapping>
-		<servlet-name>accountExporter</servlet-name>
-		<url-pattern>/remoting/AccountService</url-pattern>
-	</servlet-mapping>
-----
-
-
-[[remoting-caucho-protocols-hessian-client]]
-==== 在客户端的服务中链接
-
-通过使用 `HessianProxyFactoryBean`,我们可以链接客户端的服务. 同样的原则适用于 RMI 示例. 我们创建一个单独的 bean 工厂或应用程序上下文,并提到以下 bean,其中 `SimpleObject` 是通过使用 `AccountService` 来管理帐户,如以下示例所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean class="example.SimpleObject">
-		<property name="accountService" ref="accountService"/>
-	</bean>
-
-	<bean id="accountService" class="org.springframework.remoting.caucho.HessianProxyFactoryBean">
-		<property name="serviceUrl" value="https://remotehost:8080/remoting/AccountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-
-[[remoting-caucho-protocols-security]]
-==== 通过 Hessian 暴露的服务来应用 HTTP 基本的验证
-
-Hessian 的一个优点是我们可以轻松应用 HTTP 基本身份验证,因为这两种协议都是基于 HTTP 的. 例如,可以通过使用 `web.xml` 安全功能来应用常规 HTTP 服务器安全性机制.  通常,您无需在此处使用每用户安全凭据.  相反,您可以使用在 `HessianProxyFactoryBean` 级别定义的共享凭证 (类似于JDBC `DataSource`) ,如以下示例所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean class="org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping">
-		<property name="interceptors" ref="authorizationInterceptor"/>
-	</bean>
-
-	<bean id="authorizationInterceptor"
-			class="org.springframework.web.servlet.handler.UserRoleAuthorizationInterceptor">
-		<property name="authorizedRoles" value="administrator,operator"/>
-	</bean>
-----
-
-在前面的示例中,我们明确提到了 `BeanNameUrlHandlerMapping` 并设置了一个拦截器,只允许管理员和操作员调用此应用程序上下文中提到的 bean.
-
-NOTE: 前面的示例并没有显示一种灵活的安全基础结构. 有关安全性的更多选项,请查看 https://projects.spring.io/spring-security/ 上的 Spring Security 项目.
-
-[[remoting-httpinvoker]]
-=== Spring HTTP 调用
-
-与 Hessian 相反,Spring HTTP 调用者都是轻量级协议,Hessian 使用自身序列化机制,而 Spring HTTP 调用者使用标准的 Java 序列化机制通过 HTTP 暴露服务. 如果您的参数和返回类型是使用 Hessian 使用的序列化机制无法序列化的复杂类型,那么这具有巨大的优势 (当您选择远程处理技术时,请参阅下一节以了解更多注意事项) .
-
-在底层, Spring 使用 JDK 或 Apache `HttpComponents` 提供的标准工具来执行 HTTP 调用.  如果您需要更高级且更易于使用的功能,请使用后者.  有关更多信息,请参阅 https://hc.apache.org/httpcomponents-client-ga/[hc.apache.org/httpcomponents-client-ga/].
-
-[WARNING]
+这是配置方便和意外暴露内部方法风险之间的权衡,总是指定一个服务接口并不费劲, 并把你放在安全方面的控制暴露的特定方法.
 ====
 
-由于不安全的 Java 反序列化而造成的漏洞:操作的输入流可能导致在反序列化步骤中在服务器上执行不需要的代码. 因此, 不要将 HTTP 调用方端点暴露给不受信任的客户端, 而只应该在您自己的服务之间. 通常, 我们强烈推荐任何其他消息格式(例如 JSON).
+[[remoting-considerations]]
+=== 选择技术时的注意事项
 
-如果您担心由于 Java 序列化引起的安全漏洞, 请考虑核心 JVM 级别的 generalpurpose 序列化过滤器机制, 它最初是为 JDK 9 开发的. 但同时又向后移植到 JDK 8,7 和 6.
-请参阅 https://blogs.oracle.com/java-platform-group/entry/incoming_filter_serialization_data_a 和 http://openjdk.java.net/jeps/290.
-====
+这里介绍的每项技术都有其缺点.  在选择技术时,您应该仔细考虑您的需求,您暴露的服务以及通过网络发送的对象.
 
+当使用 RMI ,不可能通过 HTTP 协议来访问到这些对象,除非你使用了 RMI 的隧道.  RMI 是一个重量级的协议,支持全功能的序列化策略,这在使用需要在线上进行序列化的复杂数据模型时非常重要.  但是, RMI-JRMP 与 Java 客户端绑定在一起,它是一种 Java-to-Java 远程处理解决方案.
 
-[[remoting-httpinvoker-server]]
-==== 暴露服务对象
+如果您需要基于 HTTP 的远程处理,而且还依赖于 Java 序列化,那么 Spring 的 HTTP 调用程序是一个不错的选择. 它与 RMI 调用共享基本的基础结构, 只是使用 HTTP 作为传输.  请注意,HTTP 调用程序不仅限于 Java-to-Java 远程处理,还包括客户端和服务器端的 Spring .  (后者也适用于 Spring 的非 RMI 接口的 RMI 调用程序. )
 
-为服务对象设置 HTTP 调用的架构类似于使用 Hession,方式也是相同的. 正如 Hession 支持提供 是 `HessianServiceExporter`.   Spring 的 `HttpInvoker` 支持提供了 `org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter`.
+在跨平台中使用时,Hessian 是很好的选择,因为它们明确允许非 Java 客户端. 但是,非 Java 支持仍然有限. 已知问题包括 Hibernate 对象的序列化以及延迟初始化的集合. 如果您有这样的数据模型,请考虑使用 RMI 或 HTTP 调用程序而不是 Hessian.
 
-要在 Spring Web MVC `DispatcherServlet` 中暴露 `AccountService` (前面提到过) ,需要在调度程序的应用程序上下文中使用以下配置,如以下示例所示:
+JMS 可用于提供服务群集, 并允许 JMS 代理处理负载平衡、发现和自动故障转移.  默认情况下, 在使用 JMS 远程处理时使用 Java 序列化, 但 JMS 提供程序可以对格式使用不同的机制, 例如 XStream 以允许在其他技术中实现服务器.
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean name="/AccountService" class="org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter">
-		<property name="service" ref="accountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-这样一个暴露的定义将通过 `DispatcherServlet` 的标准映射设备, 如在关于 <<remoting-caucho-protocols, Hession的章节>>中解释.
-
-或者,您可以在根应用程序上下文中创建 `HttpInvokerServiceExporter` (例如,在 `'WEB-INF/applicationContext.xml'` 中) ,如以下示例所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean name="accountExporter" class="org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter">
-		<property name="service" ref="accountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-此外,在 `web.xml` 中为该暴露定义一个对应的 Servlet, 其 Servlet 名称与目标暴露的 bean 名称相匹配. 如下所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<servlet>
-		<servlet-name>accountExporter</servlet-name>
-		<servlet-class>org.springframework.web.context.support.HttpRequestHandlerServlet</servlet-class>
-	</servlet>
-
-	<servlet-mapping>
-		<servlet-name>accountExporter</servlet-name>
-		<url-pattern>/remoting/AccountService</url-pattern>
-	</servlet-mapping>
-----
-
-
-[[remoting-httpinvoker-client]]
-==== 在客户端链接服务
-
-同样,从客户端链接服务非常类似于使用 Hessian 时的方式. 通过使用代理,Spring 可以将对 HTTP POST 请求的调用转换为指向暴露服务的 URL. 以下示例显示如何配置:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="httpInvokerProxy" class="org.springframework.remoting.httpinvoker.HttpInvokerProxyFactoryBean">
-		<property name="serviceUrl" value="https://remotehost:8080/remoting/AccountService"/>
-		<property name="serviceInterface" value="example.AccountService"/>
-	</bean>
-----
-
-如前所述,您可以选择要使用的 HTTP 客户端. 默认情况下,`HttpInvokerProxy` 使用 JDK 的 HTTP 功能,但您也可以通过设置 `httpInvokerRequestExecutor` 属性来使用 Apache `HttpComponents` 客户端. 以下示例显示了如何执行此操作:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<property name="httpInvokerRequestExecutor">
-		<bean class="org.springframework.remoting.httpinvoker.HttpComponentsHttpInvokerRequestExecutor"/>
-	</property>
-----
+最后但并非最不重要的是,EJB 具有优于 RMI 的优势,因为它支持标准的基于角色的身份验证和授权以及远程事务传播. 有可能让 RMI 调用者或 HTTP 调用者也支持安全上下文传播,尽管核心 Spring 没有提供.   Spring 仅提供适当的挂钩,用于插入第三方或自定义解决方案.
 
 [[remoting-web-services]]
 === Java Web Services
@@ -412,8 +423,7 @@ Oracle JDK 附带的内置 JAX-WS 提供程序通过使用 JDK 中包含的内�
 
 在这种情况下, 端实例被定义并作为 Spring  bean来管理. 它们将在 JAX-WS 引擎中注册, 但它们的生命周期将由 Spring 应用程序上下文来实现. 这意味着像显式依赖注入这样的 Spring 功能可以应用到端点实例.  当然, 通过 `@Autowired` 的注解驱动的注入也会起作用. 以下示例显示了如何定义这些 bean:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean class="org.springframework.remoting.jaxws.SimpleJaxWsServiceExporter">
 		<property name="baseAddress" value="http://localhost:8080/"/>
@@ -428,8 +438,7 @@ Oracle JDK 附带的内置 JAX-WS 提供程序通过使用 JDK 中包含的内�
 
 `AccountServiceEndpoint` 可以不用继承 Spring 的 `SpringBeanAutowiringSupport`,因为此示例中的端点是完全由 Spring 管理的 bean.  这意味着端点实现可以如下 (没有声明任何超类 - 而且 Spring 的 `@Autowired` 配置注解仍然被可用) :
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@WebService(serviceName="AccountService")
 	public class AccountServiceEndpoint {
@@ -467,8 +476,7 @@ NOTE: 这在 Java EE 环境中不可移植.  它主要用于非 EE 环境,例如
 Spring 提供了两个工厂 bean 来创建 JAX-WS Web 服务代理,即 `LocalJaxWsServiceFactoryBean` 和 `JaxWsPortProxyFactoryBean`.
 前者只能返回一个 JAX-WS 服务类供我们使用. 后者是完整版本,可以返回实现我们的业务服务接口的代理. 在以下示例中,我们使用 `JaxWsPortProxyFactoryBean为AccountService` 为 `AccountService` 端点创建代理 (再次) :
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="accountWebService" class="org.springframework.remoting.jaxws.JaxWsPortProxyFactoryBean">
 		<property name="serviceInterface" value="example.AccountService"/> <1>
@@ -481,12 +489,11 @@ Spring 提供了两个工厂 bean 来创建 JAX-WS Web 服务代理,即 `LocalJa
 <1> 其中 `serviceInterface` 是客户端使用的业务接口.
 
 
-`wsdlDocumentUrl` 是WSDL文件的URL. Spring 需要这样的启动时间来创建 JAX-WS服务. `namespaceUri` 对应于 .wsdl文件中的 `targetNamespace` . `serviceName` 对应于.wsdl文件中的服务名称.  `portName` 对应于.wsdl文件中的端口名称.
+`wsdlDocumentUrl` 是WSDL文件的URL. Spring 需要这样的启动时间来创建 JAX-WS服务. `namespaceUri` 对应于 `.wsdl` 文件中的 `targetNamespace` . `serviceName` 对应于.wsdl文件中的服务名称.  `portName` 对应于.wsdl文件中的端口名称.
 
 访问Web服务现在非常容易, 因为我们有一个bean工厂, 它将暴露它作为 `AccountService` 接口. 我们可以在 Spring 中配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="client" class="example.AccountClientImpl">
 		...
@@ -496,8 +503,7 @@ Spring 提供了两个工厂 bean 来创建 JAX-WS Web 服务代理,即 `LocalJa
 
 从客户端代码中, 我们可以访问 Web 服务,就好像它是一个普通类一样:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class AccountClientImpl {
 
@@ -513,18 +519,295 @@ Spring 提供了两个工厂 bean 来创建 JAX-WS Web 服务代理,即 `LocalJa
 	}
 ----
 
-NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来注解 `@WebService`、`@SOAPBinding` 等注解. 这意味着您不能(很容易)使用普通的 Java 接口和实现类作为JAX-WS端点 artifacts ; 首先您需要相应地对它们进行注解.  有关这些要求的详细信息 请参阅 JAX-WS 文档.
+NOTE: 上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来注解 `@WebService`、`@SOAPBinding` 等注解. 这意味着您不能(很容易)使用普通的 Java 接口和实现类作为JAX-WS端点 artifacts ; 首先您需要相应地对它们进行注解.  有关这些要求的详细信息 请参阅 JAX-WS 文档.
+
+[[remoting-rmi]]
+=== RMI (已弃用)
+
+WARNING: 从 Spring Framework 5.3 开始，RMI 支持已被弃用，不会被取代。
+
+
+使用 Spring 对 RMI 的支持, 您可以通过 RMI 架构透明地暴露服务. 在用此设置之后, 您基本上拥有一个类似于远程 EJB 的配置, 但不存在安全上下文传播或远程事务传播的标准支持这一事实.
+Spring 在使用 RMI 调用器时提供了这样的附加调用上下文的钩子, 因此您可以在此处插入安全框架或自定义安全凭据.
+
+[[remoting-rmi-server]]
+==== 使用 `RmiServiceExporter` 暴露服务
+
+使用 `RmiServiceExporter`,我们可以将 `AccountService` 对象的接口暴露为 RMI 对象. 可以使用 `RmiProxyFactoryBean` 访问该接口,或者在传统 RMI 服务的情况下通过普通 RMI 访问该接口.  `RmiServiceExporter` 明确支持通过 RMI 调用程序暴露任何非 RMI 服务.
+
+我们首先必须在 Spring 容器中设置我们的服务.  以下示例显示了如何执行此操作:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean id="accountService" class="example.AccountServiceImpl">
+		<!-- any additional properties, maybe a DAO? -->
+	</bean>
+----
+
+接下来,我们必须使用 `RmiServiceExporter` 暴露我们的服务.  以下示例显示了如何执行此操作:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean class="org.springframework.remoting.rmi.RmiServiceExporter">
+		<!-- does not necessarily have to be the same name as the bean to be exported -->
+		<property name="serviceName" value="AccountService"/>
+		<property name="service" ref="accountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+		<!-- defaults to 1099 -->
+		<property name="registryPort" value="1199"/>
+	</bean>
+----
+
+在前面的示例中,我们覆盖 RMI 注册表的端口. 通常情况下, 您的应用服务器还维护一个 RMI 注册表, 最好不要修改它. 此外, 服务名称用于绑定服务. 因此,在前面的示例中,服务绑定在  `'rmi://HOST:1199/AccountService'`.  我们稍后使用此 URL 链接客户端的服务.
+
+NOTE: `servicePort` 属性已被省略 (默认为 0) . 这意味着将使用匿名端口与服务进行通信.
+
+[[remoting-rmi-client]]
+==== 连接客户端和服务
+
+我们的客户端是一个使用 `AccountService` 管理帐户的简单对象,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	public class SimpleObject {
+
+		private AccountService accountService;
+
+		public void setAccountService(AccountService accountService) {
+			this.accountService = accountService;
+		}
+
+		// additional methods using the accountService
+	}
+----
+
+要在客户端上链接服务, 我们将创建一个单独的 Spring 容器, 其中包含简单对象和连接配置位的服务.
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean class="example.SimpleObject">
+		<property name="accountService" ref="accountService"/>
+	</bean>
+
+	<bean id="accountService" class="org.springframework.remoting.rmi.RmiProxyFactoryBean">
+		<property name="serviceUrl" value="rmi://HOST:1199/AccountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+这就是支持客户端连接远程帐户服务所需做的全部工作, Spring 将透明地创建一个调用, 并通过 `RmiServiceExporter` 远程启用帐户服务. 在客户端, 我们在其链接中使用 `RmiProxyFactoryBean`.
+
+[[remoting-caucho-protocols]]
+=== 使用 Hessian 通过 HTTP 远程调用服务 (已弃用)
+
+WARNING: 从 Spring Framework 5.3 开始, Hessian 已经弃用，不会被取代.
+
+Hessian 提供基于 HTTP 的二进制远程协议.  它由 Caucho 开发,您可以在 https://www.caucho.com/[] 找到有关 Hessian 本身的更多信息.
+
+[[remoting-caucho-protocols-hessian]]
+==== Hessian
+
+Hessian 通过 HTTP 进行通信,并使用自定义 servlet 进行通信. 通过使用 Spring 的 `DispatcherServlet` 原则 (参见<<webmvc.adoc#mvc-servlet>>) ,我们可以连接这样的 servlet 以暴露您的服务.
+首先,我们必须在我们的应用程序中创建一个新的 servlet,如以下摘自 `web.xml` 所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<servlet>
+		<servlet-name>remoting</servlet-name>
+		<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+		<load-on-startup>1</load-on-startup>
+	</servlet>
+
+	<servlet-mapping>
+		<servlet-name>remoting</servlet-name>
+		<url-pattern>/remoting/*</url-pattern>
+	</servlet-mapping>
+----
+
+如果您熟悉 Spring 的 `DispatcherServlet` 原则,您可能知道现在必须在 `WEB-INF` 目录中创建一个名为 `remoting-servlet.xml` 的 Spring 容器配置资源 (在您的 servlet 名称之后) .  应用程序上下文将在下一节中使用.
+
+或者, 考虑使用 Spring 更简单的 `HttpRequestHandlerServlet`. 这使您可以在根应用程序上下文中嵌入远程暴露定义(默认情况下为 `WEB-INF/applicationContext.xml`), 并将单个 Servlet 定义指向特定的暴露 bean.
+在这种情况下, 每个 Servlet 名称都需要匹配其目标暴露的bean名称.
+
+[[remoting-caucho-protocols-hessian-server]]
+==== 使用 `HessianServiceExporter` 暴露您的Bean
+
+在新创建的名为 `remoting-servlet.xml` 的应用程序上下文中,我们创建了一个 `HessianServiceExporter` 来暴露我们的服务,如下例所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean id="accountService" class="example.AccountServiceImpl">
+		<!-- any additional properties, maybe a DAO? -->
+	</bean>
+
+	<bean name="/AccountService" class="org.springframework.remoting.caucho.HessianServiceExporter">
+		<property name="service" ref="accountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+现在, 我们已经准备好在客户端上链接服务了.未指定显式处理程序映射, 将请求 URL 映射到服务上, 因此将使用 `BeanNameUrlHandlerMapping`.  因此, 该服务将在包含 `DispatcherServlet` 映射(如上所述)的 URL 中通过其 bean 名称指示的网址暴露: `http://HOST:8080/remoting/AccountService`
+
+或者, 在您的根应用程序上下文中创建一个 `HessianServiceExporter` (例如在 `WEB-INF/applicationContext.xml`). 如下所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean name="accountExporter" class="org.springframework.remoting.caucho.HessianServiceExporter">
+		<property name="service" ref="accountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+在后一种情况下, 在 web.xml 中为该暴露定义一个相应的 Servlet, 并使用相同的最终结果:  暴露程序被映射到请求路径 `/remoting/AccountService`. 请注意, Servlet 名称需要与目标暴露方的 bean 名称匹配.
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<servlet>
+		<servlet-name>accountExporter</servlet-name>
+		<servlet-class>org.springframework.web.context.support.HttpRequestHandlerServlet</servlet-class>
+	</servlet>
+
+	<servlet-mapping>
+		<servlet-name>accountExporter</servlet-name>
+		<url-pattern>/remoting/AccountService</url-pattern>
+	</servlet-mapping>
+----
+
+
+[[remoting-caucho-protocols-hessian-client]]
+==== 在客户端的服务中链接
+
+通过使用 `HessianProxyFactoryBean`,我们可以链接客户端的服务. 同样的原则适用于 RMI 示例. 我们创建一个单独的 bean 工厂或应用程序上下文,并提到以下 bean,其中 `SimpleObject` 是通过使用 `AccountService` 来管理帐户,如以下示例所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean class="example.SimpleObject">
+		<property name="accountService" ref="accountService"/>
+	</bean>
+
+	<bean id="accountService" class="org.springframework.remoting.caucho.HessianProxyFactoryBean">
+		<property name="serviceUrl" value="https://remotehost:8080/remoting/AccountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+
+[[remoting-caucho-protocols-security]]
+==== 通过 Hessian 暴露的服务来应用 HTTP 基本的验证
+
+Hessian 的一个优点是我们可以轻松应用 HTTP 基本身份验证,因为这两种协议都是基于 HTTP 的. 例如,可以通过使用 `web.xml` 安全功能来应用常规 HTTP 服务器安全性机制.  通常,您无需在此处使用每用户安全凭据.  相反,您可以使用在 `HessianProxyFactoryBean` 级别定义的共享凭证 (类似于JDBC `DataSource`) ,如以下示例所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean class="org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping">
+		<property name="interceptors" ref="authorizationInterceptor"/>
+	</bean>
+
+	<bean id="authorizationInterceptor"
+			class="org.springframework.web.servlet.handler.UserRoleAuthorizationInterceptor">
+		<property name="authorizedRoles" value="administrator,operator"/>
+	</bean>
+----
+
+在前面的示例中,我们明确提到了 `BeanNameUrlHandlerMapping` 并设置了一个拦截器,只允许管理员和操作员调用此应用程序上下文中提到的 bean.
+
+NOTE: 前面的示例并没有显示一种灵活的安全基础结构. 有关安全性的更多选项,请查看 https://projects.spring.io/spring-security/ 上的 Spring Security 项目.
+
+[[remoting-httpinvoker]]
+=== Spring HTTP 调用 (已弃用)
+
+WARNING: 从 Spring Framework 5.3 开始, HTTP 调用已经弃用，不会被取代.
+
+与 Hessian 相反,Spring HTTP 调用者都是轻量级协议,Hessian 使用自身序列化机制,而 Spring HTTP 调用者使用标准的 Java 序列化机制通过 HTTP 暴露服务. 如果您的参数和返回类型是使用 Hessian 使用的序列化机制无法序列化的复杂类型,那么这具有巨大的优势 (当您选择远程处理技术时,请参阅下一节以了解更多注意事项) .
+
+在底层, Spring 使用 JDK 或 Apache `HttpComponents` 提供的标准工具来执行 HTTP 调用.  如果您需要更高级且更易于使用的功能,请使用后者.  有关更多信息,请参阅 https://hc.apache.org/httpcomponents-client-ga/[hc.apache.org/httpcomponents-client-ga/].
+
+[CAUTION]
+====
+
+由于不安全的 Java 反序列化而造成的漏洞:操作的输入流可能导致在反序列化步骤中在服务器上执行不需要的代码. 因此, 不要将 HTTP 调用方端点暴露给不受信任的客户端, 而只应该在您自己的服务之间. 通常, 我们强烈推荐任何其他消息格式(例如 JSON).
+
+如果您担心由于 Java 序列化引起的安全漏洞, 请考虑核心 JVM 级别的 generalpurpose 序列化过滤器机制, 它最初是为 JDK 9 开发的. 但同时又向后移植到 JDK 8,7 和 6.
+请参阅 https://blogs.oracle.com/java-platform-group/entry/incoming_filter_serialization_data_a 和 http://openjdk.java.net/jeps/290.
+====
+
+
+[[remoting-httpinvoker-server]]
+==== 暴露服务对象
+
+为服务对象设置 HTTP 调用的架构类似于使用 Hession,方式也是相同的. 正如 Hession 支持提供 是 `HessianServiceExporter`.   Spring 的 `HttpInvoker` 支持提供了 `org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter`.
+
+要在 Spring Web MVC `DispatcherServlet` 中暴露 `AccountService` (前面提到过) ,需要在调度程序的应用程序上下文中使用以下配置,如以下示例所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean name="/AccountService" class="org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter">
+		<property name="service" ref="accountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+这样一个暴露的定义将通过 `DispatcherServlet` 的标准映射设备, 如在关于 <<remoting-caucho-protocols, Hession的章节>>中解释.
+
+或者,您可以在根应用程序上下文中创建 `HttpInvokerServiceExporter` (例如,在 `'WEB-INF/applicationContext.xml'` 中) ,如以下示例所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean name="accountExporter" class="org.springframework.remoting.httpinvoker.HttpInvokerServiceExporter">
+		<property name="service" ref="accountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+此外,在 `web.xml` 中为该暴露定义一个对应的 Servlet, 其 Servlet 名称与目标暴露的 bean 名称相匹配. 如下所示:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<servlet>
+		<servlet-name>accountExporter</servlet-name>
+		<servlet-class>org.springframework.web.context.support.HttpRequestHandlerServlet</servlet-class>
+	</servlet>
+
+	<servlet-mapping>
+		<servlet-name>accountExporter</servlet-name>
+		<url-pattern>/remoting/AccountService</url-pattern>
+	</servlet-mapping>
+----
+
+
+[[remoting-httpinvoker-client]]
+==== 在客户端链接服务
+
+同样,从客户端链接服务非常类似于使用 Hessian 时的方式. 通过使用代理,Spring 可以将对 HTTP POST 请求的调用转换为指向暴露服务的 URL. 以下示例显示如何配置:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean id="httpInvokerProxy" class="org.springframework.remoting.httpinvoker.HttpInvokerProxyFactoryBean">
+		<property name="serviceUrl" value="https://remotehost:8080/remoting/AccountService"/>
+		<property name="serviceInterface" value="example.AccountService"/>
+	</bean>
+----
+
+如前所述,您可以选择要使用的 HTTP 客户端. 默认情况下,`HttpInvokerProxy` 使用 JDK 的 HTTP 功能,但您也可以通过设置 `httpInvokerRequestExecutor` 属性来使用 Apache `HttpComponents` 客户端. 以下示例显示了如何执行此操作:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<property name="httpInvokerRequestExecutor">
+		<bean class="org.springframework.remoting.httpinvoker.HttpComponentsHttpInvokerRequestExecutor"/>
+	</property>
+----
 
 [[remoting-jms]]
-=== JMS
+=== JMS (已弃用)
+
+WARNING: 从 Spring Framework 5.3 开始, JMS 已经弃用，不会被取代.
 
 您还可以使用 JMS 作为底层通信协议透明地暴露服务.  JMS 的远程支持在 Spring  Framework 中是非常基础. 它在同一个线程和同一个非事务性会话中发送和接收.  并且这样的吞吐量将非常依赖于实现,
 请注意, 这些单线程和非事务性约束仅适用于 Spring 的 JMS 远程处理支持. 有关 Spring 对 JMS 消息传递的丰富支持的信息, 请参见<<jms,JM>> (Java Message Service)
 
 以下接口用于服务器端和客户端:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package com.foo;
 
@@ -536,8 +819,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 
 在服务器端使用上述接口的以下简单实现:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package com.foo;
 
@@ -551,8 +833,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 
 此配置文件包含在客户端和服务器上共享的 JMS 基础结构 bean:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<?xml version="1.0" encoding="UTF-8"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"
@@ -577,8 +858,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 
 在服务器上, 您只需使用 `JmsInvokerServiceExporter` 暴露服务对象:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<?xml version="1.0" encoding="UTF-8"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"
@@ -604,8 +884,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 	</beans>
 ----
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package com.foo;
 
@@ -627,8 +906,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 
 以下示例定义了可以注入其他客户端对象的 bean (代理负责通过 JMS 将调用转发到服务器端对象) :
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<?xml version="1.0" encoding="UTF-8"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"
@@ -646,8 +924,7 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 	</beans>
 ----
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package com.foo;
 
@@ -663,312 +940,6 @@ NOTE: 	上述情况略有简化, 因为 JAX-WS 需要端点接口和实现类来
 		}
 	}
 ----
-
-
-
-[[remoting-amqp]]
-=== AMQP
-有关详细信息,请参阅 Spring AMQP 参考指南的使用 AMQP 进行 {doc-spring-amqp}/html/#remoting[Spring Remoting] 部分 .
-
-[[remoting-autodection-remote-interfaces]]
-[NOTE]
-====
-远程接口未实现自动检测
-
-远程接口不发生自动检测实现的接口的主要原因是避免向远程调用方打开太多的门,目标对象可能实现内部回调接口,例如 `InitializingBean 或 DisposableBean`,它们不希望向调用者暴露.
-
-在本地情况下, 向代理提供由目标实现的所有接口通常并不重要. 但是, 当暴露远程服务时, 应暴露特定的服务接口, 并使用特定的操作来进行远程使用.  除内部回调接口外, 目标可能实现多个业务接口, 其中仅有一个用于远程暴露. 由于这些原因, 我们需要指定这样的服务接口.
-
-这是配置方便和意外暴露内部方法风险之间的权衡,总是指定一个服务接口并不费劲, 并把你放在安全方面的控制暴露的特定方法.
-====
-
-
-
-[[remoting-considerations]]
-=== 选择技术时的注意事项
-
-这里介绍的每项技术都有其缺点.  在选择技术时,您应该仔细考虑您的需求,您暴露的服务以及通过网络发送的对象.
-
-当使用 RMI ,不可能通过 HTTP 协议来访问到这些对象,除非你使用了 RMI 的隧道.  RMI 是一个重量级的协议,支持全功能的序列化策略,这在使用需要在线上进行序列化的复杂数据模型时非常重要.  但是, RMI-JRMP 与 Java 客户端绑定在一起,它是一种 Java-to-Java 远程处理解决方案.
-
-如果您需要基于 HTTP 的远程处理,而且还依赖于 Java 序列化,那么 Spring 的 HTTP 调用程序是一个不错的选择. 它与 RMI 调用共享基本的基础结构, 只是使用 HTTP 作为传输.  请注意,HTTP 调用程序不仅限于 Java-to-Java 远程处理,还包括客户端和服务器端的 Spring .  (后者也适用于 Spring 的非 RMI 接口的 RMI 调用程序. )
-
-在跨平台中使用时,Hessian 是很好的选择,因为它们明确允许非 Java 客户端. 但是,非 Java 支持仍然有限. 已知问题包括 Hibernate 对象的序列化以及延迟初始化的集合. 如果您有这样的数据模型,请考虑使用 RMI 或 HTTP 调用程序而不是 Hessian.
-
-JMS 可用于提供服务群集, 并允许 JMS 代理处理负载平衡、发现和自动故障转移.  默认情况下, 在使用 JMS 远程处理时使用 Java 序列化, 但 JMS 提供程序可以对格式使用不同的机制, 例如 XStream 以允许在其他技术中实现服务器.
-
-最后但并非最不重要的是,EJB 具有优于 RMI 的优势,因为它支持标准的基于角色的身份验证和授权以及远程事务传播. 有可能让 RMI 调用者或 HTTP 调用者也支持安全上下文传播,尽管核心 Spring 没有提供.   Spring 仅提供适当的挂钩,用于插入第三方或自定义解决方案.
-
-[[rest-client-access]]
-=== REST 端点
-
-Spring Framework 为调用 REST 端点提供了两种选择:
-
-* <<rest-resttemplate,使用 RestTemplate>>: 原始的 Spring  REST 客户端与在 Spring 中 API 相似于其他模板类,例如 JdbcTemplate
-* <<web-reactive.adoc#webflux-client, WebClient>>: 响应式替代方案,支持同步和异步以及流方案.
-
-NOTE: 从 5.0 版本开始,`RestTemplate` 处于维护模式,以后只有很少的更改和 debug 请求被接受. 请考虑使用支持同步,异步和流方案的 <<web-reactive.adoc#webflux-client, WebClient>> .
-
-[[rest-resttemplate]]
-==== `RestTemplate`
-
-`RestTemplate` 在 HTTP 客户端库上提供了更高级别的 API,它使得在一行中调用 REST 端点变得容易.  它暴露了以下重载方法组:
-
-[[rest-overview-of-resttemplate-methods-tbl]]
-.RestTemplate 方法
-[cols="1,3"]
-|===
-| Method group | Description
-
-| `getForObject`
-| 通过 GET 获取响应.
-
-| `getForEntity`
-| 使用 GET 获取 `ResponseEntity` (即status, headers和body)
-
-| `headForHeaders`
-| 使用 HEAD 获取所有 headers
-
-| `postForLocation`
-| 使用 POST 创建新资源,并从响应中返回 `Location` 标头.
-
-| `postForObject`
-| 使用 POST 创建新资源并从响应中返回表示.
-
-| `postForEntity`
-| 使用 POST 创建新资源并从响应中返回表示.
-
-| `put`
-| 使用 PUT 创建或更新资源.
-
-| `patchForObject`
-| 使用 PATCH 更新资源并从响应中返回表示.  请注意,JDK `HttpURLConnection` 不支持 `PATCH`,但Apache `HttpComponents` 和其他一样.
-
-| `delete`
-| 使用 DELETE 删除指定 URI 处的资源.
-
-| `optionsForAllow`
-| 使用 ALLOW 检索资源的允许 HTTP 方法.
-
-| `exchange`
-| 上述方法的更通用 (且不太固定) 的版本,在需要时提供额外的灵活性.  它接受 `RequestEntity` (包括 HTTP 方法,URL,headers 和正文作为输入) 并返回 `ResponseEntity`.
-
-这些方法允许使用 `ParameterizedTypeReference` 而不是 `Class` 来指定具有泛型的响应类型.
-
-| `execute`
-| 执行请求的最通用方式,通过回调接口完全控制请求准备和响应提取.
-|===
-
-[[rest-resttemplate-create]]
-===== 初始化
-
-默认构造函数使用 `java.net.HttpURLConnection` 来执行请求.  您可以使用 `ClientHttpRequestFactory` 的实现切换到不同的 HTTP 库.  内置支持以下内容: ation of `ClientHttpRequestFactory`.
-
-* Apache HttpComponents
-* Netty
-* OkHttp
-
-例如,要切换到 Apache HttpComponents,您可以使用以下命令:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	RestTemplate template = new RestTemplate(new HttpComponentsClientHttpRequestFactory());
-----
-
-每个 `ClientHttpRequestFactory` 都暴露特定于底层 HTTP 客户端库的配置选项 - 例如,用于凭据,连接池和其他详细信息.
-
-TIP: 请注意,HTTP 请求的 `java.net` 实现在访问表示错误的响应的状态 (例如 401) 时可能引发异常.  如果这是一个问题,请切换到另一个 HTTP 客户端库.
-
-[[rest-resttemplate-uri]]
-===== URIs
-
-许多 `RestTemplate` 方法接受 URI 模板和 URI 模板变量,可以是 `String` 变量参数,也可以是 `Map<String,String>`.
-
-以下示例使用 String 变量参数:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	String result = restTemplate.getForObject(
-			"https://example.com/hotels/{hotel}/bookings/{booking}", String.class, "42", "21");
-----
-
-以下示例使用 `Map<String, String>`:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	Map<String, String> vars = Collections.singletonMap("hotel", "42");
-
-	String result = restTemplate.getForObject(
-			"https://example.com/hotels/{hotel}/rooms/{hotel}", String.class, vars);
-----
-
-请记住,URI 模板是自动编码的,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	restTemplate.getForObject("https://example.com/hotel list", String.class);
-
-	// Results in request to "https://example.com/hotel%20list"
-----
-
-您可以使用 `RestTemplate` 的 `uriTemplateHandler` 属性来自定义 URI 的编码方式.  或者,您可以准备 `java.net.URI` 并将其传递给接受 URI 的 `RestTemplate` 方法之一.
-
-有关使用和编码URI的更多详细信息,请参阅<<web.adoc#mvc-uri-building, URI Links>>.
-
-[[rest-template-headers]]
-===== Headers
-
-您可以使用 `exchange()` 方法指定请求头,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	String uriTemplate = "https://example.com/hotels/{hotel}";
-	URI uri = UriComponentsBuilder.fromUriString(uriTemplate).build(42);
-
-	RequestEntity<Void> requestEntity = RequestEntity.get(uri)
-			.header(("MyRequestHeader", "MyValue")
-			.build();
-
-	ResponseEntity<String> response = template.exchange(requestEntity, String.class);
-
-	String responseHeader = response.getHeaders().getFirst("MyResponseHeader");
-	String body = response.getBody();
-----
-
-您可以通过返回 `ResponseEntity` 的许多 `RestTemplate` 方法变体获取响应头.
-
-[[rest-template-body]]
-===== Body
-
-传递到 `RestTemplate` 方法并从 `RestTemplate` 方法返回的对象在 `HttpMessageConverter` 的帮助下转换为原始内容和从原始内容转换.
-
-在 POST 上,输入对象被序列化到请求主体,如以下示例所示:
-
-----
-URI location = template.postForLocation("https://example.com/people", person);
-----
-
-您无需显式设置请求的 `Content-Type` 头. 在大多数情况下,您可以找到基于源对象类型的兼容消息转换器,并且所选消息转换器会相应地设置内容类型.  如有必要,您可以使用 `exchange` 方法显式提供 `Content-Type` 请求头,这反过来会影响选择的消息转换器.
-
-在GET上,响应的主体被反序列化为输出 `Object`,如以下示例所示:
-
-----
-Person person = restTemplate.getForObject("https://example.com/people/{id}", Person.class, 42);
-----
-
-不需要显式设置请求的 `Accept` 头. 在大多数情况下,可以根据预期的响应类型找到兼容的消息转换器,然后有助于填充 `Accept` 头. 如有必要,可以使用 `exchange` 方法显式提供 `Accept` 头.
-
-默认情况下, `RestTemplate` 会注册所有消息转换器,具体取决于有助于确定存在哪些可选转换库的类路径检查.  您还可以将<<rest-message-conversion, 消息转换>>器设置为显式使用.
-
-[[rest-message-conversion]]
-===== Message Conversion
-[.small]#<<web-reactive.adoc#webflux-codecs, WebFlux>>#
-
-`spring-web` 模块包含 `HttpMessageConverter`,用于通过 `InputStream` 和 `OutputStream` 读取和写入 HTTP 请求和响应的主体.  `HttpMessageConverter` 实例用于客户端 (例如,在 `RestTemplate` 中) 和服务器端 (例如,在 Spring  MVC REST 控制器中) .
-
-框架中提供了主要媒体 (MIME) 类型的具体实现,默认情况下,它们在客户端注册 `RestTemplate` ,在服务器端注册 `RequestMethodHandlerAdapter` (请参阅<<web.adoc#mvc-config-message-converters, 配置消息转换器>>) .
-
-`HttpMessageConverter` 的实现将在以下部分中介绍.  对于所有转换器,使用默认媒体类型,但您可以通过设置 `supportedMediaTypes` bean 属性来覆盖它.  下表描述了每种实现:
-
-[[rest-message-converters-tbl]]
-.HttpMessageConverter 实现
-[cols="1,3"]
-|===
-| MessageConverter | 描述
-
-| `StringHttpMessageConverter`
-| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `String` 实例.  默认情况下,此转换器支持所有文本媒体类型 (`text/*`) ,并使用 `Content-Type` 为 `text/plain` 进行写入.
-
-| `FormHttpMessageConverter`
-|
-一个 `HttpMessageConverter` 实现,可以从HTTP请求和响应中读取和写入表单数据.  默认情况下,此转换器读取和写入 `application/x-www-form-urlencoded` 媒体类型. 表单数据从 `MultiValueMap<String, String>` 读取并写入.
-转换器还可以将 `MultiValueMap<String, String>` 写入  (但不能读) multipart 数据,
-从 "MultiValueMap <String,Object>" 读取的数据.  默认情况下, `multipart/form-data` 是支持的.  从 Spring  Framework 5.2 开始,可以支持其他的多部分子类型. 编写表格数据.  有关更多详细信息,请查阅 Javadoc 中的 `FormHttpMessageConverter`.
-
-| `ByteArrayHttpMessageConverter`
-| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入字节数组.  默认情况下,此转换器支持所有媒体类型 (`*/*`) ,并使用 `Content-Type` 为 `application/octet-stream` 进行写入.  您可以通过设置 `supportedMediaTypes` 属性并覆盖 `getContentType(byte[])` 来覆盖它.
-
-| `MarshallingHttpMessageConverter`
-|
-一个 `HttpMessageConverter` 实现,可以使用 `org.springframework.oxm` 包中的 Spring 的 `Marshaller` 和 `Unmarshaller` 抽象来读写 XML.  该转换器需要 `Marshaller` 和 `Unmarshaller` 才能使用.  您可以通过构造函数或 bean 属性注入这些.  默认情况下,此转换器支持 `text/xml` 和 `application/xml`.
-
-| `MappingJackson2HttpMessageConverter`
-|
-一个 `HttpMessageConverter` 实现,可以使用Jackson的 `ObjectMapper` 读写JSON. 您可以根据需要通过使用 Jackson 提供的注解来自定义 JSON 映射.
-当您需要进一步控制时 (对于需要为特定类型提供自定义 JSON 序列化器/反序列化器的情况) ,您可以通过 `ObjectMapper` 属性注入自定义 `ObjectMapper`.  默认情况下,此转换器支持 `application/json`.
-
-| `MappingJackson2XmlHttpMessageConverter`
-| 一个 `HttpMessageConverter` 实现,可以使用 https://github.com/FasterXML/jackson-dataformat-xml[Jackson XML] 扩展的 `XmlMapper` 读写XML.  您可以根据需要通过使用 JAXB 或 Jackson 提供的注解来自定义XML映射.
-当您需要进一步控制时 (对于需要为特定类型提供自定义XML序列化器/反序列化器的情况) ,您可以通过 `ObjectMapper` 属性注入自定义 `XmlMapper`.  默认情况下,此转换器支持 `application/xml`.
-
-| `SourceHttpMessageConverter`
-| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `javax.xml.transform.Source`.  仅支持 `DOMSource`,`SAXSource` 和 `StreamSource`.  默认情况下,此转换器支持 `text/xml` 和 `application/xml`.
-
-| `BufferedImageHttpMessageConverter`
-| 一个 `HttpMessageConverter` 实现,可以从 HTTP 请求和响应中读取和写入 `java.awt.image.BufferedImage`.  此转换器读取和写入 Java I/O API 支持的媒体类型.
-
-|===
-
-[[rest-template-jsonview]]
-===== Jackson JSON 视图
-
-您可以指定 https://www.baeldung.com/jackson-json-view-annotation[Jackson JSON 视图]以仅序列化对象属性的子集,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	MappingJacksonValue value = new MappingJacksonValue(new User("eric", "7!jd#h23"));
-	value.setSerializationView(User.WithoutPasswordView.class);
-
-	RequestEntity<MappingJacksonValue> requestEntity =
-		RequestEntity.post(new URI("https://example.com/user")).body(value);
-
-	ResponseEntity<String> response = template.exchange(requestEntity, String.class);
-----
-
-[[rest-template-multipart]]
-===== Multipart
-
-要发送多部分数据,您需要提供 `MultiValueMap<String, ?>` ,其值是表示部件内容的 `Object` 实例或表示部件的内容和标头的 `HttpEntity` 实例.  `MultipartBodyBuilder` 提供了一个方便的 API 来准备多部分请求,如下例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
-
-	parts.add("fieldPart", "fieldValue");
-	parts.add("filePart", new FileSystemResource("...logo.png"));
-	parts.add("jsonPart", new Person("Jason"));
-
-	HttpHeaders headers = new HttpHeaders();
-	headers.setContentType(MediaType.APPLICATION_XML);
-	parts.add("xmlPart", new HttpEntity<>(myBean, headers));
-----
-
-在大多数情况下,您不必为每个部件指定 `Content-Type` . 内容类型是根据选择用于序列化它的 `HttpMessageConverter` 自动确定的,或者在有资源的情况下,基于文件扩展名自动确定.
-如有必要,您可以通过其中一个重载的构建器 part 方法显式提供要用于每个部件的 `MediaType`.
-
-一旦 `MultiValueMap` 准备就绪,您可以将其传递给 `RestTemplate`,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	MultiValueMap<String, Object> parts = ...;
-	template.postForObject("https://example.com/upload", parts, Void.class);
-----
-
-如果 `MultiValueMap` 包含至少一个非 `String` 值,该值也可以表示常规表单数据 (即 `application/x-www-form-urlencoded`) ,则无需将 `Content-Type` 设置为 `multipart/form-data`.
-当您使用确保 `HttpEntity` 包装器的 `MultipartBodyBuilder` 时,情况总是如此.
-
-[[rest-async-resttemplate]]
-==== 使用 `AsyncRestTemplate` (已废弃)
-
-不推荐使用 `AsyncRestTemplate`.  对于您可能考虑使用 `AsyncRestTemplate` 的所有用例,请改用<<web-reactive.adoc#webflux-client, WebClient>>  .
 
 [[ejb]]
 ==  企业级JavaBean(EJB) 集成
@@ -1003,8 +974,7 @@ Person person = restTemplate.getForObject("https://example.com/people/{id}", Per
 
 假设我们有一个需要使用本地 EJB 的 Web 控制器. 我们将遵循最佳实践并使用 EJB 业务方法接口模式, 以便 EJB 的本地接口继承非 EJB 特定的业务方法接口. 我们将此业务方法称为 `MyComponent` 接口.  以下示例显示了这样的接口:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface MyComponent {
 		...
@@ -1014,8 +984,7 @@ Person person = restTemplate.getForObject("https://example.com/people/{id}", Per
 使用业务方法接口模式的主要原因之一是确保本地接口中的方法签名和 bean 实现类之间的同步是自动的. 另一个原因是, 它后来使我们更容易切换到 POJO(普通、旧的Java对象)的服务实现,如果它有意义的这样做.
 当然, 我们还需要实现本地 `home` 接口, 并提供实现 `SessionBean` 和 `MyComponent` 业务方法接口的实现类. 现在, 我们需要做的唯一的 Java 编码来将我们的 Web 层控制器与 EJB 实现挂钩, 就是在控制器上暴露一个类型 `MyComponent` 的 setter 方法. 这将将引用保存为控制器中的实例变量:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	private MyComponent myComponent;
 
@@ -1026,8 +995,7 @@ Person person = restTemplate.getForObject("https://example.com/people/{id}", Per
 
 随后, 我们可以在控制器中的任何业务方法中使用此实例变量. 现在假设我们从 Spring 容器中获取控制器对象, 我们可以 (在同一上下文中)配置一个 `LocalStatelessSessionProxyFactoryBean` 实例, 它将是 EJB 代理对象.  代理的配置以及控制器的 `myComponent` 属性的设置是通过配置项完成的, 例如:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="myComponent"
 			class="org.springframework.ejb.access.LocalStatelessSessionProxyFactoryBean">
@@ -1046,8 +1014,7 @@ Person person = restTemplate.getForObject("https://example.com/people/{id}", Per
 
 或者(最好是在许多这样的代理定义的情况下), 考虑使用 Spring 的 "`jee`" 命名空间中的  `<jee:local-slsb>`  配置元素.  以下示例说明了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<jee:local-slsb id="myComponent" jndi-name="ejb/myBean"
 			business-interface="com.mycom.MyComponent"/>
@@ -1242,8 +1209,7 @@ Spring 提供了一个 `JmsTransactionManager`,用于管理单个 JMS `Connectio
 
 以下示例使用 `MessageCreator` 回调从提供的 `Session` 对象创建文本消息:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	import javax.jms.ConnectionFactory;
 	import javax.jms.JMSException;
@@ -1292,8 +1258,7 @@ Spring 提供了一个 `JmsTransactionManager`,用于管理单个 JMS `Connectio
 
 为了适应在转换器类中不能被全部封装的消息属性、报头和正文的设置,`MessagePostProcessor` 接口在转换后,即在发送消息之前,为您提供对该消息的访问权限. 下面的示例演示如何在将 `java.util.Map` 转换为消息后修改消息头和属性.
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public void sendWithConversion() {
 		Map map = new HashMap();
@@ -1355,8 +1320,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 以下示例显示了 MDP 的简单实现:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	import javax.jms.JMSException;
 	import javax.jms.Message;
@@ -1385,8 +1349,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 以下示例显示如何定义和配置 Spring 附带的消息监听器容器之一 (在本例中为 `DefaultMessageListenerContainer`) :
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<!-- this is the Message Driven POJO (MDP) -->
 	<bean id="messageListener" class="jmsexample.ExampleListener"/>
@@ -1406,8 +1369,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 `SessionAwareMessageListener` 接口是一个特定于 Spring 的接口,它提供与 JMS `MessageListener` 接口类似的约定,但也提供消息处理方法访问接收消息的 JMS 会话.  以下清单显示了 `SessionAwareMessageListener` 接口的定义:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package org.springframework.jms.listener;
 
@@ -1430,8 +1392,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 请考虑以下接口定义:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface MessageDelegate {
 
@@ -1449,8 +1410,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 现在考虑 `MessageDelegate` 接口的以下实现:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class DefaultMessageDelegate implements MessageDelegate {
 		// implementation elided for clarity...
@@ -1459,8 +1419,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 特别要注意 `MessageDelegate` 接口的前面实现 (`DefaultMessageDelegate` 类) 根本没有 JMS 依赖.  它真的是一个 POJO,我们可以通过以下配置进入 MDP:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<!-- this is the Message Driven POJO (MDP) -->
 	<bean id="messageListener" class="org.springframework.jms.listener.adapter.MessageListenerAdapter">
@@ -1479,8 +1438,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 下面是另一个 MDP 的示例,它只能处理 JMS `TextMessage` 消息的接收. 请注意,消息处理方法实际上被称为 `receive` (`MessageListenerAdapter` 中的消息处理方法的名称默认为 `handleMessage`),但它是可配置的(如下所示). 还请注意, `receive(..)` 方法是如何强类型化的,以便只接收和响应 JMS `TextMessage` 消息. 以下清单显示了 `TextMessageDelegate` 接口的定义:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface TextMessageDelegate {
 
@@ -1490,8 +1448,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 以下清单显示了一个实现 `TextMessageDelegate` 接口的类:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class DefaultTextMessageDelegate implements TextMessageDelegate {
 		// implementation elided for clarity...
@@ -1500,8 +1457,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 随后 `MessageListenerAdapter` 的配置如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="messageListener" class="org.springframework.jms.listener.adapter.MessageListenerAdapter">
 		<constructor-arg>
@@ -1517,8 +1473,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 请注意,如果 `messageListener` 接收到 `TextMessage` 以外类型的JMS消息,则抛出 `IllegalStateException` (随后又消除了) .  `MessageListenerAdapter` 类的另一个功能是,如果处理程序方法返回非 `void` 值,则能够自动发回响应消息.  考虑以下接口和类:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface ResponsiveTextMessageDelegate {
 
@@ -1527,8 +1482,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 	}
 ----
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class DefaultResponsiveTextMessageDelegate implements ResponsiveTextMessageDelegate {
 		// implementation elided for clarity...
@@ -1548,8 +1502,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 考虑以下bean定义:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="jmsContainer" class="org.springframework.jms.listener.DefaultMessageListenerContainer">
 		<property name="connectionFactory" ref="connectionFactory"/>
@@ -1565,16 +1518,14 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 以下 bean 定义创建了一个事务管理器:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="transactionManager" class="org.springframework.transaction.jta.JtaTransactionManager"/>
 ----
 
 然后我们需要将它添加到我们早期的容器配置中.  容器负责其余部分.  以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="jmsContainer" class="org.springframework.jms.listener.DefaultMessageListenerContainer">
 		<property name="connectionFactory" ref="connectionFactory"/>
@@ -1592,8 +1543,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 从版本 2.5 开始,  Spring 还提供对 JCA-based `MessageListener` 容器的支持. `JmsMessageEndpointManager` 将尝试自动从提供程序的 `ResourceAdapter` 类名称中确定 `ActivationSpec` 类名.  因此,通常可以只提供 Spring 的通用 `JmsActivationSpecConfig`,如下面的示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean class="org.springframework.jms.listener.endpoint.JmsMessageEndpointManager">
 		<property name="resourceAdapter" ref="resourceAdapter"/>
@@ -1608,8 +1558,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 或者,您可以用给定的 `ActivationSpec` 对象设置一个 `JmsMessageEndpointManager`. `ActivationSpec` 对象也可能来自 JNDI 查找 (使用 `<jee:jndi-lookup>`) .  以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean class="org.springframework.jms.listener.endpoint.JmsMessageEndpointManager">
 		<property name="resourceAdapter" ref="resourceAdapter"/>
@@ -1625,8 +1574,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 使用 Spring 的 `ResourceAdapterFactoryBean`,您可以在本地配置目标 `ResourceAdapter`,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="resourceAdapter" class="org.springframework.jca.support.ResourceAdapterFactoryBean">
 		<property name="resourceAdapter">
@@ -1646,7 +1594,7 @@ NOTE: Spring 还通过使用 `@JmsListener` 注解支持带注解的监听器端
 
 有关更多详细信息,请参阅 javadoc 以获取 {api-spring-framework}/jms/listener/endpoint/JmsMessageEndpointManager.html[`JmsMessageEndpointManager`], {api-spring-framework}/jms/listener/endpoint/JmsActivationSpecConfig.html[`JmsActivationSpecConfig`], 和 {api-spring-framework}/jca/support/ResourceAdapterFactoryBean.html[`ResourceAdapterFactoryBean`]
 
-Spring 还提供了一个通用的 JCA 消息端点管理器,它与JMS无关: `org.springframework.jca.endpoint.GenericMessageEndpointManager`. 此组件允许使用任何消息监听器类型(如 CCI `MessageListener`)和任何提供程序特定的 `ActivationSpec` 对象,查看您的 JCA 提供者的文档,了解连接的实际功能,并查阅 {api-spring-framework}/jca/endpoint/GenericMessageEndpointManager.html[`GenericMessageEndpointManager`] 的 JavaDoc 以了解 Spring 特定的配置详细信息.
+Spring 还提供了一个通用的 JCA 消息端点管理器,它与JMS无关: `org.springframework.jca.endpoint.GenericMessageEndpointManager`. 此组件允许使用任何消息监听器类型(如  JMS `MessageListener`)和任何提供程序特定的 `ActivationSpec` 对象,查看您的 JCA 提供者的文档,了解连接的实际功能,并查阅 {api-spring-framework}/jca/endpoint/GenericMessageEndpointManager.html[`GenericMessageEndpointManager`] 的 JavaDoc 以了解 Spring 特定的配置详细信息.
 
 NOTE: JCA-based 消息端点管理非常类似于 EJB2.1 消息驱动的 bean. 它使用相同的基础资源提供程序协定,与 EJB2.1 MDB 一样,您的 JCA 提供程序支持的任何消息监听器接口也可以在 Spring 上下文中使用.  不过, Spring 为 JMS 提供了明确的"方便"支持,这仅仅是因为 JMS 是与 JCA 端管理合同一起使用的最常见的端 API.
 
@@ -1655,8 +1603,7 @@ NOTE: JCA-based 消息端点管理非常类似于 EJB2.1 消息驱动的 bean. �
 
 异步接收消息的最简单方法是使用带注解的监听器端点基础架构. 简而言之, 它允许您将托管 bean 的方法作为 JMS 监听器端暴露. 以下示例显示了如何使用它:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Component
 	public class MyService {
@@ -1678,8 +1625,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 要启用对 `@JmsListener` 注解的支持,请将 `@EnableJms` 添加到您其中一个 `@Configuration` 类中.
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableJms
@@ -1703,8 +1649,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 如果你倾向于使用  <<jms-namespace, XML 配置>>, 可以使用 `<jms:annotation-driven>`. 如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<jms:annotation-driven/>
 
@@ -1723,8 +1668,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 `JmsListenerEndpoint` 提供了一个 JMS 端点的模型,并负责为该模型配置容器. 该基础架构使您能够以编程方式配置端点,此外还可以通过 `JmsListener` 注解检测到的端点. 以下示例说明了如何执行此操作:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableJms
@@ -1752,8 +1696,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 到目前为止, 我们已经在端点中注入了一个简单的 `String`, 但它实际上可以有一个非常灵活的方法签名. 让我们重写它, 用一个自定义的标题注入 `Order`:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Component
 	public class MyService {
@@ -1776,8 +1719,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 注入 Spring 消息抽象的能力对于从存储在特定于传输的消息中的所有信息中受益, 而不依赖于特定于传输的 API,这是非常有用的.  以下示例显示了如何执行此操作:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@JmsListener(destination = "myDestination")
 	public void processOrder(Message<Order> order) { ... }
@@ -1787,8 +1729,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 例如,如果我们想在处理之前确保 `Order` 有效,我们可以使用 `@Valid` 注解负载并配置必要的验证器,如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableJms
@@ -1815,8 +1756,7 @@ TIP: `@JmsListener` 是Java 8上的一个可重复的注解,因此可以通过�
 
 假设我们的 `processOrder` 方法现在应该返回一个 `OrderStatus`, 那么可以按如下方式编写它以自动发送响应.
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@JmsListener(destination = "myDestination")
 	@SendTo("status")
@@ -1830,8 +1770,7 @@ TIP: 如果您有几个 `@JmsListener` 注解的方法, 还可以将 `@SendTo` �
 
 如果需要以与传输无关的方式设置其他管理, 则可以返回 `Message`.  如下所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@JmsListener(destination = "myDestination")
 	@SendTo("status")
@@ -1846,8 +1785,7 @@ TIP: 如果您有几个 `@JmsListener` 注解的方法, 还可以将 `@SendTo` �
 
 如果需要在运行时计算响应目的地, 则可以将响应封装在 `JmsResponse` 实例中, 它还提供在运行时使用的目的地. 前面的示例可以重写如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@JmsListener(destination = "myDestination")
 	public JmsResponse<Message<OrderStatus>> processOrder(Order order) {
@@ -1862,8 +1800,7 @@ TIP: 如果您有几个 `@JmsListener` 注解的方法, 还可以将 `@SendTo` �
 
 最后,如果您需要为响应指定一些 QoS 值 (例如优先级或生存时间) ,则可以相应地配置 `JmsListenerContainerFactory`,如以下示例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableJms
@@ -1889,8 +1826,7 @@ TIP: 如果您有几个 `@JmsListener` 注解的方法, 还可以将 `@SendTo` �
 
 Spring 提供了一个用于简化 JMS 配置的 XML 命名空间. 要使用 JMS 命名空间元素, 您需要引用 JMS schema,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<?xml version="1.0" encoding="UTF-8"?>
 	<beans xmlns="http://www.springframework.org/schema/beans"
@@ -1909,8 +1845,7 @@ Spring 提供了一个用于简化 JMS 配置的 XML 命名空间. 要使用 JMS
 命名空间包含三个顶级的元素: `<annotation-driven/>`, `<listener-container/>` 和 `<jca-listener-container/>`.  `<annotation-driven/>` 允许使用注解驱动的监听器端点,
 `<listener-container/>` 和 `<jca-listener-container/>` 定义了共享的监听器容器配置,并且可能包含 `<listener/>` 子元素 . 下面是两个监听器的基本配置示例:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<jms:listener-container>
 
@@ -1958,8 +1893,7 @@ Spring 提供了一个用于简化 JMS 配置的 XML 命名空间. 要使用 JMS
 
 通过指定要通过 `factory-id` 属性暴露的 bean id,可以自动将此类设置暴露为 `JmsListenerContainerFactory`. 如下所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<jms:listener-container connection-factory="myConnectionFactory"
 			task-executor="myTaskExecutor"
@@ -2045,8 +1979,7 @@ Spring 提供了一个用于简化 JMS 配置的 XML 命名空间. 要使用 JMS
 
 使用 `jms` 模式支持配置基于 JCA 的监听器容器非常相似,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<jms:jca-listener-container resource-adapter="myResourceAdapter"
 			destination-resolver="myDestinationResolver"
@@ -2127,8 +2060,7 @@ Spring 中的 JMX（Java 管理扩展）支持提供了一些功能，使您可�
 
 Spring 的 JMX 框架中的核心类是 `MBeanExporter`. 这个类是负责收集您的 Spring  bean 和注册他们到 JMX `MBeanServer`, 例如,请考虑以下类:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package org.springframework.jmx;
 
@@ -2166,8 +2098,7 @@ Spring 的 JMX 框架中的核心类是 `MBeanExporter`. 这个类是负责收�
 
 若要将此 bean 的属性和方法作为 MBean 的属性和操作暴露, 只需在配置文件中配置 `MBeanExporter` 类的实例并传入 bean.  如下所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 		<!-- this bean must not be lazily initialized if the exporting is to happen -->
@@ -2201,8 +2132,7 @@ NOTE: `MBeanExporter` 是一个有生命周期的 bean(查看 启动和关闭回
 
 但是,这种方法在独立的环境中是没有用的,或者在不提供 `MBeanServer` 的容器内运行. 为了解决这个问题,您可以通过将 `org.springframework.jmx.support.MBeanServerFactoryBean` 类的实例添加到您的配置中以声明方式创建一个 `MBeanServer` 实例.  还可以通过将 `MBeanExporter` 的 `server` 属性的值设置为 `MBeanServerFactoryBean` 返回的 `MBeanServer` 值来确保使用特定的 `MBeanServer`. 例如:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2236,8 +2166,7 @@ NOTE: `MBeanExporter` 是一个有生命周期的 bean(查看 启动和关闭回
 
 如果未指定服务器,`MBeanExporter` 将尝试自动检测正在运行的 `MBeanServer`. 在大多数环境中,只有一个 `MBeanServer` 实例被使用,但是当存在多个实例时,暴露者可能会选择错误的服务器.  在这种情况下,应使用 `MBeanServer` `agentId` 指示要使用的实例. 如下所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 		<bean id="mbeanServer" class="org.springframework.jmx.support.MBeanServerFactoryBean">
@@ -2255,8 +2184,7 @@ NOTE: `MBeanExporter` 是一个有生命周期的 bean(查看 启动和关闭回
 
 对于现有 `MBeanServer` 具有通过查找方法检索的动态 (或未知) `agentId` 的平台或情况,应使用<<core.adoc#beans-factory-class-static-factory-method, factory-method>>,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 		<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
@@ -2282,8 +2210,7 @@ NOTE: `MBeanExporter` 是一个有生命周期的 bean(查看 启动和关闭回
 
 任何通过 `MBeanExporter` 暴露的 bean 和已经有效的 mbean 都是在 `MBeanExporter` 的情况下注册到 `MBeanServer`. 通过将 `autodetect` 属性设置为 `true`,`MBeanExporter` 可以自动检测 mbean:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
 		<property name="autodetect" value="true"/>
@@ -2321,8 +2248,7 @@ NOTE: `MBeanExporter` 是一个有生命周期的 bean(查看 启动和关闭回
 
 以下示例显示如何从默认注册行为更改为 `REPLACE_EXISTING` 行为:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2369,8 +2295,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 以下示例显示了我们在<<jmx-exporting-mbeanserver,创建 `MBeanServer` >>中使用的 `JmxTestBean` 类的注解形式:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package org.springframework.jmx;
 
@@ -2438,8 +2363,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 以下配置显示了如何配置 `MBeanExporter` 以使用 `MetadataMBeanInfoAssembler`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 		<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
@@ -2564,8 +2488,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 `AutodetectCapableMBeanInfo` 接口唯一一个开箱即用的实现是 `MetadataMBeanInfoAssembler`,它将投票包括任何用 `ManagedResource` 属性标记的 bean. 在这种情况下,默认的方法是使用bean名称作为 `ObjectName`,从而产生如下的配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2600,8 +2523,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 请考虑此接口, 用于为先前看到的 `JmxTestBean` 类定义管理接口:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface IJmxTestBean {
 
@@ -2622,8 +2544,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 此接口定义将在 JMXMBean 上作为操作和属性暴露的方法和属性. 下面的代码演示如何将 Spring  JMX配置为使用此接口作为管理接口的定义:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2661,8 +2582,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 `MethodNameBasedMBeanInfoAssembler` 允许您指定将作为属性和操作暴露给 JMX 的方法名称的列表. 下面的代码显示了此示例的配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="exporter" class="org.springframework.jmx.export.MBeanExporter">
 		<property name="beans">
@@ -2697,8 +2617,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 以下代码显示了 `KeyNamingStrategy` 的示例配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2740,8 +2659,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 `MetadataNamingStrategy` 使用每个 bean 上的 `ManagedResource` 属性的对象属性来创建 `objectName`. 下面的代码显示了 `MetadataNamingStrategy` 的配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -2772,8 +2690,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 如果没有为 `ManagedResource` 提供 `objectName` 属性,则会使用下面的格式创建 `objectName`:  _[fully-qualified-package-name]:type=[short-classname],name=[bean-name]_.
 例如,下面的bean生成的 `ObjectName` 将会是 `com.example:type=MyClass,name=myBean`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="myBean" class="com.example.MyClass"/>
 ----
@@ -2785,8 +2702,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 如果您更喜欢使用<<jmx-interface-metadata, 基于注解的方法>>来定义您的管理接口,那么就可以使用 `MBeanExporter` 的方便子类: `AnnotationMBeanExporter`. 定义此子类的实例时,不再需要 `namingStrategy`, `assembler`, 和 `attributeSource` 配置,
 因为它将始终使用标准的 Java 基于元数据(自动检测也总是启用). 实际上, `@EnableMBeanExport` `@Configuration` 注解支持更简单的语法,而不是定义 `MBeanExporter` bean. 如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableMBeanExport
@@ -2797,16 +2713,14 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 如果您更喜欢基于 XML 的配置,则 `<context:mbean-export/>` 元素具有相同的用途,如下所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<context:mbean-export/>
 ----
 
 如果需要,可以提供对特定 MBean `server` 的引用,`defaultDomain` 属性(`AnnotationMBeanExporter` 的属性)接受生成的MBean `ObjectName` 字段的替代值. 这将用于代替 <<jmx-naming-metadata, MetadataNamingStrategy>> (上一节中描述的完全限定的软件包名称). 如以下示例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@EnableMBeanExport(server="myMBeanServer", defaultDomain="myDomain")
 	@Configuration
@@ -2817,8 +2731,7 @@ NOTE: 一个 `ManagedResource` 注解的 bean 必须是 public 的,因为方法�
 
 以下示例显示了前面基于注解的示例的 XML 等效项:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<context:mbean-export server="myMBeanServer" default-domain="myDomain"/>
 ----
@@ -2835,8 +2748,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 要使 Spring JMX 创建、启动和暴露 JSR-160 `JMXConnectorServer`, 请使用以下配置:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="serverConnector" class="org.springframework.jmx.support.ConnectorServerFactoryBean"/>
 ----
@@ -2846,8 +2758,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 要指定另一个 URL 并在 `MBeanServer` 中注册 `JMXConnectorServer` 本身,请分别使用 `serviceUrl` 和 `ObjectName` 属性. 如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="serverConnector"
 			class="org.springframework.jmx.support.ConnectorServerFactoryBean">
@@ -2859,8 +2770,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 如果 `ObjectName` 属性设置为 Spring ,将自动在该 `ObjectName` 下的 `MBeanServer` 中注册您的连接器. 下面的示例显示了在创建 `JMXConnector` 时可以传递给 `ConnectorServerFactoryBean` 的完整参数集:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="serverConnector"
 			class="org.springframework.jmx.support.ConnectorServerFactoryBean">
@@ -2879,8 +2789,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 请注意,在使用 RMI-based 连接器时,需要启动查找服务(`tnameserv` 或 `rmiregistry`)才能完成名称注册. 如果您使用 Spring 向您通过 RMI 导出远程服务,则 Spring 将已经构建了 RMI 注册表. 如果不是,您可以使用下面的配置片段轻松地启动注册表. 如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="registry" class="org.springframework.remoting.rmi.RmiRegistryFactoryBean">
 		<property name="port" value="1099"/>
@@ -2893,8 +2802,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 要创建 `MBeanServerConnection` 到远程 JSR-160 启用的 `MBeanServer`, 请使用 `MBeanServerConnectionFactoryBean`,如下所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="clientConnector" class="org.springframework.jmx.support.MBeanServerConnectionFactoryBean">
 		<property name="serviceUrl" value="service:jmx:rmi://localhost/jndi/rmi://localhost:1099/jmxrmi"/>
@@ -2907,8 +2815,7 @@ CAUTION: 不要将基于的 AOP 代理与 bean 类中的 JMX 注解自动检测�
 
 JSR-160 允许扩展到客户端和服务器之间进行通信的方式.前面部分中显示的示例使用 JSR-160 规范 (IIOP 和 JRMP) 和 (可选) JMXMP 所需的基于 RMI 的强制实现.  通过使用其他提供程序或 JMX 实现(如 http://mx4j.sourceforge.net[MX4J]),您可以利用 SOAP 或 Hessian 等协议优先于简单的 HTTP 或 SSL 等协议,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="serverConnector" class="org.springframework.jmx.support.ConnectorServerFactoryBean">
 		<property name="objectName" value="connector:name=burlap"/>
@@ -2923,8 +2830,7 @@ JSR-160 允许扩展到客户端和服务器之间进行通信的方式.前面�
 
 Spring JMX 允许您创建代理,以便将使用远程或本地的 `MBeanServer` 中注册的 MBean. 这些代理为您提供了一个标准的 Java 接口,通过它可以与您的 MBean 进行交互. 下面的代码演示如何为在本地 `MBeanServer` 中运行的 MBean 配置代理:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="proxy" class="org.springframework.jmx.access.MBeanProxyFactoryBean">
 		<property name="objectName" value="bean:name=testBean"/>
@@ -2936,8 +2842,7 @@ Spring JMX 允许您创建代理,以便将使用远程或本地的 `MBeanServer`
 
 `MBeanProxyFactoryBean` 可以为任何可通过 `MBeanServerConnection` 访问的 MBean 创建代理. 默认情况下,本地 `MBeanServer` 位于和使用,但您可以重写此操作,并提供指向远程 `MBeanServer` 的 `MBeanServerConnection`,以满足指向远程 mbean 的代理:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="clientConnector"
 			class="org.springframework.jmx.support.MBeanServerConnectionFactoryBean">
@@ -2966,8 +2871,7 @@ Spring JMX 提供了 JMX 全面通知的支持
 Spring 的 JMX 支持使您可以很容易地注册任何数量的 `NotificationListeners` 与任何数量的 MBean(这包括 Spring 的 `MBeanExporter` 暴露的 MBean 和通过其他机制注册的 MBean. 例如,考虑每当目标 MBean 的属性发生变化时,希望 (通过 `Notification`) 通知的场景.
 以下示例将通知写入控制台:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package com.example;
 
@@ -2993,8 +2897,7 @@ Spring 的 JMX 支持使您可以很容易地注册任何数量的 `Notification
 
 以下示例将 `ConsoleLoggingNotificationListener` (在前面的示例中定义) 添加到 `notificationListenerMappings`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -3026,8 +2929,7 @@ Spring 的 JMX 支持使您可以很容易地注册任何数量的 `Notification
 
 你也可以直接使用bean的名字作为暴露的bean和监听器的桥接:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -3056,8 +2958,7 @@ Spring 的 JMX 支持使您可以很容易地注册任何数量的 `Notification
 
 如果要为封闭的 `MBeanExporter` 导出的所有 bean 注册单个 `NotificationListener` 实例,则可以使用特殊通配符 (`*`) 作为 `notificationListenerMappings` 属性映射中的条目的键,如以下示例所示:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<property name="notificationListenerMappings">
 		<map>
@@ -3073,8 +2974,7 @@ Spring 的 JMX 支持使您可以很容易地注册任何数量的 `Notification
 
 使用 NotificationListenerBean 实例时的配置与以前的情况不同:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -3110,8 +3010,7 @@ Spring 的 JMX 支持使您可以很容易地注册任何数量的 `Notification
 
 上面的示例等效于第一个通知示例,我们假设在每次引发 `Notification` 时都要给出一个 handback 对象,而且我们还希望通过提供一个 `NotificationFilter` 来过滤掉无关的 `Notifications`. 以下示例实现了以下目标:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans>
 
@@ -3178,8 +3077,7 @@ Spring 的 JMX 通知发布支持中的关键接口是 `NotificationPublisher` �
 
 在以下示例中, JmxTestBean 暴露的实例将在每次调用 `add(int, int)` 操作时发布 `NotificationEvent` :
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	package org.springframework.jmx;
 
@@ -3225,959 +3123,6 @@ Spring 的 JMX 通知发布支持中的关键接口是 `NotificationPublisher` �
 * https://jcp.org/aboutJava/communityprocess/final/jsr160/index.html[JMX Remote API 规范 ] (JSR-000160).
 * The http://mx4j.sourceforge.net/[MX4J 主页.]. (MX4J是各种JMX规范的开源实现. )
 
-[[cci]]
-== JCA CCI
-
-JJava EE 提供了一个规范, 用于对企业信息系统(EIS)标准化的访问:  JCA(Java EE Connector Architecture: Java EE 连接框架). 该规范分为两个不同的部分:
-
-* 连接器提供程序必须实现的 SPI(服务提供程序接口). 这些接口构成了可部署在 Java EE 应用程序服务器上的资源适配器. 在这种情况下, 服务器管理连接池、事务和安全 (托管模式). 应用程序服务器还负责管理在客户端应用程序之外进行的配置. 连接器也可以在没有应用服务器的情况下使用. 在这种情况下, 应用程序必须直接配置它(非托管模式).
-* CCI (通用客户端接口) 供应用来使用来连接和通讯和 EIS. 还提供了用于本地事务划分的 API.
-
-Spring CCI 支持的目的是使用 Spring Framework 的一般资源和事务管理工具提供以典型 Spring 方式访问 CCI 连接器的类.
-
-NOTE: 连接器的客户端并不是总要使用 CCI.  某些连接器暴露自己的 API, 只提供 JCA 资源适配器来使用 Java EE Container 的系统协定(连接池,全局事务和安全性) .  Spring 不为这种特定于连接器的 API 提供特殊支持.
-
-[[cci-config]]
-=== 配置 CCI
-
-本节介绍如何配置通用客户端接口 (CCI) .  它包括以下主题:
-
-* <<cci-config-connector,连接器配置>>
-* <<cci-config-connectionfactory,Spring 中的 ConnectionFactory 配置>>
-* <<cci-config-cci-connections,配置 CCI 连接>>
-* <<cci-config-single-connection,使用单独的 CCI 连接>>
-
-
-[[cci-config-connector]]
-==== 连接器配置
-
-使用 JCA CCI 的基本资源是 `ConnectionFactory` 接口.  您使用的连接器必须提供此接口的实现.
-
-若要使用连接器,可以将其部署到应用程序服务器上,并从服务器的 JNDI 环境(托管模式)中获取 `ConnectionFactory`. 连接器必须打包为 RAR 文件(资源适配器存档), 并包含 `ra.xml` 文件来描述其部署特性. 资源的实际名称在部署时指定. 要在 Spring 中访问它,只需使用 Spring 的 `JndiObjectFactoryBean/<jee:jndi-lookup>` 以其 JNDI 名称获取工厂.
-
-使用连接器的另一种方法是将其嵌入到应用程序(非托管模式)中,而不是使用应用程序服务器部署和配置它. Spring 提供了通过提供的 `FactoryBean(LocalConnectionFactoryBean)` 将连接器配置为 bean 的可能性. 以这种方式,您只需要类路径中的连接器库(无RAR文件,且不需要 `ra.xml` 描述符). 如果需要,必须从连接器的 RAR 文件中提取该库.
-
-一旦你获得了你的 `ConnectionFactory` 实例, 你就可以将它注入你的组件中. 这些组件可以是针对普通的 API, 或者利用 Spring 的支持类来访问 CCI(例如 `CciTemplate`).
-
-NOTE: 在非托管模式下使用连接器时, 不能使用全局事务, 因为在当前线程的当前全局事务中从未登记或导出资源. 该资源根本不知道可能正在运行的任何全局 Java EE 事务.
-
-[[cci-config-connectionfactory]]
-====  在Spring中配置 `ConnectionFactory`
-
-为了与 EIS 建立连接,如果您处于托管模式,则需要从应用服务器获取 `ConnectionFactory`. 如果你处于非托管模式,则可以直接从 Spring 中获取.
-
-在托管模式中,你通过 JNDI 来访问 `ConnectionFactory`,它的属性将在应用服务器中配置. 以下示例说明了如何执行此操作:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<jee:jndi-lookup id="eciConnectionFactory" jndi-name="eis/cicseci"/>
-----
-
-在非托管模式下,您必须将要在 Spring 配置中使用的 `ConnectionFactory` 配置为JavaBean. `LocalConnectionFactoryBean` 类提供这种设置样式,传递连接器的 `ManagedConnectionFactory` 实现,暴露应用程序级的CCI `ConnectionFactory`.
-以下示例说明了如何执行此操作:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="eciManagedConnectionFactory" class="com.ibm.connector2.cics.ECIManagedConnectionFactory">
-		<property name="serverName" value="TXSERIES"/>
-		<property name="connectionURL" value="tcp://localhost/"/>
-		<property name="portNumber" value="2006"/>
-	</bean>
-
-	<bean id="eciConnectionFactory" class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="eciManagedConnectionFactory"/>
-	</bean>
-----
-
-NOTE: 你不能直接实例化特定的 `ConnectionFactory`,您需要为连接器的 `ManagedConnectionFactory` 接口执行相应的实现. 此接口是 JCA SPI 规范的一部分.
-
-[[cci-config-cci-connections]]
-==== 配置CCI连接
-
-JCA CCI 允许开发者使用连接器的 `ConnectionSpec` 实现来配置到 EIS 的连接. 为了配置其属性,您需要用专用的适配器(`ConnectionSpecConnectionFactoryAdapter`)包装目标连接工厂. 因此,,专用的 `ConnectionSpec` 可以配置为 `connectionSpec` 属性(作为一个内部bean).
-
-此属性不是必需的,因为CCI `ConnectionFactory` 接口定义了两种不同的方法来获取一个与之关联的 CCI 连接. 某些 `ConnectionSpec` 属性通常可以在应用程序服务器(在托管模式下)或相应的本地 `ManagedConnectionFactory` 实现中进行配置. 以下清单显示了 `ConnectionFactory` 接口定义的相关部分:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface ConnectionFactory implements Serializable, Referenceable {
-		...
-		Connection getConnection() throws ResourceException;
-		Connection getConnection(ConnectionSpec connectionSpec) throws ResourceException;
-		...
-	}
-----
-
-Spring 提供了一个 `ConnectionSpecConnectionFactoryAdapter`,它允许指定一个 `ConnectionSpec` 实例来用于给定工厂的所有操作. 如果指定了适配器的 `connectionSpec` 属性, 那么适配器将使用带有 `ConnectionSpec` 参数的 `getConnection` 变量,否则该变量不带参数. 以下示例显示如何配置 `ConnectionSpecConnectionFactoryAdapter`:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="managedConnectionFactory"
-			class="com.sun.connector.cciblackbox.CciLocalTxManagedConnectionFactory">
-		<property name="connectionURL" value="jdbc:hsqldb:hsql://localhost:9001"/>
-		<property name="driverName" value="org.hsqldb.jdbcDriver"/>
-	</bean>
-
-	<bean id="targetConnectionFactory"
-			class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="managedConnectionFactory"/>
-	</bean>
-
-	<bean id="connectionFactory"
-			class="org.springframework.jca.cci.connection.ConnectionSpecConnectionFactoryAdapter">
-		<property name="targetConnectionFactory" ref="targetConnectionFactory"/>
-		<property name="connectionSpec">
-			<bean class="com.sun.connector.cciblackbox.CciConnectionSpec">
-				<property name="user" value="sa"/>
-				<property name="password" value=""/>
-			</bean>
-		</property>
-	</bean>
-----
-
-
-[[cci-config-single-connection]]
-==== 使用单独的 CCI 连接
-
-如果您想使用单独的 CCI 连接,Spring 提供了一个进一步的 `ConnectionFactory` 适配器来管理这个. `SingleConnectionFactory` 适配器类将会延迟打开一个连接,并在应用程序关闭时关闭此 bean. 此类将暴露相应行为的特殊 `Connection` 代理,所有共享相同的底层物理连接. 以下示例显示如何使用 `SingleConnectionFactory` 适配器类:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="eciManagedConnectionFactory"
-			class="com.ibm.connector2.cics.ECIManagedConnectionFactory">
-		<property name="serverName" value="TEST"/>
-		<property name="connectionURL" value="tcp://localhost/"/>
-		<property name="portNumber" value="2006"/>
-	</bean>
-
-	<bean id="targetEciConnectionFactory"
-			class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="eciManagedConnectionFactory"/>
-	</bean>
-
-	<bean id="eciConnectionFactory"
-			class="org.springframework.jca.cci.connection.SingleConnectionFactory">
-		<property name="targetConnectionFactory" ref="targetEciConnectionFactory"/>
-	</bean>
-----
-
-NOTE: 无法直接使用 `ConnectionSpec` 配置此 `ConnectionFactory` 适配器. 如果您需要一个特定 `ConnectionSpec` 的单独连接,请使用 `SingleConnectionFactory` 对话的中介 `ConnectionSpecConnectionFactoryAdapter`.
-
-[[cci-using]]
-=== 使用Spring的CCI访问支持
-
-本节介绍如何使用 Spring 对 CCI 的支持来实现各种目的.  它包括以下主题:
-* <<cci-record-creator,记录转换>>
-* <<cci-using-template,使用 CciTemplate>>
-* <<cci-using-dao,DAO支持>>
-* <<automatic-output-generation,自动输出记录生成>>
-* <<template-summary,CciTemplate Interaction 总结>>
-* <<cci-straight,直接使用 CCI 连接和交互>>
-* <<cci-template-example,CciTemplate 用法示例>>
-
-
-[[cci-record-creator]]
-==== 记录转换
-
-JCA CCI 支持的目标之一是提供方便的设置来操作 CCI记 录. 开发人员可以指定创建记录和从记录中提取数据的策略,在使用 Spring 的 `CciTemplate时`. 如果您不想在应用程序中直接处理记录,以下接口将配置策略以使用输入和输出记录.
-
-为了创建输入记录, 开发人员可以使用 `RecordCreator` 接口的专用实现. 以下清单显示了 `RecordCreator` 接口定义:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface RecordCreator {
-
-		Record createRecord(RecordFactory recordFactory) throws ResourceException, DataAccessException;
-
-	}
-----
-
-`createRecord(..)` 方法接收一个 `RecordFactory` 实例作为参数,它对应于 `ConnectionFactory` 所使用的 `RecordFactory` . 此引用可用于创建 `IndexedRecord` 或 `MappedRecord` 实例. 下面的示例演示如何使用 `RecordCreator` 接口和索引/映射记录:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyRecordCreator implements RecordCreator {
-
-		public Record createRecord(RecordFactory recordFactory) throws ResourceException {
-			IndexedRecord input = recordFactory.createIndexedRecord("input");
-			input.add(new Integer(id));
-			return input;
-		}
-
-	}
-----
-
-输出记录可用于从 EIS 接收数据. 因此,可以将 `RecordExtractor` 接口的特定实现传递到 Spring 的 `CciTemplate`, 以便从输出记录中提取数据. 以下清单显示了 `RecordExtractor` 接口定义:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface RecordExtractor {
-
-		Object extractData(Record record) throws ResourceException, SQLException, DataAccessException;
-
-	}
-----
-
-以下示例显示如何使用: `RecordExtractor` 接口:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyRecordExtractor implements RecordExtractor {
-
-		public Object extractData(Record record) throws ResourceException {
-			CommAreaRecord commAreaRecord = (CommAreaRecord) record;
-			String str = new String(commAreaRecord.toByteArray());
-			String field1 = string.substring(0,6);
-			String field2 = string.substring(6,1);
-			return new OutputObject(Long.parseLong(field1), field2);
-		}
-
-	}
-----
-
-
-[[cci-using-template]]
-==== 使用 `CciTemplate`
-
-`CciTemplate` 是核心的 CCI 支持包(`org.springframework.jca.cci.core`)的中心类. 它简化了对管理的使用,因为它处理资源的创建和释放. 这有助于避免常见的错误,如忘记总是需要的关闭连接. 它关心连接和交互对象的生命周期,
-让应用程序代码专注于从应用程序数据生成输入记录,并从输出记录中提取应用程序数据.
-
-JCA 的 CCI 规范定义了两种不同的方法来调用 EIS 上的操作. CCI的 `Interaction` 接口提供了两个 execute 方法:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface javax.resource.cci.Interaction {
-
-		...
-
-		boolean execute(InteractionSpec spec, Record input, Record output) throws ResourceException;
-
-		Record execute(InteractionSpec spec, Record input) throws ResourceException;
-
-		...
-
-	}
-----
-
-根据调用的模板方法,`CciTemplate` 知道在交互时调用哪个执行方法.  无论如何,正确初始化的 `InteractionSpec` 实例是必需的.
-
-您可以通过两种方式使用 `CciTemplate.execute(..)` :
-
-* 直接记录参数. 在这种情况下,您只需要在 CCI 输入中传递记录, 返回的对象就是相应的 CCI 输出记录.
-* 与应用程序对象一起使用记录映射. 在这种情况下, 您需要提供相应的 `RecordCreator` 和 `RecordExtractor` 实例.
-
-采用第一种方法,将使以下模板方法,这些方法直接对应于 `Interaction` 接口上的那些:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class CciTemplate implements CciOperations {
-
-		public Record execute(InteractionSpec spec, Record inputRecord)
-				throws DataAccessException { ... }
-
-		public void execute(InteractionSpec spec, Record inputRecord, Record outputRecord)
-				throws DataAccessException { ... }
-
-	}
-----
-
-对于第二种方式,你需要指定记录创建和记录获取策略作为参数. 使用的接口是在<<cci-record-creator, 上一节中描述>>的记录转换. 相应的 `CciTemplate` 方法如下:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class CciTemplate implements CciOperations {
-
-		public Record execute(InteractionSpec spec,
-				RecordCreator inputCreator) throws DataAccessException {
-			// ...
-		}
-
-		public Object execute(InteractionSpec spec, Record inputRecord,
-				RecordExtractor outputExtractor) throws DataAccessException {
-			// ...
-		}
-
-		public Object execute(InteractionSpec spec, RecordCreator creator,
-				RecordExtractor extractor) throws DataAccessException {
-			// ...
-		}
-
-	}
-----
-
-除非在模板上设置了 `outputRecordCreator` 属性(请参见下一节) , 负责每一个方法都将调用带有两个参数的 CCI `Interaction` 方法 `InteractionSpec` 和 input Record,接收输出记录作为返回值.
-
-`CciTemplate` 还提供了在 `RecordCreator` 实现之外创建 `IndexRecord` 和 `MappedRecord` 的方法,是通过其 `createIndexRecord(..)` 和 `createMappedRecord(..)` 方法. 这可以在 DAO 实现中使用,
-以创建要传递到相应 `CciTemplate.execute(..)` 方法. 以下清单显示了 `CciTemplate` 接口定义:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class CciTemplate implements CciOperations {
-
-		public IndexedRecord createIndexedRecord(String name) throws DataAccessException { ... }
-
-		public MappedRecord createMappedRecord(String name) throws DataAccessException { ... }
-
-	}
-----
-
-
-[[cci-using-dao]]
-==== DAO 支持
-
-Spring 的 CCI 支持为 DAO 提供了一个抽象类,支持支持ConnectionFactory或CciTemplate实例的注入. 该类的名称为 `CciDaoSupport`: 它提供了简单的 `setConnectionFactory` 和 `setCciTemplate` 方法. 在内部, 此类将为传入的 `ConnectionFactory` 创建一个 `CciTemplate` 实例,并将其暴露给子类中的具体数据访问实现.
-以下示例显示如何使用 `CciDaoSupport`:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public abstract class CciDaoSupport {
-
-		public void setConnectionFactory(ConnectionFactory connectionFactory) {
-			// ...
-		}
-
-		public ConnectionFactory getConnectionFactory() {
-			// ...
-		}
-
-		public void setCciTemplate(CciTemplate cciTemplate) {
-			// ...
-		}
-
-		public CciTemplate getCciTemplate() {
-			// ...
-		}
-
-	}
-----
-
-
-[[automatic-output-generation]]
-==== 自动输出记录生成
-
-如果连接器只支持使用输入和输出记录的 `Interaction.execute(..)` 方法作为参数 (即它需要传递所需的输出记录,而不是返回适当的输出记录),您可以设置 `CciTemplate` 的 `outputRecordCreator` 属性,以便在收到响应时自动生成由 JCA 连接器填充的输出记录. 此记录将被返回到模板的调用方.
-
-此属性仅包含用于此目的的 <<cci-record-creator, `RecordCreator` 接口>> 的实现, 您必须直接在 `CciTemplate` 上指定 `outputRecordCreator` 属性.  以下示例显示了如何执行此操作:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	cciTemplate.setOutputRecordCreator(new EciOutputRecordCreator());
-----
-
-或者 (我们建议使用此方法) ,在 Spring 配置中,如果将 `CciTemplate` 配置为专用 bean 实例,则可以按以下方式定义 bean:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="eciOutputRecordCreator" class="eci.EciOutputRecordCreator"/>
-
-	<bean id="cciTemplate" class="org.springframework.jca.cci.core.CciTemplate">
-		<property name="connectionFactory" ref="eciConnectionFactory"/>
-		<property name="outputRecordCreator" ref="eciOutputRecordCreator"/>
-	</bean>
-----
-
-NOTE: 由于 `CciTemplate` 类是线程安全的,因此通常将其配置为共享实例.
-
-
-[[template-summary]]
-==== `CciTemplate` `Interaction` 总结
-
-下表总结了 `CciTemplate` 类的机制以及在 CCI `Interaction` 接口上调用的相应方法:
-
-[[cci-interaction-execute-methods]]
-.操作execute方法的使用
-[cols="3,1,3"]
-|===
-| `CciTemplate` 方法签名 | `CciTemplate` `outputRecordCreator` 属性 | `execute` 方法调用对 CCI 的操作
-
-| `Record execute(InteractionSpec, Record)`
-| Not set
-| `Record execute(InteractionSpec, Record)`
-
-| `Record execute(InteractionSpec, Record)`
-| Set
-| `boolean execute(InteractionSpec, Record, Record)`
-
-| void execute(InteractionSpec, Record, Record)
-| Not set
-| void execute(InteractionSpec, Record, Record)
-
-| `void execute(InteractionSpec, Record, Record)`
-| Set
-| `void execute(InteractionSpec, Record, Record)`
-
-| `Record execute(InteractionSpec, RecordCreator)`
-| Not set
-| `Record execute(InteractionSpec, Record)`
-
-| `Record execute(InteractionSpec, RecordCreator)`
-| Set
-| `void execute(InteractionSpec, Record, Record)`
-
-| `Record execute(InteractionSpec, Record, RecordExtractor)`
-| Not set
-| `Record execute(InteractionSpec, Record)`
-
-| `Record execute(InteractionSpec, Record, RecordExtractor)`
-| Set
-| `void execute(InteractionSpec, Record, Record)`
-
-| `Record execute(InteractionSpec, RecordCreator, RecordExtractor)`
-| Not set
-| `Record execute(InteractionSpec, Record)`
-
-| `Record execute(InteractionSpec, RecordCreator, RecordExtractor)`
-| Set
-| `void execute(InteractionSpec, Record, Record)`
-|===
-
-
-[[cci-straight]]
-==== 直接使用CCI连接和交互
-
-`CciTemplate` 也提供了与 `JdbcTemplate` 和 `JmsTemplate` 相同的方式直接使用 CCI 连接和交互.  例如,当您想要在 CCI 连接或交互上执行多个操作时,这非常有用.
-
-`ConnectionCallback` 接口提供了CCI Connection 作为参数,用于执行自定义的操作,加到 CCI `ConnectionFactory` 的 `Connection` 创建. .  后者可用于获取关联的 `RecordFactory` 实例并创建索引/映射记录,以下清单显示了 `ConnectionCallback` 接口定义:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface ConnectionCallback {
-
-		Object doInConnection(Connection connection, ConnectionFactory connectionFactory)
-				throws ResourceException, SQLException, DataAccessException;
-
-	}
-----
-
-接口 `InteractionCallback` 提供了 CCI `Interaction`,是为了对其执行自定义操作,添加到相应的 `ConnectionFactory`. 以下清单显示了 `InteractionCallback` 接口定义:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public interface InteractionCallback {
-
-		Object doInInteraction(Interaction interaction, ConnectionFactory connectionFactory)
-			throws ResourceException, SQLException, DataAccessException;
-
-	}
-----
-
-NOTE: `InteractionSpec` 对象可以在多个模板调用之间共享,或者在每个回调方法中新创建. 这完全由 DAO 实现来完成.
-
-[[cci-template-example]]
-==== `CciTemplate` 用法示例
-
-在本节中,`CciTemplate` 的使用将被显示为访问到具有 ECI 模式的 CICS,使用 IBM CICS ECI 连接器.
-
-首先, 必须对 CCI `InteractionSpec` 进行一些初始化,以指定要访问的 CICS 程序以及如何与之交互:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	ECIInteractionSpec interactionSpec = new ECIInteractionSpec();
-	interactionSpec.setFunctionName("MYPROG");
-	interactionSpec.setInteractionVerb(ECIInteractionSpec.SYNC_SEND_RECEIVE);
-----
-
-然后,程序可以通过 Spring 模板使用 CCI, 指定自定义对象和记录之间的映射. 如下:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyDaoImpl extends CciDaoSupport implements MyDao {
-
-		public OutputObject getData(InputObject input) {
-			ECIInteractionSpec interactionSpec = ...;
-
-		OutputObject output = (ObjectOutput) getCciTemplate().execute(interactionSpec,
-			new RecordCreator() {
-				public Record createRecord(RecordFactory recordFactory) throws ResourceException {
-					return new CommAreaRecord(input.toString().getBytes());
-				}
-			},
-			new RecordExtractor() {
-				public Object extractData(Record record) throws ResourceException {
-					CommAreaRecord commAreaRecord = (CommAreaRecord)record;
-					String str = new String(commAreaRecord.toByteArray());
-					String field1 = string.substring(0,6);
-					String field2 = string.substring(6,1);
-					return new OutputObject(Long.parseLong(field1), field2);
-				}
-			});
-
-			return output;
-		}
-	}
-----
-
-如前所述,您可以使用回调直接处理 CCI 连接或交互.  以下示例显示了如何执行此操作:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyDaoImpl extends CciDaoSupport implements MyDao {
-
-		public OutputObject getData(InputObject input) {
-			ObjectOutput output = (ObjectOutput) getCciTemplate().execute(
-				new ConnectionCallback() {
-					public Object doInConnection(Connection connection,
-							ConnectionFactory factory) throws ResourceException {
-
-						// do something...
-
-					}
-				});
-			}
-			return output;
-		}
-
-	}
-----
-
-NOTE: 	使用 `ConnectionCallback` 时,所使用的 `Connection` 由 `CciTemplate` 管理和关闭,但回调实现必须管理在连接上创建的任何交互.
-
-对于更具体的回调,您可以实现 `InteractionCallback`.  如果这样做,传入的 `Interaction` 将由 `CciTemplate` 管理和关闭.  以下示例显示了如何执行此操作:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyDaoImpl extends CciDaoSupport implements MyDao {
-
-		public String getData(String input) {
-			ECIInteractionSpec interactionSpec = ...;
-			String output = (String) getCciTemplate().execute(interactionSpec,
-				new InteractionCallback() {
-					public Object doInInteraction(Interaction interaction,
-							ConnectionFactory factory) throws ResourceException {
-						Record input = new CommAreaRecord(inputString.getBytes());
-						Record output = new CommAreaRecord();
-						interaction.execute(holder.getInteractionSpec(), input, output);
-						return new String(output.toByteArray());
-					}
-				});
-			return output;
-		}
-
-	}
-----
-
-对于前面的示例,所涉及的 Spring bean 的相应配置可能类似于非托管模式中的以下示例:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="managedConnectionFactory" class="com.ibm.connector2.cics.ECIManagedConnectionFactory">
-		<property name="serverName" value="TXSERIES"/>
-		<property name="connectionURL" value="local:"/>
-		<property name="userName" value="CICSUSER"/>
-		<property name="password" value="CICS"/>
-	</bean>
-
-	<bean id="connectionFactory" class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="managedConnectionFactory"/>
-	</bean>
-
-	<bean id="component" class="mypackage.MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-在托管模式下 (即在 Java EE 环境中) ,配置可能类似于以下示例:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<jee:jndi-lookup id="connectionFactory" jndi-name="eis/cicseci"/>
-
-	<bean id="component" class="MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-
-
-[[cci-object]]
-=== 将 CCI 访问建模为操作对象
-
-`org.springframework.jca.cci.object` 包中包含的支持类允许你以另一种风格访问 EIS: 通过可重用的操作对象,类似于 Spring 的 JDBC 操作对象 (参见<<data-access.adoc#jdbc, 数据访问章节中的JDBC>>). 它通常都封装了 CCI 的 API,将应用级的输入对象传入到操作对象,
-从而它能创建输入 record 然后转换接收到的 record 数据到一个应用级输出对象并返回它.
-
-NOTE: 这种方法内在地基于 `CciTemplate` 类和 `RecordCreator/RecordExtractor` 接口,重用了 Spring 核心 CCI 支持的机制.
-
-[[cci-object-mapping-record]]
-==== 使用 `MappingRecordOperation`
-
-`MappingRecordOperation` 本质上与 `CciTemplate` 做的事情是一样的,但是它表达了一个明确的、预配置 (pre-configured) 的操作作为对象. 它提供了两个模板方法来指明如何将一个输入对象转换为输入记录,以及如何将一个输出记录转换为输出对象 (记录映射) :
-
-* `createInputRecord(..)`: 指定了如何将一个输入对象转换为输入 `Record`.
-* `extractOutputData(..)`: 指定了如何从输出 `Record` 中提取输出对象.
-
-以下清单显示了这些方法的签名:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public abstract class MappingRecordOperation extends EisOperation {
-
-		...
-
-		protected abstract Record createInputRecord(RecordFactory recordFactory,
-				Object inputObject) throws ResourceException, DataAccessException {
-			// ...
-		}
-
-		protected abstract Object extractOutputData(Record outputRecord)
-				throws ResourceException, SQLException, DataAccessException {
-			// ...
-		}
-
-		...
-
-	}
-----
- 
-此后,为了执行一个 EIS操作,你需要使用一个单独的 `execute` 方法,传递一个应用级 (application-level) 输入对象,并接收一个应用级输出对象作为结果. 如下所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public abstract class MappingRecordOperation extends EisOperation {
-
-		...
-
-		public Object execute(Object inputObject) throws DataAccessException {
-		}
-
-		...
-	}
-----
-
-与 `CciTemplate` 类相反,此 `execute(..)` 方法没有 `InteractionSpec` 作为参数.  相反,`InteractionSpec` 对于操作是全局的.  必须使用以下构造函数来实例化具有特定 `InteractionSpec` 的操作对象.  以下示例显示了如何执行此操作:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	InteractionSpec spec = ...;
-	MyMappingRecordOperation eisOperation = new MyMappingRecordOperation(getConnectionFactory(), spec);
-	...
-----
-
-
-[[cci-object-mapping-comm-area]]
-==== 使用  `MappingCommAreaOperation`
-
-一些连接器使用了基于 COMMAREA 的记录,该记录包含了发送给 EIS 的参数和返回数据的字节数组. Spring 提供了一个专门的操作类用于直接操作 COMMAREA 而不是操作记录.
-`MappingCommAreaOperation` 类扩展了 `MappingRecordOperation` 类以提供这种专门的 COMMAREA 支持. 它隐含地使用了 `CommAreaRecord` 类作为输入和输出 record 类型,并提供了两个新的方法来转换输入对象到输入 COMMAREA,以及转换输出 COMMAREA 到输出对象.
-以下清单显示了相关的方法签名:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public abstract class MappingCommAreaOperation extends MappingRecordOperation {
-
-		...
-
-		protected abstract byte[] objectToBytes(Object inObject)
-				throws IOException, DataAccessException;
-
-		protected abstract Object bytesToObject(byte[] bytes)
-			throws IOException, DataAccessException;
-
-		...
-
-	}
-----
-
-
-[[cci-automatic-record-gen]]
-==== 自动的输出记录生成
-
-由于每个 `MappingRecordOperation` 子类的内部都是基于 `CciTemplate` 的,所以用 `CciTemplate` 以相同的方式自动生成输出 record 都是有效的. 每个操作对象提供一个相应的 `setOutputRecordCreator(..)` 方法,有关详细信息,请参阅<<automatic-output-generation,自动输出记录生成>>.
-
-[[cci-object-summary]]
-==== 总结
-
-操作对象方法使用了跟 `CciTemplate` 相同的方式来使用记录.
-
-[[cci-interaction-methods]]
-.Interaction的execute方法的使用
-[cols="3,1,3"]
-|===
-| `MappingRecordOperation` 方法签名 | `MappingRecordOperation` `outputRecordCreator` 属性 | `execute` 方法调用对CCI的操作
-
-| `Object execute(Object)`
-| Not set
-| `Record execute(InteractionSpec, Record)`
-
-| `Object execute(Object)`
-| Set
-| `boolean execute(InteractionSpec, Record, Record)`
-|===
-
-
-[[cci-objects-mappring-record-example]]
-==== `MappingRecordOperation` 使用例子
-
-在本节中,我们将展示如何使用 `MappingRecordOperation` 访问具有 Blackbox CCI 连接器的数据库.
-
-NOTE: 	此连接器的原始版本由 Java EE SDK (版本1.3) 提供,可从 Oracle 获得.
-
-首先,必须对CCI `InteractionSpec` 进行一些初始化,在下面的示例中,我们直接定义将请求的参数转换为CCI记录的方式以及将CCI结果记录转换为 `Person` 类的实例的方法:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class PersonMappingOperation extends MappingRecordOperation {
-
-		public PersonMappingOperation(ConnectionFactory connectionFactory) {
-			setConnectionFactory(connectionFactory);
-			CciInteractionSpec interactionSpec = new CciConnectionSpec();
-			interactionSpec.setSql("select * from person where person_id=?");
-			setInteractionSpec(interactionSpec);
-		}
-
-		protected Record createInputRecord(RecordFactory recordFactory,
-				Object inputObject) throws ResourceException {
-			Integer id = (Integer) inputObject;
-			IndexedRecord input = recordFactory.createIndexedRecord("input");
-			input.add(new Integer(id));
-			return input;
-		}
-
-		protected Object extractOutputData(Record outputRecord)
-				throws ResourceException, SQLException {
-			ResultSet rs = (ResultSet) outputRecord;
-			Person person = null;
-			if (rs.next()) {
-				Person person = new Person();
-				person.setId(rs.getInt("person_id"));
-				person.setLastName(rs.getString("person_last_name"));
-				person.setFirstName(rs.getString("person_first_name"));
-			}
-			return person;
-		}
-	}
-----
-
-然后应用程序会以 person 标识符作为参数来得到操作对象. 注意,操作对象可以被设为共享实例,因为它是线程安全的.  以下以 person 标识符作为参数执行操作对象:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyDaoImpl extends CciDaoSupport implements MyDao {
-
-		public Person getPerson(int id) {
-			PersonMappingOperation query = new PersonMappingOperation(getConnectionFactory());
-			Person person = (Person) query.execute(new Integer(id));
-			return person;
-		}
-	}
-----
-
-在非托管模式下,Spring bean 的相应配置如下:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="managedConnectionFactory"
-			class="com.sun.connector.cciblackbox.CciLocalTxManagedConnectionFactory">
-		<property name="connectionURL" value="jdbc:hsqldb:hsql://localhost:9001"/>
-		<property name="driverName" value="org.hsqldb.jdbcDriver"/>
-	</bean>
-
-	<bean id="targetConnectionFactory"
-			class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="managedConnectionFactory"/>
-	</bean>
-
-	<bean id="connectionFactory"
-			class="org.springframework.jca.cci.connection.ConnectionSpecConnectionFactoryAdapter">
-		<property name="targetConnectionFactory" ref="targetConnectionFactory"/>
-		<property name="connectionSpec">
-			<bean class="com.sun.connector.cciblackbox.CciConnectionSpec">
-				<property name="user" value="sa"/>
-				<property name="password" value=""/>
-			</bean>
-		</property>
-	</bean>
-
-	<bean id="component" class="MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-在托管模式下 (即在 Java EE 环境中) ,配置可能如下所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<jee:jndi-lookup id="targetConnectionFactory" jndi-name="eis/blackbox"/>
-
-	<bean id="connectionFactory"
-			class="org.springframework.jca.cci.connection.ConnectionSpecConnectionFactoryAdapter">
-		<property name="targetConnectionFactory" ref="targetConnectionFactory"/>
-		<property name="connectionSpec">
-			<bean class="com.sun.connector.cciblackbox.CciConnectionSpec">
-				<property name="user" value="sa"/>
-				<property name="password" value=""/>
-			</bean>
-		</property>
-	</bean>
-
-	<bean id="component" class="MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-
-[[cci-objects-mapping-comm-area-example]]
-==== `MappingCommAreaOperation` 使用例子
-
-在本节中,我们将展示如何使用 `MappingCommAreaOperation` 来使用 IBM CICS ECI 连接器访问具有 ECI 模式的 CICS.
-
-首先,我们需要初始化 CCI `InteractionSpec` 以指定要访问的 CICS 程序以及如何与之交互,如以下示例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public abstract class EciMappingOperation extends MappingCommAreaOperation {
-
-		public EciMappingOperation(ConnectionFactory connectionFactory, String programName) {
-			setConnectionFactory(connectionFactory);
-			ECIInteractionSpec interactionSpec = new ECIInteractionSpec(),
-			interactionSpec.setFunctionName(programName);
-			interactionSpec.setInteractionVerb(ECIInteractionSpec.SYNC_SEND_RECEIVE);
-			interactionSpec.setCommareaLength(30);
-			setInteractionSpec(interactionSpec);
-			setOutputRecordCreator(new EciOutputRecordCreator());
-		}
-
-		private static class EciOutputRecordCreator implements RecordCreator {
-			public Record createRecord(RecordFactory recordFactory) throws ResourceException {
-				return new CommAreaRecord();
-			}
-		}
-
-	}
-----
-
-然后我们可以将抽象的 `EciMappingOperation` 类子类化为指定自定义对象和 `Records` 之间的映射,如下例所示:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	public class MyDaoImpl extends CciDaoSupport implements MyDao {
-
-		public OutputObject getData(Integer id) {
-			EciMappingOperation query = new EciMappingOperation(getConnectionFactory(), "MYPROG") {
-
-				protected abstract byte[] objectToBytes(Object inObject) throws IOException {
-					Integer id = (Integer) inObject;
-					return String.valueOf(id);
-				}
-
-				protected abstract Object bytesToObject(byte[] bytes) throws IOException;
-					String str = new String(bytes);
-					String field1 = str.substring(0,6);
-					String field2 = str.substring(6,1);
-					String field3 = str.substring(7,1);
-					return new OutputObject(field1, field2, field3);
-				}
-			});
-
-			return (OutputObject) query.execute(new Integer(id));
-		}
-
-	}
-----
-
-在非托管模式下,Spring bean 的相应配置如下:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<bean id="managedConnectionFactory" class="com.ibm.connector2.cics.ECIManagedConnectionFactory">
-		<property name="serverName" value="TXSERIES"/>
-		<property name="connectionURL" value="local:"/>
-		<property name="userName" value="CICSUSER"/>
-		<property name="password" value="CICS"/>
-	</bean>
-
-	<bean id="connectionFactory" class="org.springframework.jca.support.LocalConnectionFactoryBean">
-		<property name="managedConnectionFactory" ref="managedConnectionFactory"/>
-	</bean>
-
-	<bean id="component" class="MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-在托管模式下 (即在 Java EE 环境中) ,配置可能如下所示:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<jee:jndi-lookup id="connectionFactory" jndi-name="eis/cicseci"/>
-
-	<bean id="component" class="MyDaoImpl">
-		<property name="connectionFactory" ref="connectionFactory"/>
-	</bean>
-----
-
-[[cci-tx]]
-=== 事务
-
-JCA 为资源适配器 (resource adapters)指定了几个级别的事务支持. 你可以在 `ra.xml` 文件中指定你的资源适配器支持的事务类型. 它本质上有三个选项: none (例如,使用 CICS EPI 连接器) ,本地事务 (例如,使用 CICS ECI 连接器) 和全局事务 (例如,使用IMS连接器) .  以下示例配置全局选项:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<connector>
-		<resourceadapter>
-			<!-- <transaction-support>NoTransaction</transaction-support> -->
-			<!-- <transaction-support>LocalTransaction</transaction-support> -->
-			<transaction-support>XATransaction</transaction-support>
-		<resourceadapter>
-	<connector>
-----
-
-对于全局事务,您可以使用 Spring 的通用事务基础结构来划分事务,使用 `JtaTransactionManager` 作为后端 (委托给下面的 Java EE 服务器的分布式事务协调器) .
-
-对于单个 CCI `ConnectionFactory` 上的本地事务,Spring 为 CCI 提供了特定的事务管理策略,类似于JDBC的 `DataSourceTransactionManager`. CCI API定义了本地事务对象和相应的本地事务划分方法.
-Spring的 `CciLocalTransactionManager` 执行这样的本地 CCI 事务,完全依照 Spring 中常见的 `PlatformTransactionManager` 抽象. 以下示例配置 `CciLocalTransactionManager`:
-
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
-----
-	<jee:jndi-lookup id="eciConnectionFactory" jndi-name="eis/cicseci"/>
-
-	<bean id="eciTransactionManager"
-			class="org.springframework.jca.cci.connection.CciLocalTransactionManager">
-		<property name="connectionFactory" ref="eciConnectionFactory"/>
-	</bean>
-----
-
-您可以将这两种事务策略与 Spring 的任何事务划分工具一起使用,无论是声明性的还是编程式的. 这是 Spring 通用的 `PlatformTransactionManager` 抽象的结果,它解耦了实际运行策略中的事务划分. 你可以保持现在的事务划分,只需要在 `JtaTransactionManager` 和 `CciLocalTransactionManager` 之间转换即可.
-
-有关 Spring 的事务处理机制的更多信息,请参阅<<data-access.adoc#transaction, 事务管理>>.
-
 [[mail]]
 == 电子邮件
 
@@ -4187,9 +3132,10 @@ Spring的 `CciLocalTransactionManager` 执行这样的本地 CCI 事务,完全�
 ****
 以下 JAR 需要位于应用程序的类路径中才能使用 Spring Framework 的电子邮件库:
 
-* The https://javaee.github.io/javamail/[JavaMail] library
+* The https://eclipse-ee4j.github.io/mail/[JavaMail / Jakarta Mail 1.6] library
 
-该库可在 Web 上免费获取 - 例如,在 Maven Central 中以 `com.sun.mail:javax.mail` 的形式提供.  .
+该库可在 Web 上免费获取 - 例如,在 Maven Central 中以 `com.sun.mail:jakarta.mail` 的形式提供. 请确保使用最新的 `1.6.x` 版本
+而不是 Jakarta Mail 2.0（带有不同的程序包名称） .
 ****
 
 Spring 提供了一个发送电子邮件的高级抽象层,它向用户屏蔽了底层邮件系统的一些细节,同时代表客户端负责底层的资源处理.
@@ -4204,8 +3150,7 @@ Spring 提供了一个发送电子邮件的高级抽象层,它向用户屏蔽了
 
 假设我们有一个名为 `OrderManager` 的业务接口,如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface OrderManager {
 
@@ -4221,8 +3166,7 @@ Spring 提供了一个发送电子邮件的高级抽象层,它向用户屏蔽了
 
 以下示例显示了当有人下订单时如何使用 `MailSender` 和 `SimpleMailMessage` 发送电子邮件:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	import org.springframework.mail.MailException;
 	import org.springframework.mail.MailSender;
@@ -4269,8 +3213,7 @@ Spring 提供了一个发送电子邮件的高级抽象层,它向用户屏蔽了
 
 以下示例显示了上述代码的 bean 定义:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="mailSender" class="org.springframework.mail.javamail.JavaMailSenderImpl">
 		<property name="host" value="mail.mycompany.example"/>
@@ -4294,8 +3237,7 @@ Spring 提供了一个发送电子邮件的高级抽象层,它向用户屏蔽了
 
 本节描述了使用 `MimeMessagePreparator` 回调接口的 `OrderManager` 的另一个实现.  在以下示例中,`mailSender` 属性的类型为 `JavaMailSender`,以便我们能够使用 JavaMail `MimeMessage` 类:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	import javax.mail.Message;
 	import javax.mail.MessagingException;
@@ -4351,8 +3293,7 @@ Spring Framework 的邮件支持附带标准的 JavaMail 实现.  有关更多�
 
 `org.springframework.mail.javamail.MimeMessageHelper` 是处理 JavaMail 邮件时比较顺手组件之一. 它可以让你摆脱繁复的 JavaMail API. 通过使用 `MimeMessageHelper`,创建一个 `MimeMessage` 实例将非常容易. 如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	// of course you would use DI in any real-world cases
 	JavaMailSenderImpl sender = new JavaMailSenderImpl();
@@ -4377,8 +3318,7 @@ Multipart email 允许添加附件和内嵌资源(inline resources). 内嵌资�
 
 以下示例显示如何使用 `MimeMessageHelper` 发送包含单个 JPEG 图片附件的电子邮件:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	JavaMailSenderImpl sender = new JavaMailSenderImpl();
 	sender.setHost("mail.host.com");
@@ -4403,8 +3343,7 @@ Multipart email 允许添加附件和内嵌资源(inline resources). 内嵌资�
 
 以下示例显示如何使用 `MimeMessageHelper` 发送带有内嵌图片的电子邮件:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	JavaMailSenderImpl sender = new JavaMailSenderImpl();
 	sender.setHost("mail.host.com");
@@ -4474,8 +3413,7 @@ Spring 包含许多 `TaskExecutor` 的预构建实现. 你也许不需要实现�
 
 Spring 的 `TaskExecutor` 实现用作简单的 JavaBeans.  在下面的示例中,我们定义了一个使用 `ThreadPoolTaskExecutor` 异步打印出一组消息的 bean:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	import org.springframework.core.task.TaskExecutor;
 
@@ -4512,8 +3450,7 @@ Spring 的 `TaskExecutor` 实现用作简单的 JavaBeans.  在下面的示例�
 
 我们暴露了一些简单的属性来配置 `TaskExecutor` 使用的规则:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="taskExecutor" class="org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor">
 		<property name="corePoolSize" value="5"/>
@@ -4531,8 +3468,7 @@ Spring 的 `TaskExecutor` 实现用作简单的 JavaBeans.  在下面的示例�
 
 除了 `TaskExecutor` 抽象之外,Spring 3.0 还引入了一个 `TaskScheduler`,它具有各种方法,可以在将来的某个时刻调度任务.  以下清单显示了 `TaskScheduler` 接口定义:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface TaskScheduler {
 
@@ -4569,8 +3505,7 @@ Spring 的 `TaskExecutor` 实现用作简单的 JavaBeans.  在下面的示例�
 
 `Trigger` 接口基本上受到 JSR-236 的启发,从 Spring 3.0 开始,它尚未正式实现. `Trigger` 的基本思想是可以基于过去的执行结果,甚至任意条件来确定执行时间. 如果这些考虑到了前一次执行的结果, 则该信息在 `TriggerContext` 中可用. `Trigger` 接口本身非常简单:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface Trigger {
 
@@ -4580,8 +3515,7 @@ Spring 的 `TaskExecutor` 实现用作简单的 JavaBeans.  在下面的示例�
 
 `TriggerContext` 是最重要的部分. 它封装了所有相关数据,如有必要,将来可以进行扩展.  `TriggerContext` 是一个接口 (默认情况下使用 `SimpleTriggerContext` 实现) .  以下清单显示了 `Trigger` 实现的可用方法.
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public interface TriggerContext {
 
@@ -4629,8 +3563,7 @@ Spring 为任务调度和异步方法执行提供了注解支持
 
 要启用对 `@Scheduled` 和 `@Async` 注解的支持,请将 `@EnableScheduling` 和 `@EnableAsync` 添加到您的 `@Configuration` 类中. 如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableAsync
@@ -4643,8 +3576,7 @@ Spring 为任务调度和异步方法执行提供了注解支持
 
 如果您喜欢XML配置, 请使用 `<task:annotation-driven>` 元素. 如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:annotation-driven executor="myExecutor" scheduler="myScheduler"/>
 	<task:executor id="myExecutor" pool-size="5"/>
@@ -4660,8 +3592,7 @@ NOTE: 处理 `@Async` 注解的通知模式默认是 proxy,它允许仅通过代
 
 可以将 `@Scheduled` 注解与触发器元数据一起添加到方法中. 例如, 下面的方法每隔 5 秒调用一次固定的延迟, 也就是从每次调用的完成时间开始计算:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Scheduled(fixedDelay=5000)
 	public void doSomething() {
@@ -4671,8 +3602,7 @@ NOTE: 处理 `@Async` 注解的通知模式默认是 proxy,它允许仅通过代
 
 如果需要按照固定的速度来执行,只需简单的改变注解中的属性名即可执行. 下面可以每 5 秒执行速度,也就是从每次调用的开始时间开始计算:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Scheduled(fixedRate=5000)
 	public void doSomething() {
@@ -4682,8 +3612,7 @@ NOTE: 处理 `@Async` 注解的通知模式默认是 proxy,它允许仅通过代
 
 对于固定延迟和固定速率任务, 可以指定初始延迟, 也就是第一次执行该方法之前等待的毫秒数. 如下面的 `fixedRate` 示例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Scheduled(initialDelay=1000, fixedRate=5000)
 	public void doSomething() {
@@ -4720,8 +3649,7 @@ TIP: 你可以使用 `zone` 属性来指定解析 cron 表达式的时区
 ==== `@Async` 注解
 可以在方法上提供 `@Async` 注解,使此方法进行异步调用. 换言之,调用方将在调用时立即返回,并且该方法的实际执行将发生在已提交到 Spring `TaskExecutor` 的任务中. 在最简单的情况下,注解可以应用于 `void` 返回方法. 如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Async
 	void doSomething() {
@@ -4731,8 +3659,7 @@ TIP: 你可以使用 `zone` 属性来指定解析 cron 表达式的时区
 
 与使用 `@Scheduled` 注解的注解方法不同,这些方法可以有入参的,因为调用方将在运行时以 "normal" 方式调用它们,而不是由容器管理的计划任务. 例如,以下是 `@Async` 注解的合法应用:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Async
 	void doSomething(String s) {
@@ -4742,8 +3669,7 @@ TIP: 你可以使用 `zone` 属性来指定解析 cron 表达式的时区
 
 即使返回值的方法也可以异步调用,但是,此类方法需要具有 `Future` 类型的返回值. 这仍然提供了异步执行的好处,以便调用者可以在调用 `Future` 上的 `get()` 之前执行其他任务. 以下示例显示如何在返回值的方法上使用 `@Async` :
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Async
 	Future<String> returnSomething(int i) {
@@ -4755,8 +3681,7 @@ TIP: `@Async` 方法不仅可以声明一个常规的 `java.util.concurrent.Futu
 
 `@Async` 不能与生命周期回调(如 `@PostConstruct`)一起使用. 若要异步初始化 Spring bean,则当前必须使用单独的初始化 Spring bean,然后在目标上调用 `@Async` 注解方法. 如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class SampleBeanImpl implements SampleBean {
 
@@ -4791,8 +3716,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 默认情况下,在方法上指定 `@Async` 时,使用的执行程序是 <<scheduling-enable-annotation-support, 启用异步支持>>时配置的执行程序,例如,如果使用XML或 `AsyncConfigurer` 实现 (如果有) ,则为 "`annotation-driven`" 元素. 但是,当需要指示执行给定方法时,应使用非默认的执行器时,
 可以使用 `@Async` 注解的 `value` 属性. 以下示例显示了如何执行此操作:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Async("otherExecutor")
 	void doSomething(String s) {
@@ -4808,8 +3732,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 当 `@Async` 方法有 `Future` 类型的返回值时,可以很容易地管理在方法执行期间引发的异常,因为当调用对 `Future` 结果的 `get` 时将引发此异常.
 但是,对于 `void` 返回类型,异常是无法捕获的,无法传输的. 对于这些情况,可以提供 `AsyncUncaughtExceptionHandler` 来处理此类异常.  以下示例显示了如何执行此操作:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class MyAsyncUncaughtExceptionHandler implements AsyncUncaughtExceptionHandler {
 
@@ -4832,8 +3755,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 
 下面的元素将创建具有指定线程池大小的 `ThreadPoolTaskScheduler` 实例:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:scheduler id="scheduler" pool-size="10"/>
 ----
@@ -4845,8 +3767,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 
 以下创建一个 `ThreadPoolTaskExecutor` 实例:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:executor id="executor" pool-size="10"/>
 ----
@@ -4855,8 +3776,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 执行器的线程池可能有不同的核心值和最大大小,而不仅仅是单个的大小. 如果提供了单个值,则执行器将具有固定大小的线程池(核心和最大大小相同).
 但是,`executor` 元素的 `pool-size` 属性也接受以 `min-max` 形式的范围. 以下示例将最小值设置为 `5`,最大值设置为 `25`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:executor
 			id="executorWithPoolSizeRange"
@@ -4875,8 +3795,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 
 以下示例显示了一个 `executor` 元素,其中包含许多属性以指定各种行为:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:executor
 			id="executorWithCallerRunsPolicy"
@@ -4888,8 +3807,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 最后, `keep-alive` 设置确定在终止之前线程可能保持空闲的时间限制(以秒为单位).
 如果池中当前有多个线程的核心数目,则在等待此时间量后不处理任务,多余的线程将被终止. 时间值为零将导致多余的线程在执行任务后立即终止,而不需要在任务队列中保留后续工作. 以下示例将 `keep-alive` 值设置为两分钟:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:executor
 			id="executorWithKeepAlive"
@@ -4904,8 +3822,7 @@ NOTE: 没有直接的XML配置等价于 `@Async`,因为这些方法应该首先�
 Spring 的任务命名空间的最强大功能是支持配置在 Spring 应用程序上下文中安排的任务.
 这遵循了类似于 Spring 中其他 "`method-invokers`" 的方法,例如由JMS命名空间提供的用于配置消息驱动的pojo.  基本上, `ref` 属性可以指向任何 Spring 管理的对象, `method` 属性提供要在该对象上调用的方法的名称.  以下清单显示了一个简单示例:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<task:scheduled-tasks scheduler="myScheduler">
 		<task:scheduled ref="beanA" method="methodA" fixed-delay="5000"/>
@@ -4915,7 +3832,7 @@ Spring 的任务命名空间的最强大功能是支持配置在 Spring 应用�
 ----
 
 scheduler 由外部元素引用,每个单独的任务都包括其触发器元数据的配置. 在前面的示例中,该元数据定义了一个定期触发器,它具有固定的延迟,表示每个任务执行完成后等待的毫秒数. 另一个选项是 `"fixed-rate"`,表示无论以前执行多长时间,方法的执行频率.
-此外, ,对于 `fixed-delay` 和 `fixed-rate` 任务,可以指定 'initial-delay' 参数,指示在第一次执行该方法之前等待的毫秒数. 为了获得更多的控制,可以改为提供一个 `cron` 属性. 下面是一个演示其他选项的示例:
+此外, ,对于 `fixed-delay` 和 `fixed-rate` 任务,可以指定 'initial-delay' 参数,指示在第一次执行该方法之前等待的毫秒数. 为了获得更多的控制,可以改为提供一个 <<scheduling-cron-expression,cron 表达式>>. 下面是一个演示其他选项的示例:
 
 [source,xml,indent=0]
 [subs="verbatim"]
@@ -4929,6 +3846,77 @@ scheduler 由外部元素引用,每个单独的任务都包括其触发器元数
 	<task:scheduler id="myScheduler" pool-size="10"/>
 ----
 
+[[scheduling-cron-expression]]
+=== Cron 表达式
+
+所有 Spring cron 表达式都必须遵循相同的格式，无论您是在 <<scheduling-annotation-support-scheduled,`@Scheduled` 注解>> ,<<scheduling-task-namespace-scheduled-tasks,`task:scheduled-tasks` 元素>> 还是其他位置使用它们。一个正确的 cron 表达式，例如  `* * * * * *`，由六个以空格分隔的时间和日期字段组成，每个字段都有自己的有效值范围:
+
+
+....
+ ┌───────────── second (0-59)
+ │ ┌───────────── minute (0 - 59)
+ │ │ ┌───────────── hour (0 - 23)
+ │ │ │ ┌───────────── day of the month (1 - 31)
+ │ │ │ │ ┌───────────── month (1 - 12) (or JAN-DEC)
+ │ │ │ │ │ ┌───────────── day of the week (0 - 7)
+ │ │ │ │ │ │          (0 or 7 is Sunday, or MON-SUN)
+ │ │ │ │ │ │
+ * * * * * *
+....
+
+有一些适用的规则:
+
+* 字段可以是星号 (`*`), 代表 "`first-last`". 在 day-of-the-month 或 day-of-the-week 字段中, 可以使用问号 (`?`) 代替星号.
+* 逗号 (`,`) 用于分隔一个列表值.
+* 用 (`-`) 来指定一个范围.
+* 在一个范围  (或 `*`) 后面加上 `/` 指定该范围内的数字值的间隔.
+* 英文名称也可以用于 day-of-month 和 day-of-week 字段.使用特定日期或月份的前三个字母(大小写无关紧要).
+* day-of-month 和 day-of-week 字段可以包含一个 `L` 字符, `L` 字符具有不同的含义
+** 在 day-of-month 字段中, `L` 代表 _一个月的最后一天_. 如果后面跟着一个负的偏移量 (即, `L-n`), 它意味着从第 _``n`` 个月的最后一天_.
+** 在 day-of-week 字段中, `L` 代表 _一周的最后一天_. 如果前缀是数字或三个字母的名字 (`dL` 或 `DDDL`), 则表示 _该月一周的最后一天 (`d` 或 `DDD`)_.
+* day-of-month 字段可以是 `nW`, 表示 _与 ``n`` 月的某一天最近的工作日_.
+如果 `n` 落在星期六，则结果为星期五.
+如果 `n` 落在星期天, 则结果为星期一, 如果 `n` 为 `1` 并落在星期六，则结果为星期一 (即: `1W` 表示 _该月的第一个工作日_).
+* 如果 day-of-month 字段是 `LW`, 则表示 _该月的最后一个工作日_.
+* day-of-week 字段可以为 `d#n` (或 `DDD#n`), 表示 _一个月内 `d` (或 ``DDD``) 星期的第  ``n`` 天。_.
+
+这里有一些示例:
+
+|===
+| Cron Expression       | 意思
+
+|`0 0 * * * *`          | top of every hour of every day
+|`*/10 * * * * *`       | 每 10 秒
+| `0 0 8-10 * * *`      | 每天的 8, 9 和 10 点
+| `0 0 6,19 * * *`      | 每天的 上午 6:00 AM 和 7:00 PM
+| `0 0/30 8-10 * * *`   | 每天的 8:00, 8:30, 9:00, 9:30, 10:00 和 10:30
+| `0 0 9-17 * * MON-FRI`| on the hour nine-to-five weekdays
+| `0 0 0 25 DEC ?`       | every Christmas Day at midnight
+| `0 0 0 L * *`         | last day of the month at midnight
+| `0 0 0 L-3 * *`       | third-to-last day of the month at midnight
+| `0 0 0 * * 5L`        | last Friday of the month at midnight
+| `0 0 0 * * THUL`      | last Thursday of the month at midnight
+| `0 0 0 1W * *`        | first weekday of the month at midnight
+| `0 0 0 LW * *`        | last weekday of the month at midnight
+| `0 0 0 ? * 5#2`       | the second Friday in the month at midnight
+| `0 0 0 ? * MON#1`     | the first Monday in the month at midnight
+|===
+
+==== Macros
+
+诸如 `0 0 * * * *` 之类的表达式对于人类来说很难解析，因此很难在发生错误的情况下进行修复。 为了提高可读性，Spring 支持以下宏，它们代表常用的序列。 您可以使用这些宏而不是六位数字的值，例如: `@Scheduled(cron = "@hourly")`.
+
+|===
+|Macro                          | Meaning
+
+| `@yearly` (或 `@annually`)    | 一年一次 (`0 0 0 1 1 *`)
+| `@monthly`                    | 一月一次 (`0 0 0 1 * *`)
+| `@weekly`                     | 一周一次 (`0 0 0 * * 0`)
+| `@daily` (或 `@midnight`)     | 一天一次 (`0 0 0 * * *`), 或
+| `@hourly`                     | 一小时一次, (`0 0 * * * *`)
+|===
+
+
 [[scheduling-quartz]]
 === 使用 Quartz 的 Scheduler
 
@@ -4939,8 +3927,7 @@ Quartz使用 `Trigger`, `Job`, 和 `JobDetail` 等对象来进行各种类型的
 
 Quartz `JobDetail` 对象保存运行一个任务所需的全部信息. Spring 提供一个叫作 `JobDetailFactoryBean` 的类让 `JobDetail` 能对一些有意义的初始值(从XML配置)进行初始化,让我们来看个例子:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean name="exampleJob" class="org.springframework.scheduling.quartz.JobDetailFactoryBean">
 		<property name="jobClass" value="example.ExampleJob"/>
@@ -4987,8 +3974,7 @@ NOTE: 使用 `name` 和 `group` 属性,你可以分别修改 job 在哪一个组
 
 通常情况下,你只需要调用特定对象上的一个方法即可实现任务调度. 你可以使用 `MethodInvokingJobDetailFactoryBean` 准确的做到这一点:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="jobDetail" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
 		<property name="targetObject" ref="exampleBusinessObject"/>
@@ -4998,8 +3984,7 @@ NOTE: 使用 `name` 和 `group` 属性,你可以分别修改 job 在哪一个组
 
 上面例子将调用 `exampleBusinessObject` 中的 `doIt` 方法如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	public class ExampleBusinessObject {
 
@@ -5011,8 +3996,7 @@ NOTE: 使用 `name` 和 `group` 属性,你可以分别修改 job 在哪一个组
 	}
 ----
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="exampleBusinessObject" class="examples.ExampleBusinessObject"/>
 ----
@@ -5022,8 +4006,7 @@ NOTE: 使用 `name` 和 `group` 属性,你可以分别修改 job 在哪一个组
 默认情况下,Quartz Jobs 是无状态的,可能导致 jobs 之间互相的影响. 如果你为相同的 `JobDetail` 指定两个 `Trigger`, 很可能当第一个job完成之前,第二个 job 就开始了. 如果 `JobDetail` 对象实现了 `Stateful` 接口,就不会发生这样的事情.
 第二个 job 将不会在第一个 job 完成之前开始. 为了使得jobs不并发运行,设置 `MethodInvokingJobDetailFactoryBean` 中的 `concurrent` 标记为 `false`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="jobDetail" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
 		<property name="targetObject" ref="exampleBusinessObject"/>
@@ -5065,8 +4048,7 @@ NOTE: 默认情况下,jobs 在并发的方式下运行.
 
 现在我们创建了两个 triggers,其中一个开始延迟 10 秒以后每 50 秒运行一次,另一个每天早上 6 点钟运行.  我们需要创建一个 `SchedulerFactoryBean` 来最终实现上述的一切:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean class="org.springframework.scheduling.quartz.SchedulerFactoryBean">
 		<property name="triggers">
@@ -5139,8 +4121,7 @@ IMPORTANT: 缓存抽象没有针对多线程和多进程环境的特殊处理,�
 
 顾名思义,`@Cacheable` 用于标定可缓存的方法 , 即将结果存储到缓存中的方法,以便在后续调用中(使用相同的参数),缓存的值可以在不执行方法的情况下返回. 最简单的,注解声明要求带注解的方法关联缓存的名称. 如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable("books")
 	public Book findBook(ISBN isbn) {...}
@@ -5152,8 +4133,7 @@ NOTE: 即使未实际执行缓存的方法,也会更新不包含该值的所有�
 
 以下示例在 `findBook` 方法上使用 `@Cacheable`:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable({"books", "isbns"})
 	public Book findBook(ISBN isbn) {...}
@@ -5185,8 +4165,7 @@ NOTE: 即使未实际执行缓存的方法,也会更新不包含该值的所有�
 
 由于缓存是具有普遍性的,因此目标方法很可能具有不同的签名,不能简单地映射到缓存结构的顶部. 当目标方法有多个参数时,问题显得更突出,其中只有一部分是适合于缓存的(其余仅由方法逻辑使用). 例如:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable("books")
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5198,8 +4177,7 @@ NOTE: 即使未实际执行缓存的方法,也会更新不包含该值的所有�
 
 以下示例是各种 SpEL 声明 (如果您不熟悉 SpEL,请阅读 <<core.adoc#expressions, Spring Expression Language>>) :
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="books", key="#isbn")
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5215,8 +4193,7 @@ NOTE: 即使未实际执行缓存的方法,也会更新不包含该值的所有�
 
 如果负责生成键的算法太特殊,或者需要共享,则可以在操作上定义一个自定义 `keyGenerator`. 为此,请指定要使用的 `KeyGenerator` bean 实现的名称. 如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="books", keyGenerator="myKeyGenerator")
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5238,8 +4215,7 @@ NOTE: `key` 和 `keyGenerator` 参数是互斥的, 指定两者的操作将导�
 
 对于应用使用不同的缓存管理,可以设置 `cacheManager` 使用每个操作. 如以下示例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="books", cacheManager="anotherCacheManager") <1>
 	public Book findBook(ISBN isbn) {...}
@@ -5248,8 +4224,7 @@ NOTE: `key` 和 `keyGenerator` 参数是互斥的, 指定两者的操作将导�
 
 也可以完全以类似于 <<cache-annotations-cacheable-key, key generation>>的方式替换 `CacheResolver`. 为每个缓存操作请求该解决方案, 使实现能够根据运行时参数实际解析要使用的缓存. 以下示例显示如何指定 `CacheResolver`:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheResolver="runtimeCacheResolver") <1>
 	public Book findBook(ISBN isbn) {...}
@@ -5271,8 +4246,7 @@ Spring 4.1版本以后, 缓存注解的 `value` 属性不再是强制性的了,�
 
 对于这些特定情况,可以使用 `sync` 属性指示基础缓存提供程序在计算值时锁定缓存项. 因此,只有一个线程将忙于计算该值,而其余的则被阻塞,直到在缓存中更新该项. 以下示例显示了如何使用 `sync` 属性:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="foos", sync=true) <1>
 	public Foo executeExpensiveOperation(String id) {...}
@@ -5288,8 +4262,7 @@ NOTE: 这是一个可选的功能,您喜欢的缓存库可能不支持它. 核�
 有时,一个方法做缓存可能不是万能的(例如,它可能依赖于给定的参数). 缓存注解通过 `condition` 参数支持此类功能,它采用 `SpEL` 表达式,并将其计算为 `true` 或 `false`. 如果为 `true`,则方法执行缓存. 如果不是,则它的行为就像不缓存的方法一样.
 每次不管缓存中的值是什么或使用了什么参数,都将执行它. 例如,仅当参数名称的长度小于32时,才会缓存以下方法:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="book", condition="#name.length() < 32") <1>
 	public Book findBook(String name)
@@ -5299,8 +4272,7 @@ NOTE: 这是一个可选的功能,您喜欢的缓存库可能不支持它. 核�
 
 此外, 除了 `condition` 参数外, 还可以使用 `unless` 参数来决定不想缓存的值. 与 `condition` 不同, `unless` 在调用方法后计算表达式. 扩展上一示例. 也许我们只想缓存平装书,如下例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="book", condition="#name.length() < 32", unless="#result.hardback") <1>
 	public Book findBook(String name)
@@ -5309,8 +4281,7 @@ NOTE: 这是一个可选的功能,您喜欢的缓存库可能不支持它. 核�
 
 缓存抽象支持 `java.util.Optional`,仅在其存在时将其内容用作缓存值.  `#result` 总是引用业务实体而从不支持包装器,因此前面的示例可以重写如下:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="book", condition="#name.length() < 32", unless="#result?.hardback")
 	public Optional<Book> findBook(String name)
@@ -5375,8 +4346,7 @@ NOTE: 这是一个可选的功能,您喜欢的缓存库可能不支持它. 核�
 
 对于需要更新缓存而不影响方法执行的情况,可以使用 `@CachePut` 注解. 即,将始终执行该方法,并将其结果放入缓存(根据 `@CachePut` 选项). 它支持与 `@Cacheable` 相同的选项,,并且应用于缓存填充,而不是方法流优化. 以下示例使用 `@CachePut` 注解:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@CachePut(cacheNames="book", key="#isbn")
 	public Book updateBook(ISBN isbn, BookDescriptor descriptor)
@@ -5392,8 +4362,7 @@ IMPORTANT: 通常强烈建议不要在同一方法上使用 `@CachePut` 和 `@Ca
 抽象缓存不仅允许缓存存储区的填充,而且还可以回收. 此过程对于从缓存中删除陈旧或未使用的数据非常有用. 相比于 `@Cacheable`,注解 `@CacheEvict` 执行缓存回收的区分方法,即充当从缓存中移除数据的触发器的方法. 就像它的同级注解一样,
 `@CacheEvict` 需要指定一个(或多个)受该操作影响的缓存,允许自定义缓存和键解析或指定的条件,但除此之外 ,还具有一个额外的参数 `allEntries`,它指示是否需要进行缓存范围的回收,而不是只执行一项(基于键):
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@CacheEvict(cacheNames="books", allEntries=true) <1>
 	public void loadBooks(InputStream batch)
@@ -5414,8 +4383,7 @@ IMPORTANT: 通常强烈建议不要在同一方法上使用 `@CachePut` 和 `@Ca
 在某些情况下,需要指定相同类型的多个注解(例如 `@CacheEvict` 或 `@CachePut`). 例如,因为条件或键表达式在不同的缓存之间是不同的.  `@Caching` 允许在同一方法上使用多个嵌套的 `@Cacheable`、`@CachePut` 和 `@CacheEvict`.
 以下示例使用两个 `@CacheEvict` 注解:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Caching(evict = { @CacheEvict("primary"), @CacheEvict(cacheNames="secondary", key="#p0") })
 	public Book importBooks(String deposit, Date date)
@@ -5427,8 +4395,7 @@ IMPORTANT: 通常强烈建议不要在同一方法上使用 `@CachePut` 和 `@Ca
 
 到目前为止,我们已经看到缓存操作提供了许多自定义选项,您可以为每个操作设置这些选项. 但是,如果这些自定义选项适用于该类的所有操作,则可以对其进行配置. 例如,指定要用于该类的每个缓存操作的缓存的名称可以由单个类级别定义替换. 这就是 `@CacheConfig` 发挥作用的地方.  以下示例使用 `@CacheConfig` 设置缓存的名称:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@CacheConfig("books") <1>
 	public class BookRepositoryImpl implements BookRepository {
@@ -5455,8 +4422,7 @@ IMPORTANT: 通常强烈建议不要在同一方法上使用 `@CachePut` 和 `@Ca
 
 要启用缓存注解,请将注解 `@EnableCaching` 添加到您的 `@Configuration` 类之一上:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Configuration
 	@EnableCaching
@@ -5466,8 +4432,7 @@ IMPORTANT: 通常强烈建议不要在同一方法上使用 `@CachePut` 和 `@Ca
 
 在 XML 的配置中,可以使用 `cache:annotation-driven` 元素:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<beans xmlns="http://www.springframework.org/schema/beans"
 		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -5557,8 +4522,7 @@ NOTE: 在代理模式(默认情况下), 仅截获通过代理进入的外部方�
 缓存抽象允许您使用自己的注解来识别触发缓存储存或回收的方法. 这在模板机制中非常方便,因为它消除了重复缓存注解声明的需要(在指定键或条件时尤其有用),或者在您的代码库中不允许使用外部导入(`org.springframework`).
 与 <<core.adoc#beans-stereotype-annotations, stereotype>> 注解的其余部分类似, `@Cacheable`, `@CachePut`、`@CacheEvict`, 和 `@CacheConfig` 可以用作 <<core.adoc#beans-meta-annotations, meta-annotations>>. 这是可以注解其他注解的注解 (就是元注解) . 在下面的示例中,我们使用自己的自定义注解替换常见的 `@Cacheable` 声明:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target({ElementType.METHOD})
@@ -5569,8 +4533,7 @@ NOTE: 在代理模式(默认情况下), 仅截获通过代理进入的外部方�
 
 在前面的示例中,我们定义了自己的 `SlowService` 注解,该注解本身使用 `@Cacheable` 进行注解.  现在我们可以替换以下代码:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="books", key="#isbn")
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5578,8 +4541,7 @@ NOTE: 在代理模式(默认情况下), 仅截获通过代理进入的外部方�
 
 以下示例显示了自定义注解,我们可以使用它来替换前面的代码:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@SlowService
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5628,8 +4590,7 @@ JCache 具有与 Spring 的 `CacheResolver` 接口相同的 `javax.cache.annotat
 
 `CacheResolver` 实例由 `CacheResolverFactory` 检索.  可以为每个缓存操作自定义工厂,如以下示例所示:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@CacheResult(cacheNames="books", cacheResolverFactory=MyCacheResolverFactory.class) <1>
 	public Book findBook(ISBN isbn)
@@ -5640,8 +4601,7 @@ NOTE: 	对于所有引用的类,Spring 尝试查找具有给定类型的 bean. �
 
 key 由 `javax.cache.annotation.CacheKeyGenerator` 方法生成,其作用与Spring的 `KeyGenerator` 一样. 默认情况下,所有方法参数都将被考虑,除非至少有一个参数是用 `@CacheKey` 注解. 这类似于 Spring 的<<cache-annotations-cacheable-key, 自定义key生成器>>. 例如,同样的操作,一个使用Spring的抽象,另一个用 JCache:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@Cacheable(cacheNames="books", key="#isbn")
 	public Book findBook(ISBN isbn, boolean checkWarehouse, boolean includeUsed)
@@ -5654,8 +4614,7 @@ key 由 `javax.cache.annotation.CacheKeyGenerator` 方法生成,其作用与Spri
 
 JCache 可以管理由注解的方法引发的异常. 这可以防止缓存的更新,但也可以将异常缓存为失败的指示器,而不是再次调用该方法. 让我们假设,如果 ISBN 的结构错误,则抛出 `InvalidIsbnNotFoundException`. 这是一个永久性的失败,没有 book 可以用这样的参数检索. 下面抛出缓存异常,以便使用相同的无效 ISBN 进行进一步调用,直接抛出缓存的异常,而不是再次调用该方法:
 
-[source,java,indent=0]
-[subs="verbatim,quotes"]
+[source,java,indent=0,subs="verbatim,quotes"]
 ----
 	@CacheResult(cacheName="books", exceptionCacheName="failures"
 				cachedExceptions = InvalidIsbnNotFoundException.class)
@@ -5712,8 +4671,7 @@ NOTE: 根据您的使用情况,选择使用与否由你选择. 您甚至可以�
 
 基于 JDK 的 `Cache` 实现位于 `org.springframework.cache.concurrent` 包下. 它允许您使用 `ConcurrentHashMap` 作为支持 `Cache` 存储.  以下示例显示如何配置两个缓存:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<!-- simple cache manager -->
 	<bean id="cacheManager" class="org.springframework.cache.support.SimpleCacheManager">
@@ -5737,8 +4695,7 @@ NOTE: Ehcache 3.x 完全与 JSR-107 兼容, 不需要专门的支持.
 
 Ehcache 2.x 实现在 `org.springframework.cache.ehcache` 包中. 同样地,要使用它,需要简单地声明适当的 `CacheManager`. 以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="cacheManager"
 			class="org.springframework.cache.ehcache.EhCacheCacheManager" p:cache-manager-ref="ehcache"/>
@@ -5757,8 +4714,7 @@ Caffeine 是 Java 8 重写了 Guava 的缓存,他的实现在 `org.springframewo
 
 以下示例配置一个按需创建缓存的 `CacheManager`:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="cacheManager"
 			class="org.springframework.cache.caffeine.CaffeineCacheManager"/>
@@ -5766,8 +4722,7 @@ Caffeine 是 Java 8 重写了 Guava 的缓存,他的实现在 `org.springframewo
 
 还可以提供缓存以显式使用,在这种情况下,只有 manager 才能提供这些内容. 以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="cacheManager" class="org.springframework.cache.caffeine.CaffeineCacheManager">
 		<property name="caches">
@@ -5793,8 +4748,7 @@ JSR-107 兼容的缓存也可用于 Spring 的缓存抽象. JCache 实现在 `or
 
 同样,要使用它,需要简单地声明适当的 `CacheManager`. 简单示例如下:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="cacheManager"
 			class="org.springframework.cache.jcache.JCacheCacheManager"
@@ -5809,8 +4763,7 @@ JSR-107 兼容的缓存也可用于 Spring 的缓存抽象. JCache 实现在 `or
 
 有时在切换环境或进行测试时, 可能会只声明缓存, 而没有配置实际的后端缓存. 由于这是一个无效的配置, 在运行时将引发异常, 因为缓存基础结构无法找到合适的存储. 在这样的情况下, 与其删除缓存声明(这可能会很繁琐), 你不如声明一个简单的,不执行缓存的虚拟缓存, 即强制每次执行缓存的方法. 以下示例显示了如何执行此操作:
 
-[source,xml,indent=0]
-[subs="verbatim,quotes"]
+[source,xml,indent=0,subs="verbatim,quotes"]
 ----
 	<bean id="cacheManager" class="org.springframework.cache.support.CompositeCacheManager">
 		<property name="cacheManagers">

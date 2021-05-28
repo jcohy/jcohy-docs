@@ -1,58 +1,58 @@
 [[webtestclient]]
 = WebTestClient
 
-`WebTestClient` 是围绕  <<web-reactive.adoc#webflux-client, WebClient>> 的薄壳,可用于执行请求并暴露专用的流式API来验证响应.  `WebTestClient` 通过使用<<testing.adoc#mock-objects-web-reactive, mock 请求和响应>>绑定到 `WebFlux` 应用程序,或者它可以通过HTTP连接测试任何Web服务器.
+`WebTestClient` 是用于测试应用程序服务器的 HTTP 客户端,它里面包含了  <<web-reactive.adoc#webflux-client, WebClient>> ,可用于执行请求并暴露专用的流式 API 来验证响应.  `WebTestClient` 可以用来
+执行端到端 HTTP 测试。 它还可以用于测试 Spring MVC 和 Spring WebFlux,并且不需要通过模拟服务器请求和响应对象运行服务器的应用程序.
 
-TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>>与 `WebTestClient` 的使用有关.
+TIP: Kotlin 用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>>与 `WebTestClient` 的使用有关.
 
 
 [[webtestclient-setup]]
 == 设置
 
-要创建 `WebTestClient`,必须选择多个服务器设置选项之一.  实际上,您是在配置WebFlux应用程序以绑定到或使用URL连接到正在运行的服务器.
+要设置一个“ WebTestClient”，您需要选择一个要绑定的服务器设置。 这可以是几个模拟服务器设置选择之一，也可以是到实时服务器的连接。
+
+要创建 `WebTestClient`,您需要选择一个要绑定的服务器设置.  这可以是几个模拟服务器设置选择之一 ，也可以是到正在运行的服务器连接。
 
 [[webtestclient-controller-config]]
 === 绑定到控制器
 
-以下示例显示如何创建服务器设置以一次测试一个 `@Controller` :
+通过使用模拟请求和响应对象,可以在没有 HTTP 服务器的情况下测试生成的 WebFlux 应用程序.
+
+对于 WebFlux 应用程序，使用以下命令加载 <<web-reactive.adoc#webflux-config, WebFlux Java配置>> 并注册给定的控制器，并创建一个 <<web-reactive.adoc#webflux-web-handler-api, WebHandler chain>> 来处理请求:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	client = WebTestClient.bindToController(new TestController()).build();
+	WebTestClient client =
+			WebTestClient.bindToController(new TestController()).build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	client = WebTestClient.bindToController(TestController()).build()
+	val client = WebTestClient.bindToController(TestController()).build()
 ----
 
-前面的示例加载<<web-reactive.adoc#webflux-config, WebFlux Java配置>>并注册给定的控制器.  通过使用模拟请求和响应对象,可以在没有HTTP服务器的情况下测试生成的WebFlux应用程序.  构建器上有更多方法可以定制默认WebFlux Java配置.
-
-[[webtestclient-fn-config]]
-=== 绑定到路由方法
-
-以下示例显示如何通过<<web-reactive.adoc#webflux-fn, RouterFunction>>设置服务器:
+对于 Spring MVC, 使用 {api-spring-framework}/https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/test/web/servlet/setup/StandaloneMockMvcBuilder.html[StandaloneMockMvcBuilder] 加载 <<web.adoc#mvc-config, WebMvc Java config>> 并注册给定的控制器，并创建一个 <<testing.adoc#spring-mvc-test-framework, MockMvc>> 实例来处理请求:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	RouterFunction<?> route = ...
-	client = WebTestClient.bindToRouterFunction(route).build();
+	WebTestClient client =
+			MockMvcWebTestClient.bindToController(new TestController()).build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	val route: RouterFunction<*> = ...
-	val client = WebTestClient.bindToRouterFunction(route).build()
+	val client = MockMvcWebTestClient.bindToController(TestController()).build()
 ----
-
-在内部,配置被传递到 `RouterFunctions.toWebHandler`.  通过使用模拟请求和响应对象,可以在没有HTTP服务器的情况下测试生成的WebFlux应用程序.
 
 [[webtestclient-context-config]]
 === 绑定到 `ApplicationContext`
 
-以下示例显示了如何从应用程序或其部分子集的Spring配置中设置服务器:
+通过此设置，您可以使用 Spring MVC 或 Spring WebFlux 基础结构和控制器声明加载 Spring 配置，并使用它通过模拟请求和响应对象来处理请求，而无需运行服务器。
+
+对于 WebFlux，请使用以下内容，将 Spring `ApplicationContext` 传递到 {api-spring-framework}/web/server/adapter/WebHttpHandlerBuilder.html#applicationContext-org.springframework.context.ApplicationContext-[WebHttpHandlerBuilder] 中，以创建 <<web-reactive.adoc#webflux-web-handler-api, WebHandler chain>> 处理请求:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -90,7 +90,83 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 <2> 注入配置
 <3> 创建 `WebTestClient`
 
-在内部,配置被传递到 `WebHttpHandlerBuilder` 以建立请求处理链.  有关更多详细信息,请参见 <<web-reactive.adoc#webflux-web-handler-api, WebHandler API>>.  通过使用模拟请求和响应对象,可以在没有HTTP服务器的情况下测试生成的WebFlux应用程序.
+对于 Spring MVC，将 Spring 的 `ApplicationContext` 传递给 {api-spring-framework}/test/web/servlet/setup/MockMvcBuilders.html#webAppContextSetup-org.springframework.web.context.WebApplicationContext-[MockMvcBuilders.webAppContextSetup] 并创建一个 <<testing.adoc#spring-mvc-test-framework, MockMvc>> 实例来处理请求:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@WebAppConfiguration("classpath:META-INF/web-resources") // <1>
+	@ContextHierarchy({
+		@ContextConfiguration(classes = RootConfig.class),
+		@ContextConfiguration(classes = WebConfig.class)
+	})
+	class MyTests {
+
+		@Autowired
+		WebApplicationContext wac; // <2>
+
+		WebTestClient client;
+
+		@BeforeEach
+		void setUp() {
+			client = MockMvcWebTestClient.bindToApplicationContext(this.wac).build(); // <3>
+		}
+	}
+----
+<1> Specify the configuration to load
+<2> Inject the configuration
+<3> Create the `WebTestClient`
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension.class)
+	@WebAppConfiguration("classpath:META-INF/web-resources") // <1>
+	@ContextHierarchy({
+		@ContextConfiguration(classes = RootConfig.class),
+		@ContextConfiguration(classes = WebConfig.class)
+	})
+	class MyTests {
+
+		@Autowired
+		lateinit var wac: WebApplicationContext; // <2>
+
+		lateinit var client: WebTestClient
+
+		@BeforeEach
+		fun setUp() { // <2>
+			client = MockMvcWebTestClient.bindToApplicationContext(wac).build() // <3>
+		}
+	}
+----
+<1> Specify the configuration to load
+<2> Inject the configuration
+<3> Create the `WebTestClient`
+
+
+[[webtestclient-fn-config]]
+=== Bind to Router Function
+
+通过此设置，您可以在没有运行服务器的情况下通过模拟请求和响应对象测 <<web-reactive.adoc#webflux-fn, functional endpoints>>.
+
+对于 WebFlux，使用 `RouterFunctions.toWebHandler` 创建服务器设置以处理请求:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	RouterFunction<?> route = ...
+	client = WebTestClient.bindToRouterFunction(route).build();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val route: RouterFunction<*> = ...
+	val client = WebTestClient.bindToRouterFunction(route).build()
+----
+
+对于 Spring MVC 目前没有可供测试的选项测试 <<web.adoc#webmvc-fn, WebMvc functional endpoints>>.
+
 
 [[webtestclient-server-config]]
 === 绑定到服务器
@@ -111,9 +187,9 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 
 
 [[webtestclient-client-config]]
-=== 客户端 Builder
+=== 客户端 Config
 
-除了前面描述的服务器设置选项之外,您还可以配置客户端选项,包括基本URL,默认标头,客户端过滤器等.  这些选项在 `bindToServer` 之后很容易获得.  对于所有其他服务器,您需要使用 `configureClient()` 从服务器配置过渡到客户端配置,如下所示:
+除了前面描述的服务器设置选项之外,您还可以配置客户端选项,包括基本 URL,默认标头,客户端过滤器等.  这些选项在 `bindToServer` 之后很容易获得.  对于所有其他服务器,您需要使用 `configureClient()` 从服务器配置过渡到客户端配置,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -136,9 +212,11 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 [[webtestclient-tests]]
 == 编写测试
 
-`WebTestClient` 提供了与<<web-reactive.adoc#webflux-client, WebClient>>相同的API,直到使用 `exchange()` 执行请求为止.  `exchange()` 之后是链接的API工作流,用于验证响应.
+`WebTestClient` 提供了与<<web-reactive.adoc#webflux-client, WebClient>>相同的 API,直到使用 `exchange()` 执行请求为止.  请查看 <<web-reactive.adoc#webflux-client-body, WebClient>> 文档获取更多关于如何准备一个包含 form data, multipart data 等内容的请求.
 
-通常,首先声明响应状态和标头,如下所示:
+调用 `exchange()` 之后，`WebTestClient` 与 `WebClient` 分开，继续进行工作流以验证响应。
+
+要声明响应状态和 headers，请使用以下命令:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -159,13 +237,13 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 			.expectHeader().contentType(MediaType.APPLICATION_JSON)
 ----
 
-然后,您指定如何解码和使用响应主体:
+然后，您可以选择通过以下方式之一对响应主体进行解码：
 
 * `expectBody(Class<T>)`: 解码为单个对象
 * `expectBodyList(Class<T>)`: 解码并将对象收集到 `List<T>`.
 * `expectBody()`: 解码为 `byte[]`  以 <<webtestclient-json,获取JSON内容>>或一个空的正文.
 
-然后,您可以对主体使用内置的断言.  下面的示例显示了一种方法:
+并在生成的更高级别的对象上执行断言:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -186,7 +264,7 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 			.expectBodyList<Person>().hasSize(3).contains(person)
 ----
 
-您还可以超越内置的断言并创建自己的断言,如以下示例所示:
+如果内置断言不足，则可以改为使用该对象并执行任何其他断言:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -213,7 +291,7 @@ TIP: Kotlin用户: 请参阅<<languages.adoc#kotlin-webtestclient-issue, 本节>
 			}
 ----
 
-您还可以退出工作流程并获得结果,如下所示:
+您还可以退出工作流程并获得 `EntityExchangeResult`,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -241,26 +319,7 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 [[webtestclient-no-content]]
 === 无内容
 
-如果响应没有内容(或者您不在乎) ,请使用 `Void.class`,以确保释放资源.  以下示例显示了如何执行此操作:
-
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
-----
-	client.get().uri("/persons/123")
-			.exchange()
-			.expectStatus().isNotFound()
-			.expectBody(Void.class);
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	client.get().uri("/persons/123")
-			.exchange()
-			.expectStatus().isNotFound
-			.expectBody<Unit>()
-----
-
-或者,如果要断言没有响应内容,则可以使用类似于以下内容的代码:
+如果响应没有内容(或者您不在乎) ,则可以使用以下断言:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -281,11 +340,29 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 			.expectBody().isEmpty()
 ----
 
+如果要忽略响应内容，则以下操作将释放响应内容，而不会产生任何断言：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	client.get().uri("/persons/123")
+			.exchange()
+			.expectStatus().isNotFound()
+			.expectBody(Void.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	client.get().uri("/persons/123")
+			.exchange()
+			.expectStatus().isNotFound
+			.expectBody<Unit>()
+----
 
 [[webtestclient-json]]
 === JSON 内容
 
-当您使用 `expectBody()` 时,响应以  `byte[]` 的形式使用.  这对于原始内容声明很有用.  例如,您可以使用 https://jsonassert.skyscreamer.org[JSONAssert] 来验证JSON内容,如下所示:
+当您使用 `expectBody()` 时,响应以  `byte[]` 的形式使用.  这对于原始内容声明很有用.  例如,您可以使用 https://jsonassert.skyscreamer.org[JSONAssert] 来验证 JSON 内容,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -306,7 +383,7 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 			.json("{\"name\":\"Jane\"}")
 ----
 
-您还可以使用 https://github.com/jayway/JsonPath[JSONPath] 表达式,如下所示:
+您还可以使用 https://github.com/jayway/JsonPath[JSONPath] 验证 JSON content,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -334,7 +411,7 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 [[webtestclient-stream]]
 === 流式响应
 
-要测试无限流(例如, `"text/event-stream"` 或 `"application/stream+json"`) ,需要在响应状态和标头断言之后立即退出链接的API(使用 `returnResult`) ,如下所示 示例显示:
+要测试可能存在的无限流 (例如, `"text/event-stream"` 或 `"application/x-ndjson"`), 首先需要验证 响应状态和 headers，之后会获得一个 `FluxExchangeResult`:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -358,7 +435,7 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 			.returnResult<MyEvent>()
 ----
 
-现在,您可以使用 `Flux<T>`,在到达解码对象时对其进行断言,然后在达到测试目标时在某个时候取消.  我们建议使用 `reactor-test` 模块中的 `StepVerifier` 进行此操作,如以下示例所示:
+现在，您可以使用来自  `reactor-test` 中的  `StepVerifier` 来使用响应流了:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -385,9 +462,57 @@ TIP: 当需要使用泛型解码为目标类型时,请寻找接受 {api-spring-f
 			.verify()
 ----
 
+[[webtestclient-mockmvc]]
+=== MockMvc 断言
 
+`WebTestClient` 是一个 HTTP 客户端，因此它只能验证客户端响应中的内容，包括状态，标头和正文。
 
-[[webtestclient-request-body]]
-=== 请求体
+当使用 `MockMvc` 服务器设置测试 Spring MVC 应用程序时，您可以选择对服务器响应执行进一步的声明。 要做到这一点，首先要在声明主体后获得一个 `ExchangeResult`
 
-当涉及到构建请求时,`WebTestClient` 提供了与 `WebClient` 相同的 API,并且实现简单的传递.  有关如何使用正文准备请求的示例,请参见 <<web-reactive.adoc#webflux-client-body, WebClient 文档>>,包括提交表单数据,多部分请求等.
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// For a response with a body
+	EntityExchangeResult<Person> result = client.get().uri("/persons/1")
+			.exchange()
+			.expectStatus().isOk()
+			.expectBody(Person.class)
+			.returnResult();
+
+	// For a response without a body
+	EntityExchangeResult<Void> result = client.get().uri("/path")
+			.exchange()
+			.expectBody().isEmpty();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// For a response with a body
+	val result = client.get().uri("/persons/1")
+			.exchange()
+			.expectStatus().isOk()
+			.expectBody(Person.class)
+			.returnResult();
+
+	// For a response without a body
+	val result = client.get().uri("/path")
+			.exchange()
+			.expectBody().isEmpty();
+----
+
+然后切换到 MockMvc 服务器响应断言：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	MockMvcWebTestClient.resultActionsFor(result)
+			.andExpect(model().attribute("integer", 3))
+			.andExpect(model().attribute("string", "a string value"));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	MockMvcWebTestClient.resultActionsFor(result)
+			.andExpect(model().attribute("integer", 3))
+			.andExpect(model().attribute("string", "a string value"));
+----

@@ -139,7 +139,7 @@ Spring 框架不支持启动和停止 <<webflux-server-choice, servers>>. 要为
 * 在服务端请求处理过程中,提供了两个层次的支持,
 ** <<webflux-httphandler, HttpHandler>>: 提供了用于非阻塞 I/O 和响应式流背压机制的处理机制.以及用于响应式 Netty、Undertow、Tomcat、Jetty 和任何 Servlet 3.1+ 容器的适配器.
 ** <<webflux-web-handler-api>>: 用于处理请求的高级通用 web API,使用这个 API 可以构建具体的编程模型,如带注解的控制器和功能入口.
-* 对于客户端,有一个基本的 `ClientHttpConnector` 来执行带有非阻塞 I/O 和响应式流背压机制的 HTTP 请求,以及用于https://github.com/reactor/reactor-netty[Reactor Netty] 和 https://github.com/jetty-project/jetty-reactive-httpclient[Jetty HttpClient] 的API.
+* 对于客户端,有一个基本的 `ClientHttpConnector` 来执行带有非阻塞 I/O 和响应式流背压机制的 HTTP 请求,以及用于 https://github.com/reactor/reactor-netty[Reactor Netty] 和 https://github.com/jetty-project/jetty-reactive-httpclient[Jetty HttpClient] 和 https://hc.apache.org/[Apache HttpComponents] 的 API.
 在实际的应用开发过程中,我们使用的更高层级的  <<web-reactive.adoc#webflux-client, WebClient>> 就是构建在这个基本的 `ClientHttpConnector` 之上.
 * 对于客户端和服务器, <<webflux-codecs, codecs>> 用于序列化和反序列化 HTTP 请求和响应内容.
 
@@ -403,8 +403,9 @@ Spring 框架不支持启动和停止 <<webflux-server-choice, servers>>. 要为
 	suspend fun getMultipartData(): MultiValueMap<String, Part>
 ----
 
-`DefaultServerWebExchange` 使用配置的 `HttpMessageReader<MultiValueMap<String, Part>>` 将 `multipart/form-data` 内容解析为 `MultiValueMap`. 现在,https://github.com/synchronoss/nio-multipart[Synchronoss NIO Multipart]
-是唯一受支持的第三方库,并且是我们知道的用于非阻塞解析多部分请求的唯一库. 通过 `ServerCodecConfigurer` Bean 启用它(请参阅 <<webflux-web-handler-api, Web Handler API>>).
+`DefaultServerWebExchange` 使用配置的 `HttpMessageReader<MultiValueMap<String, Part>>` 将 `multipart/form-data` 内容解析为 `MultiValueMap`. 默认情况下,这是没有任何第三方依赖的 `DefaultPartHttpMessageReader`.
+或者，可以使用基于 https://github.com/synchronoss/nio-multipart[Synchronoss NIO Multipart] 库的 `SynchronossPartHttpMessageReader`. 两者都是通过 `ServerCodecConfigurer` bean 配置的
+（请参阅 <<webflux-web-handler-api, Web Handler API>>）.
 
 要以流方式解析多部分数据,可以使用从 `HttpMessageReader<Part>` 返回的  `Flux<Part>`. 例如,在带注解的控制器中,使用 `@RequestPart` 意味着按名称对各个部分进行类似于 Map 的访问,因此需要完全解析多部分数据.
 相反,您可以使用 `@RequestBody` 将内容解码为  `Flux<Part>` 而不收集到 `MultiValueMap`.
@@ -490,14 +491,14 @@ Jackson 支持 JSON 和二进制JSON(https://github.com/FasterXML/smile-format-s
 * Jackson 以异步, 非阻塞的形式解析,将字节块流聚合到 `TokenBuffer` 的每个块中,每个代表 JSON 对象.
 * 每个 `TokenBuffer` 都传递给 Jackson `ObjectMapper` 以创建更高级别的对象.
 * 当解码为一个简单的 publisher (例如 `Mono`) 时, 有一个 `TokenBuffer`.
-* 当解码为多个 publisher (例如 `Flux`), 一旦为完整格式的对象接收到足够的字节,每个 `TokenBuffer` 就会传递给 `ObjectMapper`. 输入内容可以是 JSON 数组,如果内容类型为 "application/stream+json",也可以是 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON].
+* 当解码为多个 publisher (例如 `Flux`), 一旦为完整格式的对象接收到足够的字节,每个 `TokenBuffer` 就会传递给 `ObjectMapper`. 输入内容可以是 JSON 数组,也可以是 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON], 例如 NDJSON, JSON Lines, or JSON Text Sequences.
 
 `Jackson2Encoder` 的工作方式如下:
 
 * 对于单个 publisher (例如 `Mono`), 只需通过 `ObjectMapper` 对其进行序列化即可.
 * 对于具有 "application/json" 的多个 publisher, 默认情况下使用 `Flux#collectToList()` 将值收集起来,然后序列化结果集合.
-* 对于具有流媒体类型 `application/stream+json` 或 `application/stream+x-jackson-smile` 的多个 publisher, 请使用 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON] 格式分别对每个值进行编码,写入和刷新.
-* 对于SSE 将为每个事件调用 `Jackson2Encoder` 并刷新输出以确保交付没有延迟.
+* 对于具有流媒体类型 `application/x-ndjson` 或 `application/stream+x-jackson-smile` 的多个 publisher, 请使用 https://en.wikipedia.org/wiki/JSON_streaming[line-delimited JSON] 格式分别对每个值进行编码,写入和刷新.其他流媒体类型可能已在编码器中注册
+* 对于 SSE 将为每个事件调用 `Jackson2Encoder` 并刷新输出以确保交付没有延迟.
 
 [NOTE]
 ====
@@ -518,7 +519,10 @@ Jackson 支持 JSON 和二进制JSON(https://github.com/FasterXML/smile-format-s
 ==== Multipart
 
 `MultipartHttpMessageReader` 和 `MultipartHttpMessageWriter` 支持对 "multipart/form-data" 内容进行解码和编码. 反过来,`MultipartHttpMessageReader` 委托 `HttpMessageReader` 进行实际解析为 `Flux<Part>` 然后将这些内容简单地收集到 `MultiValueMap`.
-目前,https://github.com/synchronoss/nio-multipart[Synchronoss NIO Multipart] 用于实际解析.
+
+默认情况下,使用的是 `DefaultPartHttpMessageReader`,但是可以通过 `ServerCodecConfigurer` 改变默认行为.
+
+有关 `DefaultPartHttpMessageReader` 的更多信息，请参考 {api-spring-framework}/http/codec/multipart/DefaultPartHttpMessageReader.html[javadoc of `DefaultPartHttpMessageReader`].
 
 服务器端经常需要从多个位置访问表单内容,`ServerWebExchange` 提供了 `getMultipartData()` 方法,该方法通过 `MultipartHttpMessageReader` 解析内容,然后缓存结果以进行重复访问. 请参阅 <<webflux-web-handler-api>> 部分中的 <<webflux-multipart>>.
 
@@ -541,7 +545,7 @@ Jackson 支持 JSON 和二进制JSON(https://github.com/FasterXML/smile-format-s
 ==== Streaming
 [.small]#<<web.adoc#mvc-ann-async-http-streaming, Web MVC>>#
 
-在流式传输到 HTTP 响应(例如 `text/event-stream`,`application/stream+json`) 时,定期发送数据很重要,这样才能尽快(而不是稍后)可靠地检测到断开连接的客户端. 这样的发送可以是仅注解的空 SSE 事件,也可以是有效用作心跳的任何其他"无操作”数据.
+在流式传输到 HTTP 响应(例如 `text/event-stream`,`application/x-ndjson`) 时,定期发送数据很重要,这样才能尽快(而不是稍后)可靠地检测到断开连接的客户端. 这样的发送可以是仅注解的空 SSE 事件,也可以是有效用作心跳的任何其他"无操作”数据.
 
 [[webflux-codecs-buffers]]
 ==== `DataBuffer`
@@ -623,6 +627,12 @@ Spring WebFlux 中的 `DEBUG` 级别日志记录意图提供一个紧密的,最�
 			.exchangeStrategies({ strategies -> strategies.codecs(consumer) })
 			.build()
 ----
+
+[[webflux-logging-appenders]]
+==== Appenders
+
+日志库（例如 SLF4J 和 Log4J 2）提供了避免阻塞的异步记录器。 尽管它们有其自身的缺点，例如可能丢弃无法进行排队日志记录的消息，但它们是当前在响应式，非阻塞应用程序中使用的最佳可用选项.
+
 
 [[webflux-codecs-custom]]
 ==== Custom codecs
@@ -1052,7 +1062,7 @@ URI变量会自动转换为适当的类型,或者引发 `TypeMismatchException`.
 
 语法  `{*varName}` 声明了一个与零个或多个剩余路径段匹配的 URI 变量. 例如,`/resources/{*path}` 匹配所有文件 `/resources/`,并且 `"path"`  变量捕获完整的相对路径.
 
-语法 `{varName:regex}` 声明一个具有正则表达式的 URI 变量,其语法为 `{varName:regex}`. 例如,给定URL `"/spring-web-3.0.5 .jar"`,以下方法提取名称,版本和文件扩展名:
+语法 `{varName:regex}` 声明一个具有正则表达式的 URI 变量,其语法为 `{varName:regex}`. 例如,给定URL `"/spring-web-3.0.5.jar"`,以下方法提取名称,版本和文件扩展名:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1359,7 +1369,7 @@ JDK 8  `java.util.Optional` 作为方法参数来支持的,它与具有必需属
   请参阅 <<webflux-ann-sessionattributes>> 获取更多的细节.
 
 | `UriComponentsBuilder`
-| 为当前请求的 host, port, scheme, 和 path 准备 URL.
+| 为当前请求的 host, port, scheme, 和 context path 准备 URL.
   请参阅 <<webflux-uri-building>>.
 
 | `@SessionAttribute`
@@ -1434,6 +1444,8 @@ JDK 8  `java.util.Optional` 作为方法参数来支持的,它与具有必需属
 如果参数声明为 `String` 以外的其他参数,则表示某些带注解的控制器方法参数(例如 `@RequestParam`, `@RequestHeader`, `@PathVariable`, `@MatrixVariable`, 和 `@CookieValue`) 可能需要进行类型转换.
 
 对于此类情况,将根据配置的转换器自动应用类型转换.  默认情况下,支持简单类型(`int`, `long`, `Date` 和其他) .  您可以通过 `WebDataBinder`(请参阅<<webflux-ann-initbinder>>) 或使用 `FormattingConversionService` 注册 `Formatters` 来自定义类型转换.  请参见 <<core.adoc#format, Spring Field Formatting>>.
+
+类型转换中的一个实际问题是处理空的 String 值。如果该值由于类型转换而变为 `null`，则将其视为丢失。`Long`, `UUID`, 和其他目标类型。 如果要允许注入 `null`，则可以在参数注解中使用 `required` 标志，或将参数声明为 `@Nullable`.
 
 [[webflux-ann-matrix-variables]]
 ==== 矩阵变量
@@ -2301,6 +2313,13 @@ Content-Transfer-Encoding: 8bit
 
 WebFlux 支持使用单值<<webflux-reactive-libraries, reactive type>>异步生成 `ResponseEntity`,and/or 主体的单值和多值 reactive 类型.
 
+这允许使用 `ResponseEntity` 进行各种异步响应，如下所示:
+
+* `ResponseEntity<Mono<T>>` 或 `ResponseEntity<Flux<T>>` 可以立即获得响应状态和响应头,而在稍后以异步方式提供正文时.
+如果主体包含 0..1 个值, 请使用 `Mono`,如果主体可以产生多个值,请使用 `Flux`.
+* `Mono<ResponseEntity<T>>` 在稍后的时间异步提供所有的 -- response status, headers, 和 body. 这允许响应状态和响应头根据异步请求处理的结果而变化.
+* `Mono<ResponseEntity<Mono<T>>>` 或 `Mono<ResponseEntity<Flux<T>>>` 是另一种可能的方法，但是不太常见. 它们首先异步地提供响应状态和响应头，然后第二次异步地提供响应主体.
+
 [[webflux-ann-jackson]]
 ==== Jackson JSON
 
@@ -2506,7 +2525,7 @@ NOTE: 如果未明确指定名称,框架将根据属性的类型给予一个默�
 * 将基于字符串的请求值(例如请求参数,路径变量,请求头,cookie 等) 转换为目标类型的控制器方法参数.
 * 在呈现HTML表单时将模型对象值格式化为 `String` 值.
 
-`@InitBinder` 方法可以注册特定于控制器的 `java.bean.PropertyEditor` 或Spring `Converter` 和 `Formatter` 组件.  此外,您可以使用<<webflux-config-conversion,WebFlux Java configuration>> 在全局共享的 `FormattingConversionService` 中注册 `Converter` 和 `Formatter` 类型.
+`@InitBinder` 方法可以注册特定于控制器的 `java.beans.PropertyEditor` 或Spring `Converter` 和 `Formatter` 组件.  此外,您可以使用<<webflux-config-conversion,WebFlux Java configuration>> 在全局共享的 `FormattingConversionService` 中注册 `Converter` 和 `Formatter` 类型.
 
 `@InitBinder` 方法支持许多与 `@RequestMapping` 方法相同的参数,但 `@ModelAttribute`(命令对象) 参数除外.  通常,它们使用 `WebDataBinder` 参数(用于注册) 和 `void` 返回值进行声明.  以下清单显示了一个示例:
 
@@ -3420,6 +3439,49 @@ Spring WebFlux 依赖于请求路径的解析表示形式来访问解码的路�
 
 Spring WebFlux 也不支持后缀模式匹配,这与 Spring MVC 不同,在 Spring MVC 中,我们也  <<web.adoc#mvc-ann-requestmapping-suffix-pattern-match, 建议>>不要依赖它.
 ====
+
+
+
+[[webflux-config-websocket-service]]
+=== WebSocketService
+
+WebFlux Java 配置声明了一个 `WebSocketHandlerAdapter` bean，它为调用 `WebSocket` 处理程序提供了支持。 `这意味着要处理WebSocket` 握手请求，剩下要做的就是通过 `SimpleUrlHandlerMapping` 将 `WebSocketHandler` 映射到 URL。
+
+在某些情况下，可能需要使用提供的 `WebSocketService` 服务创建 `WebSocketHandlerAdapter` bean，该服务允许配置 `WebSocket` 服务器属性。 例如:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@EnableWebFlux
+	public class WebConfig implements WebFluxConfigurer {
+
+		@Override
+		public WebSocketService getWebSocketService() {
+			TomcatRequestUpgradeStrategy strategy = new TomcatRequestUpgradeStrategy();
+			strategy.setMaxSessionIdleTimeout(0L);
+			return new HandshakeWebSocketService(strategy);
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@EnableWebFlux
+	class WebConfig : WebFluxConfigurer {
+
+		@Override
+		fun webSocketService(): WebSocketService {
+			val strategy = TomcatRequestUpgradeStrategy().apply {
+				setMaxSessionIdleTimeout(0L)
+			}
+			return HandshakeWebSocketService(strategy)
+		}
+	}
+----
+
+
 
 [[webflux-config-advanced-java]]
 === 高级配置模式
