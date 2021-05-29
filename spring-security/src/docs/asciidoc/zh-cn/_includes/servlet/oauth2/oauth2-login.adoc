@@ -105,7 +105,7 @@ spring:
 |`authorizationGrantType`
 
 |`spring.security.oauth2.client.registration._[registrationId]_.redirect-uri`
-|`redirectUriTemplate`
+|`redirectUri`
 
 |`spring.security.oauth2.client.registration._[registrationId]_.scope`
 |`scopes`
@@ -121,6 +121,9 @@ spring:
 
 |`spring.security.oauth2.client.provider._[providerId]_.jwk-set-uri`
 |`providerDetails.jwkSetUri`
+
+|`spring.security.oauth2.client.provider._[providerId]_.issuer-uri`
+|`providerDetails.issuerUri`
 
 |`spring.security.oauth2.client.provider._[providerId]_.user-info-uri`
 |`providerDetails.userInfoEndpoint.uri`
@@ -237,7 +240,9 @@ spring:
 
 下面例子展示如何注册一个 `ClientRegistrationRepository` `@Bean`:
 
-[source,java,attrs="-attributes"]
+====
+.Java
+[source,java,role="primary",attrs="-attributes"]
 ----
 @Configuration
 public class OAuth2LoginConfig {
@@ -253,7 +258,7 @@ public class OAuth2LoginConfig {
 			.clientSecret("google-client-secret")
 			.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
 			.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-			.redirectUriTemplate("{baseUrl}/login/oauth2/code/{registrationId}")
+			.redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
 			.scope("openid", "profile", "email", "address", "phone")
 			.authorizationUri("https://accounts.google.com/o/oauth2/v2/auth")
 			.tokenUri("https://www.googleapis.com/oauth2/v4/token")
@@ -266,6 +271,35 @@ public class OAuth2LoginConfig {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+@Configuration
+class OAuth2LoginConfig {
+    @Bean
+    fun clientRegistrationRepository(): ClientRegistrationRepository {
+        return InMemoryClientRegistrationRepository(googleClientRegistration())
+    }
+
+    private fun googleClientRegistration(): ClientRegistration {
+        return ClientRegistration.withRegistrationId("google")
+                .clientId("google-client-id")
+                .clientSecret("google-client-secret")
+                .clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
+                .scope("openid", "profile", "email", "address", "phone")
+                .authorizationUri("https://accounts.google.com/o/oauth2/v2/auth")
+                .tokenUri("https://www.googleapis.com/oauth2/v4/token")
+                .userInfoUri("https://www.googleapis.com/oauth2/v3/userinfo")
+                .userNameAttributeName(IdTokenClaimNames.SUB)
+                .jwkSetUri("https://www.googleapis.com/oauth2/v3/certs")
+                .clientName("Google")
+                .build()
+    }
+}
+----
+====
 
 [[oauth2login-provide-websecurityconfigureradapter]]
 ==== Provide a WebSecurityConfigurerAdapter
@@ -347,7 +381,7 @@ public class OAuth2LoginConfig {
 			.clientSecret("google-client-secret")
 			.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
 			.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-			.redirectUriTemplate("{baseUrl}/login/oauth2/code/{registrationId}")
+			.redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
 			.scope("openid", "profile", "email", "address", "phone")
 			.authorizationUri("https://accounts.google.com/o/oauth2/v2/auth")
 			.tokenUri("https://www.googleapis.com/oauth2/v4/token")
@@ -390,7 +424,7 @@ class OAuth2LoginConfig {
                 .clientSecret("google-client-secret")
                 .clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-                .redirectUriTemplate("{baseUrl}/login/oauth2/code/{registrationId}")
+                .redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
                 .scope("openid", "profile", "email", "address", "phone")
                 .authorizationUri("https://accounts.google.com/o/oauth2/v2/auth")
                 .tokenUri("https://www.googleapis.com/oauth2/v4/token")
@@ -637,7 +671,6 @@ class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
                     userAuthoritiesMapper = userAuthoritiesMapper()
                     userService = oauth2UserService()
                     oidcUserService = oidcUserService()
-                    customUserType(GitHubOAuth2User::class.java, "github")
                 }
             }
         }
@@ -836,17 +869,28 @@ class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
 
 [IMPORTANT]
 ====
-您还需要确保 `ClientRegistration.redirectUriTemplate` 与自定义的授权响应 `baseUri` 匹配.
+您还需要确保 `ClientRegistration.redirectUri` 与自定义的授权响应 `baseUri` 匹配.
 
 以下清单显示了一个示例:
 
-[source,java,attrs="-attributes"]
+.Java
+[source,java,role="primary",attrs="-attributes"]
 ----
 return CommonOAuth2Provider.GOOGLE.getBuilder("google")
 	.clientId("google-client-id")
 	.clientSecret("google-client-secret")
-	.redirectUriTemplate("{baseUrl}/login/oauth2/callback/{registrationId}")
+	.redirectUri("{baseUrl}/login/oauth2/callback/{registrationId}")
 	.build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+return CommonOAuth2Provider.GOOGLE.getBuilder("google")
+    .clientId("google-client-id")
+    .clientSecret("google-client-secret")
+    .redirectUri("{baseUrl}/login/oauth2/callback/{registrationId}")
+    .build()
 ----
 ====
 
@@ -857,7 +901,6 @@ return CommonOAuth2Provider.GOOGLE.getBuilder("google")
 UserInfo端点包括许多配置选项,如以下小节所述:
 
 * <<oauth2login-advanced-map-authorities, 用户权限映射>>
-* <<oauth2login-advanced-custom-user, 配置自定义OAuth2User>>
 * <<oauth2login-advanced-oauth2-user-service, OAuth 2.0 UserService>>
 * <<oauth2login-advanced-oidc-user-service, OpenID Connect 1.0 UserService>>
 
@@ -1124,101 +1167,6 @@ class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
 ----
 ====
 
-[[oauth2login-advanced-custom-user]]
-===== 自定义 OAuth2User 配置
-
-`CustomUserTypesOAuth2UserService` 是 `OAuth2UserService` 的实现,该实现提供对自定义 `OAuth2User` 类型的支持.
-
-如果默认实现 (`DefaultOAuth2User`) 不适合您的需求,则可以定义自己的 `OAuth2User` 实现.
-
-以下代码演示了如何为GitHub注册自定义 `OAuth2User` 类型:
-
-[source,java]
-----
-@EnableWebSecurity
-public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
-
-	@Override
-	protected void configure(HttpSecurity http) throws Exception {
-		http
-			.oauth2Login(oauth2 -> oauth2
-			    .userInfoEndpoint(userInfo -> userInfo
-			        .customUserType(GitHubOAuth2User.class, "github")
-			        ...
-			    )
-			);
-	}
-}
-----
-
-以下代码显示了GitHub的自定义 `OAuth2User` 类型的示例:
-
-[source,java]
-----
-public class GitHubOAuth2User implements OAuth2User {
-	private List<GrantedAuthority> authorities =
-		AuthorityUtils.createAuthorityList("ROLE_USER");
-	private Map<String, Object> attributes;
-	private String id;
-	private String name;
-	private String login;
-	private String email;
-
-	@Override
-	public Collection<? extends GrantedAuthority> getAuthorities() {
-		return this.authorities;
-	}
-
-	@Override
-	public Map<String, Object> getAttributes() {
-		if (this.attributes == null) {
-			this.attributes = new HashMap<>();
-			this.attributes.put("id", this.getId());
-			this.attributes.put("name", this.getName());
-			this.attributes.put("login", this.getLogin());
-			this.attributes.put("email", this.getEmail());
-		}
-		return attributes;
-	}
-
-	public String getId() {
-		return this.id;
-	}
-
-	public void setId(String id) {
-		this.id = id;
-	}
-
-	@Override
-	public String getName() {
-		return this.name;
-	}
-
-	public void setName(String name) {
-		this.name = name;
-	}
-
-	public String getLogin() {
-		return this.login;
-	}
-
-	public void setLogin(String login) {
-		this.login = login;
-	}
-
-	public String getEmail() {
-		return this.email;
-	}
-
-	public void setEmail(String email) {
-		this.email = email;
-	}
-}
-----
-
-[TIP]
-`id`, `name`, `login`, 和 `email` GitHub的UserInfo响应中返回的属性.  有关从UserInfo端点返回的详细信息,请参阅API文档 https://developer.github.com/v3/users/#get-the-authenticated-user["获取经过身份验证的用户"].
-
 [[oauth2login-advanced-oauth2-user-service]]
 ===== OAuth 2.0 UserService
 
@@ -1244,7 +1192,9 @@ restTemplate.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
 
 无论您是自定义 `DefaultOAuth2UserService` 还是提供自己的 `OAuth2UserService` 的实现,都需要按以下示例所示进行配置:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -1266,6 +1216,30 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    userService = oauth2UserService()
+                    // ...
+                }
+            }
+        }
+    }
+
+    private fun oauth2UserService(): OAuth2UserService<OAuth2UserRequest, OAuth2User> {
+        // ...
+    }
+}
+----
+====
+
 [[oauth2login-advanced-oidc-user-service]]
 ===== OpenID Connect 1.0 UserService
 
@@ -1277,7 +1251,9 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 
 无论您是自定义 `OidcUserService` 还是为OpenID Connect 1.0自己提供 `OAuth2UserService` 的实现,都需要对其进行配置,如以下示例所示:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -1299,6 +1275,30 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    oidcUserService = oidcUserService()
+                    // ...
+                }
+            }
+        }
+    }
+
+    private fun oidcUserService(): OAuth2UserService<OidcUserRequest, OidcUser> {
+        // ...
+    }
+}
+----
+====
+
 
 [[oauth2login-advanced-idtoken-verify]]
 ==== ID令牌签名验证
@@ -1313,7 +1313,9 @@ JWS算法解析器是一个接受 `ClientRegistration` 并返回客户端期望�
 
 以下代码显示了如何针对所有 `ClientRegistration` 将 `OidcIdTokenDecoderFactory`  `@Bean` 配置为默认为 `MacAlgorithm.HS256`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Bean
 public JwtDecoderFactory<ClientRegistration> idTokenDecoderFactory() {
@@ -1322,6 +1324,18 @@ public JwtDecoderFactory<ClientRegistration> idTokenDecoderFactory() {
 	return idTokenDecoderFactory;
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun idTokenDecoderFactory(): JwtDecoderFactory<ClientRegistration?> {
+    val idTokenDecoderFactory = OidcIdTokenDecoderFactory()
+    idTokenDecoderFactory.setJwsAlgorithmResolver { MacAlgorithm.HS256 }
+    return idTokenDecoderFactory
+}
+----
+====
 
 [NOTE]
 对于基于MAC的算法 (例如 `HS256`,`HS384` 或 `HS512`) ,将与 `client-id` 对应的 `client-secret` 用作对称密钥以进行签名验证.
@@ -1352,9 +1366,11 @@ spring:
             issuer-uri: https://dev-1234.oktapreview.com
 ----
 
-…和实现RP初始注销的 `OidcClientInitiatedLogoutSuccessHandler` 可以配置如下:
+…和实现 RP-Initiated 注销的 `OidcClientInitiatedLogoutSuccessHandler` 可以配置如下:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
@@ -1385,8 +1401,44 @@ public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
 		return oidcLogoutSuccessHandler;
 	}
 }
-----
-
 
 NOTE: `OidcClientInitiatedLogoutSuccessHandler` 支持 `{baseUrl}` 占位符.
 如果使用,则应用程序的基本URL (例如, `https://app.example.org`) 将在请求时替换它.
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+    @Autowired
+    private lateinit var clientRegistrationRepository: ClientRegistrationRepository
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2Login { }
+            logout {
+                logoutSuccessHandler = oidcLogoutSuccessHandler()
+            }
+        }
+    }
+
+    private fun oidcLogoutSuccessHandler(): LogoutSuccessHandler {
+        val oidcLogoutSuccessHandler = OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository)
+
+        // Sets the location that the End-User's User Agent will be redirected to
+        // after the logout has been performed at the Provider
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}")
+        return oidcLogoutSuccessHandler
+    }
+}
+
+NOTE: `OidcClientInitiatedLogoutSuccessHandler` 支持 `{baseUrl}` 占位符.
+如果使用,则应用程序的基本URL (例如, `https://app.example.org`) 将在请求时替换它.
+----
+====
+
+
