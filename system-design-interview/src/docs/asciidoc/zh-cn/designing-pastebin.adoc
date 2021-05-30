@@ -111,140 +111,128 @@ Pastebin和URL压缩服务的一些需求相同，但是还有一些我们应该
     0.2 * 5M * 10KB ~= 10 GB
 ====
 
-=== 5. System APIs
+'''
 
-We can have SOAP or REST APIs to expose the functionality of our service.
-Following could be the definitions of the APIs to create/retrieve/delete Pastes:
+=== 5. 系统APIs
 
-addPaste(api_dev_key, paste_data, custom_url=None user_name=None, paste_name=None, expire_date=None) Parameters:
-api_dev_key (string): The API developer key of a registered account.
-This will be used to, among other things, throttle users based on their allocated quota.
-paste_data (string): Textual data of the paste.
-custom_url (string): Optional custom URL.
-user_name (string): Optional user name to be used to generate URL. paste_name (string): Optional name of the paste expire_date (string): Optional expiration date for the paste.
+我们可以使用SOAP或者REST APIs来暴露我们服务的功能。以下定义的APIs是用来创建、检索和删除paste的API：
 
-Returns: (string) A successful insertion returns the URL through which the paste can be accessed, otherwise, it will return an error code.
+[source,text]
+====
+    addPaste(api_dev_key, paste_data, custom_url=None user_name=None, paste_name=None, expire_date=None)
+====
 
-Similarly, we can have retrieve and delete Paste APIs:
+* *参数：*
++
+api_dev_key (string): :: 注册账户的开发者密钥。除此之外，这将用于根据用户分配的配额来节流。
+paste_data (string): :: 粘贴的文字数据；
+custom_url (string): :: 可选的自定义URL；
+user_name (string): :: 用于生成URL的可选的用户名；
+paste_name (string): :: 可选的paste的名称；
+expire_date (string): :: 可选的为paste指定过期时间。
 
-getPaste(api_dev_key, api_paste_key) Where “api_paste_key” is a string representing the Paste Key of the paste to be retrieved.
-This API will return the textual data of the paste.
+* *return：* (string)
++
+paste成功新增后返回一个可以访问此paste的URL，否则，返回一个错误码。
 
-deletePaste(api_dev_key, api_paste_key) A successful deletion returns ‘true’, otherwise returns ‘false’.
+类似地，还有检索和删除的API：
 
-=== 6. Database Design
+[source,text]
+====
+    getPaste(api_dev_key, api_paste_key)
+====
 
-A few observations about the nature of the data we are storing:
+“api_paste_key”是一个表示要检索paste的密钥。这个API将会返回paste的文本数据。
 
-1. We need to store billions of records.
-2. Each metadata object we are storing would be small (less than 100 bytes).
-3. Each paste object we are storing can be of medium size (it can be a few MB).
-4. There are no relationships between records, except if we want to store which user created what Paste.
+[source,text]
+====
+    deletePaste(api_dev_key, api_paste_key)
+====
 
-5. Our service is read-heavy.
+成功删除返回‘true’，否则返回‘false’。
 
-Database Schema:
+=== 6. 数据库设计
 
-We would need two tables, one for storing information about the Pastes and the other for users’ data.
+关于要存储的数据的特性:
 
-Paste
+. 需要存储数十亿条记录；
+. 存储的每一个元数据对象都很小（不超过100字节）；
+. Each paste object we are storing can be of medium size (it can be a few MB).
+. There are no relationships between records, except if we want to store which user created what Paste.
+. Our service is read-heavy.
 
-User
+*数据库表：* Database Schema:
 
+我们需要两张表，一个存储Paste相关的信息，一个存储用户数据。
 
-pPK >URLHash: varchar(16)</span> <spPaKn>UserID: int</span>
+.Paste
+[width="25%", cols=">s,>m,e"]
+|===
+3+| Paste
+| PK|URLHash: varchar(16)|
+| |ContentKey: varchar(512)|
+| |ExpirationDate: datetime|
+| |CreationDate: datetime|
+|===
 
-pan>ContentKey: varchar(512)</span><span>Name: varchar(20)</span> pan>ExpirationDate: datatime</span><span>Email: varchar(32)</span>
+.User
+[width="25%",cols=">s,^m,e"]
+|===
+3+| User
+|PK|UserID: int|
+||Name: varchar(20)|
+||Email: varchar(32)|
+||CreationDate: datetime|
+||LastLogin: datetime|
+|===
 
-ot supported by viewer] pan>CreationDate: datetime</span>
+在这里，‘URLHash’等同于TinyURL中的URL，‘ContentKey’是存储paste内容的对象键值。
 
-CreationDate: datetime<br>
+=== 7. 高级设计
 
-<span>LastLogin: datatime</span>
+在高层次上，我们需要一个应用层来处理所有的读写请求。应用层将与数据层通信进行数据存储和检索。可以将存储层进行分隔，一个数据库存储paste、用户等相关的元数据，而paste的内容存储在一些对象存储中（例如Amazon S3）。这种数据划分将允许我们独立地扩展他们。
 
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/pastebin/metadata-storage.png[caption="",title="元数据存储"]
 
+=== 8. 组件设计
 
+.. *应用程序层*
++
+应用程序层将会处理所有的请求和响应。应用程序服务器将会与后端数据存储组件通信以服务请求。
++
+*如何处理写请求？*
+接收到写请求后，应用程序服务器将会生成一个6位字母的随机字符串，它将会作为paste的键（如果用户没有提供自定义键）。然后应用服务器将paste的内容和生成的键存储到数据库中。插入成功后，服务器会把生成的键返回给用户。这里可能会有的一个问题是，因为重复的键导致数据插入失败。因为生成随机键时，有一定的几率会生成一个已经存在的键。在这种情况下，我们将会重新生成键，并重新尝试数据入库。我们应该一直重试，直到因为重复键导致的失败消失。如果用户提供的自定义键已存在于数据库中，应该向用户返回一个错误。
++
+解决上述问题的另一个方案是，运行一个独立的密钥生成服务（KGS），它预先生成随机的六个字母的字符串并存储到数据库中（称之为key-DB）。当我们想要存储新的paste时，将只需获取一个已生成的密钥并使用它。这种方法将会使事情变得简单快捷，因为我们无需担心键重复或者冲突的问题。KGS将会保证所有新增到Key-DB中的密钥是唯一的。KGS会使用两张表存储密钥，一张表存储未使用的密钥，另一张表存储已使用的密钥。一旦KGS将一些密钥提供给应用服务器，它将会把这些密钥移动到已使用的密钥表中。KGS总会缓存一些密钥在内存中，以便当服务器需要密钥时，可以很快的提供给它。一旦KGS将一些密钥加载到内存中，这些密钥将会被移动到已使用的密钥表中，这种方式确保每个服务器获取的密钥都是唯一的。如果KGS在这些加载到内存的密钥未使用完之前宕机，那么就会浪费掉这些密钥。鉴于我们有大量的密钥，我们可以忽略掉这些丢失的。
++
+*KGS不会单点故障吗？* 是的，它会。为了解决这个问题，我们可以拥有一个KGS的备份，当主服务宕机时，它就会成为主服务，来生成并提供密钥。
++
+*每个应用服务器都可以缓存一些key-DB的密钥吗？* 是的，这会使服务变得更快。尽管在这种情况下，如果在应用服务在未消耗完这些密钥之前就宕机，会导致我们最终丢失这些密钥。但这是可接受的，因为我们有68亿个唯一的6个字母的密钥，这远超过我们所需要的数量。
++
+*如何处理一个paste的读请求？* 在收到读取paste的请求后，应用层会与数据存储层进行通信。数据存储层会检索这个密钥，如果它存在，则返回paste的内容；否则，返回一个错误码。
 
-Here, ‘URlHash’ is the URL equivalent of the TinyURL and ‘ContentKey’ is the object key storing the contents of the paste.
-
-=== 7. High Level Design
-
-At a high level, we need an application layer that will serve all the read and write requests.
-Application layer will talk to a storage layer to store and retrieve data.
-We can segregate our storage layer with one database storing metadata related to each paste, users, etc., while the other storing the paste contents in some object storage (like Amazon S3).
-This division of data will also allow us to scale them individually.
-
-
-image::../image/metadata-storage.png[]
-
-Metadata storage
-
-=== 8. Component Design
-
-a. Application layer
-
-Our application layer will process all incoming and outgoing requests.
-The application servers will be talking to the backend data store components to serve the requests.
-
-How to handle a write request?
-Upon receiving a write request, our application server will generate a six-letter random string, which would serve as the key of the paste (if the user has not provided a custom key).
-The application server will then store the contents of the paste and the generated key in the database.
-After the successful insertion, the server can return the key to the user.
-One possible problem here could be that the insertion fails because of a duplicate key.
-Since we are generating a random key, there is a possibility that the newly generated key could match an existing one.
-In that case, we should regenerate a new key and try again.
-We should keep retrying until we don’t see failure due to the duplicate key.
-We should return an error to the user if the custom key they have provided is already present in our database.
-
-Another solution of the above problem could be to run a standalone Key Generation Service (KGS) that generates random six letters strings beforehand and stores them in a database (let’s call it key-DB).
-Whenever we want to store a new paste, we will just take one of the already generated keys and use it.
-This approach will make things quite simple and fast since we will not be worrying about duplications or collisions.
-KGS will make sure all the keys inserted in key-DB are unique.
-KGS can use two tables to store keys, one for keys that are not used yet and one for all the used keys.
-As soon as KGS gives some keys to an application server, it can move these to the used keys table.
-KGS can always keep some keys in memory so that whenever a server needs them, it can quickly provide them.
-As soon as KGS loads some keys in memory, it can move them to the used keys table, this way we can make sure each server gets unique keys.
-If KGS dies before using all the keys loaded in memory, we will be wasting those keys.
-We can ignore these keys given that we have a huge number of them.
-
-Isn’t KGS a single point of failure?
-Yes, it is.
-To solve this, we can have a standby replica of KGS and whenever the primary server dies it can take over to generate and provide keys.
-
-Can each app server cache some keys from key-DB?
-Yes, this can surely speed things up.
-Although in this case, if the application server dies before consuming all the keys, we will end up losing those keys.
-This could be acceptable since we have 68B unique six letters keys, which are a lot more than we require.
-
-How does it handle a paste read request?
-Upon receiving a read paste request, the application service layer contacts the datastore.
-The datastore searches for the key, and if it is found, returns the paste’s contents.
-Otherwise, an error code is returned.
-
-b. Datastore layer
-
-We can divide our datastore layer into two:
-
-1. Metadata database: We can use a relational database like MySQL or a Distributed Key-Value store like Dynamo or Cassandra.
-2. Object storage: We can store our contents in an Object Storage like Amazon’s S3. Whenever we feel like hitting our full capacity on content storage, we can easily increase it by adding more servers.
+.. *数据存储层*
++
+可以将数据存储层划分为两个：
++
+. 元数据库：可以使用关系型数据库，如MySQL，或者分布式键值存储，如Dynamo或者Cassandra。
+. 对象存储：可以将内容存储在如Amazon的S3这样的对象存储中。每当我们想要充分利用内容存储容量时，可以通过增加更多的服务轻松增加容量。
++
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/pastebin/detailed-component-design-for-pastebin.png[caption="", title="Detailed component design for Pastebin"]
 
 
-image::../image/detailed-component-design-for-pastebin.png[]
+=== 9. 清除或数据库清理
 
-Detailed component design for Pastebin
+请参考设计URL压缩服务。
 
-=== 9. Purging or DB Cleanup
+=== 10.	数据分区和备份
 
-Please see Designing a URLShortening service.
+请参考设计URL压缩服务。
 
-=== 10.	Data Partitioning and Replication
+=== 11.	缓存和负载均衡
 
-Please see Designing a URLShortening service.
+请参考设计URL压缩服务。
 
-=== 11.	Cache and Load Balancer
+=== 12.	安全和权限
 
-Please see Designing a URLShortening service.
-
-=== 12.	Security and Permissions
-
-Please see Designing a URLShortening service.
+请参考设计URL压缩服务。
