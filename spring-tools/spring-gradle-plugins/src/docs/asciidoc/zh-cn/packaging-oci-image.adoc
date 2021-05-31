@@ -32,6 +32,55 @@ NOTE: `bootBuildImage` 任务不能与包含启动脚本的 <<packaging-executab
 
 在 Linux 和 macOS 上,启动 minikube 之后,可以使用命令 `eval $(minikube docker-env)` 设置这些环境变量.
 
+也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
+
+|===
+| Property | Description
+
+| `host`
+| Docker daemon 主机和端口 URL  - e.g. `tcp://192.168.99.100:2376`
+
+| `tlsVerify`
+| 当设置为 `true` 时,开启 HTTPS 协议(可选)
+
+| `certPath`
+| HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+|===
+
+更多信息, 请查看 <<build-image-example-docker,examples>>.
+
+[[build-image-docker-registry]]
+=== Docker Registry
+如果由 `builder` 或 `runImage` 参数指定的 Docker 镜像存储在需要身份验证的私有 Docker image registry  中, 可以使用  `docker.builderRegistry` 参数提供身份验证凭据.
+
+如果生成的 Docker 镜像要发布到  Docker image registry 中, 可以使用 `docker.publishRegistry`  参数提供身份验证凭据.
+
+为用户身份验证或身份令牌验证提供了参数. 关于支持的身份验证方法的更多信息, 请参考 Docker registry 的文档.
+
+下表总结了 `docker.builderRegistry` 和 `docker.publishRegistry` 的可用参数:
+
+|===
+| Property | Description
+
+| `username`
+| Username for the Docker image registry user. Required for user authentication.
+
+| `password`
+| Password for the Docker image registry user. Required for user authentication.
+
+| `url`
+| Address of the Docker image registry. Optional for user authentication.
+
+| `email`
+| E-mail address for the Docker image registry user. Optional for user authentication.
+
+| `token`
+| Identity token for the Docker image registry user. Required for token authentication.
+|===
+
+更多信息, 请查看 <<build-image-example-docker,examples>>.
+
+
 [[build-image-customization]]
 === 自定义镜像
 
@@ -45,7 +94,7 @@ NOTE: `bootBuildImage` 任务不能与包含启动脚本的 <<packaging-executab
 | `builder`
 | `--builder`
 | Name of the Builder image to use.
-| `gcr.io/paketo-buildpacks/builder:base-platform-api-0.3`
+| `paketobuildpacks/builder:base`
 
 | `runImage`
 | `--runImage`
@@ -57,19 +106,30 @@ NOTE: `bootBuildImage` 任务不能与包含启动脚本的 <<packaging-executab
 | {spring-boot-api}/buildpack/platform/docker/type/ImageReference.html#of-java.lang.String-[Image name] for the generated image.
 | `docker.io/library/${project.name}:${project.version}`
 
+| `pullPolicy`
+| `--pullPolicy`
+| {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] used to determine when to pull the builder and run images from the registry.
+Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
+| `ALWAYS`
+
 | `environment`
 |
 | Environment variables that should be passed to the builder.
 |
 
 | `cleanCache`
-|
+| `--cleanCache`
 | Whether to clean the cache before building.
 | `false`
 
 | `verboseLogging`
 |
 | Enables verbose logging of builder operations.
+| `false`
+
+| `publish`
+| `--publishImage`
+| Whether to publish the generated image to a Docker registry.
 | `false`
 |===
 
@@ -138,11 +198,11 @@ include::../gradle/packaging/boot-build-image-env-proxy.gradle.kts[tags=env]
 [[build-image-example-runtime-jvm-configuration]]
 ==== Runtime JVM Configuration
 
-Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时环境]。
+Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时环境].
 
-当在容器中启动应用程序镜像时，可以修改 buildpack 提供的 `JAVA_TOOL_OPTIONS` 值以自定义JVM运行时行为。
+当在容器中启动应用程序镜像时,  可以修改 buildpack 提供的 `JAVA_TOOL_OPTIONS` 值以自定义JVM运行时行为.
 
-可以如 {paketo-reference}/buildpacks/configuration/#environment-variables[Paketo documentation] 中所述在镜像中配置并应用于每个部署的环境变量修改，并在以下示例中显示:
+可以如 {paketo-reference}/buildpacks/configuration/#environment-variables[Paketo documentation] 中所述在镜像中配置并应用于每个部署的环境变量修改,  并在以下示例中显示:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -180,4 +240,72 @@ include::../gradle/packaging/boot-build-image-name.gradle.kts[tags=image-name]
 [indent=0]
 ----
 $ gradle bootBuildImage --imageName=example.com/library/my-app:v1
+----
+
+
+[[build-image-example-publish]]
+==== Image Publishing
+生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项并使用  `docker.publishRegistry` 配置 registry 的身份验证.
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-publish.gradle[tags=publish]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-publish.gradle.kts[tags=publish]
+----
+
+也可以在命令行上指定  `publish` 选项, 如下例所示:
+
+[indent=0]
+----
+	$ gradle bootBuildImage --imageName=docker.example.com/library/my-app:v1 --publishImage
+----
+
+[[build-image-example-docker]]
+==== Docker 配置
+如果你需要插件使用远程连接而不是默认的本地连接来与 Docker 守护进程通信, 可以使用  `docker`  属性提供连接细节, 如下所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-host.gradle[tags=docker-host]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-host.gradle.kts[tags=docker-host]
+----
+
+如果构建器或运行镜像存储在支持用户身份验证的私有 Docker registry 中, 则可以使用 `docker.builderRegistry` 参数提供身份验证细节. 如下所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle[tags=docker-auth-user]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle.kts[tags=docker-auth-user]
+----
+
+如果构建器或运行映像存储在支持令牌身份验证的私有 Docker registry  中, 则可以使用  `docker.builderRegistry` 参数提供令牌值. 如下所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle[tags=docker-auth-token]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle.kts[tags=docker-auth-token]
 ----

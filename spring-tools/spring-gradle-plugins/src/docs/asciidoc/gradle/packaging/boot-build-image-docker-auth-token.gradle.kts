@@ -10,16 +10,18 @@ tasks.getByName<BootJar>("bootJar") {
 	mainClass.set("com.example.ExampleApplication")
 }
 
-// tag::builder[]
+// tag::docker-auth-token[]
 tasks.getByName<BootBuildImage>("bootBuildImage") {
-	builder = "mine/java-cnb-builder"
-	runImage = "mine/java-cnb-run"
+	docker {
+		builderRegistry {
+			token = "9cbaf023786cd7..."
+		}
+	}
 }
-// end::builder[]
+// end::docker-auth-token[]
 
-tasks.register("bootBuildImageBuilder") {
+tasks.register("bootBuildImageDocker") {
 	doFirst {
-		println("builder=${tasks.getByName<BootBuildImage>("bootBuildImage").builder}")
-		println("runImage=${tasks.getByName<BootBuildImage>("bootBuildImage").runImage}")
+		println("token=${tasks.getByName<BootBuildImage>("bootBuildImage").docker.builderRegistry.token}")
 	}
 }
