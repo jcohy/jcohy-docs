@@ -100,45 +100,59 @@ Instagram是一种社交网络服务，可让其用户上传照片和视频并�
 
 可以将照片存储到类似 https://en.wikipedia.org/wiki/Apache_Hadoop[HDFS] 或 https://en.wikipedia.org/wiki/Amazon_S3[S3] 的分布式存储中
 
-We can store the above schema in a distributed key-value store to enjoy the benefits offered by NoSQL.
-All the metadata related to photos can go to a table where the ‘key’ would be the ‘PhotoID’ and the ‘value’ would be an object containing PhotoLocation, UserLocation, CreationTimestamp, etc.
+我们可以将上述模式存储在分布式键值存储中，以使用NoSQL带来的便利。与照片相关的所有元数据存储在一个表中，其中的 ’键’ 是 `PhotoID`，‘值’是包含 PhotoLocation、UserLocation、CreationTimestamp等字段的对象。
 
-We need to store relationships between users and photos, to know who owns which photo.
-We also need to store the list of people a user follows.
-For both of these tables, we can use a wide-column datastore like Cassandra.
-For the ‘UserPhoto’ table, the ‘key’ would be ‘UserID’ and the ‘value’ would be the list of ‘PhotoIDs’ the user owns, stored in different columns.
-We will have a similar scheme for the ‘UserFollow’ table.
+我们需要存储用户和照片之间的关系信息，以便知道照片属于谁。也要存储用户关注的其他用户的信息。对于这两个表，可以存储到类似 https://en.wikipedia.org/wiki/Apache_Cassandra[Cassandra]这样的宽列数据存储中。对于 `UserPhoto` 表，‘键’是 `UserID`，‘值’是存储在不同列的属于用户的一系列 `PhotoID`。`UserFollow` 表也是类似的存储方式。
 
-Cassandra or key-value stores in general, always maintain a certain number of replicas to offer reliability.
-Also, in such data stores, deletes don’t get applied instantly, data is retained for certain days (to support undeleting) before getting removed from the system permanently.
+通常，Cassandra或键值存储总是维护一定数量的副本以确保可靠性。此外，在这类数据存储中，删除操作不会立即生效，在数据永久地从系统中删除之前会保留几天（以支持数据恢复）。
 
-=== 7. Data Size Estimation
+=== 7. 估计数据大小
 
-Let’s estimate how much data will be going into each table and how much total storage we will need for 10 years.
+让我们预估下每张表将存储多少数据，以及存储10年的数据需要多大的存储空间。
 
-User: Assuming each “int” and “dateTime” is four bytes, each row in the User’s table will be of 68 bytes:
+*User*：假设每一个“int”和“dateTime”是4字节，用户表中每一行数据将会是68字节：
 
-UserID (4 bytes) + Name (20 bytes) + Email (32 bytes) + DateOfBirth (4 bytes) + CreationDate (4 bytes) + LastLogin (4 bytes) = 68 bytes
+[source,textmate]
+====
+ UserID (4 bytes) + Name (20 bytes) + Email (32 bytes) + DateOfBirth (4 bytes) + CreationDate (4 bytes) + LastLogin (4 bytes) = 68 bytes
+====
 
-If we have 500 million users, we will need 32GB of total storage.
+如果有5亿用户，将需要32GB的存储空间。
 
-500 million * 68 ~= 32GB Photo: Each row in Photo’s table will be of 284 bytes:
+[source,text]
+====
+ 500 million * 68 ~= 32GB
+====
 
-PhotoID (4 bytes) + UserID (4 bytes) + PhotoPath (256 bytes) + PhotoLatitude (4 bytes) + PhotLongitude(4 bytes) + UserLatitude (4 bytes) + UserLongitude (4 bytes) + CreationDate (4 bytes) = 284 bytes
+*Photo*：`Photo` 表中每一行数据的大小将是284字节：
 
-If 2M new photos get uploaded every day, we will need 0.5GB of storage for one day:
+[source,text]
+====
+ PhotoID (4 bytes) + UserID (4 bytes) + PhotoPath (256 bytes) + PhotoLatitude (4 bytes) + PhotLongitude(4 bytes) + UserLatitude (4 bytes) + UserLongitude (4 bytes) + CreationDate (4 bytes) = 284 bytes
+====
 
-2M * 284 bytes ~= 0.5GB per day For 10 years we will need 1.88TB of storage.
+如果每天上传2百万张新照片，一天将需要0.5GB大小的存储空间：
 
-UserFollow: Each row in the UserFollow table will consist of 8 bytes.
-If we have 500 million users and on average each user follows 500 users.
-We would need 1.82TB of storage for the UserFollow table:
+[source,text]
+====
+ 2M * 284 bytes ~= 0.5GB per day
+====
 
-500 million users * 500 followers * 8 bytes ~= 1.82TB
+10年需要1.88TB大小的存储空间。
 
-Total space required for all tables for 10 years will be 3.7TB:
+*UserFollow*：`UserFollow` 表中每行数据将会是8字节大小。如果我们有5亿用户，平均每个用户关注500个其他的用户。那么 `UserFollow` 表将会需要1.82TB大小的存储空间：
 
-32GB + 1.88TB + 1.82TB ~= 3.7TB
+[source,text]
+====
+ 500 million users * 500 followers * 8 bytes ~= 1.82TB
+====
+
+所有的表存储10年的数据需要3.7TB大小的存储空间：
+
+[source,text]
+====
+ 32GB + 1.88TB + 1.82TB ~= 3.7TB
+====
 
 === 8. Component Design
 
