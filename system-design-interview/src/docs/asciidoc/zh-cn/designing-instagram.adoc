@@ -154,79 +154,69 @@ Instagram是一种社交网络服务，可让其用户上传照片和视频并�
  32GB + 1.88TB + 1.82TB ~= 3.7TB
 ====
 
-=== 8. Component Design
+=== 8. 组件设计
 
-Photo uploads (or writes) can be slow as they have to go to the disk, whereas reads will be faster, especially if they are being served from cache.
+因为照片是要保存到磁盘的，因此照片上传（或写入）可能会很慢，然而照片的读取将会更快，尤其是将照片保存到缓存中时。
 
-Uploading users can consume all the available connections, as uploading is a slow process.
-This means that ‘reads’ cannot be served if the system gets busy with all the write requests.
-We should keep in mind that web servers have a connection limit before designing our system.
-If we assume that a web server can have a maximum of 500 connections at any time, then it can’t have more than 500 concurrent uploads or reads.
-To handle this bottleneck we can split reads and writes into separate services.
-We will have dedicated servers for reads and different servers for writes to ensure that uploads don’t hog the system.
+上传照片的用户会消费掉所有可用的链接，因为上传照片是一个很慢的过程。这意味着如果系统忙于处理所有的写请求，就无法提供“读”请求。在设计系统之前，我们应该记住Web服务器是有连接限制的。如果我们假设一个Web服务器任何时间最多可以有500个连接，那么它不能有超过500个并发上传请求或者读请求。为了解决这个瓶颈问题，我们可以把读取和写入拆分为单独的服务。我们将拥有处理读请求的专用服务器和处理写请求的不同的服务器，以确保上传照片不会占用系统的全部资源。
 
-Separating photos’ read and write requests will also allow us to scale and optimize each of these operations independently.
+分离照片的读写请求也将是我们能够独立的扩展和优化这两个操作中的每一个。
 
-=== 9. Reliability and Redundancy
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/instagram/desiging-instagram-8.png[]
 
-Losing files is not an option for our service.
-Therefore, we will store multiple copies of each file so that if one storage server dies we can retrieve the photo from the other copy present on a different storage server.
+=== 9. 可靠性和冗余
 
-This same principle also applies to other components of the system.
-If we want to have high availability of the system, we need to have multiple replicas of services running in the system, so that if a few services die down the system still remains available and running.
-Redundancy removes the single point of failure in the system.
+丢失文件对我们的服务来说是不可忍受的。因此，我们将会为每个文件存储多个副本，这样如果一个存储服务器死机，可以从其他存储服务器上的文件副本中检索照片。
 
-If only one instance of a service is required to run at any point, we can run a redundant secondary copy of the service that is not serving any traffic, but it can take control after the failover when primary has a problem.
+相同的策略也适用于系统的其他组件。如果系统想要高可用，那么需要在系统中运行服务的多个副本，这样即时一些服务宕机，系统仍然可用并运行。冗余消除了系统的单点故障。
 
-Creating redundancy in a system can remove single points of failure and provide a backup or spare functionality if needed in a crisis.
-For example, if there are two instances of the same service running in production and one fails or degrades, the system can failover to the healthy copy.
-Failover can happen automatically or require manual intervention.
+如果在任何时间都只需要运行一个服务的实例，那么可以运行该服务的一个冗余副本，该副本不提供任何服务，但是当主服务器发生故障后，它可以接管整个系统以转移故障。
 
-=== 10. Data Sharding
+在系统中创建冗余副本可以消除单点故障，并在紧机时刻为系统提供备份和备用功能。例如，如果在生成环境运行同一个服务的两个实例，并且其中一个实例出现故障或者服务降级，则系统可以进行故障转移，使用正常运行的实例。故障转移可以自动发生或者手动执行。
 
-Let’s discuss different schemes for metadata sharding:
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/instagram/desiging-instagram-9.png[]
 
-a. Partitioning based on UserID Let’s assume we shard based on the ‘UserID’ so that we can keep all photos of a user on the same shard.
-If one DB shard is 1TB, we will need four shards to store 3.7TB of data.
-Let’s assume for better performance and scalability we keep 10 shards.
+=== 10. 数据分片
 
-So we’ll find the shard number by UserID % 10 and then store the data there.
-To uniquely identify any photo in our system, we can append shard number with each PhotoID.
+接下来讨论元数据分片的不同方案：
 
-How can we generate PhotoIDs?
-Each DB shard can have its own auto-increment sequence for PhotoIDs and since we will append ShardID with each PhotoID, it will make it unique throughout our system.
+a. *基于UserID的数据分片* 假设我们基于 `UserID` 进行分片，以便于可以把用户的所有照片保存在同一个分片上。 如果一个数据库分片的大小是1TB，存储3.7TB的数据需要4个分片。为了更好的性能和可扩展性，我们使用10个分片。
++
+因此可以通过 `UserID % 10` 来计算出分区号，并把数据保存到此分区中。为了使系统中的任意照片都有唯一的身份标识，可以将分区号追加到PhotoID后面。
++
+*如何生成PhotoID？* 每个数据库分区可以使PhotoID自动递增，因此我们可以将 `ShardID` 追加到 `PhotoID` 后，这将使其在整个系统中是唯一的。
++
+*这个分区方案有其他的问题吗？*
++
+. 如何处理热门用户？一些人会关注这样的热门用户，并且许多人会看到热门用户上传的照片；
+. 相较于其他用户，有些用户会上传大量照片，因此会导致存储分布不均匀；
+. 如果不能把一个用户的所有图片存储到同一个分区中该怎么办？如果将一个用户的照片分开存储在不同的设备中，访问时会造成高延迟问题吗？
 
-What are the different issues with this partitioning scheme?
-
-1. How would we handle hot users?
-Several people follow such hot users and a lot of other people see any photo they upload.
-2. Some users will have a lot of photos compared to others, thus making a non-uniform distribution of storage.
-3. What if we cannot store all pictures of a user on one shard?
-If we distribute photos of a user onto multiple shards will it cause higher latencies?
-4. Storing all photos of a user on one shard can cause issues like unavailability of all of the user’s data if that shard is down or higher latency if it is serving high load etc.
-
-b. Partitioning based on PhotoID If we can generate unique PhotoIDs first and then find a shard number through “PhotoID % 10”, the above problems will have been solved.
-We would not need to append ShardID with PhotoID in this case as PhotoID will itself be unique throughout the system.
-
-How can we generate PhotoIDs?
+b. *基于 `PhotoID` 的分区* 如果我们优先生成唯一的 `PhotoID`, 然后根据 `PhotoID % 10` 计算出分区号，那么将会解决以上的问题。这个方案中，不需要把 `ShardID` 追加到 `PhotoID` 上，因为 `PhotoID` 本身在整个系统中就是唯一的。
++
+*如何生成 `PhotoID`？*
 Here we cannot have an auto-incrementing sequence in each shard to define PhotoID because we need to know PhotoID first to find the shard where it will be stored.
 One solution could be that we dedicate a separate database instance to generate auto-incrementing IDs.
 If our PhotoID can fit into 64 bits, we can define a table containing only a 64 bit ID field.
 So whenever we would like to add a photo in our system, we can insert a new row in this table and take that ID to be our PhotoID of the new photo.
++
 
 Wouldn’t this key generating DB be a single point of failure?
 Yes, it would be.
 A workaround for that could be defining two such databases with one generating even numbered IDs and the other odd numbered.
 For the MySQL, the following script can define such sequences:
++
 
 KeyGeneratingServer1:
 auto-increment-increment = 2 auto-increment-offset = 1
-
++
 KeyGeneratingServer2:
-auto-increment-increment = 2 auto-increment-offset = 2 We can put a load balancer in front of both of these databases to round robin between them and to deal with downtime.
+auto-increment-increment = 2 auto-increment-offset = 2
++
+We can put a load balancer in front of both of these databases to round robin between them and to deal with downtime.
 Both these servers could be out of sync with one generating more keys than the other, but this will not cause any issue in our system.
 We can extend this design by defining separate ID tables for Users, Photo-Comments, or other objects present in our system.
-
++
 Alternately, we can implement a ‘key’ generation scheme similar to what we have discussed in Designing a URLShortening service like TinyURL.
 
 How can we plan for the future growth of our system?
