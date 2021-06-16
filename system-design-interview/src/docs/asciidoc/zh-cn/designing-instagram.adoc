@@ -194,37 +194,29 @@ a. *基于UserID的数据分片* 假设我们基于 `UserID` 进行分片，以�
 
 b. *基于 `PhotoID` 的分区* 如果我们优先生成唯一的 `PhotoID`, 然后根据 `PhotoID % 10` 计算出分区号，那么将会解决以上的问题。这个方案中，不需要把 `ShardID` 追加到 `PhotoID` 上，因为 `PhotoID` 本身在整个系统中就是唯一的。
 +
-*如何生成 `PhotoID`？*
-Here we cannot have an auto-incrementing sequence in each shard to define PhotoID because we need to know PhotoID first to find the shard where it will be stored.
-One solution could be that we dedicate a separate database instance to generate auto-incrementing IDs.
-If our PhotoID can fit into 64 bits, we can define a table containing only a 64 bit ID field.
-So whenever we would like to add a photo in our system, we can insert a new row in this table and take that ID to be our PhotoID of the new photo.
+*如何生成 `PhotoID`？* 在这里，我们不能在每个分区上使用自动递增序列生成 `PhotoID`，因为我们需要先知道 `PhotoID` 才能找到要存储它的分区。一种解决方案是专门使用一个单独的数据库实例来生成自动递增的ID。如果 `PhotoID` 刚好容纳64bit，那么可以定义一个只包含64bit的ID字段的表。所以每当我们想要在系统中添加一张照片时，那么我们可以在这个表中插入一行，并将该ID作为新照片的 `PhotoID`。
 +
-
-Wouldn’t this key generating DB be a single point of failure?
-Yes, it would be.
-A workaround for that could be defining two such databases with one generating even numbered IDs and the other odd numbered.
-For the MySQL, the following script can define such sequences:
+*密钥生成数据库会不会发生单点故障？* 是的，那肯定会发生。一种解决方案是可以定义两个这样的数据库，一个生成偶数ID，另一个生成奇数ID。对于MySQL，下面的脚本可以定义这样的生成序列：
 +
-
-KeyGeneratingServer1:
-auto-increment-increment = 2 auto-increment-offset = 1
+[source,shell script]
+====
+    KeyGeneratingServer1:
+    auto-increment-increment = 2
+    auto-increment-offset = 1
+====
 +
-KeyGeneratingServer2:
-auto-increment-increment = 2 auto-increment-offset = 2
+[source,shell script]
+====
+    KeyGeneratingServer2:
+    auto-increment-increment = 2
+    auto-increment-offset = 2
+====
 +
-We can put a load balancer in front of both of these databases to round robin between them and to deal with downtime.
-Both these servers could be out of sync with one generating more keys than the other, but this will not cause any issue in our system.
-We can extend this design by defining separate ID tables for Users, Photo-Comments, or other objects present in our system.
+可以在这两个数据库前面放置一个负载均衡器，以轮询的方式处理请求并处理停机时间。这两个服务器可能不同比，一个生成的密钥多于另一个，但是这对我们的系统不会造成任何问题。可以通过为系统中的 `Users`、 `Photo-Comments`或其他对象定义单独的ID表来扩展这种设计。
 +
-Alternately, we can implement a ‘key’ generation scheme similar to what we have discussed in Designing a URLShortening service like TinyURL.
-
-How can we plan for the future growth of our system?
-We can have a large number of logical partitions to accommodate future data growth, such that in the beginning, multiple logical partitions reside on a single physical database server.
-Since each database server can have multiple database instances on it, we can have separate databases for each logical partition on any server.
-So whenever we feel that a particular database server has a lot of data, we can migrate some logical partitions from it to another server.
-We can maintain a config file (or a separate database) that can map our logical partitions to database servers; this will enable us to move partitions around easily.
-Whenever we want to move a partition, we only have to update the config file to announce the change.
+或者，我们可以实现在设计类似TinyURL的URL压缩服务中讨论的 `Key` 生成方案。
++
+*如何规划系统未来的发展？* 可以使用大量的逻辑分区来适应未来数据的增长，这样一开始，在单个物理数据库服务器上保留多个逻辑分区。因为每个数据库服务器拥有多个数据库实例，因此任何服务器上的每个逻辑分区都有独立的数据库。所以每当某个数据库服务器拥有大量数据时，可以迁移一些它的逻辑分区到另一台数据库服务器。可以维护一个配置文件（或者单独的数据库）来映射逻辑分区和数据库服务器的关系；这样可以使我们轻松地移动分区。每当我们移动一个分区，只需且必须更新配置文件来通知分区的更改。
 
 === 11. Ranking and News Feed Generation
 
