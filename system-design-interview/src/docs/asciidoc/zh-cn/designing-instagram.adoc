@@ -218,36 +218,29 @@ b. *基于 `PhotoID` 的分区* 如果我们优先生成唯一的 `PhotoID`, 然
 +
 *如何规划系统未来的发展？* 可以使用大量的逻辑分区来适应未来数据的增长，这样一开始，在单个物理数据库服务器上保留多个逻辑分区。因为每个数据库服务器拥有多个数据库实例，因此任何服务器上的每个逻辑分区都有独立的数据库。所以每当某个数据库服务器拥有大量数据时，可以迁移一些它的逻辑分区到另一台数据库服务器。可以维护一个配置文件（或者单独的数据库）来映射逻辑分区和数据库服务器的关系；这样可以使我们轻松地移动分区。每当我们移动一个分区，只需且必须更新配置文件来通知分区的更改。
 
-=== 11. Ranking and News Feed Generation
+=== 11. 排名和动态消息生成
 
-To create the News Feed for any given user, we need to fetch the latest, most popular and relevant photos of the people the user follows.
+要给任何用户创建动态消息，需要获取用户关注的人的最新的、最受欢迎和其相关的照片。
 
-For simplicity, let’s assume we need to fetch top 100 photos for a user’s News Feed.
-Our application server will first get a list of people the user follows and then fetch metadata info of latest 100 photos from each user.
-In the final step, the server will submit all these photos to our ranking algorithm which will determine the top 100 photos (based on recency, likeness, etc.) and return them to the user.
-A possible problem with this approach would be higher latency as we have to query multiple tables and perform sorting/merging/ranking on the results.
-To improve the efficiency, we can pre-generate the News Feed and store it in a separate table.
+为了简单起见，假设我们需要为用户的动态消息获取前100张照片。应用程序服务器将首先获取用户关注的人员列表，然后获取每个用户的前100张照片的元数据信息。最后，服务器将使用排序算法（基于新旧度、相似度等等）选出前100张照片，并将它们返回给用户。这种方法的一个可能的问题是高延迟，因为我们必须查询多个表并对结果进行排序、合并以及再排序。为了提升效率，我们可以预先生成动态消息，并将其存储在单独的表中。
 
-Pre-generating the News Feed: We can have dedicated servers that are continuously generating users’ News Feeds and storing them in a ‘UserNewsFeed’ table.
-So whenever any user needs the latest photos for their News Feed, we will simply query this table and return the results to the user.
+*预先生成动态消息：* 使用专门的服务器持续不断地生成用户的动态消息，并将其存储在 `UserNewsFeed` 表中。所以每当任何用户需要为其动态消息获取最新的照片时，我们都会简单地查询这张表，然后返回查询结果给用户。
 
-Whenever these servers need to generate the News Feed of a user, they will first query the UserNewsFeed table to find the last time the News Feed was generated for that user.
-Then, new News Feed data will be generated from that time onwards (following the steps mentioned above).
+每当这些服务器需要生成用户的动态消息时，将首选查询 `UserNewsFeed` 表以查找上次为该用户生成的动态消息的时间。然后，从那个时间起生成新的动态消息（根据以上提及的步骤）。
 
-What are the different approaches for sending News Feed contents to the users?
+*向用户发送动态消息的方法有哪些？*
 
-1. Pull: Clients can pull the News Feed contents from the server on a regular basis or manually whenever they need it.
-Possible problems with this approach are a) New data might not be shown to the users until clients issue a pull request b) Most of the time pull requests will result in an empty response if there is no new data.
+. *拉取:* 客户端可以定期或在需要时手动从服务器拉取新闻提要内容。这个方法可能存在的问题时：
++
+.. 在客户端发起请求之前，可能不会向用户显示新数据；
++
+.. 如果没有新的数据，大多数拉取请求将会得到一个空响应结果。
 
-2. Push: Servers can push new data to the users as soon as it is available.
-To efficiently manage this, users have to maintain a Long Poll request with the server for receiving the updates.
-A possible problem with this approach is, a user who follows a lot of people or a celebrity user who has millions of followers; in this case, the server has to push updates quite frequently.
+. *推送：* 当新数据可用时，服务器主动向用户推送它。为了更有效的管理这一点，用户必须与服务器保持一个长轮询请求以接受服务器的消息推送。这种方法可能存在的问题是，用户关注许多人或者一个拥有数百万关注者的名人用户，在这种情况下，服务器必须非常频繁地向用户推送数据。
 
-3. Hybrid: We can adopt a hybrid approach.
-We can move all the users who have a high number of follows to a pull-based model and only push data to those users who have a few hundred (or thousand) follows.
-Another approach could be that the server pushes updates to all the users not more than a certain frequency, letting users with a lot of follows/updates to regularly pull data.
+. *混合：* 可以采用一种混合的方式。拥有大量关注者的用户采用拉取的方法，对于只有几百上千关注者的用户由服务器主动推送其动态消息。另一种方法可以是服务器向更新不超过一定频率的用户主动推送数据，让有大量关注者或大批量更新的用户定期拉取数据。
 
-For a detailed discussion about News Feed generation, take a look at Designing Facebook’s Newsfeed.
+对于动态消息生成的详细讨论，请参考设计Facebook的动态消息。
 
 === 12. News Feed Creation with Sharded Data
 
