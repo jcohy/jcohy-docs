@@ -242,39 +242,27 @@ b. *基于 `PhotoID` 的分区* 如果我们优先生成唯一的 `PhotoID`, 然
 
 对于动态消息生成的详细讨论，请参考设计Facebook的动态消息。
 
-=== 12. News Feed Creation with Sharded Data
+=== 12. 使用分片数据生成动态信息
 
-One of the most important requirement to create the News Feed for any given user is to fetch the latest photos from all people the user follows.
-For this, we need to have a mechanism to sort photos on their time of creation.
-To efficiently do this, we can make photo creation time part of the PhotoID.
-As we will have a primary index on PhotoID, it will be quite quick to find the latest PhotoIDs.
+为任何用户创建动态消息的最重要的需求之一是从用户关注的所有人那里获取最新照片。为此，我们需要一个机制来根据创建时间对照片进行排序。为了有效地做到这一点，可以将照片的创建时间作为 `PhotoID` 的一部分。因为 `PhotoID` 上有主键索引，因此可以很快地查询到最新的 `PhotoID`。
 
-We can use epoch time for this.
-Let’s say our PhotoID will have two parts; the first part will be representing epoch time and the second part will be an auto-incrementing sequence.
-So to make a new PhotoID, we can take the current epoch time and append an auto-incrementing ID from our key- generating DB.
-We can figure out shard number from this PhotoID ( PhotoID % 10) and store the photo there.
+可以为此使用纪元时间。假设 `PhotoID` 有两部分。第一部分将代表纪元时间，第二部分将是一个自动递增的序列。所以为了生成一个新的的 `PhotoID`，可以获取当前的纪元时间并追加一个来自密钥生成数据库的自动递增序列。可以根据这个 `PhotoID` 找出分片号（PhotoID % 10），并将照片存储在这个分片中。
 
-What could be the size of our PhotoID?
-Let’s say our epoch time starts today, how many bits we would need to store the number of seconds for next 50 years?
+*PhotoID的大小是多少？* 假设纪元时间是从今天开始，那么需要多少bit存储未来50年的秒数？
 
-86400 sec/day * 365 (days a year) * 50 (years) => 1.6 billion seconds We would need 31 bits to store this number.
-Since on the average, we are expecting 23 new photos per second; we can allocate 9 bits to store auto incremented sequence.
-So every second we can store (2^9
-=> 512) new photos.
-We can reset our auto incrementing sequence every second.
+[source,text]
+====
+ 86400 sec/day * 365 (days a year) * 50 (years) => 1.6 billion seconds
+====
 
-We will discuss more details about this technique under ‘Data Sharding’ in Designing Twitter.
+需要31bit的空间来存储这个数字。因为平均而言，我们预期每秒有23张新照片，可以分配9bit存储自动递增序列。因此每秒可以存储（2^9 => 512）张新照片。可以每秒重置自动递增序列。
 
-=== 13. Cache and Load balancing
+将会在设计Twitter中的‘数据分片’中详细讨论此技术。
 
-Our service would need a massive-scale photo delivery system to serve the globally distributed users.
-Our service should push its content closer to the user using a large number of geographically distributed photo cache servers and use CDNs (for details see Caching).
+=== 13. 缓存和负载均衡
 
-We can introduce a cache for metadata servers to cache hot database rows.
-We can use Memcache to cache the data and Application servers before hitting database can quickly check if the cache has desired rows.
-Least Recently Used (LRU) can be a reasonable cache eviction policy for our system.
-Under this policy, we discard the least recently viewed row first.
+我们的服务需要一个大规模的照片交付系统来服务分布全球的用户。应该使用大量分布在不同地理位置的照片缓存服务器并使用CDN（有关详细信息，请参阅缓存）将其相关的内容推送到临近的用户。
 
-How can we build more intelligent cache?
-If we go with 80-20 rule, i.e., 20% of daily read volume for photos is generating 80% of traffic which means that certain photos are so popular that the majority of people read them.
-This dictates that we can try caching 20% of daily read volume of photos and metadata.
+可以为元数据服务器引入缓存技术来存储热点数据。可以使用Memcache缓存数据，应用服务器在查询数据库之前先快速检查缓存中是否有所需的数据。最近最少使用（LRU）对我们的系统来说是一个合适的缓存驱逐策略。在此策略下，将首先删除缓存中最近最少查询的数据。
+
+*如何构建更只能的缓存？* 如果我们采用80-20规则，即每天20%的照片查看量将会产生80%的流量，这意味着某些照片非常受欢迎。以至于大多数人会查阅它们。这表明我们可以缓存20%每日照片查询量和元数据。
