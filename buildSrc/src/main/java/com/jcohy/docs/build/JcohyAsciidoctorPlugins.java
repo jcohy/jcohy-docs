@@ -39,24 +39,6 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         asciidoctorTask.languages("zh-cn");
         asciidoctorTask.sources("index.adoc");
         configureCommonAttributes(project, asciidoctorTask);
-        syncDocumentationSource(project);
-    }
-
-    private void syncDocumentationSource(Project project) {
-        project.getTasks().getByName("syncDocumentationSourceForAsciidoctor",(syncDocument) -> {
-            project.copy((copySpec) -> {
-                copySpec.from("src/main/java");
-                copySpec.into("main/java");
-            });
-            project.copy((copySpec) -> {
-                copySpec.from("src/test/java");
-                copySpec.into("test/java");
-            });
-            project.copy((copySpec) -> {
-                copySpec.from("src/main/groovy");
-                copySpec.into("main/groovy");
-            });
-        });
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
