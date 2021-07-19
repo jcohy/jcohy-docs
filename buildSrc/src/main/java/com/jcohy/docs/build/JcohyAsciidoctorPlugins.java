@@ -5,6 +5,7 @@ import java.util.Map;
 import com.jcohy.convention.conventions.ConventionsPlugin;
 import com.jcohy.convention.deployed.DeployedPlugin;
 import org.asciidoctor.gradle.jvm.AbstractAsciidoctorTask;
+import org.asciidoctor.gradle.jvm.AsciidoctorJExtension;
 import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -39,6 +40,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         asciidoctorTask.languages("zh-cn");
         asciidoctorTask.sources("index.adoc");
         configureCommonAttributes(project, asciidoctorTask);
+        project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
