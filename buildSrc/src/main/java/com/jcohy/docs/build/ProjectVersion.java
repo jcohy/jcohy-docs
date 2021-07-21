@@ -16,7 +16,7 @@ public enum ProjectVersion {
 
     GRADLE_DOCS("gradle-docs","gradle-version","6.7",""),
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
-    REACTOR("reactor","reactor-version","3.3.1.RELEASE",""),
+    REACTOR("reactor","reactor-version","3.4.8",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     SPRING_FRAMEWORK("spring-framework","spring-framework-version","5.3.6",""),
     SPRING_HATEOAS("spring-hateoas","spring-hateoas-version","1.2.5",""),
