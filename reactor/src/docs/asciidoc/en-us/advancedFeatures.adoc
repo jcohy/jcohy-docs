@@ -46,7 +46,7 @@ Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
 
 The following image shows how the `transform` operator encapsulates flows:
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-transform.png[Transform Operator : encapsulate flows]
+image::images/gs-transform.png[Transform Operator : encapsulate flows]
 
 The preceding example produces the following output:
 
@@ -95,7 +95,7 @@ composedFlux.subscribe(d -> System.out.println("Subscriber 2 to Composed MapAndF
 
 The following image shows how the `transformDeferred` operator works with per-subscriber transformations:
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-compose.png[Compose Operator : Per Subscriber transformation]
+image::images/gs-compose.png[Compose Operator : Per Subscriber transformation]
 
 The preceding example produces the following output:
 
@@ -147,9 +147,13 @@ To transform `just` into a cold publisher, you can use `defer`. It defers the HT
 request in our example to subscription time (and would result in a separate network call
 for each new subscription).
 
-NOTE: Most other hot publishers in Reactor extend `Processor`.
+On the opposite, `share()` and `replay(...)` can be used to turn a cold publisher into
+a hot one (at least once a first subscription has happened). Both of these also have
+`Sinks.Many` equivalents in the `Sinks` class, which allow programmatically
+feeding the sequence.
 
-Consider two other examples. The following code shows the first example:
+Consider two examples, one that demonstrates a cold Flux and the other that makes use of the
+`Sinks` to simulate a hot Flux. The following code shows the first example:
 
 ====
 [source,java]
@@ -179,7 +183,7 @@ Subscriber 2: PURPLE
 
 The following image shows the replay behavior:
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-cold.png[Replaying behavior]
+image::images/gs-cold.png[Replaying behavior]
 
 Both subscribers catch all four colors, because each subscriber causes the
 process defined by the operators on the `Flux` to run.
@@ -189,22 +193,25 @@ Compare the first example to the second example, shown in the following code:
 ====
 [source,java]
 ----
-DirectProcessor<String> hotSource = DirectProcessor.create();
+Sinks.Many<String> hotSource = Sinks.unsafe().many().multicast().directBestEffort();
 
-Flux<String> hotFlux = hotSource.map(String::toUpperCase);
-
+Flux<String> hotFlux = hotSource.asFlux().map(String::toUpperCase);
 
 hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: "+d));
 
-hotSource.onNext("blue");
-hotSource.onNext("green");
+hotSource.emitNext("blue", FAIL_FAST); // <1>
+hotSource.tryEmitNext("green").orThrow(); // <2>
 
 hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: "+d));
 
-hotSource.onNext("orange");
-hotSource.onNext("purple");
-hotSource.onComplete();
+hotSource.emitNext("orange", FAIL_FAST);
+hotSource.emitNext("purple", FAIL_FAST);
+hotSource.emitComplete(FAIL_FAST);
 ----
+<1> for more details about sinks, see <<sinks>>
+<2> side note: `orThrow()` here is an alternative to `emitNext` + `Sinks.EmitFailureHandler.FAIL_FAST`
+that is suitable for tests, since throwing there is acceptable (more so than in reactive
+applications).
 ====
 
 The second example produces the following output:
@@ -222,7 +229,7 @@ Subscriber 2 to Hot Source: PURPLE
 
 The following image shows how a subscription is broadcast:
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-hot.png[Broadcasting a subscription]
+image::images/gs-hot.png[Broadcasting a subscription]
 
 Subscriber 1 catches all four colors. Subscriber 2, having been created after the first
 two colors were produced, catches only the last two colors. This difference accounts for
@@ -738,9 +745,9 @@ writes to `Context`:
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext()
-                                   .map( ctx -> s + " " + ctx.get(key)))
-                .subscriberContext(ctx -> ctx.put(key, "World"));
+    .flatMap(s -> Mono.deferContextual(ctx ->
+         Mono.just(s + " " + ctx.get(key))))
+    .contextWrite(ctx -> ctx.put(key, "World"));
 
 StepVerifier.create(r)
             .expectNext("Hello World")
@@ -752,26 +759,28 @@ In the following sections, we cover `Context` and how to use it, so that you
 can eventually understand the preceding example.
 
 IMPORTANT: This is an advanced feature that is more targeted at library developers. It
-requires good understanding of the lifecycle of a `Subscription` and is intended for
+requires good understanding of https://github.com/reactive-streams/reactive-streams-jvm/blob/master/README.md#3-subscription-code[the lifecycle of a `Subscription`] and is intended for
 libraries that are responsible for the subscriptions.
 
 [[context.api]]
 === The `Context` API
 
 `Context` is an interface reminiscent of `Map`.It stores key-value pairs and lets you
-fetch a value you stored by its key. More specifically:
+fetch a value you stored by its key. It has a simplified version that only exposes read
+methods, the `ContextView`. More specifically:
 
-* Both key and values are of type `Object`, so a `Context` instance can contain any number of
+* Both key and values are of type `Object`, so a `Context` (and `ContextView`) instance can contain any number of
 highly divergent values from different libraries and sources.
-* A `Context` is immutable.
-* Use `put(Object key, Object value)` to store a key-value pair, returning a new
-`Context` instance. You can also merge two contexts into a new one by using
-`putAll(Context)`.
+* A `Context` is immutable. It expose write methods like but they produce a new instance.
+* For a read-only API that doesn't even expose such write methods, there's the `ContextView` superinterface since 3.4.0
 * You can check whether the key is present with `hasKey(Object key)`.
 * Use `getOrDefault(Object key, T defaultValue)` to retrieve a value (cast to a `T`) or
 fall back to a default one if the `Context` instance does not have that key.
 * Use `getOrEmpty(Object key)` to get an `Optional<T>` (the `Context` instance attempts to cast the
 stored value to `T`).
+* Use `put(Object key, Object value)` to store a key-value pair, returning a new
+`Context` instance. You can also merge two contexts into a new one by using
+`putAll(ContextView)`.
 * Use `delete(Object key)` to remove the value associated to a key, returning a new
 `Context`.
 
@@ -797,29 +806,40 @@ propagation mechanism to make itself available to each operator, starting with t
 `subscribe` and moving up the chain.
 
 In order to populate the `Context`, which can only be done at subscription time, you need
-to use the `subscriberContext` operator.
+to use the `contextWrite` operator.
 
-`subscriberContext(Context)` merges the `Context` you provide and the
+`contextWrite(ContextView)` merges the `ContextView` you provide and the
 `Context` from downstream (remember, the `Context` is propagated from the bottom of the
-chain towards the top). This is done through a call to `putAll`, resulting in a new
+chain towards the top). This is done through a call to `putAll`, resulting in a NEW
 `Context` for upstream.
 
-TIP: You can also use the more advanced `subscriberContext(Function<Context, Context>)`.
-It receives the state of the `Context` from downstream, lets you put or delete values
+TIP: You can also use the more advanced `contextWrite(Function<Context, Context>)`.
+It receives a copy of the `Context` from downstream, lets you put or delete values
 as you see fit, and returns the new `Context` to use. You can even decide to return a
 completely different instance, although it is really not recommended (doing so might
 impact third-party libraries that depend on the `Context`).
 
 [[context.read]]
-=== Reading a `Context`
+=== Reading a `Context`, through the `ContextView`
 
-Once you haved populated a `Context`, you can retrieve that data.
+Once you have populated a `Context`, you may want to peek into it at runtime.
 Most of the time, the responsibility of putting information into the `Context`
 is on the end user's side, while exploiting that information is on the third-party library's side,
 as such libraries are usually upstream of the client code.
 
-The tool for reading data from the context is the static `Mono.subscriberContext()`
-method.
+The read oriented operators allow to obtain data from the `Context` in a chain of operators by exposing
+its `ContextView`:
+
+ - to access the context from a source-like operator, use `deferContextual` factory method
+ - to access the context from the middle of an operator chain, use `transformDeferredContextual(BiFunction)`
+ - alternatively, when dealing with an inner sequence (like inside a `flatMap`), the `ContextView`
+ can be materialized using `Mono.deferContextual(Mono::just)`. Usually though, you might want
+ to perform meaningful work directly within the defer's lambda, eg. `Mono.deferContextual(ctx -> doSomethingAsyncWithContextData(v, ctx.get(key)))`
+ where `v` is the value being flatMapped.
+
+TIP: In order to read from the `Context` without misleading users into thinking one can write to it
+while data is running through the pipeline, only the `ContextView` is exposed by the operators above.
+
 
 === Simple `Context` Examples
 
@@ -834,24 +854,23 @@ the following example shows:
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext() //<2>
-                                   .map( ctx -> s + " " + ctx.get(key))) //<3>
-                .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+    .flatMap(s -> Mono.deferContextual(ctx ->
+         Mono.just(s + " " + ctx.get(key)))) //<2>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<1>
 
 StepVerifier.create(r)
-            .expectNext("Hello World") //<4>
+            .expectNext("Hello World") //<3>
             .verifyComplete();
 ----
-<1> The chain of operators ends with a call to `subscriberContext(Function)` that puts
+<1> The chain of operators ends with a call to `contextWrite(Function)` that puts
 `"World"` into the `Context` under a key of `"message"`.
-<2> We `flatMap` on the source element, materializing the `Context` with `Mono.subscriberContext()`.
-<3> We then use `map` to extract the data associated to `"message"` and concatenate that with
-the original word.
-<4> The resulting `Mono<String>` emits `"Hello World"`.
+<2> We `flatMap` on the source element, materializing the `ContextView` with `Mono.deferContextual()`
+and directly extract the data associated to `"message"` and concatenate that with the original word.
+<3> The resulting `Mono<String>` emits `"Hello World"`.
 ====
 
 IMPORTANT: The numbering above versus the actual line order is not a mistake. It represents
-the execution order. Even though `subscriberContext` is the last piece of the chain, it is
+the execution order. Even though `contextWrite` is the last piece of the chain, it is
 the one that gets executed first (due to its subscription-time nature and the fact that
 the subscription signal flows from bottom to top).
 
@@ -865,9 +884,9 @@ the following example:
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                     .subscriberContext(ctx -> ctx.put(key, "World")) //<1>
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.getOrDefault(key, "Stranger")));  //<2>
+    .contextWrite(ctx -> ctx.put(key, "World")) //<1>
+    .flatMap( s -> Mono.deferContextual(ctx ->
+        Mono.just(s + " " + ctx.getOrDefault(key, "Stranger")))); //<2>
 
 StepVerifier.create(r)
             .expectNext("Hello Stranger") //<3>
@@ -879,30 +898,6 @@ is used instead.
 <3> The resulting `Mono<String>` thus emits `"Hello Stranger"`.
 ====
 
-The following example also demonstrates the immutable nature of the `Context`, and how
-`Mono.subscriberContext()` always returns the `Context` set by `subscriberContext` calls:
-
-====
-[source,java]
-----
-String key = "message";
-
-Mono<String> r = Mono.subscriberContext() // <1>
-	.map( ctx -> ctx.put(key, "Hello")) // <2>
-	.flatMap( ctx -> Mono.subscriberContext()) // <3>
-	.map( ctx -> ctx.getOrDefault(key,"Default")); // <4>
-
-StepVerifier.create(r)
-	.expectNext("Default") // <5>
-	.verifyComplete();
-----
-<1> We materialize the `Context`
-<2> In a `map` we attempt to mutate it
-<3> We re-materialize the `Context` in a `flatMap`
-<4> We read the attempted key in the `Context`
-<5> The key was never set to `"Hello"`.
-====
-
 Similarly, in the case of several attempts to write the same key to the `Context`, the
 relative order of the writes matters, too. Operators that read the `Context` see
 the value that was set closest to being under them, as demonstrated in the following example:
@@ -911,11 +906,10 @@ the value that was set closest to being under them, as demonstrated in the follo
 [source,java]
 ----
 String key = "message";
-Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext()
-                                   .map( ctx -> s + " " + ctx.get(key)))
-                .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-                .subscriberContext(ctx -> ctx.put(key, "World")); //<2>
+Mono<String> r = Mono
+    .deferContextual(ctx -> Mono.just("Hello " + ctx.get(key)))
+    .contextWrite(ctx -> ctx.put(key, "Reactor")) //<1>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<2>
 
 StepVerifier.create(r)
             .expectNext("Hello Reactor") //<3>
@@ -923,14 +917,14 @@ StepVerifier.create(r)
 ----
 <1> A write attempt on key `"message"`.
 <2> Another write attempt on key `"message"`.
-<3> The `map` only saw the value set closest to it (and below it): `"Reactor"`.
+<3> The `deferContextual` only saw the value set closest to it (and below it): `"Reactor"`.
 ====
 
 In the preceding example, the `Context` is populated with `"World"` during subscription.
 Then the subscription signal moves upstream and another write happens. This produces a
 second immutable `Context` with a value of `"Reactor"`. After that, data starts flowing.
-The `flatMap` sees the `Context` closest to it, which is our second `Context` with the
-`"Reactor"` value.
+The `deferContextual` sees the `Context` closest to it, which is our second `Context` with the
+`"Reactor"` value (exposed to the user as a `ContextView`).
 
 You might wonder if the `Context` is propagated along with the data signal. If that was
 the case, putting another `flatMap` between these two writes would use the value from
@@ -940,13 +934,12 @@ the top `Context`. But this is not the case, as demonstrated by the following ex
 [source,java]
 ----
 String key = "message";
-Mono<String> r = Mono.just("Hello")
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.get(key))) //<3>
-                     .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<2>
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.get(key))) //<4>
-                     .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+Mono<String> r = Mono
+    .deferContextual(ctx -> Mono.just("Hello " + ctx.get(key))) //<3>
+    .contextWrite(ctx -> ctx.put(key, "Reactor")) //<2>
+    .flatMap( s -> Mono.deferContextual(ctx ->
+        Mono.just(s + " " + ctx.get(key)))) //<4>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<1>
 
 StepVerifier.create(r)
             .expectNext("Hello Reactor World") //<5>
@@ -954,8 +947,8 @@ StepVerifier.create(r)
 ----
 <1> This is the first write to happen.
 <2> This is the second write to happen.
-<3> The first `flatMap` sees second write.
-<4> The second `flatMap` concatenates the result from first one with the value from the first write.
+<3> The top context read sees second write.
+<4> The `flatMap` concatenates the result from initial read with the value from the first write.
 <5> The `Mono` emits `"Hello Reactor World"`.
 ====
 
@@ -969,27 +962,26 @@ inside a `flatMap`, as in the following example:
 [source,java]
 ----
 String key = "message";
-Mono<String> r =
-        Mono.just("Hello")
-            .flatMap( s -> Mono.subscriberContext()
-                               .map( ctx -> s + " " + ctx.get(key))
-            )
-            .flatMap( s -> Mono.subscriberContext()
-                               .map( ctx -> s + " " + ctx.get(key))
-                               .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-            )
-            .subscriberContext(ctx -> ctx.put(key, "World")); // <2>
+Mono<String> r = Mono.just("Hello")
+    .flatMap( s -> Mono
+        .deferContextual(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+    )
+    .flatMap( s -> Mono
+        .deferContextual(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+        .contextWrite(ctx -> ctx.put(key, "Reactor")) //<1>
+    )
+    .contextWrite(ctx -> ctx.put(key, "World")); // <2>
 
 StepVerifier.create(r)
             .expectNext("Hello World Reactor")
             .verifyComplete();
 ----
-<1> This `subscriberContext` does not impact anything outside of its `flatMap`.
-<2> This `subscriberContext` impacts the main sequence's `Context`.
+<1> This `contextWrite` does not impact anything outside of its `flatMap`.
+<2> This `contextWrite` impacts the main sequence's `Context`.
 ====
 
 In the preceding example, the final emitted value is `"Hello World Reactor"` and not "Hello
-Reactor World", because the `subscriberContext` that writes `"Reactor"` does so as part of
+Reactor World", because the `contextWrite` that writes `"Reactor"` does so as part of
 the inner sequence of the second `flatMap`. As a consequence, it is not visible or propagated
 through the main sequence and the first `flatMap` does not see it. Propagation and immutability
 isolate the `Context` in operators that create intermediate inner sequences such as `flatMap`.
@@ -1015,11 +1007,11 @@ In order to propagate a correlation ID, it would be called as follows:
 [source,java]
 ----
 doPut("www.example.com", Mono.just("Walter"))
-	.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+	.contextWrite(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
 ----
 ====
 
-As the preceding snippets show, the user code uses `subscriberContext` to populate
+As the preceding snippets show, the user code uses `contextWrite` to populate
 a `Context` with an `HTTP_CORRELATION_ID` key-value pair. The upstream of the operator is
 a `Mono<Tuple2<Integer, String>>` (a simplistic representation of an HTTP response)
 returned by the HTTP client library. So it effectively passes information from the
@@ -1034,30 +1026,31 @@ context and "`augments the request`" if it can find the correlation ID:
 static final String HTTP_CORRELATION_ID = "reactive.http.library.correlationId";
 
 Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
-	Mono<Tuple2<String, Optional<Object>>> dataAndContext =
-			data.zipWith(Mono.subscriberContext() // <1>
-			                 .map(c -> c.getOrEmpty(HTTP_CORRELATION_ID))); // <2>
+  Mono<Tuple2<String, Optional<Object>>> dataAndContext =
+      data.zipWith(Mono.deferContextual(c -> // <1>
+          Mono.just(c.getOrEmpty(HTTP_CORRELATION_ID))) // <2>
+      );
 
-	return dataAndContext
-			.<String>handle((dac, sink) -> {
-				if (dac.getT2().isPresent()) { // <3>
-					sink.next("PUT <" + dac.getT1() + "> sent to " + url + " with header X-Correlation-ID = " + dac.getT2().get());
-				}
-				else {
-					sink.next("PUT <" + dac.getT1() + "> sent to " + url);
-				}
-				sink.complete();
-			})
-			.map(msg -> Tuples.of(200, msg));
+  return dataAndContext.<String>handle((dac, sink) -> {
+      if (dac.getT2().isPresent()) { // <3>
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url +
+            " with header X-Correlation-ID = " + dac.getT2().get());
+      }
+      else {
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url);
+      }
+        sink.complete();
+      })
+      .map(msg -> Tuples.of(200, msg));
 }
 ----
-<1> Materialize the `Context` through `Mono.subscriberContext()`.
-<2> Extract a value for a the correlation ID key, as an `Optional`.
+<1> Materialize the `ContextView` through `Mono.deferContextual` and...
+<2> within the defer, extract a value for the correlation ID key, as an `Optional`.
 <3> If the key was present in the context, use the correlation ID as a header.
 ====
 
-The library snippet zips the data `Mono` with
-`Mono.subscriberContext()`. This gives the library a `Tuple2<String, Context>`, and that
+The library snippet zips the data `Mono` with `Mono.deferContextual(Mono::just)`.
+This gives the library a `Tuple2<String, ContextView>`, and that
 context contains the `HTTP_CORRELATION_ID` entry from downstream (as it is on the direct
 path to the subscriber).
 
@@ -1073,14 +1066,15 @@ follows:
 ----
 @Test
 public void contextForLibraryReactivePut() {
-	Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
-			.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
-			.filter(t -> t.getT1() < 300)
-			.map(Tuple2::getT2);
+  Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
+      .contextWrite(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+      .filter(t -> t.getT1() < 300)
+      .map(Tuple2::getT2);
 
-	StepVerifier.create(put)
-	            .expectNext("PUT <Walter> sent to www.example.com with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
-	            .verifyComplete();
+  StepVerifier.create(put)
+              .expectNext("PUT <Walter> sent to www.example.com" +
+                  " with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
+              .verifyComplete();
 }
 ----
 ====

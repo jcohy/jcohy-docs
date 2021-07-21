@@ -125,9 +125,9 @@ purple
 
 如果想将 `just` 转化为一种 冷 的发布者,你可以使用 `defer`.它能够将刚才例子中对 HTTP 的请求延迟到订阅时(这样的话,对于每一个新的订阅来说,都会发生一次网络调用).
 
-NOTE: Reactor 中多数其他的 热 发布者是扩展自 `Processor` 的.
+相反，`share()` 和 `replay(...)` 方法可以将  cold publisher 变为 hot 。(至少有一次出现了首次订阅)。这两种方法都有 `Sinks` 。在 sink 类中有许多等价的东西，它们允许以编程方式提供序列。
 
-考虑其他两个例子,如下是第一个例子:
+考虑两个示例，一个是 cold Flux 的示例，另一个是利用 Sinks 来模拟 hot Flux 的例子。 以下代码显示了第一个示例：
 
 ====
 [source,java]
@@ -166,22 +166,25 @@ image::{image-dir}/gs-cold.png[Replaying behavior]
 ====
 [source,java]
 ----
-DirectProcessor<String> hotSource = DirectProcessor.create();
+Sinks.Many<String> hotSource = Sinks.unsafe().many().multicast().directBestEffort();
 
-Flux<String> hotFlux = hotSource.map(String::toUpperCase);
-
+Flux<String> hotFlux = hotSource.asFlux().map(String::toUpperCase);
 
 hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: "+d));
 
-hotSource.onNext("blue");
-hotSource.onNext("green");
+hotSource.emitNext("blue", FAIL_FAST); // <1>
+hotSource.tryEmitNext("green").orThrow(); // <2>
 
 hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: "+d));
 
-hotSource.onNext("orange");
-hotSource.onNext("purple");
-hotSource.onComplete();
+hotSource.emitNext("orange", FAIL_FAST);
+hotSource.emitNext("purple", FAIL_FAST);
+hotSource.emitComplete(FAIL_FAST);
 ----
+<1> for more details about sinks, see <<sinks>>
+<2> side note: `orThrow()` here is an alternative to `emitNext` + `Sinks.EmitFailureHandler.FAIL_FAST`
+that is suitable for tests, since throwing there is acceptable (more so than in reactive
+applications).
 ====
 
 第二个例子输出如下:
@@ -587,9 +590,9 @@ Reactor 还有另外一类可配置的应用于多种场合的回调,它们都�
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext()
-                                   .map( ctx -> s + " " + ctx.get(key)))
-                .subscriberContext(ctx -> ctx.put(key, "World"));
+    .flatMap(s -> Mono.deferContextual(ctx ->
+         Mono.just(s + " " + ctx.get(key))))
+    .contextWrite(ctx -> ctx.put(key, "World"));
 
 StepVerifier.create(r)
             .expectNext("Hello World")
@@ -599,19 +602,20 @@ StepVerifier.create(r)
 
 接下来的几个小节,我们来了解 `Context` 是什么以及如何用,从而最终可以理解上边的例子.
 
-IMPORTANT: 这是一个主要面向库开发人员的高级功能.这需要开发者对 `Subscription` 的生命周期 充分理解,并且明白它主要用于 subscription 相关的库.
+IMPORTANT: 这是一个主要面向库开发人员的高级功能.这需要开发者对 https://github.com/reactive-streams/reactive-streams-jvm/blob/master/README.md#3-subscription-code[`Subscription` 的生命周期]  充分理解,并且明白它主要用于 subscription 相关的库.
 
 [[context.api]]
 === `Context` API
 
-`Context` 是一个类似于 `Map`(这种数据结构)的接口:它存储键值(key-value)对,你需要通过 key 来获取值:
+`Context` 是一个类似于 `Map`(这种数据结构)的接口:它存储键值(key-value)对,你需要通过 key 来获取值，还提供了一个简化的 `ContextView`:
 
-* key 和 value 都是 `Object` 类型,所以 `Context` 可以包含任意数量的任意对象.
-* `Context` 是 不可变的(immutable).
-* 用 `put(Object key, Object value)` 方法来存储一个键值对,返回一个新的 `Context` 对象. 你也可以用 `putAll(Context)` 方法将两个 context 合并为一个新的 context.
+* key 和 value 都是 `Object` 类型,所以 `Context` (和 `ContextView` ) 可以包含任意数量的任意对象.
+* `Context` 是 不可变的(immutable).它公开了像 `put` 和 `putAll`  这样的写方法，但它们会产生一个新实例。
+* 对于一个没有公开类似的写方法的只读 API，从 3.4.0 开始就有了 `ContextView` 超接口
 * 用 `hasKey(Object key)` 方法检查一个 key 是否已经存在.
 * 用 `getOrDefault(Object key, T defaultValue)` 方法取回 key 对应的值(类型转换为 `T`), 或在找不到这个 key 的情况下返回一个默认值.
 * 用 `getOrEmpty(Object key)` 来得到一个 `Optional<T>` (context 会尝试将值转换为 `T`).
+* 用 `put(Object key, Object value)` 方法来存储一个键值对,返回一个新的 `Context` 对象. 你也可以用 `putAll(Context)` 方法将两个 context 合并为一个新的 context.
 * 用 `delete(Object key)` 来删除 key 关联的值,并返回一个新的 `Context`.
 
 [TIP]
@@ -628,18 +632,28 @@ IMPORTANT: 这是一个主要面向库开发人员的高级功能.这需要开�
 
 实际上,一个 `Context` 是绑定到每一个链中的 `Subscriber` 上的. 它使用 `Subscription` 的传播机制来让自己对每一个操作符都可见(从最后一个 `subscribe` 沿链向上).
 
-为了填充 `Context` ——只能在订阅时(subscription time)——你需要使用 `subscriberContext` 操作符.
+为了填充 `Context` ——只能在订阅时(subscription time)——你需要使用 `contextWrite` 操作符.
 
-`subscriberContext(Context)` 方法会将你提供的 `Context` 与来自下游(记住,`Context` 是从下游 向上游传播的)的 `Context` 合并. 这通过调用 `putAll` 实现,最后会生成一个新的 `Context` 给上游.
+`contextWrite(ContextView)` 方法会将你提供的 `ContextView` 与来自下游(记住,`Context` 是从下游 向上游传播的)的 `Context` 合并. 这通过调用 `putAll` 实现,最后会生成一个新的 `Context` 给上游.
 
-TIP: 你也可以用更高级的 `subscriberContext(Function<Context, Context>)`.它接受来自下游的 `Context`,然后你可以根据需要添加或删除值,然后返回新的 `Context`.你甚至可以返回一个完全不同 的对象,虽然不太建议这样(这样可能影响到依赖这个 `Context` 的库).
+TIP: 你也可以用更高级的 `contextWrite(Function<Context, Context>)`.它接受来自下游的 `Context` 的副本,然后你可以根据需要添加或删除值,然后返回新的 `Context`.你甚至可以返回一个完全不同 的对象,虽然不太建议这样(这样可能影响到依赖这个 `Context` 的库).
 
 [[context.read]]
-=== 读取 `Context`
+=== 通过  `ContextView` 读取 `Context`
 
-填充 `Context` 是一方面,读取数据同样重要.多数时候,添加内容到 `Context` 是最终用户的责任, 但是利用这些信息是库的责任,因为库通常是客户代码的上游.
+一旦您填充了一个 `Context`，您可能希望在运行时查看它。.多数时候,添加内容到 `Context` 是终端用户的责任, 但是利用这些信息是在第三方库的一方，因为此类库通常位于客户端代码的上游。.
 
-读取 context 数据使用静态方法 `Mono.subscriberContext()`.
+读取的操作符允许通过暴露其 `ContextView` 从操作符链中的 `Context` 获取数据：
+
+- to access the context from a source-like operator, use `deferContextual` factory method
+- to access the context from the middle of an operator chain, use `transformDeferredContextual(BiFunction)`
+- alternatively, when dealing with an inner sequence (like inside a `flatMap`), the `ContextView`
+can be materialized using `Mono.deferContextual(Mono::just)`. Usually though, you might want
+to perform meaningful work directly within the defer's lambda, eg. `Mono.deferContextual(ctx -> doSomethingAsyncWithContextData(v, ctx.get(key)))`
+where `v` is the value being flatMapped.
+
+TIP: In order to read from the `Context` without misleading users into thinking one can write to it
+while data is running through the pipeline, only the `ContextView` is exposed by the operators above.
 
 === 简单的 `Context` 例子
 
@@ -652,21 +666,20 @@ TIP: 你也可以用更高级的 `subscriberContext(Function<Context, Context>)`
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext() //<2>
-                                   .map( ctx -> s + " " + ctx.get(key))) //<3>
-                .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+    .flatMap(s -> Mono.deferContextual(ctx ->
+         Mono.just(s + " " + ctx.get(key)))) //<2>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<1>
 
 StepVerifier.create(r)
-            .expectNext("Hello World") //<4>
+            .expectNext("Hello World") //<3>
             .verifyComplete();
 ----
-<1> 操作链以调用 `subscriberContext(Function)` 结尾,将 `"World"` 作为 `"message"` 这个 key 的 值添加到 `Context` 中.
-<2> 对源调用 `flatMap` 用 `Mono.subscriberContext()` 方法拿到 `Context`.
-<3> 然后使用 `map` 读取关联到 `"message"` 的值,然后与原来的值连接.
-<4> 最后 `Mono<String>` 确实发出了 `"Hello World"`.
+<1> 操作链以调用 `contextWrite(Function)` 结尾,将 `"World"` 作为 `"message"` 这个 key 的 值添加到 `Context` 中.
+<2> 对源调用 `flatMap` 用 `Mono.deferContextual()` 方法拿到 `ContextView`.然后使用 `map` 读取关联到 `"message"` 的值,然后与原来的值连接.
+<3> 最后 `Mono<String>` 确实发出了 `"Hello World"`.
 ====
 
-IMPORTANT: 上边的数字顺序并不是按照代码行顺序排的,这并非错误:它代表了执行顺序.虽然 `subscriberContext` 是链上的最后一个环节,但确实最先执行的(原因在于 subscription 信号 是从下游向上的).
+IMPORTANT: 上边的数字顺序并不是按照代码行顺序排的,这并非错误:它代表了执行顺序.虽然 `subscriberContext` 是链上的最后一个环节,但确实最先执行的(原因在于 contextWrite 信号 是从下游向上的).
 
 IMPORTANT: 注意在你的操作链中,写入 与 读取 `Context` 的 相对位置 很重要:因为 `Context` 是不可变的,它的内容只能被上游的操作符看到,如下例所示:
 
@@ -675,9 +688,9 @@ IMPORTANT: 注意在你的操作链中,写入 与 读取 `Context` 的 相对位
 ----
 String key = "message";
 Mono<String> r = Mono.just("Hello")
-                     .subscriberContext(ctx -> ctx.put(key, "World")) //<1>
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.getOrDefault(key, "Stranger")));  //<2>
+    .contextWrite(ctx -> ctx.put(key, "World")) //<1>
+    .flatMap( s -> Mono.deferContextual(ctx ->
+        Mono.just(s + " " + ctx.getOrDefault(key, "Stranger")))); //<2>
 
 StepVerifier.create(r)
             .expectNext("Hello Stranger") //<3>
@@ -688,40 +701,16 @@ StepVerifier.create(r)
 <3> 结果 `Mono<String>` 发出了 `"Hello Stranger"`.
 ====
 
-下面的例子同样说明了 `Context` 的不可变性(`Mono.subscriberContext()` 总是返回由 `subscriberContext` 配置的 `Context`):
-
-====
-[source,java]
-----
-String key = "message";
-
-Mono<String> r = Mono.subscriberContext() // <1>
-	.map( ctx -> ctx.put(key, "Hello")) // <2>
-	.flatMap( ctx -> Mono.subscriberContext()) // <3>
-	.map( ctx -> ctx.getOrDefault(key,"Default")); // <4>
-
-StepVerifier.create(r)
-	.expectNext("Default") // <5>
-	.verifyComplete();
-----
-<1> 拿到 `Context`
-<2> 在 `map` 方法中我们尝试修改它.
-<3> 在 `flatMap` 中再次获取 `Context`.
-<4> 读取 `Context` 中可能的值.
-<5> 值从来没有被设置为 `"Hello"`.
-====
-
 类似的,如果多次对 `Context` 中的同一个 key 赋值的话,要看 写入的相对顺序 : 读取 `Context` 的操作符只能拿到下游最近的一次写入的值,如下例所示:
 
 ====
 [source,java]
 ----
 String key = "message";
-Mono<String> r = Mono.just("Hello")
-                .flatMap( s -> Mono.subscriberContext()
-                                   .map( ctx -> s + " " + ctx.get(key)))
-                .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-                .subscriberContext(ctx -> ctx.put(key, "World")); //<2>
+Mono<String> r = Mono
+    .deferContextual(ctx -> Mono.just("Hello " + ctx.get(key)))
+    .contextWrite(ctx -> ctx.put(key, "Reactor")) //<1>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<2>
 
 StepVerifier.create(r)
             .expectNext("Hello Reactor") //<3>
@@ -729,11 +718,11 @@ StepVerifier.create(r)
 ----
 <1> 写入 `"message"` 的值.
 <2> 另一次写入 `"message"` 的值.
-<3> `map` 方法值能拿到下游最近的一次写入的值: `"Reactor"`.
+<3> `deferContextual` 方法值能拿到下游最近的一次写入的值: `"Reactor"`.
 ====
 
 这里,首先 `Context` 中的 key 被赋值 `"World"`.然后订阅信号(subscription signal)向上游 移动,又发生了另一次写入.这次生成了第二个不变的 `Context`,里边的值是 `"Reactor"`.
-之后, 数据开始流动, `flatMap` 拿到最近的 `Context` ,也就是第二个值为 `"Reactor"` 的 `Context`.
+之后, 数据开始流动, `deferContextual` 拿到最近的 `Context` ,也就是第二个值为 `"Reactor"` 的 `Context`  (exposed to the user as a `ContextView`).
 
 你可能会觉得 `Context` 是与数据信号一块传播的.如果是那样的话,在两次写入操作中间加入的一个 `flatMap` 会使用最上游的这个 `Context`.但并不是这样的,如下:
 
@@ -741,13 +730,12 @@ StepVerifier.create(r)
 [source,java]
 ----
 String key = "message";
-Mono<String> r = Mono.just("Hello")
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.get(key))) //<3>
-                     .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<2>
-                     .flatMap( s -> Mono.subscriberContext()
-                                        .map( ctx -> s + " " + ctx.get(key))) //<4>
-                     .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+Mono<String> r = Mono
+    .deferContextual(ctx -> Mono.just("Hello " + ctx.get(key))) //<3>
+    .contextWrite(ctx -> ctx.put(key, "Reactor")) //<2>
+    .flatMap( s -> Mono.deferContextual(ctx ->
+        Mono.just(s + " " + ctx.get(key)))) //<4>
+    .contextWrite(ctx -> ctx.put(key, "World")); //<1>
 
 StepVerifier.create(r)
             .expectNext("Hello Reactor World") //<5>
@@ -755,8 +743,8 @@ StepVerifier.create(r)
 ----
 <1> 这里是第一次赋值.
 <2> 这里是第二次赋值.
-<3> 第一个 `flatMap` 看到的是第二次的赋值.
-<4> 第二个 `flatMap` 将上一个的结果与 第一次赋值 的 context 值连接.
+<3> 第一个 context 看到的是第二次的赋值.
+<4> `flatMap` 将上一个的结果与 第一次赋值 的 context 值连接.
 <5> `Mono` 发出的是 `"Hello Reactor World"`.
 ====
 
@@ -768,26 +756,25 @@ StepVerifier.create(r)
 [source,java]
 ----
 String key = "message";
-Mono<String> r =
-        Mono.just("Hello")
-            .flatMap( s -> Mono.subscriberContext()
-                               .map( ctx -> s + " " + ctx.get(key))
-            )
-            .flatMap( s -> Mono.subscriberContext()
-                               .map( ctx -> s + " " + ctx.get(key))
-                               .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-            )
-            .subscriberContext(ctx -> ctx.put(key, "World")); // <2>
+Mono<String> r = Mono.just("Hello")
+    .flatMap( s -> Mono
+        .deferContextual(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+    )
+    .flatMap( s -> Mono
+        .deferContextual(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+        .contextWrite(ctx -> ctx.put(key, "Reactor")) //<1>
+    )
+    .contextWrite(ctx -> ctx.put(key, "World")); // <2>
 
 StepVerifier.create(r)
             .expectNext("Hello World Reactor")
             .verifyComplete();
 ----
-<1> 这个 `subscriberContext` 不会影响所在 `flatMap` 之外的任何东西.
-<2> 这个 `subscriberContext` 会影响主序列的 `Context`.
+<1> 这个 `contextWrite` 不会影响所在 `flatMap` 之外的任何东西.
+<2> 这个 `contextWrite` 会影响主序列的 `Context`.
 ====
 
-上边的例子中,最后发出的值是 `"Hello World Reactor"` 而不是 `"Hello Reactor World"`,因为赋值 "Reactor" 的 `subscriberContext` 是作用于第二个 `flatMap` 的内部序列的.所以不会在主序列可见/传播,第一个 `flatMap` 也看不到它.传播(Propagation) + 不可变性(immutability)将类似 `flatMap` 这样的操作符中的创建的内部序列中的 `Context` 与外部隔离开来.
+上边的例子中,最后发出的值是 `"Hello World Reactor"` 而不是 `"Hello Reactor World"`,因为赋值 "Reactor" 的 `contextWrite` 是作用于第二个 `flatMap` 的内部序列的.所以不会在主序列可见/传播,第一个 `flatMap` 也看不到它.传播(Propagation) + 不可变性(immutability)将类似 `flatMap` 这样的操作符中的创建的内部序列中的 `Context` 与外部隔离开来.
 
 === 完整示例
 
@@ -808,11 +795,11 @@ doPut("www.example.com", Mono.just("Walter"))
 [source,java]
 ----
 doPut("www.example.com", Mono.just("Walter"))
-	.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+	.contextWrite(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
 ----
 ====
 
-由上可见,用户代码使用了 `subscriberContext` 来为 `Context` 的 `HTTP_CORRELATION_ID` 赋值.上游的操作符是一个由 HTTP 客户端库返回的 `Mono<Tuple2<Integer, String>>` (一个简化的 HTTP 响应).所以能够正确将信息从用户代码传递给库代码.
+由上可见,用户代码使用了 `contextWrite` 来为 `Context` 的 `HTTP_CORRELATION_ID` 赋值.上游的操作符是一个由 HTTP 客户端库返回的 `Mono<Tuple2<Integer, String>>` (一个简化的 HTTP 响应).所以能够正确将信息从用户代码传递给库代码.
 
 下边的例子演示了从库的角度由 context 读取值的模拟代码,如果能够找到关联ID,则“增加请求”:
 
@@ -822,29 +809,30 @@ doPut("www.example.com", Mono.just("Walter"))
 static final String HTTP_CORRELATION_ID = "reactive.http.library.correlationId";
 
 Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
-	Mono<Tuple2<String, Optional<Object>>> dataAndContext =
-			data.zipWith(Mono.subscriberContext() // <1>
-			                 .map(c -> c.getOrEmpty(HTTP_CORRELATION_ID))); // <2>
+  Mono<Tuple2<String, Optional<Object>>> dataAndContext =
+      data.zipWith(Mono.deferContextual(c -> // <1>
+          Mono.just(c.getOrEmpty(HTTP_CORRELATION_ID))) // <2>
+      );
 
-	return dataAndContext
-			.<String>handle((dac, sink) -> {
-				if (dac.getT2().isPresent()) { // <3>
-					sink.next("PUT <" + dac.getT1() + "> sent to " + url + " with header X-Correlation-ID = " + dac.getT2().get());
-				}
-				else {
-					sink.next("PUT <" + dac.getT1() + "> sent to " + url);
-				}
-				sink.complete();
-			})
-			.map(msg -> Tuples.of(200, msg));
+  return dataAndContext.<String>handle((dac, sink) -> {
+      if (dac.getT2().isPresent()) { // <3>
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url +
+            " with header X-Correlation-ID = " + dac.getT2().get());
+      }
+      else {
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url);
+      }
+        sink.complete();
+      })
+      .map(msg -> Tuples.of(200, msg));
 }
 ----
-<1> 用 `Mono.subscriberContext()` 拿到 `Context`.
-<2> 提取出关联ID的值—,是一个 `Optional`.
+<1> 用 `Mono.deferContextual()` 拿到 `ContextView`.
+<2> 提取出关联 ID 的值,是一个 `Optional`.
 <3> 如果值存在,那么就将其加入请求头
 ====
 
-在这段库代码片段中,你可以看到它是如何将 `Mono` 和 `Mono.subscriberContext()`  打包起来的. 返回的是一个 `Tuple2<String, Context>`,这个 `Context` 包含来自下游的 `HTTP_CORRELATION_ID` 的值.
+在这段库代码片段中,你可以看到它是如何将 `Mono` 和 `Mono.deferContextual(Mono::just)`  打包起来的. 返回的是一个 `Tuple2<String, ContextView>`,这个 `Context` 包含来自下游的 `HTTP_CORRELATION_ID` 的值.
 
 库代码接着用 `map` 读取出那个 key 的值 `Optional<String>`,如果值存在,将其作为 `X-Correlation-ID` 请求头. 最后一块而用 `handle` 来处理.
 
@@ -855,14 +843,15 @@ Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
 ----
 @Test
 public void contextForLibraryReactivePut() {
-	Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
-			.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
-			.filter(t -> t.getT1() < 300)
-			.map(Tuple2::getT2);
+  Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
+      .contextWrite(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+      .filter(t -> t.getT1() < 300)
+      .map(Tuple2::getT2);
 
-	StepVerifier.create(put)
-	            .expectNext("PUT <Walter> sent to www.example.com with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
-	            .verifyComplete();
+  StepVerifier.create(put)
+              .expectNext("PUT <Walter> sent to www.example.com" +
+                  " with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
+              .verifyComplete();
 }
 ----
 ====

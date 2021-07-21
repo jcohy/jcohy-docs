@@ -25,7 +25,7 @@ TIP: 如果您使用的是 Spring Boot,则最好将调用放在 `SpringApplicati
 
 一旦启用了 scheduler metrics 并将其提供到类路径中,Reactor 将使用 `Micrometer` 的支持来检测执行程序.
 
-请参阅 http://micrometer.io/docs/ref/jvm[Micrometer 的文档] 以了解公开的指标,例如:
+请参阅 https://micrometer.io/docs/ref/jvm[Micrometer 的文档] 以了解公开的指标,例如:
 
 - executor_active_threads
 - executor_completed_tasks_total
@@ -67,8 +67,8 @@ listenToEvents()
     .retry()
     .subscribe();
 ----
-<1> 此阶段的每个指标都将被标识为 "events" .
-<2> `Flux#metrics` 运算符可启用指标标准报告并在管道中使用最近的已知名称.
+<1> 此阶段的每个指标都将被标识为 "events" (可选的).
+<2> `Flux#metrics` 运算符可启用指标报告,使用调用 `Flux#name` 操作符时提供的名称。如果没有使用 `Flux#name` 操作符，默认名称将是 `reactor`。
 ====
 
 只需将这两个运算符相加,便可以揭示一大堆有用的指标！
@@ -77,51 +77,48 @@ listenToEvents()
 |=======
 | metric name | type | description
 
-| reactor.subscribed | Counter | Counts how many Reactor sequences have been subscribed to
+| [name].subscribed | Counter | Counts how many Reactor sequences have been subscribed to
 
-| reactor.malformed.source | Counter | Counts the number of events received from a malformed source (ie an onNext after an onComplete)
+| [name].malformed.source | Counter | Counts the number of events received from a malformed source (ie an onNext after an onComplete)
 
-| reactor.requested | DistributionSummary | Counts the amount requested to a named Flux by all subscribers, until at least one requests an unbounded amount
+| [name].requested | DistributionSummary | Counts the amount requested to a named Flux by all subscribers, until at least one requests an unbounded amount
 
-| reactor.onNext.delay | Timer | Measures delays between onNext signals (or between onSubscribe and first onNext)
+| [name].onNext.delay | Timer | Measures delays between onNext signals (or between onSubscribe and first onNext)
 
-| reactor.flow.duration | Timer | Times the duration elapsed between a subscription and the termination or cancellation of the sequence. A status tag is added to specify what event caused the timer to end (`onComplete`, `onError`, `cancel`).
+| [name].flow.duration | Timer | Times the duration elapsed between a subscription and the termination or cancellation of the sequence. A status tag is added to specify what event caused the timer to end (`completed`, `completedEmpty`, `error`, `cancelled`).
 |=======
 
+是否想知道由于某些错误您的事件处理已重新启动了多少次?  读取 `[name].subscribed`,因为 `retry()` 运算符将在发生错误时重新订阅源发布者.
 
-是否想知道由于某些错误您的事件处理已重新启动了多少次?  读取 `Reactor.subscribed`,因为 `retry()` 运算符将在发生错误时重新订阅源发布者.
+对 "每秒事件数" 指标感兴趣吗?  测量 `[name].onNext.delay` 计数的速率.
 
-对 "每秒事件数" 指标感兴趣吗?  测量 `reactor.onNext.delay` 计数的速率.
+是否希望在监听器引发错误时收到警报?  使用带有 `status=error` 标签的 `[name].flow.duration` .
 
-是否希望在监听器引发错误时收到警报?  使用带有 `status=error` 标签的 `react.flow.duration` .
+类似的, `status=completed` 和 `status=completedEmpty` 可以让您区分以完成的元素序列和已完成的空元素序列
 
-=== 共同 tags
+请注意，给序列命名时，该序列不能再与其他序列聚合。如果您想识别您的序列但仍然可以与其他视图聚合，作为一种妥协，您可以通过调用 `(tag("flow", "events"))`  来使用 <<Tags>> 作为名称例子。.
 
-每个指标都有以下共同的标签:
-[width="100%",options="header"]
-|=======
-| tag name | description | example
+=== Tags
 
-| type | Publisher's type | "Mono"
-
-| flow | current flow's name, set by `.name()` operator | "events"
-|=======
-
-=== 自定义 tags
+Every metric will have a `type` tag in common, which value will be either `Flux` or `Mono` depending on the publisher's nature.
 
 允许用户向其响应式链中添加自定义标签:
 ====
 [source,java]
 ----
 listenToEvents()
-    .tag("source", "kafka") <1>
-    .name("events")
-    .metrics() <2>
+    .name("events") <1>
+    .tag("source", "kafka") <2>
+    .metrics() <3>
     .doOnNext(event -> log.info("Received {}", event))
     .delayUntil(this::processEvent)
     .retry()
     .subscribe();
 ----
-<1> 设置自定义标签 "source" 值为 "kafka".
-<2> 除上述常见标签外,所有报告的指标还将分配有 "source = kafka" 标签.
+<1> 此阶段的每个指标都将被标识为 "events".
+<2> 设置自定义标签 "source" 值为 "kafka".
+<3> 除上述常见标签外,所有报告的指标还将分配有 "source = kafka" 标签.
 ====
+
+Please note that depending on the monitoring system you're using, using a name can be considered mandatory when using tags, since it would otherwise result in a different set of tags between two default-named sequences.
+Some systems like Prometheus might also require to have the exact same set of tags for each metric with the same name.

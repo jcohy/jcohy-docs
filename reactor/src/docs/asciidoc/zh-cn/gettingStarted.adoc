@@ -28,34 +28,41 @@ Reactor Core 运行于 `Java 8` 及以上版本.
 ====
 * Reactor 3 并不正式支持 Andorid(如果需要可以考虑使用 RxJava 2).
 * 但是,在 Android SDK 26(Android 0)及以上版本应该没问题.
+* It will likely work fine with Android SDK 21 (Android 5.0) and above when desugaring
+is enabled. See https://developer.android.com/studio/write/java8-support#library-desugaring
 * 我们希望能够最大程度兼顾对 Android 的支持,但是我们并不能作出保证,具体情况具体分析.
 ====
 
 [[getting-started-understanding-bom]]
-== 了解 BOM
+== 了解 BOM 和 versioning scheme（版本命名）
 
 自从 `reactor-core 3.0.4`,随着 `Aluminium` 版本发布上车(release train)以来,Reactor 3 使用了 BOM(Bill of Materials,一种标准的 Maven artifact).
 
-使用 BOM 可以管理一组良好集成的 maven artifacts,从而无需操心不同版本组件的互相依赖问题.
+请注意 版本命名在 3.3.x 和 3.4.x 之间有变动(Dysprosium 和 Europium).
 
-BOM 是一系列有版本信息的 artifacts,通过“列车发布”(release train)的发布方式管理, 每趟发布列车由一个“代号+修饰词”组成,比如:
+组件使用 `MAJOR.MINOR.PATCH-QUALIFIER` 的版本命名，而 BOM 使用 `YYYY.MINOR.PATCH-QUALIFIER` 的命名, 其中:
 
-[verse]
-Aluminium-RELEASE
-Californium-BUILD-SNAPSHOT
-Aluminium-SR1
-Bismuth-RELEASE
-Californium-SR32
+* `MAJOR` 是 Reactor 的第几次大迭代, 每一次大的迭代都会给项目结构带来根本性的变化（这可能意味着更重要的迁移工作）
+* `YYYY` 是给定发布周期中第一个 GA 版本发布年份 (例如 3.4.0 for 3.4.x)
+* `.MINOR` 是一个从 0 开始的数字，随着每个新的发布周期递增
+** 它通常反映更广泛的变化，可以表明适度的迁移工作
+** 在 BOM 的情况下，它允许区分发布周期，以防两个在同一年首次发布
+* `.PATCH` 是一个从 0 开始的数字，随着每个服务版本递增
+* `-QUALIFIER` 是一个文本限定符，在 GA 版本的情况下被省略（见下文）
 
-代号替代了传统的“主版本.次版本”的数字形式.这些代号主要来自 https://en.wikipedia.org/wiki/Periodic_table#Overview[Periodic Table of
+因此，遵循该约定的第一个发布周期是 `2020.0.x`，代号 `Europium`。该方案按顺序使用以下限定符（注意使用破折号分隔符）：
+
+* `-M1`..`-M9`: 里程碑（我们预计每个服务版本不会超过 9 个）
+* `-RC1`..`-RC9`: 候选版本（我们预计每个服务版本不会超过 9 个）
+* `-SNAPSHOT`: 快照
+* _no qualifier_ for GA releases
+
+NOTE: 快照按上述顺序出现在更高的位置，因为从概念上讲，它们始终是任何给定 PATCH 的“最新鲜的预发布”。即使 PATCH 周期的第一个部署工件将始终是一个 -SNAPSHOT，一个类似命名但更新的快照也将在例如之后发布。里程碑或发布候选者之间。
+
+每个发布周期也有一个代号，与之前基于代号的方案保持连续性，可用于更非正式地引用它（如在讨论、博客文章等中）。代号替代了传统的 MAJOR.MINOR 的数字形式.这些代号主要来自 https://en.wikipedia.org/wiki/Periodic_table#Overview[Periodic Table of
 Elements], 按首字母顺序依次选取.
 
-修饰词有(按照时间顺序):
-
-* `BUILD-SNAPSHOT`: 为开发和测试而构建.
-* `M1`..`N`: 里程碑号
-* `RELEASE`: 第一次 GA (General Availability) 发布
-* `SR1`..`N`: 后续的 GA 发布(类似于 PATCH 号或 SR(Service Release))..
+NOTE: 在 Dysprosium 之前，BOM 是使用代号后跟限定符的版本序列方案进行版本控制的，并且限定符略有不同。例如：Aluminium-RELEASE（第一个 GA 版本，现在类似于 YYYY.0.0）、Bismuth-M1、Californium-SR1（服务版本现在类似于 YYYY.0.1）、Dysprosium-RC1、Dysprosium-BUILD-SNAPSHOT （在每个补丁之后，我们会回到相同的快照版本。现在类似于 YYYY.0.X-SNAPSHOT 所以我们每个补丁获得 1 个快照）。
 
 [[getting]]
 == 获取  Reactor
@@ -64,19 +71,24 @@ Elements], 按首字母顺序依次选取.
 
 当然,如果你希望使用某个版本的 artifact,仍然可以指定.甚至完全不使用 BOM,逐个配置 artifact 的版本也是可以的.
 
+WARNING: 对于当前版本 (reactor-core {reactor-version}), 最新的稳定的 BOM 版本为 `2020.0.9`, 如下面的代码所示.
+此后可能会有更新的版本 (包括 snapshots, milestones 和 new release train lines),
+请查看 https://projectreactor.io/docs 获取最新的 artifacts 和 BOMs.
+
+
 === Maven 安装
 
 Maven 原本就支持 BOM.首先,你需要在 `pom.xml` 内通过添加下边的代码引入 BOM.如果 (`dependencyManagement`) 已经存在,只需要添加其内容即可
 
 ====
-[source,xml]
+[source,xml,subs=attributes+]
 ----
 <dependencyManagement> <1>
     <dependencies>
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-bom</artifactId>
-            <version>Bismuth-RELEASE</version>
+            <version>{reactorReleaseTrain}</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -130,11 +142,11 @@ plugins {
 然后用它引入 BOM:
 
 ====
-[source,groovy]
+[source,groovy,subs=attributes+]
 ----
 dependencyManagement {
      imports {
-          mavenBom "io.projectreactor:reactor-bom:Bismuth-RELEASE"
+          mavenBom "io.projectreactor:reactor-bom:{reactorReleaseTrain}"
      }
 }
 ----
@@ -155,10 +167,10 @@ dependencies {
 从 Gradle 5.0 开始,您可以使用本地 Gradle 支持对 BOM 的支持:
 
 ====
-[source,groovy]
+[source,groovy,subs=attributes+]
 ----
 dependencies {
-     implementation platform('io.projectreactor:reactor-bom:Bismuth-RELEASE')
+     implementation platform('io.projectreactor:reactor-bom:{reactorReleaseTrain}')
      implementation 'io.projectreactor:reactor-core' <1>
 }
 ----
@@ -223,3 +235,10 @@ repositories {
 }
 ----
 ====
+
+[[support]]
+== Support and policies
+
+The entries below are mirroring https://github.com/reactor/.github/blob/main/SUPPORT.adoc
+
+include::https://raw.githubusercontent.com/reactor/.github/main/SUPPORT.adoc[leveloffset=3]

@@ -1,111 +1,61 @@
+import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin
+import org.asciidoctor.gradle.jvm.AsciidoctorTask
+
+/**
+ * Produce Javadoc for all Spring Framework modules in "build/docs/javadoc"
+ */
+apply plugin: "com.jcohy.docs"
 
 ext{
 	language = "zh-cn"
 	component = project.name
 	version = project.version
 }
-configurations {
-	asciidoctorExt
-}
 
-dependencies {
-	asciidoctorExt("io.spring.asciidoctor:spring-asciidoctor-extensions:0.2.0.RELEASE")
-}
+task aggregatedAsciidoctor(type: Copy) {
+	project.rootProject.gradle.projectsEvaluated {
+		Set<Project> excludedProjects = ['spring-security','reactor','spring-data-redis']
 
-task extractDocResources(type: Copy) {
-	from "${rootDir}/spring-docs-build/src/main/resources"
-	into "$buildDir/docs/spring-docs-resources"
-}
-
-asciidoctorj {
-	modules {
-		pdf {
-			version '1.5.0-beta.8'
+		Set<Project> docsProjects = rootProject.subprojects.findAll {it != project }
+				.findAll { it.plugins.hasPlugin(AsciidoctorJPlugin) }
+		Set<Project> docsPdfProject = docsProjects.findAll{!excludedProjects.contains(it.name)}
+		dependsOn docsProjects.asciidoctor
+		dependsOn docsPdfProject.asciidoctorPdf
+		destinationDir = project.file "${buildDir}/docs"
+		docsProjects.each {project ->
+			from(project.asciidoctor.outputDir) {
+				into project.name+"/"+project.version+"/html"
+			}
+			from(project.asciidoctorPdf.outputDir) {
+				into project.name+"/"+project.version+"/pdf"
+			}
 		}
 	}
 }
 
-asciidoctor {
-	baseDir "${sourceDir}/${language}"
-	configurations 'asciidoctorExt'
-	sources {
-		include "${language}/*.adoc"
+task docsZip(type: Zip) {
+	dependsOn asciidoctor,
+			asciidoctorPdf
+
+	duplicatesStrategy "fail"
+	from(asciidoctor.outputDir) {
+		into "reference/htmlsingle"
 	}
-	outputDir "$buildDir/docs/ref-docs/"
-	resources {
-		from(sourceDir) {
-			include "${language}/images/*"
+	from(asciidoctorPdf.outputDir) {
+		into "reference/pdf"
+		include "index.pdf"
+		rename { "flight-framework-reference.pdf" }
+	}
+}
+
+artifacts {
+	archives docsZip
+}
+
+publishing {
+	publications {
+		maven(MavenPublication) {
+			artifact docsZip
 		}
 	}
-	logDocuments = true
-
-	outputs.upToDateWhen { false }
-	outputOptions {
-		backends = ["html5", "pdf"]
-	}
-
-	options doctype: 'book', eruby: 'erubis'
-	attributes([
-			// base attributes
-			'idprefix' : "",
-			'idseparator' : "-",
-			'toc' : "left",
-			'toclevels' : 4,
-			'tabsize' : 4,
-			'numbered' : "",
-			'source-indent':0,
-			'sectanchors' : "",
-			'sectnums' : "",
-			'icons' : "font",
-			'hide-uri-scheme' : "font",
-			'docinfo':"shared,private",
-			'highlightjs-theme': "github",
-			'allow-uri-read':"*.adoc",
-			'highlightjsdir' : "http://resources.jcohy.com/js/highlight",
-			'sourceHighlighter' : "highlight.js",
-			'stylesdir': "$buildDir/docs/spring-docs-resources/css",
-			'stylesheet' : "stylesheet.css",
-
-			//project
-			'rootProject': "${rootProject.projectDir}",
-			// resource attributes
-			'doc-root' : "${docsRoot}",
-			'sources-root':"${project.projectDir}/src",
-			'image-resource': "http://resources.jcohy.com/jcohy-docs/images/${springBootVersion}/${project.name}",
-			'image-dir': "http://resources.jcohy.com/jcohy-docs/images/${project.name}",
-
-			// version attributes
-			'spring-framework-version' : "${springVersion}",
-			'spring-boot-version' : "${springBootVersion}",
-			'spring-data-jpa-version' : "${springDataJpaVersion}",
-			'spring-data-redis-version' : "${springDataRedisVersion}",
-			'spring-data-rest-version' : "${springDataRestVersion}",
-			'spring-data-commons-version' : "${springDataCommonsVersion}",
-			'spring-security-version' : "${springSecurityVersion}",
-			'spring-hateoas-version' : "${springHateoasVersion}",
-			'gradle-version':"${gradleVersion}",
-			'reactor-version' : "${reactorVersion}",
-			'rfc-version' : "${rfcDocsVersion}",
-			'spring-cloud-version' : "${springCloudVersion}",
-			'spring-integration-version' : "${springIntegrationVersion}",
-			'spring-webservices-version' : "${springWebservicesVersion}",
-
-			// docs attributes
-			'spring-docs-prefix' : "https://docs.spring.io/spring-framework/docs/",
-			'spring-boot-docs' : "https://docs.spring.io/spring-boot/docs/",
-			'spring-framework-docs' : "${docsRoot}/zh-cn/spring-framework/${springVersion}/spring-framework-reference/index.html",
-			'spring-api-doc':"https://docs.spring.io/${project.name}",
-
-			// sample attributes
-			'gh-samples-url':"https://github.com/spring-projects/spring-security/master/${springSecurityVersion}/samples",
-	])
 }
-
-asciidoctor.dependsOn extractDocResources
-
-task docsCopy(type: Copy,dependsOn:asciidoctor ) {
-	from "$asciidoctor.outputDir"
-	into "${rootDir}/build/docs/${component}/${version}"
-}
-
-//docsCopy.dependsOn asciidoctor

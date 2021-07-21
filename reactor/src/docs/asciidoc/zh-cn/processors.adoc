@@ -1,95 +1,175 @@
-Processors 既是一种特别的发布者(`Publisher`)又是一种订阅者(`Subscriber`). 那意味着你可以 `subscribe` 一个 `Processor`(通常它们会实现 `Flux`),也可以调用相关方法来手动 插入数据到序列,或终止序列.
+Processors 既是一种特别的发布者(`Publisher`)又是一种订阅者(`Subscriber`).
+它们最初的目的是作为一个中间步骤的可能表示，然后可以在 Reactive Streams 实现之间共享。然而，在 Reactor 中，这些步骤是由 `Publisher` 之类的操作符表示的。
 
-Processor 有多种类型,它们都有特别的语义规则,但是在你研究它们之前,最好问一下 自己如下几个问题:
+第一次遇到 `Processor` 时，一个常见的错误是试图直接从 `Subscriber` 接口调用公开的 `onNext`, `onComplete` 和 `onError`  方法。
 
-== 我是否需要使用 Processor?
-多数情况下,你应该进行避免使用 `Processor`,它们较难正确使用,主要用于一些特殊场景下.
+这样的手动调用应该小心进行，特别是在 Reactive Streams 规范之外的同步调用。Processors 实际上可能略微有用，除非遇到需要传递基于 Reactive Streams 的 API 的 `Subscriber` 而不是公开 `Publisher` 的.
 
-如果你觉得 `Processor` 适合你的使用场景,请首先看一下是否尝试过以下两种替代方式:
+Sinks 通常是更好的选择。在 Reactor 中，sink 是一个允许安全手动触发信号的类。它可以与订阅关联(从操作符内部)，也可以完全独立.
 
-. 是否有一个或多个操作符的组合能够满足需求? (See <<which-operator>>.)
-. <<producing,"`generator`">> 操作符是否能解决问题? (通常这些操作符 可以用来桥接非响应式的 API,它们提供了一个 "`sink`",在生成数据流序列方面, 概念上类似于 `Processor`)
+从 `3.4.0` 开始, sinks 逐渐成为一等公民, 并且 `Processor` 正被逐渐淘汰:
 
-如果看了以上替代方案,你仍然觉得需要一个 `Processor`,阅读 现有的 <<processor-overview>> 这一节来了解一下不同的实现吧.
+- 抽象和具体的 `FluxProcessor` 和 `MonoProcessor` 都将被淘汰，并在 3.5.0 移除
+- sinks 是通过 `Sinks` 类中的工厂生成的，而不是通过操作符产生的.
+- 我们希望所有的 processor 用法都可以通过现有的操作符或者 `Sinks` 来替代。在 3.5 发布之前，用户有时间去发现那些不是这样的情况，同时退回到使用废弃的 api.
 
-== 使用 `Sink` 门面对象来线程安全地生成流
-比起直接使用 Reactor 的 `Processors`,更好的方式是通过调用一次 `sink()` 来得到 `Processor` 的 `Sink`.
+[[sinks]]
+= 使用 `Sinks.One` 和 `Sinks.Many` 从多个线程生成
 
-`FluxProcessor` 的 sink 是线程安全的"生产者(producer),因此能够在应用程序中 多线程并发地生成数据.例如,一个线程安全的序列化(serialized)的 sink 能够通过 `UnicastProcessor` 创建:
+从下游订阅者的角度来看，由 reactor-core 暴露的 `Sinks` 需要确保多线程使用被检测到，并且不会导致违反规范或未定义的行为。当使用 `tryEmit*`  API 时，并行调用会快速失败。当使用 `emit*`  API 时，提供的 `EmissionFailureHandler` 可能允许重试连接(例如。busy looping)，否则 sink 将以一个错误终止.
 
-====
-[source,java]
-----
-UnicastProcessor<Integer> processor = UnicastProcessor.create();
-FluxSink<Integer> sink = processor.sink(overflowStrategy);
-----
-====
+这是对 `Processor.onNext` 的改进。它必须从外部同步，否则从下游订阅者的角度来看会导致未定义的行为.
 
-多个生产者线程可以并发地生成数据到以下的序列化 sink.
+`Sinks` 建造者对象(builder) 为主要支持的 producer 类型提供了一个指导性 API to the main supported producer types.
+您可以字 `Flux` 中识别一些行为,例如 `onBackpressureBuffer`.
 
 ====
 [source,java]
 ----
-sink.next(n);
+Sinks.Many<Integer> replaySink = Sinks.many().replay().all();
 ----
 ====
 
-WARNING: Despite the `FluxSink` being adapted for multi-threaded *manual* feeding
-of the `Processor`, it is not possible to mix the subscriber approach with the
-sink approach: You have to either subscribe your `FluxProcessor` to a source
-`Publisher` or feed it manually though its `FluxSink`.
+多个生产者线程可以通过执行以下操作在接收器上并发生成数据：
 
-根据 `Processor` 及其配置,`next` 产生的溢出有两种可能的处理方式:
+====
+[source,java]
+----
+//thread1
+sink.emitNext(1, FAIL_FAST);
 
-* 一个无限的 processor 通过丢弃或缓存自行处理溢出
-* 一个有限的 `processor` 阻塞在 `IGNORE` 策略,或将 `overflowStrategy` 应用于 `sink`.
+//thread2, later
+sink.emitNext(2, FAIL_FAST);
+
+//thread3, concurrently with thread 2
+EmitResult result = sink.tryEmitNext(3); //would return FAIL_NON_SERIALIZED
+----
+====
+
+`Sinks.Many` 可以作为 `Flux` 展现给下游消费者, 如下:
+
+====
+[source,java]
+----
+Flux<Integer> fluxView = replaySink.asFlux();
+fluxView
+	.takeWhile(i -> i < 10)
+	.log()
+	.blockLast();
+----
+====
+
+相似的, `Sinks.Empty` 和 `Sinks.One` 可以使用 `asMono()` 方法 将其视为 `Mono`.
+
+
+`Sinks` 分类:
+
+. `many().multicast()`: a sink that will transmit only newly pushed data to its subscribers, honoring their backpressure (newly pushed as in "after the subscriber's subscription").
+. `many().unicast()`: same as above, with the twist that data pushed before the first subscriber registers is buffered.
+. `many().replay()`: a sink that will replay a specified history size of pushed data to new subscribers then continue pushing new data live.
+. `one()`: a sink that will play a single element to its subscribers
+. `empty()`: a sink that will play a terminal signal only to its subscribers (error or complete), but can still be viewed as a `Mono<T>` (notice the generic type `<T>`).
 
 [[processor-overview]]
-== 现有的 Processors 总览
-Reactor Core 内置多种 `Processor`.这些 processor 具有不同的语法,大概分为三类. 下边简要介绍一下这三种 processor:
+= 可用的 Sinks 的概述
 
-* *direct(直接的)* (`DirectProcessor` 和 `UnicastProcessor`): 这些 processors 只能通过直接 调用 `Sink` 的方法来推送数据.
-* *synchronous(同步的)* (`EmitterProcessor` 和 `ReplayProcessor`): 这些 processors 既可以 直接调用 Sink 方法来推送数据,也可以通过订阅到一个上游的发布者来同步地产生数据.
+== Sinks.many().unicast().onBackpressureBuffer(args?)
 
-TIP: 将事件发布到不同线程上的一种方法是将 `EmitterProcessor` 与 `publishOn(Scheduler)` 结合使用. 例如,替代以前的 `TopicProcessor`,该 `TopicProcessor` 使用的是不安全操作, 并已在3.3.0中移至 https://github.com/reactor/reactor-addons/tree/master/reactor-extra/src/main/java/reactor/extra/processor[reactor-extra] 中.
+A unicast `Sinks.Many` can deal with backpressure by using an internal buffer.
+The trade-off is that it can have _at most one_ `Subscriber`.
 
-=== Direct Processor
+The basic unicast sink is created via `Sinks.many().unicast().onBackpressureBuffer()`.
+But there are a few additional `unicast` static factory methods in `Sinks.many().unicast()` allowing finer tuning.
 
-Direct `Processor` 可以将信号分发给零到多个订阅者(`Subscribers`).它是最容易实例化的,使用静态方法 `DirectProcessor#create()` 即可.另一方面,它的不足是无法处理背压.
-所以,当 `DirectProcessor` 推送的是 N 个元素,而至少有一个订阅者的请求个数少于 N 的时候,就会发出一个 `IllegalStateException`.
+For instance, by default, it is unbounded: if you push any amount of data through it while
+its `Subscriber` has not yet requested data, it buffers all of the data.
+You can change this by providing a custom `Queue` implementation for the internal
+buffering in the `Sinks.many().unicast().onBackpressureBuffer(Queue)` factory m
 
-一旦 `Processor` 终止(通常通过调用它的 Sink 的 `error(Throwable)` 或 `complete()` 方法), 虽然它允许更多的订阅者订阅它,但是会立即向它们重新发送终止信号.
 
-=== Unicast Processor
 
-`UnicastProcessor` 可以使用一个内置的缓存来处理背压.代价就是它最多只能有一个订阅者 `Subscriber`.
+ethod.
+If that queue is bounded, the sink could reject the push of a value when the buffer
+is full and not enough requests from downstream have been received.
 
-`UnicastProcessor` 有多种选项,因此提供多种不同的 `create` 静态方法.例如,它默认是 无限的(unbounded) : 如果你在在订阅者还没有请求数据的情况下让它推送数据,它会缓存所有数据.
+== Sinks.many().multicast().onBackpressureBuffer(args?)
 
-可以通过提供一个自定义的 `Queue` 的具体实现传递给 `create` 工厂方法来改变默认行为.如果给出的队列是 有限的(bounded), 并且缓存已满,而且未收到下游的请求,processor 会拒绝推送数据.
+A multicast `Sinks.Many` can emit to several subscribers while honoring backpressure for each of its subscribers.
+Subscribers receive only the signals pushed through the sink after they have subscribed.
 
-在上边 有限的 例子中,还可以在构造 processor 的时候提供一个回调方法,这个回调方法可以在每一个 被拒绝推送的元素上调用,从而让开发者有机会清理这些元素
+The basic multicast sink is created via `Sinks.many().multicast().onBackpressureBuffer()`.
 
-=== Emitter Processor
+By default, if all of its subscribers are cancelled (which basically means they have all
+un-subscribed), it clears its internal buffer and stops accepting new subscribers.
+You can tune this by using the `autoCancel` parameter in the `multicast` static factory methods
+under `Sinks.many().multicast()`.
 
-`EmitterProcessor` 能够向多个订阅者发送数据,并且可以对每一个订阅者进行背压处理.它本身也可以订阅一个 `Publisher` 并同步获得数据.
+== Sinks.many().multicast().directAllOrNothing()
 
-最初如果没有订阅者,它仍然允许推送一些数据到缓存,缓存大小由 `bufferSize` 定义. 之后如果仍然没有订阅者订阅它并消费数据,对 `onNext` 的调用会阻塞,直到有订阅者接入 (这时只能并发地订阅了).
+A multicast `Sinks.Many` with a simplistic handling of backpressure: if *any* of the subscribers
+is too slow (has zero demand), the `onNext` is dropped for *all* subscribers.
 
-因此第一个 `订阅者` 会收到最多 `bufferSize` 个元素.然而之后, processor 不会重新发送(replay) 数据给后续的订阅者.这些后续接入的订阅者只能获取到它们开始订阅 之后 推送的数据.
-这个内部的 缓存会继续用于背压的目的.
+However, the slow subscribers are not terminated and once the slow subscribers have started
+requesting again, all will resume receiving elements pushed from there on.
 
-默认情况下,如果所有的订阅者都取消了(基本意味着它们都不再订阅(un-subscribed)了), 它会清空内部缓存,并且不再接受更多的订阅者.这一点可以通过 `create` 静态工厂方法的 `autoCancel` 参数来配置.
+Once the `Sinks.Many` has terminated (usually through its `emitError(Throwable)` or
+`emitComplete()` methods being called), it lets more subscribers subscribe but replays the
+termination signal to them immediately.
 
-=== Replay Processor
+== Sinks.many().multicast().directBestEffort()
 
-`ReplayProcessor` 会缓存直接通过自身的 `Sink` 推送的元素,以及来自上游发布者的元素, 并且后来的订阅者也会收到重发(`replay`)的这些元素.
+A multicast `Sinks.Many` with a best effort handling of backpressure: if a subscriber
+is too slow (has zero demand), the `onNext` is dropped for *this slow subscriber only*.
 
-可以通过多种配置方式创建它:
+However, the slow subscribers are not terminated and once they have started requesting again
+they will resume receiving newly pushed elements.
 
-* 缓存一个元素 (`cacheLast`).
-* 缓存一定个数的历史元素 (`create(int)`) 或 所有的历史元素 (`create()`).
-* 缓存基于时间窗期间内的元素 (`createTimeout(Duration)`).
-* 缓存基于历史个数和时间窗的元素 (`createSizeOrTimeout(int, Duration)`).
+Once the `Sinks.Many` has terminated (usually through its `emitError(Throwable)` or
+`emitComplete()` methods being called), it lets more subscribers subscribe but replays the
+termination signal to them immediately.
 
-//TODO == MonoProcessor
+== Sinks.many().replay()
+
+A replay `Sinks.Many` caches emitted elements and replays them to late subscribers.
+
+It can be created in multiple configurations:
+
+* Caching a limited history (`Sinks.many().replay().limit(int)`) or an unbounded history (`Sinks.many().replay().all()`).
+* Caching a time-based replay window (`Sinks.many().replay().limit(Duration)`).
+* Caching a combination of history size and time window (`Sinks.many().replay().limit(int, Duration)`).
+
+Additional overloads for fine tuning of the above can also be found under `Sinks.many().replay()`, as well
+as a variant that allows caching of a single element (`latest()` and `latestOrDefault(T)`).
+
+== Sinks.unsafe().many()
+
+Advanced users and operators builders might want to consider using `Sinks.unsafe().many()`
+which will provide the same `Sinks.Many` factories _without_ the extra producer thread safety.
+As a result there will be less overhead per sink, since thread-safe sinks have to detect multi-threaded access.
+
+Library developers should not expose unsafe sinks but can use them internally in a controlled
+calling environment where they can ensure external synchronization of the calls that lead to
+`onNext`, `onComplete` and `onError` signals, in respect of the Reactive Streams specification.
+
+== Sinks.one()
+
+This method directly construct a simple instance of `Sinks.One<T>`.
+This flavor of `Sinks` is viewable as a `Mono` (through its `asMono()` view method), and
+has slightly different `emit` methods to better convey this Mono-like semantics:
+
+* `emitValue(T value)` generates an `onNext(value)` signal and - in most implementations - will also trigger an implicit `onComplete()`
+* `emitEmpty()` generates an isolated `onComplete()` signal, intended as generating the equivalent of an empty `Mono`
+* `emitError(Throwable t)` generates an `onError(t)` signal
+
+`Sinks.one()` accepts _one_ call of any of these methods, effectively generating a `Mono`
+that either completed with a value, completed empty or failed.
+
+== Sinks.empty()
+
+This method directly constructs a simple instance of `Sinks.Empty<T>`.
+This flavor of `Sinks` is like `Sinks.One<T>`, except it doesn't offer the `emitValue` method.
+
+As a result, it can only generates a `Mono` that completes empty or fails.
+
+The sink is still typed with a generic `<T>` despite being unable to trigger an `onNext`,
+because it allows easy composition and inclusion in chains of operators that require a specific type.
