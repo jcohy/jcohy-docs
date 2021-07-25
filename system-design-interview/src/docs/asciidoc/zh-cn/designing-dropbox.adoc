@@ -78,17 +78,19 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 . 检测工作空间中更改的文件；
 . 处理由离线或者并发引起的冲突。
 
-*How do we handle file transfer efficiently?* As mentioned above, we can break each file into smaller chunks so that we transfer only those chunks that are modified and not the whole file.
-Let’s say we divide each file into fixed sizes of 4MB chunks.
-We can statically calculate what could be an optimal chunk size based on 1) Storage devices we use in the cloud to optimize space utilization and input/output operations per second (IOPS) 2) Network bandwidth 3) Average file size in the storage etc.
-In our metadata, we should also keep a record of each file and the chunks that constitute it.
+*如何有效地处理文件传输？* 如上所述，我们可以将每个文件分成更小的块，以便我们只传输那些被修改后的块而不是整个文件。假设将每个文件分成固定大小为4MB的块。我们可以基于以下几点静态计算块的最佳大小：
 
-*Should we keep a copy of metadata with Client?* Keeping a local copy of metadata not only enable us to do offline updates but also saves a lot of round trips to update remote metadata.
+. 在云存储中使用的存储设备来优化空间利用率和每秒的输入/输出操作（IOPS）；
+. 网络带宽；
+. 存储的文件的平均大小等。
 
-*How can clients efficiently listen to changes happening with other clients?* One solution could be that the clients periodically check with the server if there are any changes.
-The problem with this approach is that we will have a delay in reflecting changes locally as clients will be checking for changes periodically compared to a server notifying whenever there is some change.
-If the client frequently checks the server for changes, it will not only be wasting bandwidth, as the server has to return an empty response most of the time, but will also be keeping the server busy.
-Pulling information in this manner is not scalable.
+在我们的元数据中，还应该记录每个文件和构成它的块。
+
+*应该在客户端保存元数据的备份吗？* 保留元数据的本地副本不仅使我们能够进行离线更新，还可以节省大量往返更新远程元数据的时间。
+
+*客户端如何有效地监听其他客户端发生的变化？* 一种解决方案是客户端定期检查服务器是否有任何更改。这种方法的问题是，当定期检测到客户端有更改，相比于服务器通知其他客户端文件有一些更改时，它们之间会有延迟。如果客户端频繁地检查服务器的变化，它不仅会浪费带宽，因为服务器在大多数时间必须返回一个空响应，而且还会使服务器处于忙碌状态。以这种方式拉取信息是不可扩展的。
+
+上述问题的解决方案是使用HTTP长轮询。客户端使用长轮询从服务器请求信息，期望的是服务器可能不会立即进行响应。如果在收到轮询请求时服务器没有新数据，则服务器不会发送空响应，而是保持请求打开并等待响应信息可用。一旦它确定有新信息，服务器立即向客户端发送HTTP/S响应，完成打开的HTTP/S请求。收到服务器响应后，客户端可以立即发出另一个服务器请求来进一步更新数据。
 
 A solution to the above problem could be to use HTTP long polling.
 With long polling the client requests information from the server with the expectation that the server may not respond immediately.
@@ -98,7 +100,7 @@ Upon receipt of the server response, the client can immediately issue another se
 
 Based on the above considerations, we can divide our client into following four parts:
 
-..... Internal Metadata Database will keep track of all the files, chunks, their versions, and their location in the file system.
+.....  Internal Metadata Database will keep track of all the files, chunks, their versions, and their location in the file system.
 
 
 ..... Chunker will split the files into smaller pieces called chunks.
