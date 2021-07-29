@@ -1,0 +1,37 @@
+package com.jcohy.docs.build;
+
+import com.jcohy.oss.OssUploadPlugin;
+import com.jcohy.oss.OssUploadTask;
+import com.jcohy.oss.dsl.AliOssExtension;
+import org.gradle.api.Plugin;
+import org.gradle.api.Project;
+
+/**
+ * Copyright: Copyright (c) 2021 <a href="http://www.jcohy.com" target="_blank">jcohy.com</a>
+ *
+ * <p> Description:
+ *
+ * @author jiac
+ * @version 1.0.0 2021/7/28:1:01
+ * @since 1.0.0
+ */
+public class OssUploadPlugins implements Plugin<Project> {
+
+    @Override
+    public void apply(Project project) {
+        project.getPlugins().apply(OssUploadPlugin.class);
+        project.getTasks().withType(OssUploadTask.class, (ossUploadTask) -> {
+            ossUploadTask.dependsOn("aggregatedAsciidoctor");
+        });
+        AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
+        extension.setAccessKey("xxx");
+        extension.setSecretKey("xxx");
+        String name = project.getRootProject().getBuildDir().getName();
+        extension.getUpload().setSource(project.getRootProject().getBuildDir().getName());
+        extension.getUpload().setPrefix("docs");
+
+        extension.getUpload().setIgnoreSourceDir(true);
+//        extension.getUpload().recursion("");
+//        extension.getUpload().setExclusions();
+    }
+}

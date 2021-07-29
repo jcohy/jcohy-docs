@@ -4,7 +4,7 @@
 
 NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更多详细信息,请参见 {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification].
 
-NOTE: `build-image` 任务不支持 <<packaging-executable-wars, 打包成 war>>.
+NOTE: `build-image` 任务不支持 <<repackage, 打包成 war>>.
 
 最简单的入门方法是在项目上调用 `mvn spring-boot:build-image`. 每当调用 `package` 阶段时,都可以自动创建镜像,如以下示例所示:
 
@@ -50,6 +50,54 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 
 在 Linux 和 macOS 上,启动 minikube 之后,可以使用命令 `eval $(minikube docker-env)` 设置这些环境变量.
 
+也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
+
+|===
+| Parameter | Description
+
+| `host`
+| Docker daemon 主机和端口 URL - e.g. `tcp://192.168.99.100:2376`
+
+| `tlsVerify`
+| 当设置为 `true` 时,开启 HTTPS 协议(可选)
+
+| `certPath`
+| HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+|===
+
+更多信息, 请查看 <<build-image-example-docker,examples>>.
+
+[[build-image-docker-registry]]
+=== Docker Registry
+如果由 `builder` 或 `runImage` 参数指定的 Docker 镜像存储在需要身份验证的私有 Docker image registry  中, 可以使用  `docker.builderRegistry` 参数提供身份验证凭据.
+
+如果生成的 Docker 镜像要发布到  Docker image registry 中, 可以使用 `docker.publishRegistry`  参数提供身份验证凭据.
+
+为用户身份验证或身份令牌验证提供了参数. 关于支持的身份验证方法的更多信息, 请参考 Docker registry 的文档.
+
+下表总结了 `docker.builderRegistry` 和 `docker.publishRegistry` 的可用参数:
+
+|===
+| Parameter | Description
+
+| `username`
+| Docker image registry 的 username. Required for user authentication.
+
+| `password`
+| Password for the Docker image registry user. Required for user authentication.
+
+| `url`
+| Address of the Docker image registry. Optional for user authentication.
+
+| `email`
+| E-mail address for the Docker image registry user. Optional for user authentication.
+
+| `token`
+| Identity token for the Docker image registry user. Required for token authentication.
+|===
+
+更多信息, 请查看 <<build-image-example-docker,examples>>.
+
 [[build-image-customization]]
 === Image Customizations
 
@@ -63,7 +111,7 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 | `builder`
 | Name of the Builder image to use.
 | `spring-boot.build-image.builder`
-| `gcr.io/paketo-buildpacks/builder:base-platform-api-0.3`
+| `paketobuildpacks/builder:base`
 
 | `runImage`
 | Name of the run image to use.
@@ -75,6 +123,12 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 | `spring-boot.build-image.imageName`
 | `docker.io/library/${project.artifactId}:${project.version}`
 
+| `pullPolicy`
+| {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] used to determine when to pull the builder and run images from the registry.
+Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
+| `spring-boot.build-image.pullPolicy`
+| `ALWAYS`
+
 | `env`
 | Environment variables that should be passed to the builder.
 |
@@ -82,18 +136,23 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 
 | `cleanCache`
 | Whether to clean the cache before building.
-|
+| `spring-boot.build-image.cleanCache`
 | `false`
 
 | `verboseLogging`
 | Enables verbose logging of builder operations.
 |
 | `false`
+
+| `publish`
+| Whether to publish the generated image to a Docker registry.
+| `spring-boot.build-image.publish`
+| `false`
 |===
 
 NOTE: 该插件使用编译器的插件配置或 `maven.compiler.target` 属性检测项目的目标 Java 兼容性. 当使用默认的 Paketo 构建器和 buildpacks 时,插件会指示buildpacks 安装相同的 Java 版本. 您可以覆盖此行为,如 <<build-image-example-builder-configuration,builder configuration>>  示例中所示.
 
-有关更多详细信息,另请参见 <<build-image-example-custom-image-builder,custom image builder>> 和 <<build-image-example-custom-image-name,custom image name>>.
+有关更多详细信息,另请参见 <<build-image-examples,examples>>.
 
 include::goals/build-image.adoc[leveloffset=+1]
 
@@ -189,6 +248,38 @@ include::goals/build-image.adoc[leveloffset=+1]
 	</project>
 ----
 
+
+[[build-image-example-runtime-jvm-configuration]]
+==== Runtime JVM Configuration
+
+Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时环境].
+
+当在容器中启动应用程序镜像时,  可以修改 buildpack 提供的 `JAVA_TOOL_OPTIONS` 值以自定义JVM运行时行为.
+
+可以如 {paketo-reference}/buildpacks/configuration/#environment-variables[Paketo documentation] 中所述在镜像中配置并应用于每个部署的环境变量修改,  并在以下示例中显示:
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<image>
+							<env>
+								<BPE_DELIM_JAVA_TOOL_OPTIONS xml:space="preserve"> </BPE_DELIM_JAVA_TOOL_OPTIONS>
+								<BPE_APPEND_JAVA_TOOL_OPTIONS>-XX:+HeapDumpOnOutOfMemoryError</BPE_APPEND_JAVA_TOOL_OPTIONS>
+							</env>
+						</image>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
 [[build-image-example-custom-image-name]]
 ==== 自定义镜像名称
 默认情况下,镜像名称是根据 `artifactId` 和项目版本来推断的,例如 `docker.io/library/${project.artifactId}:${project.version}`.您可以控制名称,如以下示例所示:
@@ -222,3 +313,117 @@ NOTE: 此配置未显式提供标签,因此使用最新的.也可以使用 `${pr
 	$ mvn spring-boot:build-image -Dspring-boot.build-image.imageName=example.com/library/my-app:v1
 ----
 
+[[build-image-example-publish]]
+==== Image Publishing
+生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项并使用  `docker.publishRegistry` 配置 registry 的身份验证.
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<image>
+							<name>docker.example.com/library/${project.artifactId}</name>
+							<publish>true</publish>
+						</image>
+						<docker>
+							<publishRegistry>
+								<username>user</username>
+								<password>secret</password>
+								<url>https://docker.example.com/v1/</url>
+								<email>user@example.com</email>
+							</publishRegistry>
+						</docker>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
+也可以在命令行上指定  `publish` 选项, 如下例所示:
+
+[indent=0]
+----
+	$ mvn spring-boot:build-image -Dspring-boot.build-image.imageName=docker.example.com/library/my-app:v1 -Dspring-boot.build-image.publish=true
+----
+
+
+
+[[build-image-example-docker]]
+==== Docker 配置
+如果你需要插件使用远程连接而不是默认的本地连接来与 Docker 守护进程通信, 可以使用  `docker`  属性提供连接细节, 如下所示:
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<docker>
+							<host>tcp://192.168.99.100:2376</host>
+							<tlsVerify>true</tlsVerify>
+							<certPath>/home/user/.minikube/certs</certPath>
+						</docker>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
+如果构建器或运行镜像存储在支持用户身份验证的私有 Docker registry 中, 则可以使用 `docker.builderRegistry` 参数提供身份验证细节. 如下所示:
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<docker>
+							<builderRegistry>
+								<username>user</username>
+								<password>secret</password>
+								<url>https://docker.example.com/v1/</url>
+								<email>user@example.com</email>
+							</builderRegistry>
+						</docker>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
+如果构建器或运行映像存储在支持令牌身份验证的私有 Docker registry  中, 则可以使用  `docker.builderRegistry` 参数提供令牌值. 如下所示:
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<docker>
+							<builderRegistry>
+								<token>9cbaf023786cd7...</token>
+							</builderRegistry>
+						</docker>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----

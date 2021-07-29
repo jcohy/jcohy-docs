@@ -266,8 +266,9 @@ SpEL 的更常见用法是提供针对特定对象实例(称为根对象) 计算
 
 [[expressions-parser-configuration]]
 === 解析器配置
+
 可以使用解析器配置对象(`org.springframework.expression.spel.SpelParserConfiguration`)来配置 SpEL 表达式解释器. 该配置对象控制表达式组件的行为. 例如,如果索引到数组或集合,
-并且指定索引处的元素为 `null`,则可以自动创建该元素.  当使用由一组属性引用组成的表达式时,这是非常有用的. 如果创建数组或集合的索引,并指定了超出数组或列表的当前大小的结尾的索引时,它将自动增大数组或列表大小以适应索引. 以下示例演示如何自动增长列表:
+并且指定索引处的元素为 `null`,则可以自动创建该元素.  当使用由一组属性引用组成的表达式时,这是非常有用的. 如果创建数组或集合的索引,并指定了超出数组或列表的当前大小的结尾的索引时,它将自动增大数组或列表大小以适应索引.为了在指定的索引， SpEL 将尝试使用元素类型的默认值创建元素设置指定值之前的构造函数.  如果元素类型没有 默认构造函数 `null` 将被添加到数组或列表中. 如果没有内置或知道如何设置值的自定义转换器，  `null` 将保留在数组中， 或者 在指定索引处列出.  以下示例演示如何自动增长列表:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -335,7 +336,7 @@ someArray[0].someProperty.someOtherProperty < 0.1
 [[expressions-compiler-configuration]]
 ==== 编译器配置
 
-编译器在默认情况下是关闭的,有两种方法可以打开. 您可以使用解析器配置过程(<<expressions-parser-configuration, 前面讨论的>>) 或在将 SpEL 用法嵌入到另一个组件中时使用系统属性来打开它.  本节讨论这两个选项.
+编译器在默认情况下是关闭的,有两种方法可以打开. 您可以使用解析器配置过程(<<expressions-parser-configuration, 前面讨论的>>) 或在将 SpEL 用法嵌入到另一个组件中时使用 Spring 属性来打开它.  本节讨论这两个选项.
 
 编译器可以以三种模式之一操作,这些模式在 `org.springframework.expression.spel.SpelCompilerMode` 枚举中获取.  模式如下:
 
@@ -378,7 +379,7 @@ someArray[0].someProperty.someOtherProperty < 0.1
 
 指定编译器模式时,还可以指定类加载器(允许传递 `null`) . 编译表达式将在任何提供的子类加载器中被定义. 重要的是确保是否指定了类加载器,它可以看到表达式运算操作过程中涉及的所有类型.  如果没有指定,那么将使用默认的类加载器(通常是在表达式计算期间运行的线程的上下文类加载器) .
 
-配置编译器的第二种方法是将 SpEL 嵌入其他组件内部使用,并且可能无法通过配置对象进行配置. 在这种情况下,可以使用系统属性配置. 属性 `spring.expression.compiler.mode` 可以设置为 `SpelCompilerMode` 枚举值之一(`off`, `immediate`, 或 `mixed`) .
+配置编译器的第二种方法是将 SpEL 嵌入其他组件内部使用,并且可能无法通过配置对象进行配置. 在这种情况下,可以使用 JVM 系统属性配置 (或者通过 <<appendix.adoc#appendix-spring-properties,`SpringProperties`>>). 属性 `spring.expression.compiler.mode` 可以设置为 `SpelCompilerMode` 枚举值之一(`off`, `immediate`, 或 `mixed`) .
 
 [[expressions-compiler-limitations]]
 ==== 编译器限制
@@ -650,20 +651,27 @@ SpEL 表达式可以通过XML或基于注解的配置用于定义 `BeanDefinitio
 .Java
 ----
 	// evals to 1856
-	int year = (Integer) parser.parseExpression("Birthdate.Year + 1900").getValue(context);
+	int year = (Integer) parser.parseExpression("birthdate.year + 1900").getValue(context);
 
-	String city = (String) parser.parseExpression("placeOfBirth.City").getValue(context);
+	String city = (String) parser.parseExpression("placeOfBirth.city").getValue(context);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	// evals to 1856
-	val year = parser.parseExpression("Birthdate.Year + 1900").getValue(context) as Int
+	val year = parser.parseExpression("birthdate.year + 1900").getValue(context) as Int
 
-	val city = parser.parseExpression("placeOfBirth.City").getValue(context) as String
+	val city = parser.parseExpression("placeOfBirth.city").getValue(context) as String
 ----
 
-属性名称的第一个字母允许不区分大小写.  数组和列表的内容是使用方括号表示法获得的,如下例所示:
+[NOTE]
+====
+属性名称的第一个字母允许不区分大小写.  就这样上例中的表达式可以写成 `Birthdate.Year + 1900`， 并且
+分别是 `PlaceOfBirth.City`.  此外， 可以选择通过以下方式访问属性
+方法调用-例如， 使用 `getPlaceOfBirth().getCity()` 代替 `placeOfBirth.city`.
+====
+
+数组和列表的内容是使用方括号表示法获得的,如下例所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -680,12 +688,12 @@ SpEL 表达式可以通过XML或基于注解的配置用于定义 `BeanDefinitio
 	// Members List
 
 	// evaluates to "Nikola Tesla"
-	String name = parser.parseExpression("Members[0].Name").getValue(
+	String name = parser.parseExpression("members[0].name").getValue(
 			context, ieee, String.class);
 
 	// List and Array navigation
 	// evaluates to "Wireless communication"
-	String invention = parser.parseExpression("Members[0].Inventions[6]").getValue(
+	String invention = parser.parseExpression("members[0].inventions[6]").getValue(
 			context, ieee, String.class);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -703,31 +711,31 @@ SpEL 表达式可以通过XML或基于注解的配置用于定义 `BeanDefinitio
 	// Members List
 
 	// evaluates to "Nikola Tesla"
-	val name = parser.parseExpression("Members[0].Name").getValue(
+	val name = parser.parseExpression("members[0].name").getValue(
 			context, ieee, String::class.java)
 
 	// List and Array navigation
 	// evaluates to "Wireless communication"
-	val invention = parser.parseExpression("Members[0].Inventions[6]").getValue(
+	val invention = parser.parseExpression("members[0].inventions[6]").getValue(
 			context, ieee, String::class.java)
 ----
 
-maps 的内容通过方括号包着文字的键/值定义. 在这种情况下, 由于 `Officers` 的 `keys` 是字符串,则可以定义字符字面值:
+maps 的内容通过方括号包着文字的键/值定义. 在这种情况下, 由于 `officers` 的 `keys` 是字符串,则可以定义字符字面值:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
 	// Officer's Dictionary
 
-	Inventor pupin = parser.parseExpression("Officers['president']").getValue(
+	Inventor pupin = parser.parseExpression("officers['president']").getValue(
 			societyContext, Inventor.class);
 
 	// evaluates to "Idvor"
-	String city = parser.parseExpression("Officers['president'].PlaceOfBirth.City").getValue(
+	String city = parser.parseExpression("officers['president'].placeOfBirth.city").getValue(
 			societyContext, String.class);
 
 	// setting values
-	parser.parseExpression("Officers['advisors'][0].PlaceOfBirth.Country").setValue(
+	parser.parseExpression("officers['advisors'][0].placeOfBirth.country").setValue(
 			societyContext, "Croatia");
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -735,15 +743,15 @@ maps 的内容通过方括号包着文字的键/值定义. 在这种情况下, �
 ----
 	// Officer's Dictionary
 
-	val pupin = parser.parseExpression("Officers['president']").getValue(
+	val pupin = parser.parseExpression("officers['president']").getValue(
 			societyContext, Inventor::class.java)
 
 	// evaluates to "Idvor"
-	val city = parser.parseExpression("Officers['president'].PlaceOfBirth.City").getValue(
+	val city = parser.parseExpression("officers['president'].placeOfBirth.city").getValue(
 			societyContext, String::class.java)
 
 	// setting values
-	parser.parseExpression("Officers['advisors'][0].PlaceOfBirth.Country").setValue(
+	parser.parseExpression("officers['advisors'][0].placeOfBirth.country").setValue(
 			societyContext, "Croatia")
 ----
 
@@ -1105,11 +1113,11 @@ SpEL 支持以下逻辑运算符:
 	Inventor inventor = new Inventor();
 	EvaluationContext context = SimpleEvaluationContext.forReadWriteDataBinding().build();
 
-	parser.parseExpression("Name").setValue(context, inventor, "Aleksandar Seovic");
+	parser.parseExpression("name").setValue(context, inventor, "Aleksandar Seovic");
 
 	// alternatively
 	String aleks = parser.parseExpression(
-			"Name = 'Aleksandar Seovic'").getValue(context, inventor, String.class);
+			"name = 'Aleksandar Seovic'").getValue(context, inventor, String.class);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -1117,11 +1125,11 @@ SpEL 支持以下逻辑运算符:
 	val inventor = Inventor()
 	val context = SimpleEvaluationContext.forReadWriteDataBinding().build()
 
-	parser.parseExpression("Name").setValue(context, inventor, "Aleksandar Seovic")
+	parser.parseExpression("name").setValue(context, inventor, "Aleksandar Seovic")
 
 	// alternatively
 	val aleks = parser.parseExpression(
-			"Name = 'Aleksandar Seovic'").getValue(context, inventor, String::class.java)
+			"name = 'Aleksandar Seovic'").getValue(context, inventor, String::class.java)
 ----
 
 [[expressions-types]]
@@ -1210,7 +1218,7 @@ SpEL 支持以下逻辑运算符:
 	EvaluationContext context = SimpleEvaluationContext.forReadWriteDataBinding().build();
 	context.setVariable("newName", "Mike Tesla");
 
-	parser.parseExpression("Name = #newName").getValue(context, tesla);
+	parser.parseExpression("name = #newName").getValue(context, tesla);
 	System.out.println(tesla.getName())  // "Mike Tesla"
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -1221,7 +1229,7 @@ SpEL 支持以下逻辑运算符:
 	val context = SimpleEvaluationContext.forReadWriteDataBinding().build()
 	context.setVariable("newName", "Mike Tesla")
 
-	parser.parseExpression("Name = #newName").getValue(context, tesla)
+	parser.parseExpression("name = #newName").getValue(context, tesla)
 	println(tesla.name)  // "Mike Tesla"
 ----
 
@@ -1419,7 +1427,7 @@ SpEL 支持以下逻辑运算符:
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	parser.parseExpression("Name").setValue(societyContext, "IEEE");
+	parser.parseExpression("name").setValue(societyContext, "IEEE");
 	societyContext.setVariable("queryName", "Nikola Tesla");
 
 	expression = "isMember(#queryName)? #queryName + ' is a member of the ' " +
@@ -1432,7 +1440,7 @@ SpEL 支持以下逻辑运算符:
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	parser.parseExpression("Name").setValue(societyContext, "IEEE")
+	parser.parseExpression("name").setValue(societyContext, "IEEE")
 	societyContext.setVariable("queryName", "Nikola Tesla")
 
 	expression = "isMember(#queryName)? #queryName + ' is a member of the ' " + "+ Name + ' Society' : #queryName + ' is not a member of the ' + Name + ' Society'"
@@ -1483,11 +1491,11 @@ Elvis 运算符是三元运算符语法的缩写,用于http://www.groovy-lang.or
 	EvaluationContext context = SimpleEvaluationContext.forReadOnlyDataBinding().build();
 
 	Inventor tesla = new Inventor("Nikola Tesla", "Serbian");
-	String name = parser.parseExpression("Name?:'Elvis Presley'").getValue(context, tesla, String.class);
+	String name = parser.parseExpression("name?:'Elvis Presley'").getValue(context, tesla, String.class);
 	System.out.println(name);  // Nikola Tesla
 
 	tesla.setName(null);
-	name = parser.parseExpression("Name?:'Elvis Presley'").getValue(context, tesla, String.class);
+	name = parser.parseExpression("name?:'Elvis Presley'").getValue(context, tesla, String.class);
 	System.out.println(name);  // Elvis Presley
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -1497,11 +1505,11 @@ Elvis 运算符是三元运算符语法的缩写,用于http://www.groovy-lang.or
 	val context = SimpleEvaluationContext.forReadOnlyDataBinding().build()
 
 	val tesla = Inventor("Nikola Tesla", "Serbian")
-	var name = parser.parseExpression("Name?:'Elvis Presley'").getValue(context, tesla, String::class.java)
+	var name = parser.parseExpression("name?:'Elvis Presley'").getValue(context, tesla, String::class.java)
 	println(name)  // Nikola Tesla
 
 	tesla.setName(null)
-	name = parser.parseExpression("Name?:'Elvis Presley'").getValue(context, tesla, String::class.java)
+	name = parser.parseExpression("name?:'Elvis Presley'").getValue(context, tesla, String::class.java)
 	println(name)  // Elvis Presley
 ----
 
@@ -1531,11 +1539,11 @@ Elvis 运算符是三元运算符语法的缩写,用于http://www.groovy-lang.or
 	Inventor tesla = new Inventor("Nikola Tesla", "Serbian");
 	tesla.setPlaceOfBirth(new PlaceOfBirth("Smiljan"));
 
-	String city = parser.parseExpression("PlaceOfBirth?.City").getValue(context, tesla, String.class);
+	String city = parser.parseExpression("placeOfBirth?.city").getValue(context, tesla, String.class);
 	System.out.println(city);  // Smiljan
 
 	tesla.setPlaceOfBirth(null);
-	city = parser.parseExpression("PlaceOfBirth?.City").getValue(context, tesla, String.class);
+	city = parser.parseExpression("placeOfBirth?.city").getValue(context, tesla, String.class);
 	System.out.println(city);  // null - does not throw NullPointerException!!!
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
@@ -1547,11 +1555,11 @@ Elvis 运算符是三元运算符语法的缩写,用于http://www.groovy-lang.or
 	val tesla = Inventor("Nikola Tesla", "Serbian")
 	tesla.setPlaceOfBirth(PlaceOfBirth("Smiljan"))
 
-	var city = parser.parseExpression("PlaceOfBirth?.City").getValue(context, tesla, String::class.java)
+	var city = parser.parseExpression("placeOfBirth?.city").getValue(context, tesla, String::class.java)
 	println(city)  // Smiljan
 
 	tesla.setPlaceOfBirth(null)
-	city = parser.parseExpression("PlaceOfBirth?.City").getValue(context, tesla, String::class.java)
+	city = parser.parseExpression("placeOfBirth?.city").getValue(context, tesla, String::class.java)
 	println(city)  // null - does not throw NullPointerException!!!
 ----
 
@@ -1566,13 +1574,13 @@ Selection 使用语法是 `.?[selectionExpression]`. 它会过滤集合并返回
 .Java
 ----
 	List<Inventor> list = (List<Inventor>) parser.parseExpression(
-			"Members.?[Nationality == 'Serbian']").getValue(societyContext);
+			"members.?[nationality == 'Serbian']").getValue(societyContext);
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val list = parser.parseExpression(
-			"Members.?[Nationality == 'Serbian']").getValue(societyContext) as List<Inventor>
+			"members.?[nationality == 'Serbian']").getValue(societyContext) as List<Inventor>
 ----
 
 Selection 可以使用在 list 和 map 上. 前面的例子中选择独立处理了集合中的元素,而当选择一个 map 时将会处理每个 map 的 entry(Java 类型 `Map.Entry` 的对象) ,`Map` 的 entry 有他的 key 和 value 作为属性访问在 Selection 中使用.
@@ -1601,13 +1609,13 @@ Selection 可以使用在 list 和 map 上. 前面的例子中选择独立处理
 .Java
 ----
 	// returns ['Smiljan', 'Idvor' ]
-	List placesOfBirth = (List)parser.parseExpression("Members.![placeOfBirth.city]");
+	List placesOfBirth = (List)parser.parseExpression("members.![placeOfBirth.city]");
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	// returns ['Smiljan', 'Idvor' ]
-	val placesOfBirth = parser.parseExpression("Members.![placeOfBirth.city]") as List<*>
+	val placesOfBirth = parser.parseExpression("members.![placeOfBirth.city]") as List<*>
 ----
 
 map 可以用于处理投影,在这种情况下投影表达式可以对 map 中的每个 entry 进行处理(作为一个 Java 的 Map.Entry) . map 投影的结果是一个 list,包含对每一个 map 条目处理的投影表达式.
