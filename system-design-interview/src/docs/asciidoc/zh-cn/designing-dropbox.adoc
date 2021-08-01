@@ -92,44 +92,28 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 
 上述问题的解决方案是使用HTTP长轮询。客户端使用长轮询从服务器请求信息，期望的是服务器可能不会立即进行响应。如果在收到轮询请求时服务器没有新数据，则服务器不会发送空响应，而是保持请求打开并等待响应信息可用。一旦它确定有新信息，服务器立即向客户端发送HTTP/S响应，完成打开的HTTP/S请求。收到服务器响应后，客户端可以立即发出另一个服务器请求来进一步更新数据。
 
-A solution to the above problem could be to use HTTP long polling.
-With long polling the client requests information from the server with the expectation that the server may not respond immediately.
-If the server has no new data for the client when the poll is received, instead of sending an empty response, the server holds the request open and waits for response information to become available.
-Once it does have new information, the server immediately sends an HTTP/S response to the client, completing the open HTTP/S Request.
-Upon receipt of the server response, the client can immediately issue another server request for future updates.
+基于以上思考，我们可以将客户端分为以下4个部分：
 
-Based on the above considerations, we can divide our client into following four parts:
+..... 内部元数据数据库将跟踪所有文件、文件存储的块、文件的版本以及它们在文件系统的位置；
 
-.....  Internal Metadata Database will keep track of all the files, chunks, their versions, and their location in the file system.
+..... Chunker会将文件分成更小的部分，称为块。它还负责从这些块中重建文件。分块算法将检测用户修改过的文件部分，并只将这些部分传输到云存储；这将节省我们的带宽和同步时间；
 
+..... Watcher将会监控本地工作空间文件夹，并将用户执行的任意操作通知给Indexer（接下来讨论），例如，用户创建、删除或更新文件或文件夹。Watcher还监听同步服务广播的其他客户端发生的任意修改操作。
 
-..... Chunker will split the files into smaller pieces called chunks.
-It will also be responsible for reconstructing a file from its chunks.
-Our chunking algorithm will detect the parts of the files that have been modified by the user and only transfer those parts to the Cloud Storage; this will save us bandwidth and synchronization time.
-
-
-..... Watcher will monitor the local workspace folders and notify the Indexer (discussed below) of any action performed by the users, e.g. when users create, delete, or update files or folders.
-Watcher also listens to any changes happening on other clients that are broadcasted by Synchronization service.
-
-..... Indexer will process the events received from the Watcher and update the internal metadata database with information about the chunks of the modified files.
-Once the chunks are successfully submitted/downloaded to the Cloud Storage, the Indexer will communicate with the remote Synchronization Service to broadcast changes to other clients and update remote metadata database.
+..... Indexer将处理来自Watcher的事件，并使用被修改的文件的块的相关信息更新内部元数据数据库。一旦块成功提交或者下载到云存储，Indexer将通知远程同步服务广播修改的信息到其他客户端并且更新远程元数据数据库。
 
 image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/dropbox/designing_dropbox_6.png[]
 
-*How should clients handle slow servers?* Clients should exponentially back-off if the server is busy/not-responding.
-Meaning, if a server is too slow to respond, clients should delay their retries and this delay should increase exponentially.
+*客户端应该如何处理慢速服务器？* 如果服务器忙或者无响应，客户端应该成倍地减少访问请求。意思就是，如果一个客户端太慢而无响应，客户端应该延迟它们的重新请求的时间，并且这种延迟应该是成倍递增的。
 
-*Should mobile clients sync remote changes immediately?* Unlike desktop or web clients, mobile clients usually sync on demand to save user’s bandwidth and space.
+*手机客户端应该立即同步远程的修改吗？*  和桌面或者web客户端不一样，手机客户端通常需要节省用户带宽和存储空间。
 
-*b.Metadata Database*
 
-The Metadata Database is responsible for maintaining the versioning and metadata information about files/chunks, users, and workspaces.
-The Metadata Database can be a relational database such as MySQL, or a NoSQL database service such as DynamoDB.
-Regardless of the type of the database, the Synchronization Service should be able to provide a consistent view of the files using a database, especially if more than one user is working with the same file simultaneously.
-Since NoSQL data stores do not support ACID properties in favor of scalability and performance, we need to incorporate the support for ACID properties programmatically in the logic of our Synchronization Service in case we opt for this kind of database.
-However, using a relational database can simplify the implementation of the Synchronization Service as they natively support ACID properties.
+*b.Metadata数据库*
 
-The metadata Database should be storing information about following objects:
+Metadata数据库负责维护文件/块、用户和工作空间的版本和元数据信息。Metadata数据库可以是关系型数据库，如MySQL，或者是非关系性数据库，如DynamoDB。不管数据库是什么类型，尤其是当多个用户同时使用同一个文件时，同步服务应该能够使用数据库提供统一的文件视图。由于NoSQL数据存储不支持ACID属性以提高可扩展性和性能，万一当我们选择这种数据库时，需要以编程的方式实现ACID属性，并将其应用到同步服务的逻辑中。但是，使用关系型数据库可以简化同步服务的实现，因为它们本身支持ACID属性。
+
+Metadata数据库应该存储以下对象的信息：
 
 . Chunks
 . Files
@@ -137,32 +121,17 @@ The metadata Database should be storing information about following objects:
 . Devices
 . Workspace (sync folders)
 
+*c.同步服务*
 
-*c.Synchronization Service*
+同步服务是处理客户端进行的文件更新并将这些更改应用于其他订阅的客户端的组件。
+它还将客户端的本地数据库与存储在远程元数据数据库中的信息进行同步。同步服务是系统架构中最重要的部分，因为它在管理元数据和同步用户文件方面起着关键作用。桌面客户端与同步服务通信以从云存储获取更新或将文件和更新发送到云存储以及可能存在的其他用户。如果客户端离线一段时间，它会在上线后立即发起轮询请求，以获取系统中的新的更新。当同步服务收到更新请求时，它会检查Metadata数据库的一致性，然后继续更新。随后，向所有订阅的用户或设备发送通知以报告文件更新。
 
-The Synchronization Service is the component that processes file updates made by a client and applies these changes to other subscribed clients.
-It also synchronizes clients’ local databases with the information stored in the remote Metadata DB.
-The Synchronization Service is the most important part of the system architecture due to its critical role in managing the metadata and synchronizing users’ files.
-Desktop clients communicate with the Synchronization Service to either obtain updates from the Cloud Storage or send files and updates to the Cloud Storage and, potentially, other users.
-If a client was offline for a period, it polls the system for new updates as soon as they come online.
-When the Synchronization Service receives an update request, it checks with the Metadata Database for consistency and then proceeds with the update.
-Subsequently, a notification is sent to all subscribed users or devices to report the file update.
+同步服务应该设计为在客户端和云存储之间传输更少的数据，以获取更好的响应时间。为了满足此设计目标，同步服务可以采用差分算法来减少需要同步的数据量。我们可以只传输文件的两个版本之间的差异，而不是将整个文件从客户端传输到服务器，反之亦然。因此，仅传输文件已更改的部分。这也减少了最终用户的带宽消耗和云数据存储空间。如上所述，我们将把我们的文件分成4MB大小的块，并且只传输修改过的块。服务器和客户端可以计算散列（例如，SHA-256）以查看是否更新块的本地副本。在服务器上，如果我们已经有一个具有类似哈希的块（甚至来自另一个用户），我们不需要创建另一个副本，我们可以使用相同的块。这将在后面的重复数据删除中详细讨论。
 
-The Synchronization Service should be designed in such a way that it transmits less data between clients and the Cloud Storage to achieve a better response time.
-To meet this design goal, the Synchronization Service can employ a differencing algorithm to reduce the amount of the data that needs to be synchronized.
-Instead of transmitting entire files from clients to the server or vice versa, we can just transmit the difference between two versions of a file.
-Therefore, only the part of the file that has been changed is transmitted.
-This also decreases bandwidth consumption and cloud data storage for the end user.
-As described above, we will be dividing our files into 4MB chunks and will be transferring modified chunks only.
-Server and clients can calculate a hash (e.g., SHA-256) to see whether to update the local copy of a chunk or not.
-On the server, if we already have a chunk with a similar hash (even from another user), we don’t need to create another copy, we can use the same chunk.
-This is discussed in detail later under Data Deduplication.
+为了能够提供高效且可扩展的同步协议，我们可以考虑在客户端和同步服务之间使用通信中间件。 消息中间件应提供可扩展的消息队列和更改通知，以支持大量客户端使用拉取或推送策略。 这样，多个同步服务的实例可以接收来自全局请求 https://en.wikipedia.org/wiki/Message_queue[队列] 的请求，并且通信中间件能够对其进行负载均衡。
 
-To be able to provide an efficient and scalable synchronization protocol we can consider using a communication middleware between clients and the Synchronization Service.
-The messaging middleware should provide scalable message queuing and change notifications to support a high number of clients using pull or push strategies.
-This way, multiple Synchronization Service instances can receive requests from a global request https://en.wikipedia.org/wiki/Message_queue[Queue], and the communication middleware will be able to balance its load.
+*d.消息队列服务*
 
-*d.Message Queuing Service*
 
 An important part of our architecture is a messaging middleware that should be able to handle a substantial number of requests.
 A scalable Message Queuing Service that supports asynchronous message-based communication between clients and the Synchronization Service best fits the requirements of our application.
