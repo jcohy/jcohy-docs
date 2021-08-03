@@ -24,14 +24,11 @@ public class OssUploadPlugins implements Plugin<Project> {
             ossUploadTask.dependsOn("aggregatedAsciidoctor");
         });
         AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
-        extension.setAccessKey("xxx");
-        extension.setSecretKey("xxx");
-        String name = project.getRootProject().getBuildDir().getName();
-        extension.getUpload().setSource(project.getRootProject().getBuildDir().getName());
-        extension.getUpload().setPrefix("docs");
+//        extension.setAccessKey("xxx");
+//        extension.setSecretKey("xxx");
+        String buildDir = project.getRootProject().getBuildDir().getName();
+        extension.getUpload().setSource(buildDir);
 
         extension.getUpload().setIgnoreSourceDir(true);
-//        extension.getUpload().recursion("");
-//        extension.getUpload().setExclusions();
     }
 }
