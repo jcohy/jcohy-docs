@@ -26,6 +26,7 @@ public class OssUploadPlugins implements Plugin<Project> {
         AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
 //        extension.setAccessKey("xxx");
 //        extension.setSecretKey("xxx");
+        extension.setBucket("jcohy-docs");
         String buildDir = project.getRootProject().getBuildDir().getName();
         extension.getUpload().setSource(buildDir);
         extension.getUpload().setPrefix("/docs");
