@@ -28,6 +28,7 @@ public class OssUploadPlugins implements Plugin<Project> {
 //        extension.setSecretKey("xxx");
         String buildDir = project.getRootProject().getBuildDir().getName();
         extension.getUpload().setSource(buildDir);
+        extension.getUpload().setPrefix("/docs");
 
         extension.getUpload().setIgnoreSourceDir(true);
     }
