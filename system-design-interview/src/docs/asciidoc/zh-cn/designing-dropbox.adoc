@@ -132,38 +132,27 @@ Metadata数据库应该存储以下对象的信息：
 
 *d.消息队列服务*
 
+我们的架构中一个重要的部分是应该能够处理大量请求的消息中间件。支持客户端和同步服务之间基于异步消息的通信的可扩展消息队列服务最适合我们的应用程序的要求。消息队列服务支持在系统的分布式组件之间基于消息通信的异步消息和松耦合。消息队列服务应该能够在一个高度可用、可靠和可扩展的队列中有效地存储任意数量的消息。
 
-An important part of our architecture is a messaging middleware that should be able to handle a substantial number of requests.
-A scalable Message Queuing Service that supports asynchronous message-based communication between clients and the Synchronization Service best fits the requirements of our application.
-The Message Queuing Service supports asynchronous and loosely coupled message-based communication between distributed components of the system.
-The Message Queuing Service should be able to efficiently store any number of messages in a highly available, reliable and scalable queue.
-
-The Message Queuing Service will implement two types of queues in our system.
-The Request Queue is a global queue and all clients will share it.
-Clients’ requests to update the Metadata Database will be sent to the Request Queue first, from there the Synchronization Service will take it to update metadata.
-The Response Queues that correspond to individual subscribed clients are responsible for delivering the update messages to each client.
-Since a message will be deleted from the queue once received by a client, we need to create separate Response Queues for each subscribed client to share update messages.
+在系统中，消息队列服务将实现两类队列。请求队列（Request Queue）是一个全局队列，所有的客户端都使用它。更新Metadata数据库的客户端请求首先会被发送到请求队列中，然后同步服务会从队列中获取请求以更新元数据。各个订阅客户端对应的响应队列（Response Queue）负责传递更新信息到对应的客户端。由于消息一旦被客户端接收就会从队列中删除，我们需要为每个客户端创建单独的响应队列来共享更新消息。
 
 image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/dropbox/designing_dropbox_6d.png[]
 
 
-*e.Cloud/Block Storage*
+*e.云存储/块存储*
 
-Cloud/Block Storage stores chunks of files uploaded by the users.
-Clients directly interact with the storage to send and receive objects from it.
-Separation of the metadata from storage enables us to use any storage either in the cloud or in-house.
+云储存或块存储存储用户上传的文件的块。客户端直接与存储交互以从中发送和接受对象。元数据和存储的分离使我们能够使用云上或者本地的任何存储。
 
 image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/dropbox/designing_dropbox_6e.png[title='Detailed component design for Dropbox']
 
-=== 7.File Processing Workflow
+=== 7.文件处理工作流
 
-The sequence below shows the interaction between the components of the application in a scenario when Client A updates a file that is shared with Client B and C, so they should receive the update too.
-If the other clients are not online at the time of the update, the Message Queuing Service keeps the update notifications in separate response queues for them until they come online later.
+下面介绍客户端A更新与客户端B和客户端C共享的文件的场景中，应用程序的组件之间的交互，因此他们应该也会接受到文件的更新。如果其他客户端在文件更新时离线，消息队列服务会将更新通知保存到客户端相应的响应队列中，直到客户端上线，再将更新通知发送给客户端。
 
-. Client A uploads chunks to cloud storage.
-. Client A updates metadata and commits changes.
-. Client A gets confirmation and notifications are sent to Clients B and C about the changes.
-. Client B and C receive metadata changes and download updated chunks.
+. 客户端A上传文件块到云存储；
+. 客户端A更新元数据并提交修改；
+. 客户端A得到一个更新成功的确认，并把文件修改的相关通知发送到客户端B和客户端C；
+. 客户端B和客户端C接受修改的元数据并下载更新后的块。
 
 === 8.Data Deduplication
 
