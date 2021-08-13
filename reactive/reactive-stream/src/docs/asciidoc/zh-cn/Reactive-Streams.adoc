@@ -1,0 +1,427 @@
+= Reactive Streams
+
+Reactive Streams 的目的提供具有非阻塞背压的异步流处理标准。
+
+最新版本可在 Maven Central 中找到
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams</artifactId>
+  <version>1.0.3</version>
+</dependency>
+<dependency>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams-tck</artifactId>
+  <version>1.0.3</version>
+  <scope>test</scope>
+</dependency>
+----
+
+== 目标，设计和范围
+
+在异步系统中，处理流数据，尤其是容量不是预先确定的 “live” 数据时需要特别小心。最突出的问题是需要控制资源消耗，保证一个“快速”流数据不会搞垮流输出目标。为了对计算机资源（网络上的多台机器或一台机器上的多个CPU）的并发使用引入异步是必要的。
+
+Reactive Streams 管理跨异步边界的流数据交换 - 即将元素传递到另一个线程或线程池，确保接收方不会强制缓冲任意数量的数据。 换句话说，背压是该模型的一个组成部分，他可以限制线程之间的队列边界。 如果背压的通信是同步的（另请参见 http://reactivemanifesto.org/[Reactive Manifesto]），会导致异步处理无效，因此在实现响应流标准时所有各方面都强制要求是完全非阻塞和异步行为。
+
+此规范的可以有多个实现，这些实现通过遵守一定的规则可以进行相互操作，在流应用程序的整个处理图上保留上述优点和特性。
+
+应该注意的是，本规范未包含流操作（transformation（转换）、splitting（拆分），merging（合并））等性质。 Reactive Streams 只关心调解不同 <<api-components,API 组件>>之间的数据流 。在他们的开发过程中，已经采取了相关措施来表达合并流的基本方式。
+
+总之，Reactive Streams 是一个面向流的库的标准和规范，对于 JVM
+
+* 处理无限的元素
+* 序列
+* 在组件之间异步传递元素
+* 强制性非阻塞背压机制
+
+Reactive Streams 规范由以下部分组成：
+
+**The API**：指定了实现 Reactive Streams 的类型，并实现了不同实现之间的互操作性。
+
+**The Technology Compatibility Kit (TCK)**：只要符合 API 要求并通过 TCK 的测试，自己的实现就可以实现 Reactive Streams 规范没有涵盖的额外功能。
+
+[[api-components]]
+=== API 组件
+
+API 由以下组件组成，这些组件需要由 Reactive Stream 实现提供：
+
+1. Publisher
+2. Subscriber
+3. Subscription
+4. Processor
+
+*Publisher* 是具有无限个有序元素的提供者，根据从他的 Subscriber(s)（订阅者）收到的需求时发布它们。
+
+为了响应对 `Publisher.subscribe(Subscriber)` 的调用，`Subscriber` 具有以下方法：
+
+[source,java]
+----
+onSubscribe onNext* (onError | onComplete)?
+----
+
+这意味着总是向 `onSubscribe` 发出信号，然后是可能无限数量的 `onNext` 信号(如 `Subscriber` 所请求的那样)，如果发生故障，则是 `onError` 信号，或者当没有其他元素可用时，再发出 `onComplete` 信号——只要 `Subscription` 没有被取消。
+
+NOTE:: 以下规范使用来自 https://www.ietf.org/rfc/rfc2119.txt[https://www.ietf.org/rfc/rfc2119.txt] 的大写字母
+
+[[glossary]]
+=== 词汇表
+
+
+|===
+|术语 |定义
+
+| Signal
+| 作为名词：表示 `onSubscribe`, `onNext`, `onComplete`, `onError`, `request(n)` or `cancel` 方法之一。作为动词：表示 calling/invoking 一个信号
+
+| Demand
+| 作为名词：表示由 Subscriber 请求的但尚未由 Subscriber 交付（实现）的元素的聚合数量。 作为动词：表示请求更多元素的一种行为。
+
+| Synchronous(ly)
+| 在调用的线程上执行。
+
+| Return normally
+| 只向调用者返回声明类型的值。向 `Subscriber` 发出失败信号的唯一合法方法是通过 `onError` 方法。
+
+| Responsivity
+| 准备/响应能力。 在本文件中用来表示不同的组件不应该损害彼此的响应能力。
+
+| Non-obstructing
+| 描述在调用线程上执行的方法的质量。这意味着，例如，避免了繁重的计算和其他会暂停调用者执行线程的事情。
+
+| Terminal state
+| 对于 Publisher：当发出 onComplete 或 onError 信号时。 对于 Subscriber：当收到 onComplete 或 onError 信号时。
+
+| NOP
+| 对调用线程没有明显影响的执行，因此可以安全地调用任意多次。
+
+| Serial(ly)
+| 在 https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/README.md#term_signal[Signal] 的上下文中不重叠。在 JVM 的上下文中，当且仅当这些调用之间存在 happens-before 关系(也意味着这些调用不重叠)时，对对象上的方法的调用是串行的。当异步执行调用时，建立 happens-before 关系将使用(但不限于)原子、监视器或锁等技术来实现。
+
+| Thread-safe
+| 可以安全地同步或异步调用，而不需要外部同步以确保程序的正确性。
+|===
+
+
+[[specification]]
+=== SPECIFICATION
+
+==== Publisher ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Publisher.java[Code])
+
+[source,java]
+----
+public interface Publisher<T> {
+    public void subscribe(Subscriber<? super T> s);
+}
+----
+
+
+|===
+| ID                        | Rule                  |
+| 1
+| `Publisher` 向 `Subscriber` 发出的 `onNext` 的信号总数必须始终小于等于 `Subscriber` 订阅( `Subscription` )请求的元素的总数.
+
+| [:bulb:](#1.1 "1.1 explained")
+| * 这条规则的目的是明确发布者发出的信号不能超过订阅者请求的元素。而且，这条规则还有一个很隐蔽但很重要的结果：因为 demand 只能在接收到之后才能被 fulfilled（满足），所以在请求元素和接收元素之间存在 happens-before 关系。*
+
+| 2
+| A `Publisher` MAY signal fewer `onNext` than requested and terminate the `Subscription` by calling `onComplete` or `onError`.
+
+| [:bulb:](#1.2 "1.2 explained")
+| *The intent of this rule is to make it clear that a Publisher cannot guarantee that it will be able to produce the number of elements requested; it simply might not be able to produce them all; it may be in a failed state; it may be empty or otherwise already completed.*
+
+| 3
+| `onSubscribe`, `onNext`, `onError` and `onComplete` signaled to a `Subscriber` MUST be signaled [serially](#term_serially).
+
+| [:bulb:](#1.3 "1.3 explained")
+| *The intent of this rule is to permit the signalling of signals (including from multiple threads) if and only if a happens-before relation between each of the signals is established.*
+
+| 4
+| If a `Publisher` fails it MUST signal an `onError`.
+
+| [:bulb:](#1.4 "1.4 explained")
+| *The intent of this rule is to make it clear that a Publisher is responsible for notifying its Subscribers if it detects that it cannot proceed—Subscribers must be given a chance to clean up resources or otherwise deal with the Publisher´s failures.*
+
+| 5
+| If a `Publisher` terminates successfully (finite stream) it MUST signal an `onComplete`.
+
+| [:bulb:](#1.5 "1.5 explained")
+| *The intent of this rule is to make it clear that a Publisher is responsible for notifying its Subscribers that it has reached a [terminal state](#term_terminal_state)—Subscribers can then act on this information; clean up resources, etc.*
+
+| 6
+| If a `Publisher` signals either `onError` or `onComplete` on a `Subscriber`, that `Subscriber`’s `Subscription` MUST be considered cancelled.
+
+| [:bulb:](#1.6 "1.6 explained")
+| *The intent of this rule is to make sure that a Subscription is treated the same no matter if it was cancelled, the Publisher signalled onError or onComplete.*
+
+| 7
+| Once a [terminal state](#term_terminal_state) has been signaled (`onError`, `onComplete`) it is REQUIRED that no further signals occur.
+
+| [:bulb:](#1.7 "1.7 explained")
+| *The intent of this rule is to make sure that onError and onComplete are the final states of an interaction between a Publisher and Subscriber pair.*
+
+| 8
+| If a `Subscription` is cancelled its `Subscriber` MUST eventually stop being signaled.
+
+| [:bulb:](#1.8 "1.8 explained")
+| *The intent of this rule is to make sure that Publishers respect a Subscriber’s request to cancel a Subscription when Subscription.cancel() has been called. The reason for **eventually** is because signals can have propagation delay due to being asynchronous.*
+
+| 9
+| `Publisher.subscribe` MUST call `onSubscribe` on the provided `Subscriber` prior to any other signals to that `Subscriber` and MUST [return normally](#term_return_normally), except when the provided `Subscriber` is `null` in which case it MUST throw a `java.lang.NullPointerException` to the caller, for all other situations the only legal way to signal failure (or reject the `Subscriber`) is by calling `onError` (after calling `onSubscribe`).
+
+| [:bulb:](#1.9 "1.9 explained")
+| *The intent of this rule is to make sure that `onSubscribe` is always signalled before any of the other signals, so that initialization logic can be executed by the Subscriber when the signal is received. Also `onSubscribe` MUST only be called at most once, [see [2.12](#2.12)]. If the supplied `Subscriber` is `null`, there is nowhere else to signal this but to the caller, which means a `java.lang.NullPointerException` must be thrown. Examples of possible situations: A stateful Publisher can be overwhelmed, bounded by a finite number of underlying resources, exhausted, or in a [terminal state](#term_terminal_state).*
+
+| 10
+| `Publisher.subscribe` MAY be called as many times as wanted but MUST be with a different `Subscriber` each time [see [2.12](#2.12)].
+
+| [:bulb:](#1.10 "1.10 explained")
+| *The intent of this rule is to have callers of `subscribe` be aware that a generic Publisher and a generic Subscriber cannot be assumed to support being attached multiple times.Furthermore, it also mandates that the semantics of `subscribe` must be upheld no matter how many times it is called.*
+
+| 11
+| A `Publisher` MAY support multiple `Subscriber`s and decides whether each `Subscription` is unicast or multicast.
+
+| [:bulb:](#1.11 "1.11 explained")
+| *The intent of this rule is to give Publisher implementations the flexibility to decide how many, if any, Subscribers they will support, and how elements are going to be distributed.*
+|===
+
+==== 2. Subscriber ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscriber.java))
+
+[source,java]
+----
+public interface Subscriber<T> {
+    public void onSubscribe(Subscription s);
+    public void onNext(T t);
+    public void onError(Throwable t);
+    public void onComplete();
+}
+----
+
+|===
+| ID | Rule |
+| 1
+| A `Subscriber` MUST signal demand via `Subscription.request(long n)` to receive `onNext` signals.
+
+| [:bulb:](#2.1 "2.1 explained")
+| *The intent of this rule is to establish that it is the responsibility of the Subscriber to decide when and how many elements it is able and willing to receive.To avoid signal reordering caused by reentrant Subscription methods, it is strongly RECOMMENDED for synchronous Subscriber implementations to invoke Subscription methods at the very end of any signal processing.It is RECOMMENDED that Subscribers request the upper limit of what they are able to process, as requesting only one element at a time results in an inherently inefficient "stop-and-wait" protocol.*
+
+| 2
+| If a `Subscriber` suspects that its processing of signals will negatively impact its `Publisher`´s responsivity, it is RECOMMENDED that it asynchronously dispatches its signals.
+
+| [:bulb:](#2.2 "2.2 explained")
+| *The intent of this rule is that a Subscriber should [not obstruct](#term_non-obstructing) the progress of the Publisher from an execution point-of-view.In other words, the Subscriber should not starve the Publisher from receiving CPU cycles.*
+
+| 3
+| `Subscriber.onComplete()` and `Subscriber.onError(Throwable t)` MUST NOT call any methods on the `Subscription` or the `Publisher`.
+
+| [:bulb:](#2.3 "2.3 explained")
+| *The intent of this rule is to prevent cycles and race-conditions—between Publisher, Subscription and Subscriber—during the processing of completion signals.*
+
+| 4
+| `Subscriber.onComplete()` and `Subscriber.onError(Throwable t)` MUST consider the Subscription cancelled after having received the signal.
+
+| [:bulb:](#2.4 "2.4 explained")
+| *The intent of this rule is to make sure that Subscribers respect a Publisher’s [terminal state](#term_terminal_state) signals.A Subscription is simply not valid anymore after an onComplete or onError signal has been received.*
+
+| 5
+| A `Subscriber` MUST call `Subscription.cancel()` on the given `Subscription` after an `onSubscribe` signal if it already has an active `Subscription`.
+
+| [:bulb:](#2.5 "2.5 explained")
+| *The intent of this rule is to prevent that two, or more, separate Publishers from trying to interact with the same Subscriber.Enforcing this rule means that resource leaks are prevented since extra Subscriptions will be cancelled.Failure to conform to this rule may lead to violations of Publisher rule 1, amongst others.Such violations can lead to hard-to-diagnose bugs.*
+
+| 6
+| A `Subscriber` MUST call `Subscription.cancel()` if the `Subscription` is no longer needed.
+
+| [:bulb:](#2.6 "2.6 explained")
+| *The intent of this rule is to establish that Subscribers cannot just throw Subscriptions away when they are no longer needed, they have to call `cancel` so that resources held by that Subscription can be safely, and timely, reclaimed.An example of this would be a Subscriber which is only interested in a specific element, which would then cancel its Subscription to signal its completion to the Publisher.*
+
+| 7
+| A Subscriber MUST ensure that all calls on its Subscription's request and cancel methods are performed [serially](#term_serially).
+
+| [:bulb:](#2.7 "2.7 explained")
+| *The intent of this rule is to permit the calling of the request and cancel methods (including from multiple threads) if and only if a happens-before relation between each of the calls is established.*
+
+| 8
+| A `Subscriber` MUST be prepared to receive one or more `onNext` signals after having called `Subscription.cancel()` if there are still requested elements pending [see [3.12](#3.12)]. `Subscription.cancel()` does not guarantee to perform the underlying cleaning operations immediately.
+
+| [:bulb:](#2.8 "2.8 explained")
+| *The intent of this rule is to highlight that there may be a delay between calling `cancel` and the Publisher observing that cancellation.*
+
+| 9
+| A `Subscriber` MUST be prepared to receive an `onComplete` signal with or without a preceding `Subscription.request(long n)` call.
+
+| [:bulb:](#2.9 "2.9 explained")
+| *The intent of this rule is to establish that completion is unrelated to the demand flow—this allows for streams which complete early, and obviates the need to *poll* for completion.*
+
+| 10
+| A `Subscriber` MUST be prepared to receive an `onError` signal with or without a preceding `Subscription.request(long n)` call.
+
+| [:bulb:](#2.10 "2.10 explained")
+| *The intent of this rule is to establish that Publisher failures may be completely unrelated to signalled demand.This means that Subscribers do not need to poll to find out if the Publisher will not be able to fulfill its requests.*
+
+| 11
+| A `Subscriber` MUST make sure that all calls on its [signal](#term_signal) methods happen-before the processing of the respective signals.I.e. the Subscriber must take care of properly publishing the signal to its processing logic.
+
+| [:bulb:](#2.11 "2.11 explained")
+| *The intent of this rule is to establish that it is the responsibility of the Subscriber implementation to make sure that asynchronous processing of its signals are thread safe.See [JMM definition of Happens-Before in section 17.4.5](https://docs.oracle.com/javase/specs/jls/se8/html/jls-17.html#jls-17.4.5).*
+
+| 12
+| `Subscriber.onSubscribe` MUST be called at most once for a given `Subscriber` (based on object equality).
+
+| [:bulb:](#2.12 "2.12 explained")
+| *The intent of this rule is to establish that it MUST be assumed that the same Subscriber can only be subscribed at most once.Note that `object equality` is `a.equals(b)`.*
+
+| 13
+| Calling `onSubscribe`, `onNext`, `onError` or `onComplete` MUST [return normally](#term_return_normally) except when any provided parameter is `null` in which case it MUST throw a `java.lang.NullPointerException` to the caller, for all other situations the only legal way for a `Subscriber` to signal failure is by cancelling its `Subscription`.In the case that this rule is violated, any associated `Subscription` to the `Subscriber` MUST be considered as cancelled, and the caller MUST raise this error condition in a fashion that is adequate for the runtime environment.
+
+| [:bulb:](#2.13 "2.13 explained")
+| *The intent of this rule is to establish the semantics for the methods of Subscriber and what the Publisher is allowed to do in which case this rule is violated.«Raise this error condition in a fashion that is adequate for the runtime environment» could mean logging the error—or otherwise make someone or something aware of the situation—as the error cannot be signalled to the faulty Subscriber.*
+|===
+
+==== 3. Subscription ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscription.java))
+
+[source,java]
+----
+public interface Subscription {
+    public void request(long n);
+    public void cancel();
+}
+----
+
+
+|===
+| ID | Rule |
+| 1
+| `Subscription.request` and `Subscription.cancel` MUST only be called inside of its `Subscriber` context.
+
+| [:bulb:](#3.1 "3.1 explained")
+| *The intent of this rule is to establish that a Subscription represents the unique relationship between a Subscriber and a Publisher [see [2.12](#2.12)].The Subscriber is in control over when elements are requested and when more elements are no longer needed.*
+
+| 2
+| The `Subscription` MUST allow the `Subscriber` to call `Subscription.request` synchronously from within `onNext` or `onSubscribe`.
+
+| [:bulb:](#3.2 "3.2 explained")
+| *The intent of this rule is to make it clear that implementations of `request` must be reentrant, to avoid stack overflows in the case of mutual recursion between `request` and `onNext` (and eventually `onComplete` / `onError`).This implies that Publishers can be `synchronous`, i.e. signalling `onNext`´s on the thread which calls `request`.*
+
+| 3
+| `Subscription.request` MUST place an upper bound on possible synchronous recursion between `Publisher` and `Subscriber`.
+
+| [:bulb:](#3.3 "3.3 explained")
+| *The intent of this rule is to complement [see [3.2](#3.2)] by placing an upper limit on the mutual recursion between `request` and `onNext` (and eventually `onComplete` / `onError`).Implementations are RECOMMENDED to limit this mutual recursion to a depth of `1` (ONE)—for the sake of conserving stack space.An example for undesirable synchronous, open recursion would be Subscriber.onNext -> Subscription.request -> Subscriber.onNext -> …, as it otherwise will result in blowing the calling thread´s stack.*
+
+| 4
+| `Subscription.request` SHOULD respect the responsivity of its caller by returning in a timely manner.
+
+| [:bulb:](#3.4 "3.4 explained")
+| *The intent of this rule is to establish that `request` is intended to be a [non-obstructing](#term_non-obstructing) method, and should be as quick to execute as possible on the calling thread, so avoid heavy computations and other things that would stall the caller´s thread of execution.*
+
+| 5
+| `Subscription.cancel` MUST respect the responsivity of its caller by returning in a timely manner, MUST be idempotent and MUST be [thread-safe](#term_thread-safe).
+
+| [:bulb:](#3.5 "3.5 explained")
+| *The intent of this rule is to establish that `cancel` is intended to be a [non-obstructing](#term_non-obstructing) method, and should be as quick to execute as possible on the calling thread, so avoid heavy computations and other things that would stall the caller´s thread of execution.Furthermore, it is also important that it is possible to call it multiple times without any adverse effects.*
+
+| 6
+| After the `Subscription` is cancelled, additional `Subscription.request(long n)` MUST be [NOPs](#term_nop).
+
+| [:bulb:](#3.6 "3.6 explained")
+| *The intent of this rule is to establish a causal relationship between cancellation of a subscription and the subsequent non-operation of requesting more elements.*
+
+| 7
+| After the `Subscription` is cancelled, additional `Subscription.cancel()` MUST be [NOPs](#term_nop).
+
+| [:bulb:](#3.7 "3.7 explained")
+| *The intent of this rule is superseded by [3.5](#3.5).*
+
+| 8
+| While the `Subscription` is not cancelled, `Subscription.request(long n)` MUST register the given number of additional elements to be produced to the respective subscriber.
+
+| [:bulb:](#3.8 "3.8 explained")
+| *The intent of this rule is to make sure that `request`-ing is an additive operation, as well as ensuring that a request for elements is delivered to the Publisher.*
+
+| 9
+| While the `Subscription` is not cancelled, `Subscription.request(long n)` MUST signal `onError` with a `java.lang.IllegalArgumentException` if the argument is <= 0. The cause message SHOULD explain that non-positive request signals are illegal.
+
+| [:bulb:](#3.9 "3.9 explained")
+| *The intent of this rule is to prevent faulty implementations to proceed operation without any exceptions being raised.Requesting a negative or 0 number of elements, since requests are additive, most likely to be the result of an erroneous calculation on the behalf of the Subscriber.*
+
+| 10
+| While the `Subscription` is not cancelled, `Subscription.request(long n)` MAY synchronously call `onNext` on this (or other) subscriber(s).
+
+| [:bulb:](#3.10 "3.10 explained")
+| *The intent of this rule is to establish that it is allowed to create synchronous Publishers, i.e. Publishers who execute their logic on the calling thread.*
+
+| 11
+| While the `Subscription` is not cancelled, `Subscription.request(long n)` MAY synchronously call `onComplete` or `onError` on this (or other) subscriber(s).
+
+| [:bulb:](#3.11 "3.11 explained")
+| *The intent of this rule is to establish that it is allowed to create synchronous Publishers, i.e. Publishers who execute their logic on the calling thread.*
+
+| 12
+| While the `Subscription` is not cancelled, `Subscription.cancel()` MUST request the `Publisher` to eventually stop signaling its `Subscriber`.The operation is NOT REQUIRED to affect the `Subscription` immediately.
+
+| [:bulb:](#3.12 "3.12 explained")
+| *The intent of this rule is to establish that the desire to cancel a Subscription is eventually respected by the Publisher, acknowledging that it may take some time before the signal is received.*
+
+| 13
+| While the `Subscription` is not cancelled, `Subscription.cancel()` MUST request the `Publisher` to eventually drop any references to the corresponding subscriber.
+
+| [:bulb:](#3.13 "3.13 explained")
+| *The intent of this rule is to make sure that Subscribers can be properly garbage-collected after their subscription no longer being valid.Re-subscribing with the same Subscriber object is discouraged [see [2.12](#2.12)], but this specification does not mandate that it is disallowed since that would mean having to store previously cancelled subscriptions indefinitely.*
+
+| 14
+| While the `Subscription` is not cancelled, calling `Subscription.cancel` MAY cause the `Publisher`, if stateful, to transition into the `shut-down` state if no other `Subscription` exists at this point [see [1.9](#1.9)].
+
+| [:bulb:](#3.14 "3.14 explained")
+| *The intent of this rule is to allow for Publishers to signal `onComplete` or `onError` following `onSubscribe` for new Subscribers in response to a cancellation signal from an existing Subscriber.*
+
+| 15
+| Calling `Subscription.cancel` MUST [return normally](#term_return_normally).
+
+| [:bulb:](#3.15 "3.15 explained")
+| *The intent of this rule is to disallow implementations to throw exceptions in response to `cancel` being called.*
+
+| 16
+| Calling `Subscription.request` MUST [return normally](#term_return_normally).
+
+| [:bulb:](#3.16 "3.16 explained")
+| *The intent of this rule is to disallow implementations to throw exceptions in response to `request` being called.*
+
+| 17
+| A `Subscription` MUST support an unbounded number of calls to `request` and MUST support a demand up to 2^63-1 (`java.lang.Long.MAX_VALUE`).A demand equal or greater than 2^63-1 (`java.lang.Long.MAX_VALUE`) MAY be considered by the `Publisher` as “effectively unbounded”.
+
+| [:bulb:](#3.17 "3.17 explained")
+| *The intent of this rule is to establish that the Subscriber can request an unbounded number of elements, in any increment above 0 [see [3.9](#3.9)], in any number of invocations of `request`.As it is not feasibly reachable with current or foreseen hardware within a reasonable amount of time (1 element per nanosecond would take 292 years) to fulfill a demand of 2^63-1, it is allowed for a Publisher to stop tracking demand beyond this point.*
+|===
+
+A `Subscription` is shared by exactly one `Publisher` and one `Subscriber` for the purpose of mediating the data exchange between this pair.This is the reason why the `subscribe()` method does not return the created `Subscription`, but instead returns `void`; the `Subscription` is only passed to the `Subscriber` via the `onSubscribe` callback.
+
+
+==== 4.Processor ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Processor.java))
+
+[source,java]
+----
+public interface Processor<T, R> extends Subscriber<T>, Publisher<R> {
+}
+----
+
+
+|===
+| ID | Rule
+
+| 1
+| A `Processor` represents a processing stage—which is both a `Subscriber` and a `Publisher` and MUST obey the contracts of both.
+
+| [:bulb:](#4.1 "4.1 explained")
+| *The intent of this rule is to establish that Processors behave, and are bound by, both the Publisher and Subscriber specifications.*
+
+| 2
+| A `Processor` MAY choose to recover an `onError` signal.If it chooses to do so, it MUST consider the `Subscription` cancelled, otherwise it MUST propagate the `onError` signal to its Subscribers immediately.
+
+| [:bulb:](#4.2 "4.2 explained")
+| *The intent of this rule is to inform that it’s possible for implementations to be more than simple transformations.*
+|===
+
+While not mandated, it can be a good idea to cancel a `Processor`´s upstream `Subscription` when/if its last `Subscriber` cancels their `Subscription`,
+to let the cancellation signal propagate upstream.
