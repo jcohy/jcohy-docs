@@ -103,7 +103,7 @@ public enum ProjectVersion {
     public static Map<String,Object> getDocsUrlMaps(){
         Map<String,Object> map = new HashMap<>(16);
         // https://docs.jcohy.com/docs/spring-framework/5.3.6/html/zh-cn/index.html
-        String docsRoot ="http://docs.jcohy.com/docs/";
+        String docsRoot ="https://docs.jcohy.com/docs/";
         for(ProjectVersion projectVersion : ProjectVersion.values()){
             String url = projectVersion.getUrl();
             if(url.isEmpty()){
