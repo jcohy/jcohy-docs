@@ -7,7 +7,7 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 
 /**
- * Copyright: Copyright (c) 2021 <a href="http://www.jcohy.com" target="_blank">jcohy.com</a>
+ * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
  *
  * <p> Description:
  *
@@ -24,14 +24,13 @@ public class OssUploadPlugins implements Plugin<Project> {
             ossUploadTask.dependsOn("aggregatedAsciidoctor");
         });
         AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
-        extension.setAccessKey("xxx");
-        extension.setSecretKey("xxx");
-        String name = project.getRootProject().getBuildDir().getName();
-        extension.getUpload().setSource(project.getRootProject().getBuildDir().getName());
-        extension.getUpload().setPrefix("docs");
+//        extension.setAccessKey("xxx");
+//        extension.setSecretKey("xxx");
+        extension.setBucket("jcohy-docs");
+        String buildDir = project.getRootProject().getBuildDir().getName();
+        extension.getUpload().setSource(buildDir);
+        extension.getUpload().setPrefix("/docs");
 
         extension.getUpload().setIgnoreSourceDir(true);
-//        extension.getUpload().recursion("");
-//        extension.getUpload().setExclusions();
     }
 }

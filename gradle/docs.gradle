@@ -1,5 +1,4 @@
 import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin
-import org.asciidoctor.gradle.jvm.AsciidoctorTask
 
 /**
  * Produce Javadoc for all Spring Framework modules in "build/docs/javadoc"
@@ -15,23 +14,47 @@ ext{
 
 task aggregatedAsciidoctor(type: Copy) {
 	project.rootProject.gradle.projectsEvaluated {
+		// 测试项目
+//		Set<Project> excludedProjects = ['spring-security','reactor','spring-data-redis',
+//										 'spring-boot','spring-boot-actuator-autoconfigure','spring-data-redis', 'spring-data-commons',
+//										 'spring-data-elasticsearch','spring-data-jpa','spring-data-rest', 'spring-framework','spring-hateoas']
+//		Set<Project> docsProjects = rootProject.subprojects.findAll {it != project }
+//				.findAll { it.plugins.hasPlugin(AsciidoctorJPlugin) }
+//				.findAll{!excludedProjects.contains(it.name)}
+		// 正式项目
 		Set<Project> excludedProjects = ['spring-security','reactor','spring-data-redis']
-
 		Set<Project> docsProjects = rootProject.subprojects.findAll {it != project }
 				.findAll { it.plugins.hasPlugin(AsciidoctorJPlugin) }
+
 		Set<Project> docsPdfProject = docsProjects.findAll{!excludedProjects.contains(it.name)}
 		dependsOn docsProjects.asciidoctor
 		dependsOn docsPdfProject.asciidoctorPdf
-		destinationDir = project.file "${buildDir}/docs"
+		destinationDir = project.file "${buildDir}"
 		docsProjects.each {project ->
-			from(project.asciidoctor.outputDir) {
-				into project.name+"/"+project.version+"/html"
+			if(project.tasks.names.contains("asciidoctorMultipage")){
+				dependsOn project.asciidoctorMultipage
+				from(project.asciidoctor.outputDir) {
+					into project.name+"/"+project.version+"/htmlsingle"
+				}
+				from(project.asciidoctorMultipage.outputDir) {
+					into project.name+"/"+project.version+"/html5"
+				}
+			} else {
+				from(project.asciidoctor.outputDir) {
+					into project.name+"/"+project.version+"/html5"
+				}
+
 			}
 			from(project.asciidoctorPdf.outputDir) {
 				into project.name+"/"+project.version+"/pdf"
 			}
 		}
 	}
+}
+
+alioss {
+	accessKey = System.getenv("ACCESS_KEY")
+	secretKey = System.getenv("SECRET_KEY")
 }
 
 task docsZip(type: Zip) {

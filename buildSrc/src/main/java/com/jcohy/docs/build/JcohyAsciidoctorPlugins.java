@@ -12,7 +12,7 @@ import org.gradle.api.Project;
 import org.gradle.api.plugins.PluginContainer;
 
 /**
- * Copyright: Copyright (c) 2021 <a href="http://www.jcohy.com" target="_blank">jcohy.com</a>
+ * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
  *
  * <p> Description:
  *
@@ -54,9 +54,9 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
     private void addAsciidoctorTaskAttributes(Project project,Map<String, Object> attributes) {
         attributes.put("rootProject", project.getRootProject().getProjectDir());
         attributes.put("sources-root", project.getProjectDir() + "/src");
-        attributes.put("image-resource", "http://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
+        attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
         attributes.put("spring-api-doc", "https://docs.spring.io/" + project.getName());
-        attributes.put("doc-root","http://docs.jcohy.com/");
+        attributes.put("doc-root","https://docs.jcohy.com/");
         attributes.put("spring-docs-prefix","https://docs.spring.io/spring-framework/docs/");
         attributes.put("gh-samples-url","https://github.com/spring-projects/spring-security/master/");
     }
