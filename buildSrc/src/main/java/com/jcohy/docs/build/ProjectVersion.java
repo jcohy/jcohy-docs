@@ -17,7 +17,7 @@ public enum ProjectVersion {
     GRADLE_DOCS("gradle-docs","gradle-version","6.7",""),
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
     REACTOR("reactor","reactor-version","3.4.8",""),
-    REACTIVE_STREAM("reactive-stream","reactive-stream-version","0.0.3",""),
+    REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.3",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     SPRING_FRAMEWORK("spring-framework","spring-framework-version","5.3.6",""),
     SPRING_HATEOAS("spring-hateoas","spring-hateoas-version","1.2.5",""),
@@ -103,13 +103,12 @@ public enum ProjectVersion {
 
     public static Map<String,Object> getDocsUrlMaps(){
         Map<String,Object> map = new HashMap<>(16);
-        // https://docs.jcohy.com/docs/spring-framework/5.3.6/html/zh-cn/index.html
-        String docsRoot ="https://docs.jcohy.com/docs/";
+        // https://docs.jcohy.com/docs/spring-framework/5.3.6/html5/zh-cn/index.html
         for(ProjectVersion projectVersion : ProjectVersion.values()){
             String url = projectVersion.getUrl();
             if(url.isEmpty()){
-                map.put(projectVersion.getName() + "-docs", docsRoot +
-                        projectVersion.getName() + "/" + projectVersion.getVersion() + "/html5/zh-cn/");
+                map.put(projectVersion.getName() + "-docs", "https://docs.jcohy.com/docs/" +
+                        projectVersion.getName() + "/" + projectVersion.getVersion() + "/html5/zh-cn");
             } else {
                 map.put(projectVersion.getName() + "-docs", projectVersion.getUrl());
             }
