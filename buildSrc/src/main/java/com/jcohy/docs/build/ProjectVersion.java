@@ -17,6 +17,7 @@ public enum ProjectVersion {
     GRADLE_DOCS("gradle-docs","gradle-version","6.7",""),
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
     REACTOR("reactor","reactor-version","3.4.8",""),
+    REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.3",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     SPRING_FRAMEWORK("spring-framework","spring-framework-version","5.3.6",""),
     SPRING_HATEOAS("spring-hateoas","spring-hateoas-version","1.2.5",""),
@@ -29,7 +30,7 @@ public enum ProjectVersion {
     SPRING_DATA_COMMONS("spring-data-commons","spring-data-commons-version","2.4.8",""),
     SPRING_DATA_JDBC("spring-data-jdbc","spring-data-jdbc-version","2.1.8",""),
     SPRING_DATA_MONGODB("spring-data-mongodb","spring-data-mongodb-version","3.1.8","https://docs.spring.io/spring-data/mongodb/docs/3.1.8/reference/html/"),
-    SPRING_DATA_R2DBC("spring-data-r2dbc","spring-data-r2dbc-version","1.2.8","https://docs.spring.io/spring-data/r2dbc/docs/1.2.8/reference/html/"),
+    SPRING_DATA_R2DBC("spring-data-r2dbc","spring-data-r2dbc-version","1.2.8",""),
     SPRING_DATA_SOLR("spring-data-solr","spring-data-solr-version","4.3.8",""),
     SPRING_DATA_ELASTICSEARCH("spring-data-elasticsearch","spring-data-elasticsearch-version","4.1.8",""),
     SPRING_DATA_JPA("spring-data-jpa","spring-data-jpa-version","2.4.8",""),
@@ -102,13 +103,12 @@ public enum ProjectVersion {
 
     public static Map<String,Object> getDocsUrlMaps(){
         Map<String,Object> map = new HashMap<>(16);
-        // https://docs.jcohy.com/docs/spring-framework/5.3.6/html/zh-cn/index.html
-        String docsRoot ="http://docs.jcohy.com/docs/";
+        // https://docs.jcohy.com/docs/spring-framework/5.3.6/html5/zh-cn/index.html
         for(ProjectVersion projectVersion : ProjectVersion.values()){
             String url = projectVersion.getUrl();
             if(url.isEmpty()){
-                map.put(projectVersion.getName() + "-docs", docsRoot +
-                        projectVersion.getName() + "/" + projectVersion.getVersion() + "/html5/zh-cn/");
+                map.put(projectVersion.getName() + "-docs", "https://docs.jcohy.com/docs/" +
+                        projectVersion.getName() + "/" + projectVersion.getVersion() + "/html5/zh-cn");
             } else {
                 map.put(projectVersion.getName() + "-docs", projectVersion.getUrl());
             }

@@ -1,0 +1,96 @@
+[[preface]]
+= 前言
+
+Spring Data R2DBC 项目将 Spring 核心概念应用于将 https://r2dbc.io[R2DBC] 驱动程序和关系数据库的解决方案的开发。 我们提供了一个 `DatabaseClient` 存储和查询的高级抽象。
+
+本文档是 Spring Data - R2DBC 的参考指南。 它解释了R2DBC模块的概念和语义。
+
+本节提供一些对 Spring 和数据库的基本介绍。
+
+[[get-started:first-steps:spring]]
+== 学习 Spring
+
+Spring Data 使用 Spring framework  {spring-framework-ref}/core.html[核心] 功能, 包括:
+
+* {spring-framework-ref}/core.html#beans[IoC 容器]
+* {spring-framework-ref}/core.html#validation[类型转换系统]
+* {spring-framework-ref}/core.html#expressions[表达式语言]
+* {spring-framework-ref}/integration.html#jmx[JMX 集成]
+* {spring-framework-ref}/data-access.html#dao-exceptions[DAO 异常层次结构].
+
+您不需要了解 Spring API，但您必须要知道他们的概念。 至少，你应该熟悉控制反转 (IoC) 的原理，并且您应该熟悉您选择使用的任何 IoC 容器。
+
+您可以直接使用 R2DBC 支持的核心功能，无需调用 Spring Container 的 IoC 服务。 这有点像 `JdbcTemplate`，它可以 "独立" 使用，无需 Spring 容器。 要使用 Spring Data R2DBC 的所有功能，例如存储库支持，您需要使用 Spring 配置库的某些部分。
+
+要了解有关 Spring 的更多信息，请参阅 https://spring.io/docs[Spring 框架的综合文档]。有很多关于这个主题的文章、博客和书籍。 有关更多信息，请参阅 Spring 框架主页。
+
+[[get-started:first-steps:what]]
+== 什么是 R2DBC?
+
+https://r2dbc.io[R2DBC] 是 Reactive Relational Database Connectivity 的简写。 R2DBC 是一个 API 规范提议，它声明了一个响应式 API，由驱动程序供应商实现如何访问他们的关系数据库。
+
+对于为什么要创建R2DBC，一部分是认为需要有一个非阻塞的应用程序，以少量线程处理并发性，并以较少的硬件资进行扩展。这种需求不能通过重用标准化的关系数据库访问 API (即 JDBC)来满足，因为 JDBC 是一个完全阻塞的 API。 尝试使用 `ThreadPool` 来补偿阻塞行为的方式毕竟是有限的。
+
+另一部分是大多数应用程序使用关系数据库来存储它们的数据。 虽然有一些 NoSQL 数据库供应商他们的数据库提供了响应式数据库客户端，但大多数项目都无法选择迁移到 NoSQL。 因此，需要创建一个可以用作任何非阻塞数据库驱动程序的通用 API 。 虽然开源生态系统承载着各种非阻塞关系数据库驱动程序实现，但每个客户端都带有特定于供应商的 API，因此不可能在这些库之上建立通用层。
+
+[[get-started:first-steps:reactive]]
+== 什么是 Reactive?
+
+术语 "`reactive`" 是指围绕对变化、可用性和可处理性做出响应而构建的编程模型 -- 响应 I/O 事件的网络组件、响应鼠标事件的UI控制器、可用的资源等等。 从这个意义上说，非阻塞是响应式的，因为我们现在处于操作完成或数据可用时对通知作出响应的模式，而不是被阻塞。
+
+在 Spring 团队中还有另一种重要的机制与反应性相关，那就是 non-blocking back pressure（非阻塞背压）。 在同步的代码中，阻塞调用是一种自然的背压形式，迫使调用者等待。 在非阻塞代码中，控制事件的速率变得至关重要，生产迅速的生产者不会淹没它的目的地。
+
+https://github.com/reactive-streams/reactive-streams-jvm/blob/v{reactive-stream-jvm-version}/README.md#specification[Reactive Streams] 是一个很小的规范（ https://docs.oracle.com/javase/9/docs/api/java/util/concurrent/Flow.html[也在 Java 9 中采用]），它定义了带有背压的异步组件之间的交互。 例如，数据存储库（充当 {reactiveStreamsJavadoc}/org/reactivestreams/Publisher.html[Publisher] ）可以生成数据， HTTP 服务器（充当 {reactiveStreamsJavadoc}/org/reactivestreams/Subscriber.html[Subscriber ]) 可以将数据写入响应。 Reactive Streams 的主要目的是让订阅者控制发布者生成数据的速度的快慢。
+
+[[get-started:first-steps:reactive-api]]
+== Reactive API
+
+Reactive Streams 在互操作方面发挥着重要作用。 它对库和基础设施组件很感兴趣，但作为应用程序 API 不太有用，因为它太低级了。 应用程序需要更高级、更丰富的功能性 API 来组合异步逻辑 —- 类似于 Java 8 Stream API，但不仅适用于表。 这就是反应式库所扮演的角色。
+
+它对库和基础组件很有兴趣，但作为应用程序 API 用处不大，因为它的层次太低。应用程序需要更高级别、更丰富的功能性 API 来组成异步逻辑 — 类似于 Java 8 Stream API。这就是响应式库所扮演的角色。
+
+https://github.com/reactor/reactor[Project Reactor] 是 Spring Data R2DBC 的首选的响应式库。他提供了 https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Mono.html[`Mono`] 和 https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html[`Flux`] API 类型， 它通过一组与 ReactiveX 运算符对齐的丰富的运算符来处理  `0..1` (`Mono`) 和 `0..N` (`Flux`) 的数据序列。 Reactor 是一个 Reactive Streams 库，因此它的所有操作符都支持非阻塞背压。 Reactor 非常关注服务端的 Java。 它是与 Spring 密切合作开发的。
+
+Spring Data R2DBC 使用 Project Reactor 作为核心依赖，但它可以通过 Reactive Streams 规范与其他响应式库互操作。 作为一般规则，Spring Data R2DBC 存储库接受一个普通的 `Publisher` 作为输入，在内部将其调整为 Reactor 类型，使用它，并返回 `Mono` 或 `Flux` 类型。 因此，您可以将任何 `Publisher` 作为输入传递并对输出应用操作，但您需要调整输出以与另一个响应式库一起使用。 只要可行，Spring Data 就会透明地适应 RxJava 或其他响应式库。
+
+[[requirements]]
+== 要求
+
+Spring Data R2DBC 1.x 需要：:
+
+* JDK 8.0 以上
+* https://spring.io/docs[Spring Framework] {spring-framework-version} 以上
+* https://r2dbc.io[R2DBC] {r2dbcVersion} 以上
+
+[[get-started:help]]
+== 其他帮助资源
+
+学习一个新框架并不总是那么简单。 在本节中，我们尝试提供我们认为易于遵循的 Spring Data R2DBC 模块入门指南。 但是，如果您遇到问题或需要建议，请使用以下链接之一：
+
+[[get-started:help:community]]
+社区板块 :: https://stackoverflow.com/questions/tagged/spring-data[Stack Overflow] 上的 Spring Data 标签是所有 Spring Data 项目(不仅仅是 R2DBC )用户共享信息和互相帮助的标签。请注意，需要注册才能提问题。
+
+[[get-started:help:professional]]
+专业支持 :: Spring Data 和 Spring 背后的公司 https://pivotal.io/[Pivotal Sofware, Inc.]. 提供专业的支持，并保证响应时间。
+
+[[get-started:up-to-date]]
+== 关注开发
+
+* 有关 Spring Data R2DBC 源代码存储库、每日构建和快照构建的信息，请参阅 https://projects.spring.io/spring-data-r2dbc/[Spring Data R2DBC 主页]。
+
+* 您可以通过 https://stackoverflow.com/questions/tagged/spring-data[Stack Overflow] 上的社区与开发人员进行交互，帮助 Spring Data 更好地满足 Spring 社区的需求。
+
+* 如果您遇到错误或想提出改进建议，请在 Spring Data R2DBC 问题跟踪器上创建 https://github.com/spring-projects/spring-data-r2dbc/issues[issue]。
+
+* 要及时了解 Spring 生态系统中的最新消息和公告，请订阅 Spring https://spring.io[社区门户]。
+
+* 您还可以在 Twitter (https://twitter.com/SpringData[SpringData]) 上关注 Spring https://spring.io/blog[博客] 或 Spring Data 项目团队。
+
+[[project-metadata]]
+== 项目原数据
+
+* 版本控制: https://github.com/spring-projects/spring-data-r2dbc
+* Bug追踪: https://github.com/spring-projects/spring-data-r2dbc/issues
+* Release repository: https://repo.spring.io/libs-release
+* Milestone repository: https://repo.spring.io/libs-milestone
+* Snapshot repository: https://repo.spring.io/libs-snapshot

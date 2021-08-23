@@ -1,0 +1,172 @@
+[[r2dbc.datbaseclient.fluent-api]]
+[[r2dbc.entityoperations]]
+= R2dbcEntityOperations 数据访问 API
+
+`R2dbcEntityTemplate` 是 Spring Data R2DBC 的入口。 他提供了了面向实体的流式方法和 API，其中包括查询、插入、更新和删除数据。
+
+`insert()`、`select()`、`update()` 等）基于要运行的操作的命名模式。 API 被设计为仅提供上下文相关的方法，这些方法导致创建和运行 SQL 语句的终止方法。 Spring Data R2DBC 使用 `R2dbcDialect` 来确定绑定标记、分页支持和底层驱动程序支持的本地数据类型。
+
+NOTE: 所有的终止方法始终返回表示操作的 `Publisher` 类型。在订阅事再执行实际的数据库语句。
+
+[[r2dbc.entityoperations.save-insert]]
+== 插入和更新实体的方法
+
+`R2dbcEntityTemplate` 提供了几个简洁的方法来保存和插入对象。 如果想要对转换过程进行更细粒度的控制，您可以使用 `R2dbcCustomConversions` — 注册 Spring 转换器，例如 `Converter<Person, OutboundRow>` and `Converter<Row, Person>`。
+
+使用 save 操作最简单情况就是保存一个 POJO。 在这种情况下，表名由类的名称（非完全限定）确定。 您还可以使用特定的集合名称调用 save 操作。 您可以使用元数据映射来覆盖存储对象的集合。
+
+插入或保存时，如果未设置 `Id` 属性，如果其值由数据库自动生成，则类中的 `Id` 属性或字段的类型必须是 `Long` 或 `Integer`。
+
+以下示例显示了如何插入一行并检索其内容：
+
+.使用 `R2dbcEntityTemplate` 插入和检索实体
+====
+[source,java,indent=0]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=insertAndSelect]
+----
+====
+
+以下插入和更新操作可用:
+
+也可以使用一组类似操作执行插入操作:
+
+* `Mono<T>` *insert* `(T objectToSave)`: 将对象插入到表中.
+* `Mono<T>` *update* `(T objectToSave)`: 将对象插入到表中.
+
+可以使用 fluent API 自定义表名.
+
+[[r2dbc.entityoperations.selecting]]
+== 选择数据
+
+`R2dbcEntityTemplate` 上的 `select(…)` 和 `selectOne(…)` 方法用于从表中选择数据。 这两种方法都采用一个 <<r2dbc.datbaseclient.fluent-api.criteria,`Query`>> 对象，该对象定义了字段投影、`WHERE` 子句、`ORDER BY` 子句和 limit/offset 分页。 无论底层数据库如何，limit/offset 功能对应用程序都是透明的。 <<r2dbc.drivers,`R2dbcDialect` 抽象>> 支持此功能，以适应不同的 SQL 之间的差异。
+
+.使用 `R2dbcEntityTemplate` 选择数据
+====
+[source,java,indent=0]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=select]
+----
+====
+
+[[r2dbc.entityoperations.fluent-api]]
+== Fluent API
+
+本节解释了 fluent API 的用法。考虑以下简单查询:
+
+====
+[source,java,indent=0]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=simpleSelect]
+----
+<1> 将 `Person` 与 `from(…)` 方法结合使用，可根据元数据映射设置 `FROM` 表。 它还在 `Person` 结果对象上映射表格结果。
+<2> 对结果不做限制，获取 `all()` 所有行并返回 `Flux<Person>`.
+====
+
+以下示例声明了一个更复杂的查询，该查询按 name、`WHERE` 条件和 `ORDER BY` 子句指定表名：
+
+====
+[source,java,indent=0]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=fullSelect]
+----
+<1> 按名称从给定的 domain 类型选择返回结果.
+<2> 声明一个 `firstname` 和 `lastname` 的 `WHERE` 查询条件，对结果进行过滤.
+<3> 结果可以按单独的列名排序，使用 `ORDER BY` 子句.
+<4> 选择一个结果只获取一行.
+这种方式期望查询只返回一个结果。如果查询产生多个结果，`Mono` 会发出 `IncorrectResultSizeDataAccessException` 异常。
+====
+
+TIP: 您可以通过 `select(Class<?>)` 提供目标类型，直接将 <<projections,Projections（投影）>> 于结果。
+
+您可以通过以下终止方法在检索单个实体和检索多个实体之间进行切换:
+
+* `first()`: 获取第一行, 返回一个 `Mono`.
+如果查询没有返回结果，则返回的 `Mono` 完成时不会发出对象。
+* `one()`: 获取一行, 返回一个 `Mono`.
+如果查询没有返回结果，则返回的 `Mono` 完成时不会发出对象。
+如果查询返回不止一行，`Mono` 就会抛出 `IncorrectResultSizeDataAccessException`。
+* `all()`: 返回所有行，返回一个 `Flux`.
+* `count()`: 返回 `Mono<Long>` 的计数投影.
+* `exists()`: 返回 `Mono<Boolean>` ，表示查询是否返回任何行.
+
+您可以使用 `select()` 作为您 `SELECT` 查询的入口。 生成的 `SELECT` 查询支持常用子句（`WHERE` 和 `ORDER BY`）并支持分页。 fluent API 风格让您可以将多个方法链接在一起，同时拥有易于理解的代码。 为了提高可读性，您可以使用静态导入来避免使用 'new' 关键字来创建 `Criteria` 实例。
+
+[[r2dbc.datbaseclient.fluent-api.criteria]]
+=== Criteria 类的方法
+
+`Criteria` 类提供了以下方法，所有这些方法都对应于 SQL 运算符：
+
+* `Criteria` *and* `(String column)`: 将具有指定属性的链式 `Criteria` 添加到当前 `Criteria` 中，并返回新创建的 `Criteria`。
+* `Criteria` *or* `(String column)`: 将具有指定属性的链式 `Criteria` 添加到当前 `Criteria` 中，并返回新创建的 `Criteria`。
+* `Criteria` *greaterThan* `(Object o)`: 使用 `>` 操作符创建一个 criterion.
+* `Criteria` *greaterThanOrEquals* `(Object o)`: 使用  `>=` 操作符创建一个 criterion.
+* `Criteria` *in* `(Object... o)`: 对变量参数使用  `IN` 操作符创建一个 criterion.
+* `Criteria` *in* `(Collection<?> collection)`: 对集合使用  `IN` 操作符创建一个 criterion。
+* `Criteria` *is* `(Object o)`: 通过列匹配 (`property = value`) 创建一个 criterion.
+* `Criteria` *isNull* `()`: 使用 `IS NULL` 操作符创建一个 criterion.
+* `Criteria` *isNotNull* `()`: 使用 `IS NOT NULL` 操作符创建一个 criterion.
+* `Criteria` *lessThan* `(Object o)`: 使用 `<` 操作符创建一个 criterion.
+* `Criteria` *lessThanOrEquals* `(Object o)`: 使用 `<=` 操作符创建一个 criterion.
+* `Criteria` *like* `(Object o)`: 使用 `LIKE` 操作符创建一个 criterion，不进行转义.
+* `Criteria` *not* `(Object o)`: 使用 `!=` 操作符创建一个 criterion.
+* `Criteria` *notIn* `(Object... o)`: 对变量参数使用 `NOT IN` 操作符创建一个 criterion。
+* `Criteria` *notIn* `(Collection<?> collection)`: 对集合使用 `NOT IN` 操作符创建一个 criterion。
+
+您可以在 `SELECT`、`UPDATE` 和 `DELETE` 查询中使用 `Criteria`。
+
+[[r2dbc.entityoperations.fluent-api.insert]]
+== 插入 Data
+
+您可以使用 `insert()` 插入数据。
+
+考虑以下简单的类型插入操作：
+
+====
+[source,java,indent=0]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=insert]
+----
+<1> 将 `Person` 与 `into(…)` 方法结合使用，可根据元数据映射设置 `INTO` 表。 它还生成了插入语句，接受要插入的 `Person` 对象。
+<2> 提供一个 `Person` 对象。 或者，您可以使用 `Publisher` 来运行 `INSERT` 语句。 此方法会过滤所有非空值并插入它们。
+====
+
+
+[[r2dbc.entityoperations.fluent-api.update]]
+== 更新数据
+
+您可以使用 `update()` 来更新行。更新数据首先要通过 update 来指定要更新的表。 它还接受 `Query` 来创建 `WHERE` 子句。
+
+考虑以下简单类型的更新操作：
+
+====
+[source,java]
+----
+Person modified = …
+
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=update]
+----
+<1> 基于元数据映射更新 `Person` 对象。
+<2> 通过调用 `inTable(…)` 方法设置不同的表名.
+<3> 指定转换为 `WHERE` 子句的查询.
+<4> 执行更新对象。
+在这种情况下将 `age` 设置为 `42` 并返回受影响的行。
+====
+
+[[r2dbc.entityoperations.fluent-api.delete]]
+== 删除数据
+
+您可以使用 `delete()` 来删除数据。删除数据从要删除的表的规范开始，并且可以接受 `Criteria` 来创建 `WHERE` 子句。
+
+考虑以下简单的删除操作：
+
+====
+[source,java]
+----
+include::{example-root}/R2dbcEntityTemplateSnippets.java[tags=delete]
+----
+<1> 删除 `Person` 对象
+<2> 调用 `from(…)` 方法设置不同的表名.
+<3> 指定转换为 `WHERE` 子句的查询.
+<4> 执行删除操作并返回受影响的行数
+====

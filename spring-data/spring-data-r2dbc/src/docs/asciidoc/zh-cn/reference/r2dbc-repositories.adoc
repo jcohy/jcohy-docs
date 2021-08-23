@@ -1,0 +1,355 @@
+[[r2dbc.repositories]]
+= R2DBC 存储库
+
+[[r2dbc.repositories.intro]]
+本章指出了 R2DBC 存储库支持的特点。 本章是建立在 Spring Data Repositories 中的 <<repositories>> 支持的基础上。在阅读本章之前，您应该对那里介绍的基本概念有充分的了解。
+
+[[r2dbc.repositories.usage]]
+== 使用
+
+要访问存储在关系型数据库中的实体，您可以使用我们复杂的存储库支持，这大大简化了实现。 为此，创建存储库的接口。考虑下面的 `Person` 类:
+
+.简单 Person 对象
+====
+[source,java]
+----
+public class Person {
+
+  @Id
+  private Long id;
+  private String firstname;
+  private String lastname;
+
+  // … getters and setters omitted
+}
+----
+====
+
+以下示例显示了上述 `Person` 类的存储库接口：
+
+.Person 实体类的基础存储库接口
+====
+[source,java]
+----
+public interface PersonRepository extends ReactiveCrudRepository<Person, Long> {
+
+  // additional custom query methods go here
+}
+----
+====
+
+要配置 R2DBC 存储库，您可以使用 `@EnableR2dbcRepositories` 注解。 如果您没有设置 base package，Spring 则会扫描带注解的配置类的包。 以下示例显示了如何对存储库使用 Java 配置：
+
+.Java 配置
+====
+[source,java]
+----
+@Configuration
+@EnableR2dbcRepositories
+class ApplicationConfig extends AbstractR2dbcConfiguration {
+
+  @Override
+  public ConnectionFactory connectionFactory() {
+    return …
+  }
+}
+----
+====
+
+因为我们的 domain 存储库扩展了 `ReactiveCrudRepository`，它提供了访问实体的响应式 CRUD 操作。 在 `ReactiveCrudRepository` 之上，还有 `ReactiveSortingRepository`，它添加了类似于 `PagingAndSortingRepository` 的额外排序功能。 使用存储库实例只是将其依赖注入客户端的问题。 因此，您可以使用以下代码检索所有 `Person` 对象：
+
+.对 Person 实体的分页访问
+====
+[source,java,indent=0]
+----
+include::{example-root}/PersonRepositoryTests.java[tags=class]
+----
+====
+
+前面的示例使用 Spring 的单元测试创建了一个应用程序上下文，它将基于注解的依赖注入到测试用例中。 在测试方法中，我们使用存储库来查询数据库。 我们使用 `StepVerifier` 作为测试辅助工具来验证我们对结果的期望。
+
+[[r2dbc.repositories.queries]]
+== 查询方法
+
+您通常在存储库上触发的大多数数据访问操作都会导致对数据库运行查询。 定义这样的查询就是在存储库接口上声明一个方法，如以下示例所示：
+
+.带有查询方法的 PersonRepository
+====
+[source,java]
+----
+interface ReactivePersonRepository extends ReactiveSortingRepository<Person, Long> {
+
+  Flux<Person> findByFirstname(String firstname);                                   <1>
+
+  Flux<Person> findByFirstname(Publisher<String> firstname);                        <2>
+
+  Flux<Person> findByFirstnameOrderByLastname(String firstname, Pageable pageable); <3>
+
+  Mono<Person> findByFirstnameAndLastname(String firstname, String lastname);       <4>
+
+  Mono<Person> findFirstByLastname(String lastname);                                <5>
+
+  @Query("SELECT * FROM person WHERE lastname = :lastname")
+  Flux<Person> findByLastname(String lastname);                                     <6>
+
+  @Query("SELECT firstname, lastname FROM person WHERE lastname = $1")
+  Mono<Person> findFirstByLastname(String lastname);                                <7>
+}
+----
+<1> 查询指定 `firstname` 的所有人. 该查询通过解析 `And` 和 `Or` 连接的约束的方法名称. 因此，此查询方法会生成以下查询： `SELECT … FROM person WHERE firstname = :firstname`.
+<2> 一旦 `Publisher` 发出给定 `firstname`，该方法就会执行查询 `firstname` 的所有人.
+<3> 使用 `Pageable` 将 offset 和 sorting 参数传递给数据库.
+<4> 根据给定条件查询一个实体. 如果有多个值会导致 `IncorrectResultSizeDataAccessException`.
+<5> 除非 <4>, 否则即使查询产生更多的结果行，也总是发出第一个实体。
+<6> `findByLastname` 方法显示了对 `lastname` 的所有人的查询.
+<7> 针对单个 `Person` 实体的查询, 仅投影 `firstname` 和 `lastname` 行.
+带注解的查询使用本地绑定标记，在本例中是 Postgres 绑定标记。.
+====
+
+查询方法支持的关键字如下表所示:
+
+[cols="1,2,3", options="header", subs="quotes"]
+.查询方法支持的关键字
+|===
+| Keyword
+| Sample
+| Logical result
+
+| `After`
+| `findByBirthdateAfter(Date date)`
+| `birthdate > date`
+
+| `GreaterThan`
+| `findByAgeGreaterThan(int age)`
+| `age > age`
+
+| `GreaterThanEqual`
+| `findByAgeGreaterThanEqual(int age)`
+| `age >= age`
+
+| `Before`
+| `findByBirthdateBefore(Date date)`
+| `birthdate < date`
+
+| `LessThan`
+| `findByAgeLessThan(int age)`
+| `age < age`
+
+| `LessThanEqual`
+| `findByAgeLessThanEqual(int age)`
+| `age \<= age`
+
+| `Between`
+| `findByAgeBetween(int from, int to)`
+| `age BETWEEN from AND to`
+
+| `NotBetween`
+| `findByAgeNotBetween(int from, int to)`
+| `age NOT BETWEEN from AND to`
+
+| `In`
+| `findByAgeIn(Collection<Integer> ages)`
+| `age IN (age1, age2, ageN)`
+
+| `NotIn`
+| `findByAgeNotIn(Collection ages)`
+| `age NOT IN (age1, age2, ageN)`
+
+| `IsNotNull`, `NotNull`
+| `findByFirstnameNotNull()`
+| `firstname IS NOT NULL`
+
+| `IsNull`, `Null`
+| `findByFirstnameNull()`
+| `firstname IS NULL`
+
+| `Like`, `StartingWith`, `EndingWith`
+| `findByFirstnameLike(String name)`
+| `firstname LIKE name`
+
+| `NotLike`, `IsNotLike`
+| `findByFirstnameNotLike(String name)`
+| `firstname NOT LIKE name`
+
+| `Containing` on String
+| `findByFirstnameContaining(String name)`
+| `firstname LIKE '%' + name +'%'`
+
+| `NotContaining` on String
+| `findByFirstnameNotContaining(String name)`
+| `firstname NOT LIKE '%' + name +'%'`
+
+| `(No keyword)`
+| `findByFirstname(String name)`
+| `firstname = name`
+
+| `Not`
+| `findByFirstnameNot(String name)`
+| `firstname != name`
+
+| `IsTrue`, `True`
+| `findByActiveIsTrue()`
+| `active IS TRUE`
+
+| `IsFalse`,  `False`
+| `findByActiveIsFalse()`
+| `active IS FALSE`
+|===
+
+[[r2dbc.repositories.modifying]]
+=== 修改查询
+
+前面的部分描述了如何访问实体或实体集合。使用上表中的关键字可以与 `delete…By` 或 `remove…By` 结合使用，以创建删除匹配行的查询。
+
+.`Delete…By` 查询
+====
+[source,java]
+----
+interface ReactivePersonRepository extends ReactiveSortingRepository<Person, String> {
+
+  Mono<Integer> deleteByLastname(String lastname);            <1>
+
+  Mono<Void> deletePersonByLastname(String lastname);         <2>
+
+  Mono<Boolean> deletePersonByLastname(String lastname);      <3>
+}
+----
+<1> 使用 `Mono<Integer>` ，返回受影响的行.
+<2> 使用 `Void` 指示行是否被成功删除，而不发出结果值。
+<3> 使用 `Boolean` 指示是否至少删除了一行。
+====
+
+由于这种方法对于全面的自定义功能是可行的，您可以通过使用 `@Modifying` 注解查询方法来修改只需要参数绑定的查询，如以下示例所示：
+
+====
+[source,java,indent=0]
+----
+include::{example-root}/PersonRepository.java[tags=atModifying]
+----
+====
+
+修改查询的结果可以是:
+
+* `Void` (或 Kotlin `Unit`) 放弃更新计数并等待完成.
+* `Integer` 或 其他数字类型发出受影响的行数.
+* `Boolean` 发出是否至少更新了一行.
+
+`@Modifying` 注解仅与 `@Query` 注解结合使用。 自定义方法不需要此注解。
+
+或者，您可以使用 <<repositories.custom-implementations,Spring Data Repositories 的自定义实现>> 中描述的工具添加自定义修改行为。
+
+[[r2dbc.repositories.queries.spel]]
+=== 使用 SpEL 表达式的查询
+
+查询字符串定义可与 SpEL 表达式一起使用，可以在运行时创建动态查询。 SpEL 表达式可以提供在运行查询之前计算的谓词值。
+
+表达式通过包含所有参数的数组公开方法参数。 以下查询使用 `[0]` 来声明 `lastname` 的谓词值（相当于 `:lastname` 参数绑定）：
+
+====
+[source,java,indent=0]
+----
+include::{example-root}/PersonRepository.java[tags=spel]
+----
+====
+
+在查询字符串中使用 SpEL 是增强查询的强大方法。但是，它们也可以接受大量不需要的参数。在将字符串传递给查询之前，您应该对它们进行清理，以避免对查询进行不必要的更改。
+
+表达式支持可通过 Query SPI 进行扩展: Query SPI 可以提供属性和函数，并可以自定义根对象。在构建查询时进行 SpEL 评估时，从应用程序上下文中检索扩展。
+
+TIP: 将 SpEL 表达式与普通参数结合使用时，请使用命名参数表示法而不是本机绑定标记，以确保正确的绑定顺序。
+
+[[r2dbc.entity-persistence.state-detection-strategies]]
+include::{spring-data-commons}/is-new-state-detection.adoc[leveloffset=+2]
+
+[[r2dbc.entity-persistence.id-generation]]
+=== ID 生成器
+
+Spring Data R2DBC 使用 ID 来标识实体。 实体的 ID 必须使用 Spring Data 的 https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/annotation/Id.html[`@Id`] 注解进行注解。
+
+当您的数据库具有 ID 自增的列时，生成的值在将其插入数据库后在实体中设置。
+
+当实体是新的且标识符值默认为初始值时，Spring Data R2DBC 不会尝试插入标识符列的值。对于基本类型，该值为 `0`，如果标识符属性使用 `Long` 等数字包装类型，则为 `null` 。
+
+一个重要的限制是，在保存实体后，该实体不能再是新的。 请注意，实体是否是新实体是实体状态的一部分。对于自增列，这是自动发生的，因为 ID 由 Spring Data 用 ID 列的值设置。
+
+[[r2dbc.optimistic-locking]]
+=== 乐观锁机制
+
+`@Version` 注解在 R2DBC 的上下文中提供类似于 JPA 的语法，并确保更新只应用于具有匹配 version 的行。 因此，`version` 属性的实际值被添加到更新查询中，如果另一个操作在此期间更改了该行，则更新不会产生任何影响。 在这种情况下，会抛出 `OptimisticLockingFailureException`。 以下示例显示了这些功能：
+
+====
+[source,java]
+----
+@Table
+class Person {
+
+  @Id Long id;
+  String firstname;
+  String lastname;
+  @Version Long version;
+}
+
+R2dbcEntityTemplate template = …;
+
+Mono<Person> daenerys = template.insert(new Person("Daenerys"));                      <1>
+
+Person other = template.select(Person.class)
+                 .matching(query(where("id").is(daenerys.getId())))
+                 .first().block();                                                    <2>
+
+daenerys.setLastname("Targaryen");
+template.update(daenerys);                                                            <3>
+
+template.update(other).subscribe(); // emits OptimisticLockingFailureException        <4>
+----
+<1> 初始化插入. `version` 为 `0`.
+<2> 查询刚刚插入的行. `version` 依旧为 `0`.
+<3> 使用 `version = 0` 更新数据.设置 `lastname` 并将 `version` 设置为 `1`.
+<4> 尝试更新先前加载的仍然有 `version = 0` 的行。由于当前版本是 `1`，操作会以 `OptimisticLockingFailureException` 失败。
+====
+
+:projection-collection: Flux
+include::{spring-data-commons}/repository-projections.adoc[leveloffset=+2]
+
+[[projections.resultmapping]]
+==== 结果映射
+
+查询方法返回一个接口 - 或 DTO 投影由实际的查询结果生成。接口投影的结果通常依赖于映射到 domain 类型，首先考虑  `@Column` 类型映射，而实际的投影代理可能使用实体的部分内容来暴露投影数据。
+
+`DTO` 投影的结果映射取决于实际查询类型。 派生查询使用 domain 类型来映射结果，Spring Data 仅从 domain 类型上可用的属性创建 `DTO` 实例。 不支持在 `DTO` 中声明 domain 类型上不可用的属性。
+
+基于字符串的查询使用不同的方法，因为实际查询(特别是字段投影)和结果类型声明是紧密结合在一起的。 与使用 `@Query` 注解的查询方法一起使用的 `DTO` 投影将查询结果直接映射到 `DTO` 类型。 不考虑 domain 类型的字段映射。 直接使用 `DTO` 类型，您的查询方法可以从不限于 domain 类型的动态投影中受益。
+
+include::{spring-data-commons}/entity-callbacks.adoc[leveloffset=+1]
+include::./r2dbc-entity-callbacks.adoc[leveloffset=+2]
+
+[[r2dbc.multiple-databases]]
+== 多数据源
+
+当使用多个不同的数据库时，您的应用程序将需要不同的配置方法。 提供的 `AbstractR2dbcConfiguration` 类支持从它扩展单个 `ConnectionFactory`。 也就是说，您需要自己定义一些 bean 来配置 Spring Data R2DBC 以处理多个数据库。
+
+R2DBC 存储库需要 `R2dbcEntityOperations` 来实现存储库。 在不使用 `AbstractR2dbcConfiguration` 的情况下扫描存储库的简单配置如下:
+
+[source,java]
+----
+@Configuration
+@EnableR2dbcRepositories(basePackages = "com.acme.mysql", entityOperationsRef = "mysqlR2dbcEntityOperations")
+static class MySQLConfiguration {
+
+    @Bean
+    @Qualifier("mysql")
+    public ConnectionFactory mysqlConnectionFactory() {
+        return …
+    }
+
+    @Bean
+    public R2dbcEntityOperations mysqlR2dbcEntityOperations(@Qualifier("mysql") ConnectionFactory connectionFactory) {
+
+        DatabaseClient databaseClient = DatabaseClient.create(connectionFactory);
+
+        return new R2dbcEntityTemplate(databaseClient, MySqlDialect.INSTANCE);
+    }
+}
+----
+
+请注意，`@EnableR2dbcRepositories` 允许通过 `databaseClientRef` 或 `entityOperationsRef` 进行配置。 连接到多个相同类型的数据库时，使用各种 `DatabaseClient` bean 非常有用。 当使用不同数据库系统时，请改用 `@EnableR2dbcRepositories`(entityOperationsRef = …)`。
