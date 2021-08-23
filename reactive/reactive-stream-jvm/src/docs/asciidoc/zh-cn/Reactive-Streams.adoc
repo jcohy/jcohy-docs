@@ -1,3 +1,4 @@
+[[reactive-stream-jvm]]
 = Reactive Streams
 
 Reactive Streams 的目的提供具有非阻塞背压的异步流处理标准。
@@ -116,77 +117,77 @@ public interface Publisher<T> {
 }
 ----
 
-
 |===
-| ID                        | Rule                  |
-| 1
+| ID                        | Rule
+
+| [[rule-1.1]] 1
 | `Publisher` 向 `Subscriber` 发出的 `onNext` 的信号总数必须始终小于等于 `Subscriber` 订阅( `Subscription` )请求的元素的总数.
 
-| [:bulb:](#1.1 "1.1 explained")
-| * 这条规则的目的是明确 `Publisher` 发出的信号不能超过 `Subscriber` 请求的元素。而且，这条规则还有一个很隐蔽但很重要的结果：因为 demand 只能在接收到之后才能被 fulfilled（满足），所以在请求元素和接收元素之间存在 happens-before 关系。*
+| 1.1 说明
+| *这条规则的目的是明确 `Publisher` 发出的信号不能超过 `Subscriber` 请求的元素。而且，这条规则还有一个很隐蔽但很重要的结果：因为 demand 只能在接收到之后才能被 fulfilled（满足），所以在请求元素和接收元素之间存在 happens-before 关系。*
 
-| 2
+| [[rule-1.2]] 2
 | 一个 `Publisher` 可能发出少于请求的 `onNext` 信号，并通过 `onComplete` 或 `onError` 信号终止  `Subscription`.
 
-| [:bulb:](#1.2 "1.2 explained")
+| 1.2 说明
 | *这条规则的目的是明确 `Publisher` 不保证发布的元素数量满足 `Subscriber` 需要的元素数量。他有可能无法生产所有的元素，他有可能会失败，为空，或者已经完成*
 
-| 3
+| [[rule-1.3]] 3
 | 向 `Subscriber` 发出的 `onSubscribe`, `onNext`, `onError` and `onComplete` 信号必须是串行的.
 
-| [:bulb:](#1.3 "1.3 explained")
+| 1.3 说明
 | *该规则的目的是当且仅当在每个信号之间建立了 happens-before 关系时才允许发送信号（包括来自多个线程）。*
 
-| 4
+| [[rule-1.4]] 4
 | 如果 `Publisher` 失败，它必须发出 `onError` 信号。
 
-| [:bulb:](#1.4 "1.4 explained")
+| 1.4 说明
 | *该规则的目的是明确 `Publisher` 有责任通知 `Subscribers` 它已经到达终止状态，`Subscribers` 随后可以对该信息采取一些行动，例如清理资源等。*
 
-| 5
+| [[rule-1.5]] 5
 | 如果 `Publisher` 成功完成（有限流），它必须发出 `onComplete` 信号。
 
-| [:bulb:](#1.5 "1.5 explained")
+| 1.5 说明
 | *该规则的目的是明确发布者负责通知其订阅者它已达到终端状态——订阅者可以根据此信息采取一些行动，例如清理资源等。*
 
-| 6
+| [[rule-1.6]] 6
 | 如果 `Publisher` 在 `Subscriber` 发出 `onError` 或 `onComplete` 信号，则必须认为该 `Subscriber`  的 `Subscription` 已被取消。.
 
-| [:bulb:](#1.6 "1.6 explained")
+| 1.6 说明
 | *此规则的目的是确保无论订阅是否被取消，发布者发出的信号是 `onError` 还是 `onComplete`，`Subscription` 都被同等对待。*
 
-| 7
+| [[rule-1.7]] 7
 | 一旦已经发出终端状态(onError, onComplete)信号，就要求不再发生任何信号。
 
-| [:bulb:](#1.7 "1.7 explained")
+| 1.7 说明
 | *此规则的目的是确保 `onError` 和 `onComplete` 是发布者和订阅者之间交互的最终状态。*
 
-| 8
+| [[rule-1.8]] 8
 | 如果 `Subscription` 被取消，则必须停止向 `Subscriber` 发出信号。
 
-| [:bulb:](#1.8 "1.8 explained")
+| 1.8 说明
 | *此规则的目的是确保在调用 Subscription.cancel() 时，发布者尊重订阅者取消订阅的请求。最终的原因是由于信号是异步的，所以会有传播延迟。**
 
-| 9
+| [[rule-1.9]] 9
 | `Publisher.subscribe` 必须在提供给该订阅者的任何其他信号之前调用 `onSubscribe` 并且要正常返回。除非提供的订阅者为 `null` ，在这种情况下，它必须向调用者抛出 `java.lang.NullPointerException` 异常。对于其他情况，如发出失败信号(或拒绝 `Subscriber`)，则调用 `onError` (在调用 `onSubscribe` 之后).
 
-| [:bulb:](#1.9 "1.9 explained")
-| *此规则的目的是确保必须再其他信号发出之前发出 `onSubscribe` 信号，以便在接收到信号时，订阅者可以执行初始化逻辑。同时 `onSubscribe` 最多只能被调用一次。如果订阅者为空，则除了向调用者发出信号外别无他法，这意味着必须抛出 `java.lang.NullPointerException`。可能会出现如下情况:有状态的 `Publisher` 可能会不堪重负、被底层资源所限制、耗尽或处于终端状态。*
+| 1.9 说明
+| *此规则的目的是确保必须再其他信号发出之前发出 `onSubscribe` 信号，以便在接收到信号时，订阅者可以执行初始化逻辑。同时 `onSubscribe` 最多只能被调用一次( 见 <<rule-2.2>>)。如果订阅者为空，则除了向调用者发出信号外别无他法，这意味着必须抛出 `java.lang.NullPointerException`。可能会出现如下情况:有状态的 `Publisher` 可能会不堪重负、被底层资源所限制、耗尽或处于终端状态。*
 
-| 10
-| `Publisher.subscribe` 可以根据需要多次调用，但每次必须使用不同的 `Subscriber`.
+| [[rule-1.10]] 10
+| `Publisher.subscribe` 可以根据需要多次调用，但每次必须使用不同的 `Subscriber` ( 见 <<rule-2.2>>).
 
-| [:bulb:](#1.10 "1.10 explained")
+| 1.10 说明
 | *此规则的目的是让 `subscribe` 的调用者知道 `Subscriber` 只能够 `subscribe` 一次 `Publisher`。 此外，它还要求无论调用多少次都必须维护 `subscribe` 的语义。*
 
-| 11
+| [[rule-1.11]] 11
 | 一个 `Publisher` 可以 多个 `Subscriber` 并决定每个 `Subscription` 单播还是多播。
 
-| [:bulb:](#1.11 "1.11 explained")
+| 1.11
 | *该规则的目的是为发布者实现提供灵活性，以决定它们将支持多少(如果有的话)订阅者，以及如何分发元素。*
 |===
 
-==== 2. Subscriber ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscriber.java))
+==== 2. Subscriber ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscriber.java[Code])
 
 [source,java]
 ----
@@ -199,87 +200,88 @@ public interface Subscriber<T> {
 ----
 
 |===
-| ID | Rule |
-| 1
+| ID | Rule
+
+| [[rule-2.1]] 1
 | 订阅者必须通过 `Subscription.request(long n)` 发出请求，以接收 `onNext` 信号。
 
-| [:bulb:](#2.1 "2.1 explained")
+| 2.1 说明
 | *此规则的目的是确定订阅者可以决定何时以及愿意接收多少元素。为了避免可重入 Subscription 方法引起的信号重排序，强烈建议同步订阅者实现在任何信号处理的最后调用 Subscription 方法。建议订阅者请求它们能够处理的内容的上限，因为一次只请求一个元素会导致低效的 "stop-and-wait" 协议*
 
-| 2
+| [[rule-2.2]] 2
 | 如果订阅者怀疑其信号处理会对发布者的响应性产生负面影响，则建议它异步分派其信号。.
 
-| [:bulb:](#2.2 "2.2 explained")
+| 2.2 说明
 | *此规则的目的是，订阅者不应阻碍发布者的进程。 换句话说，订阅者不应该因为接收 CPU 周期而使发布者挨饿。*
 
-| 3
+| [[rule-2.3]] 3
 | `Subscriber.onComplete()` 和 `Subscriber.onError(Throwable t)` 不能调用 `Subscription` 或 `Publisher` 的任何方法。
 
-| [:bulb:](#2.3 "2.3 explained")
+| 2.3 说明
 | *此规则的目的是在处理完成信号期间防止 Publisher, Subscription 和 Subscriber 之间产生循环和竞争条件。*
 
-| 4
+| [[rule-2.4]] 4
 | `Subscriber.onComplete()` 和 `Subscriber.onError(Throwable t)` 必须考虑在收到信号后取消 Subscription。
 
-| [:bulb:](#2.4 "2.4 explained")
+| 2.4 说明
 | *此规则的目的是确保订阅者尊重发布者的终端状态信号。 在收到 `onComplete` 或 `onError` 信号后，订阅就不再有效了。*
 
-| 5
+| [[rule-2.5]] 5
 | 如果订阅者已经有一个活动订阅，则订阅者必须在 `onSubscribe` 信号之后对给定订阅调用 `Subscription.cancel()`。
 
-| [:bulb:](#2.5 "2.5 explained")
+| 2.5 说明
 | *此规则的目的是防止两个或更多独立的发布者尝试与同一个订阅者进行交互。 强制执行此规则意味着防止资源泄漏，因为额外的订阅将被取消。不遵守此规则可能会导致违反发布者规则 1。 此类违规可能会导致难以诊断的错误。*
 
-| 6
+| [[rule-2.6]] 6
 | 如果不再需要订阅，订阅者必须调用 `Subscription.cancel()`。
 
-| [:bulb:](#2.6 "2.6 explained")
+| 2.6 说明
 | *此规则的目的是确定订阅者不能在不需要订阅时将其丢弃，他们必须调用 cancel，以便可以安全、及时地回收该订阅持有的资源。 例如，订阅者只对特定元素感兴趣，然后取消其订阅，以向发布者发出完成的信号。*
 
-| 7
+| [[rule-2.7]] 7
 | 订阅者必须确保对其订阅的请求和取消方法的所有调用都是串行执行的。
 
-| [:bulb:](#2.7 "2.7 explained")
+| 2.7 说明
 | *此规则的目的是当且仅当每个调用之间建立了串行关系时，才允许调用 request 和 cancel 方法（包括来自多个线程）。*
 
-| 8
-| 订阅者在调用 `Subscription.cancel()` 之后接收一个或多个 `onNext` 信号，如果仍然有被请求的元素挂起。 `Subscription.cancel()` 不保证立即执行底层清理操作。
+| [[rule-2.8]] 8
+| 订阅者在调用 `Subscription.cancel()` 之后接收一个或多个 `onNext` 信号，如果仍然有被请求的元素挂起( 见 <<rule-3.12>>)。 `Subscription.cancel()` 不保证立即执行底层清理操作。
 
-| [:bulb:](#2.8 "2.8 explained")
+| 2.8 说明
 | *此规则的目的是强调在调用  `cancel` 和发布者察觉到  `cancel` 之间可能存在延迟。*
 
-| 9
+| [[rule-2.9]] 9
 | 不管之前有没有调用 `Subscription.request(long n)` ，订阅者都必须准备好接受 `onComplete` 信号。
 
-| [:bulb:](#2.9 "2.9 explained")
+| 2.9 说明
 | *这条规则的目的是确定完成与需求流无关——这允许元素流提前完成，并避免了完成轮询的需要。*
 
-| 10
+| [[rule-2.10]] 10
 | 无论之前是否有 `Subscription.request(long n)` 调用，订阅者必须准备好接收一个 `onError` 信号。
 
-| [:bulb:](#2.10 "2.10 explained")
+| 2.10 说明
 | *这条规则的目的是确定生产者失败与需求流无关。这意味着订阅者不需要轮询来确定发布者是否无法满足其请求。*
 
-| 11
+| [[rule-2.11]] 11
 | `Subscriber` 必须确保所有对其信号方法的调用都在处理各自的信号之前发生。即，订阅者必须正确地将信号发布到其处理逻辑中。
 
-| [:bulb:](#2.11 "2.11 explained")
+| 2.11 说明
 | *此规则的目的是确定订阅者的实现有责任确保其信号的异步处理是线程安全的。 https://docs.oracle.com/javase/specs/jls/se8/html/jls-17.html#jls-17.4.5[参见第 17.4.5 节中 Happens-Before 的 JMM 定义。]*
 
-| 12
+| [[rule-2.12]] 12
 | Subscriber（基于 `object equality`） 只能最多调用一次 `Subscriber.onSubscribe`。
 
-| [:bulb:](#2.12 "2.12 explained")
+| 2.12 说明
 | *该规则的目的是确定必须假设同一个订阅者最多只能订阅一次。 请注意，`object equality` 是 `a.equals(b)`。*
 
-| 13
+| [[rule-2.13]] 13
 | 调用 `onSubscribe`、`onNext`、`onError` 或 `onComplete` 必须正常返回，除非提供的参数为 `null`，在这种情况下，它必须向调用者抛出 `java.lang.NullPointerException`，对于其他情况，订阅者发出失败信号的唯一合法方式是通过取消其订阅。 在违反此规则的情况下，必须将订阅者的任何关联订阅视为已取消，并且调用者必须以适合运行时环境的方式提出此错误条件。
 
-| [:bulb:](#2.13 "2.13 explained")
+| 2.13 说明
 | *此规则的目的是为订阅者的方法建立语义，以及在违反此规则的情况下允许发布者做什么。 «以适合运行时环境的方式提出此错误条件»  可能意味着记录错误 — 或者以其他方式让某人或某物意识到这种情况 - 因为无法向出错的订阅服务器发出错误信号。*
 |===
 
-==== 3. Subscription ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscription.java))
+==== 3. Subscription ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscription.java[Code])
 
 [source,java]
 ----
@@ -291,113 +293,113 @@ public interface Subscription {
 
 
 |===
-| ID | Rule |
-| 1
+| ID | Rule
+| [[rule-3.1]] 1
 | `Subscription.request` 和 `Subscription.cancel` 必须仅在 `Subscriber` 上下文中调用。
 
-| [:bulb:](#3.1 "3.1 explained")
-| *此规则的目的是建立 `Subscription`, 表示者和发布者之间的唯一关系（见 Subscriber 规则的第 12 条）。订阅者可以控制何时请求元素以及何时不再需要元素。*
+| 3.1 说明
+| *此规则的目的是建立 `Subscription`, 表示者和发布者之间的唯一关系（见 Subscriber 规则的第 12 条）。订阅者可以控制何时请求元素以及何时不再需要元素。( 见 <<rule-2.12>>)*
 
-| 2
+| [[rule-3.2]] 2
 | `Subscription` 必须允许订阅者从 `onNext` 或 `onSubscribe` 同步调用 `Subscription.request`。
 
-| [:bulb:](#3.2 "3.2 explained")
+| 3.2 说明
 | *该规则的目的是明确 `request` 的实现必须是可重入的，以避免在 `request` 和 `onNext`（以及最终 `onComplete`/ `onError`）之间相互调用的情况下堆栈溢出。 这意味着发布者可以是同步的，即在调用 `request` 的线程上发送 `onNext` 信号*
 
-| 3
+| [[rule-3.3]] 3
 | `Subscription.request` 必须为发布者和订阅者之间可能的同步递归设置一个上限。
 
-| [:bulb:](#3.3 "3.3 explained")
-| *该规则的目的是通过对 `request` 和 `onNext`（最终 `onComplete` / `onError`）之间的相互递归设置上限来补充 [参见 第二条规则]。 建议将这种相互递归的深度限制为 `1` (ONE) — 为了节省堆栈空间。 一个典型的同步打开递归的例子是 `Subscriber.onNext` -> `Subscription.request` -> `Subscriber.onNext` -> ...，否则会导致调用线程的堆栈崩溃。*
+| 3.3 说明
+| *该规则的目的是通过对 `request` 和 `onNext`（最终 `onComplete` / `onError`）之间的相互递归设置上限来补充 ( 见 <<rule-3.2>>)。 建议将这种相互递归的深度限制为 `1` (ONE) — 为了节省堆栈空间。 一个典型的同步打开递归的例子是 `Subscriber.onNext` -> `Subscription.request` -> `Subscriber.onNext` -> ...，否则会导致调用线程的堆栈崩溃。*
 
-| 4
+| [[rule-3.4]] 4
 | `Subscription.request` 应该及时返回来尊重其调用者的响应能力。
 
-| [:bulb:](#3.4 "3.4 explained")
+| 3.4 说明
 | *此规则的目的是确定 `request` 是一种非阻塞方法，并且应该尽可能快地在调用线程上执行，从而避免繁重的计算和其他可能导致调用方执行线程暂停的事情。*
 
-| 5
+| [[rule-3.5]] 5
 | `Subscription.cancel` 必须通过及时返回来尊重其调用者的响应性，必须是幂等的并且必须是线程安全的。
 
-| [:bulb:](#3.5 "3.5 explained")
+| 3.5 说明
 | *此规则的目的是确定 `cancel` 是一种非阻塞方法，并且应该在调用线程上尽可能快地执行，从而避免繁重的计算和其他可能导致调用方执行线程暂停的事情。 此外，多次调用而没有任何不利影响也很重要。*
 
-| 6
+| [[rule-3.6]] 6
 | 取消订阅后，额外的 `Subscription.request(long n)` 必须是 NOP。
 
-| [:bulb:](#3.6 "3.6 explained")
+| 3.6 说明
 | *此规则的目的是在取消订阅和随后不请求更多元素之间建立因果关系。*
 
-| 7
+| [[rule-3.7]] 7
 | 取消订阅后，额外的 `Subscription.cancel()` 必须是 NOP。.
 
-| [:bulb:](#3.7 "3.7 explained")
-| *本规则的目的被 第五条 取代。*
+| 3.7 说明
+| *本规则的目的被 第五条 取代。( 见 <<rule-3.5>>)*
 
-| 8
+| [[rule-3.8]] 8
 | 虽然订阅没有被取消，但 `Subscription.request(long n)` 必须向相应的订阅者注册将要产生的元素的数量。
 
-| [:bulb:](#3.8 "3.8 explained")
+| 3.8 说明
 | *此规则的目的是确保 `request` 是一个附加操作，以及确保将元素的请求交付给 `Publisher`。*
 
-| 9
+| [[rule-3.9]] 9
 | 当订阅未被取消时，如果参数 <= 0，则 `Subscription.request(long n)` 必须用 `java.lang.IllegalArgumentException` 发出 `onError` 信号。异常消息应该解释为:non-positive request signals are illegal。
 
-| [:bulb:](#3.9 "3.9 explained")
+| 3.9 说明
 | *该规则的目的是防止错误的实现在不引发任何异常的情况下继续操作。请求负数或 0 个元素(因为请求是附加的)，很可能是代表订阅者的错误计算的结果。*
 
-| 10
+| [[rule-3.10]] 10
 | 虽然没有取消 `Subscription`， `Subscription.request(long n)` 可以同步调用这个（或其他）订阅者的 `onNext` 。
 
-| [:bulb:](#3.10 "3.10 explained")
+| 3.10 说明
 | *此规则的目的是建立允许创建 synchronous Publishers，即在调用线程上执行其逻辑的发布者。*
 
-| 11
+| [[rule-3.11]] 11
 | 虽然没有取消 `Subscription`，但 `Subscription.request(long n)` 可以在这个（或其他）订阅者上同步调用 `onComplete` 或 `onError` 。
 
-| [:bulb:](#3.11 "3.11 explained")
+| 3.11 说明
 | *此规则的目的是建立允许创建 synchronous Publishers，即在调用线程上执行其逻辑的发布者。*
 
-| 12
+| [[rule-3.12]] 12
 | 虽然没有取消 `Subscription`，但 `Subscription.cancel()` 必须请求发布者最终停止向其订阅者发送信号。 该操作不需要立即影响订阅。.
 
-| [:bulb:](#3.12 "3.12 explained")
+| 3.12 说明
 | *此规则的目的是确定发布者最终会尊重取消订阅的意愿，并承认可能需要一些时间才能接收到信号。*
 
-| 13
+| [[rule-3.13]] 13
 | 虽然没有取消 `Subscription`，但 `Subscription.cancel()` 必须请求发布者最终删除对相应订阅者的任何引用。
 
-| [:bulb:](#3.13 "3.13 explained")
+| 3.13 说明
 | *此规则的目的是确保订阅者在订阅不再有效后可以正确地进行垃圾收集。 不鼓励使用相同的 `Subscriber` 对象重新订阅 [参见 Subscriber 第 12 条]，但本规范并未强制要求禁止这样做，因为这意味着必须无限期地存储先前取消的订阅。*
 
-| 14
+| [[rule-3.14]] 14
 | 虽然没有取消 `Subscription`，但调用 `Subscription.cancel` 可能会导致发布者（如果有状态）在此时没有其他订阅存在时转换到 `shut-down` 状态 [参见 Publisher 规则第 9 条]。
 
-| [:bulb:](#3.14 "3.14 explained")
+| 3.14 说明
 | *此规则的目的是允许发布者在新的订阅者的 `onSubscribe` 之后发出 `onComplete` 或 `onError` 信号，以响应来自现有订阅者的取消信号。*
 
-| 15
+| [[rule-3.15]] 15
 | 调用 `Subscription.cancel` 必须正常返回。
 
-| [:bulb:](#3.15 "3.15 explained")
+| 3.15 说明
 | *该规则的目的是当响应  `cancel` 调用的，禁止抛出异常。*
 
-| 16
+| [[rule-3.16]] 16
 | 调用 `Subscription.request` 必须正常返回。
 
-| [:bulb:](#3.16 "3.16 explained")
+| 3.16 说明
 | *该规则的目的是当响应  `request` 调用的，禁止抛出异常。*
 
-| 17
+| [[rule-3.17]] 17
 | 订阅必须支持无限数量的 `request` 调用，并且必须支持高达 2^63-1 (`java.lang.Long.MAX_VALUE`) 的需求。 发布者可以将等于或大于 2^63-1 (`java.lang.Long.MAX_VALUE`) 的需求视为 “effectively unbounded”(有效边界)。
 
-| [:bulb:](#3.17 "3.17 explained")
-| *该规则的目的是建立订阅者可以发出任意请求的数量，以大于 0 的数为增量[见第 9 条]请求无限制数量的元素。由于在合理的时间内(每纳秒 1 个元素需要292年)，当前或预期的硬件无法实现 2^63-1 的需求，允许 Publisher 在超过这一点后停止跟踪需求。*
+| 3.17 说明
+| *该规则的目的是建立订阅者可以发出任意请求的数量，以大于 0 的数为增量( 见 <<rule-3.9>>)请求无限制数量的元素。由于在合理的时间内(每纳秒 1 个元素需要292年)，当前或预期的硬件无法实现 2^63-1 的需求，允许 Publisher 在超过这一点后停止跟踪需求。*
 |===
 
 一个 `Subscription` 由一个 `Publisher` 和一个 `Subscriber` 共享，目的是解决他们之间的数据交换。 这就是为什么 `subscribe()` 方法不返回创建的 `Subscription` 而是返回 `void` 的原因； `Subscription` 仅通过 `onSubscribe` 回调传递给 `Subscriber`。
 
-==== 4.Processor ([Code](https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Processor.java))
+==== 4.Processor ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Processor.java[Code] )
 
 [source,java]
 ----
@@ -409,16 +411,16 @@ public interface Processor<T, R> extends Subscriber<T>, Publisher<R> {
 |===
 | ID | Rule
 
-| 1
+| [[rule-4.1]] 1
 | 一个 `Processor` 代表一个处理阶段 — 它既是订阅者又可以是发布者，并且必须遵守两者的契约。
 
-| [:bulb:](#4.1 "4.1 explained")
+| 4.1 说明
 | *此规则的目的是建立 Processor 的行为，并受发布者和订阅者规范的约束。 *
 
-| 2
+| [[rule-4.2]] 2
 | `Processor` 可以选择恢复 `onError` 信号。 如果它选择这样做，它必须认为订阅已被取消，否则它必须立即将 `onError` 信号传播给它的订阅者。
 
-| [:bulb:](#4.2 "4.2 explained")
+| 4.2 说明
 | *该规则的目的是告诉我们实现可能不仅仅是简单的转换。*
 |===
 
