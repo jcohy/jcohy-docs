@@ -106,7 +106,7 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 
 *客户端应该如何处理慢速服务器？* 如果服务器忙或者无响应，客户端应该成倍地减少访问请求。意思就是，如果一个客户端太慢而无响应，客户端应该延迟它们的重新请求的时间，并且这种延迟应该是成倍递增的。
 
-*手机客户端应该立即同步远程的修改吗？*  和桌面或者web客户端不一样，手机客户端通常需要节省用户带宽和存储空间。
+*手机客户端应该立即同步远程的修改吗？* 和桌面或者web客户端不一样，手机客户端通常需要节省用户带宽和存储空间。
 
 
 *b.Metadata数据库*
@@ -123,8 +123,7 @@ Metadata数据库应该存储以下对象的信息：
 
 *c.同步服务*
 
-同步服务是处理客户端进行的文件更新并将这些更改应用于其他订阅的客户端的组件。
-它还将客户端的本地数据库与存储在远程元数据数据库中的信息进行同步。同步服务是系统架构中最重要的部分，因为它在管理元数据和同步用户文件方面起着关键作用。桌面客户端与同步服务通信以从云存储获取更新或将文件和更新发送到云存储以及可能存在的其他用户。如果客户端离线一段时间，它会在上线后立即发起轮询请求，以获取系统中的新的更新。当同步服务收到更新请求时，它会检查Metadata数据库的一致性，然后继续更新。随后，向所有订阅的用户或设备发送通知以报告文件更新。
+同步服务是处理客户端进行的文件更新并将这些更改应用于其他订阅的客户端的组件。 它还将客户端的本地数据库与存储在远程元数据数据库中的信息进行同步。同步服务是系统架构中最重要的部分，因为它在管理元数据和同步用户文件方面起着关键作用。桌面客户端与同步服务通信以从云存储获取更新或将文件和更新发送到云存储以及可能存在的其他用户。如果客户端离线一段时间，它会在上线后立即发起轮询请求，以获取系统中的新的更新。当同步服务收到更新请求时，它会检查Metadata数据库的一致性，然后继续更新。随后，向所有订阅的用户或设备发送通知以报告文件更新。
 
 同步服务应该设计为在客户端和云存储之间传输更少的数据，以获取更好的响应时间。为了满足此设计目标，同步服务可以采用差分算法来减少需要同步的数据量。我们可以只传输文件的两个版本之间的差异，而不是将整个文件从客户端传输到服务器，反之亦然。因此，仅传输文件已更改的部分。这也减少了最终用户的带宽消耗和云数据存储空间。如上所述，我们将把我们的文件分成4MB大小的块，并且只传输修改过的块。服务器和客户端可以计算散列（例如，SHA-256）以查看是否更新块的本地副本。在服务器上，如果我们已经有一个具有类似哈希的块（甚至来自另一个用户），我们不需要创建另一个副本，我们可以使用相同的块。这将在后面的重复数据删除中详细讨论。
 
@@ -168,60 +167,34 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 +
 或者，当客户端在其设备上数据时，可以即时完成去重哈希值的计算。如果系统识别一个已经存储的块，那么只将对已存在块的引用添加到元数据中，而不是完全拷贝这个块。这种方式最大化的使用网络带宽和存储空间。
 
-=== 9.Metadata Partitioning
+=== 9.元数据分区
 
-To scale out metadata DB, we need to partition it so that it can store information about millions of users and billions of files/chunks.
-We need to come up with a partitioning scheme that would divide and store our data in different DB servers.
+为了扩展元数据数据库，我们需要对其进行分区，以便可以存储数百万用户的信息和数十亿文件或块的信息。需要提出一个分区方案将数据分割并存储到不同的数据库服务器。
 
-. *Vertical Partitioning:* We can partition our database in such a way that we store tables related to one particular feature on one server.
-For example, we can store all the user related tables in one database and all files/chunks related tables in another database.
-Although this approach is straightforward to implement it has some issues:
 
-.. Will we still have scale issues?
-What if we have trillions of chunks to be stored and our database cannot support storing such a huge number of records?
-How would we further partition such tables?
-.. Joining two tables in two separate databases can cause performance and consistency issues.
-How frequently do we have to join user and file tables?
+. *垂直分区：* 我们可以以这样的方式对数据库进行分区，即一个服务器存储一个特定功能的表。例如，我们可以将所有用户相关的表存储在一个数据库，将所有文件或块的表存储在另一个数据库。虽然这种方法很容易实现，但是它有两个问题：
 
-. *Range Based Partitioning:* What if we store files/chunks in separate partitions based on the first letter of the File Path?
-In that case, we save all the files starting with the letter ‘A’ in one partition and those that start with the letter ‘B’ into another partition and so on.
-This approach is called range based partitioning.
-We can even combine certain less frequently occurring letters into one database partition.
-We should come up with this partitioning scheme statically so that we can always store/find a file in a predictable manner.
+.. 我们还会遇到扩展问题吗？如果我们要存储数万亿个数据库，而我们的数据库不支持存储如此大量的记录，该怎么办呢？我们改如何进一步对这些表进行分区？
+.. 关联两个独立数据库的两张表会造成性能问题和数据一致性问题。需要多久关联一次用户表和文件表？
+
+. *基于范围的分区：* 如果我们根据文件路径的第一个字母将文件/块存储在单独的分区中会怎样？在这种情况下，我们将所有文件路径以字母“A”开头的文件保存在一个分区中，将以字母“B”开头的文件保存在另一个分区中，以此类推。这种方法成为基于范围的分区。我们甚至可以将某些不太频繁出现的字母开头的文件组合到一个数据库分区中。我们应该静态地提出这个分区方案，以便我们始终可以以可预测的方式存储/查找文件。
 +
-The main problem with this approach is that it can lead to unbalanced servers.
-For example, if we decide to put all files starting with the letter ‘E’ into a DB partition, and later we realize that we have too many files that start with the letter ‘E’, to such an extent that we cannot fit them into one DB partition.
+这种方式的主要问题是可能会导致服务器负载失衡。例如，如果我们决定将所有文件路径以字符“E”开头的文件存储到一个数据库分区中，随后我们发现以字母“E”开头的文件太多，以至于一个数据库分区无法存储下他们。
 
-. *Hash-Based Partitioning:* In this scheme we take a hash of the object we are storing and based on this hash we figure out the DB partition to which this object should go.
-In our case, we can take the hash of the ‘FileID’ of the File object we are storing to determine the partition the file will be stored.
-Our hashing function will randomly distribute objects into different partitions, e.g., our hashing function can always map any ID to a number between [1…256], and this number would be the partition we will store our object.
+. *基于哈希的分区：* 在这个方案中，我们获取正在存储的对象的哈希值，并基于这个哈希值找到存储这个对象的数据库分区。在我们的例子中，可以获取正在存储的文件对象的 `FileID` 的哈希值，根据这个哈希值来决定存储文件对象的数据库分区。哈希函数将文件对象随机分布到不同的数据库分区中。比如，哈希函数总是可以映射任意ID到[1...256]之间的一个数字，这个数字就是要存储对象的分区号。
++
+这种方式仍然会导致分区过载的问题，可以使用 https://www.educative.io/courses/grokking-the-system-design-interview/B81vnyp0GpY[一致性哈希]来解决此问题。
 
-This approach can still lead to overloaded partitions, which can be solved by using https://www.educative.io/courses/grokking-the-system-design-interview/B81vnyp0GpY[Consistent Hashing].
+=== 10.缓存
 
-=== 10.Caching
+系统中可以有两种类型的缓存。为了处理热点文件或块，我们可以为块存储引入缓存。我们可以使用像 https://en.wikipedia.org/wiki/Memcached[Memcached]这样的现成解决方案，可以使用各自的ID或者哈希值存储整个块，再查询块存储之间会快速检查缓存中是否有要查询的块。根据客户端的使用模式，我们可以确定需要多少个缓存服务器。一个高端的商业服务器有144GB大小的内存，一个这样的服务器可以缓存36K个块。
 
-We can have two kinds of caches in our system.
-To deal with hot files/chunks we can introduce a cache for Block storage.
-We can use an off-the-shelf solution like https://en.wikipedia.org/wiki/Memcached[Memcached] that can store whole chunks with its respective IDs/Hashes and Block servers before hitting Block storage can quickly check if the cache has desired chunk.
-Based on clients’ usage pattern we can determine how many cache servers we need.
-A high-end commercial server can have 144GB of memory; one such server can cache 36K chunks.
+*哪种缓存替换策略最适合我们的需求？* 当无缓存空间可用时，我们想使用更新的或者更热的块替换现有的块，该如何选择呢？最近最少使用策略（Least Recently Used，LRU）对我们的系统来说是一种合适的策略。基于这个策略，我们会首先丢弃最近最少使用的块。类似地，对于元数据数据库也可以使用缓存。
 
-*Which cache replacement policy would best fit our needs?* When the cache is full, and we want to replace a chunk with a newer/hotter chunk, how would we choose?
-Least Recently Used (LRU) can be a reasonable policy for our system.
-Under this policy, we discard the least recently used chunk first.
-Load Similarly, we can have a cache for Metadata DB.
+=== 11.负载均衡 (LB)
 
-=== 11.Load Balancer (LB)
+可以在系统的两个地方添加负载均衡层：1)客户端和块服务器之间 2)客户端和元数据服务器之间。最终，采用一个简单的轮询方式将请求均等的分布到后端服务器。这种负载均衡方式实现简单，并且没有额外的消耗。这种方式的另一个好处是，如果一个服务器宕机，LB会将其从轮询中踢出，并且停止向其发送任何请求。轮询方式的负载均衡的一个问题是，它不会考虑服务器的负载能力。如果一个服务器过载或者变慢，负载均衡会继续向其发送新的请求。为了解决这个问题，可以使用一种更智能的解决方案，定期向后端服务器查询其负载，并基于此调整请求转发的流量。
 
-We can add the Load balancing layer at two places in our system: 1) Between Clients and Block servers and 2) Between Clients and Metadata servers.
-Initially, a simple Round Robin approach can be adopted that distributes incoming requests equally among backend servers.
-This LB is simple to implement and does not introduce any overhead.
-Another benefit of this approach is if a server is dead, LB will take it out of the rotation and will stop sending any traffic to it.
-A problem with Round Robin LB is, it won’t take server load into consideration.
-If a server is overloaded or slow, the LB will not stop sending new requests to that server.
-To handle this, a more intelligent LB solution can be placed that periodically queries backend server about their load and adjusts traffic based on that.
+=== 12.安全、权限和文件共享
 
-=== 12.Security, Permissions and File Sharing
-
-One of the primary concerns users will have while storing their files in the cloud is the privacy and security of their data, especially since in our system users can share their files with other users or even make them public to share it with everyone.
-To handle this, we will be storing the permissions of each file in our metadata DB to reflect what files are visible or modifiable by any user.
+用户在云中存储文件最关心的问题之一是数据的隐私和安全，特别是在系统中，用户可以与其他用户共享文件，甚至可以将文件公开，与所有人共享。为了解决这个问题，我们将每个文件的权限存储在元数据数据库中，以反映任何用户可见或者可修改的文件。
