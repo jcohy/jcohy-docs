@@ -39,6 +39,8 @@ Pastebin和URL压缩服务的一些需求相同，但是还有一些我们应该
 
 我们应该对自定义网址设置大小限制吗？由于我们的服务支持自定义URL，因此用户可以选择他们喜欢的任何URL，但是并非必须提供自定义URL。然而，对自定义URL限制大小是合理的（并且通常是可取的），以便我们拥有一致的URL数据库。
 
+'''
+
 === 4. 容量估算和约束
 
 我们的服务将会有大量的读请求；相比于新的Paste的创建，会有更多的读请求。假如读请求和写请求的比例是5：1.
@@ -48,57 +50,57 @@ Pastebin和URL压缩服务的一些需求相同，但是还有一些我们应该
 每秒创建新的Paste：
 
 [source,text]
-====
+----
     1,000,000 / (24小时 * 3600秒) ~= 12 pastes/sec
-====
+----
 
 每秒读paste：
 
 [source,text]
-====
+----
     5,000,000 / (24 hours * 3600 seconds) ~= 58 reads/sec
-====
+----
 
 *存储估算：* 用户最多可以上传10MB的数据；通常，类似Pastebin的服务用户共享源代码、配置或者日志。这样的文字不是很大，假设每次粘贴平均包含10KB的数据。
 
 按照这个速率，每天将存储10GB的数据。
 
 [source,text]
-====
+----
     1M * 10KB => 10 GB/day
-====
+----
 
 如果我们想将这些数据存储10年，那么我们将需要36TB的总存储容量。
 
 每天1百万次的数据粘贴，那么10年将会有36亿次的数据粘贴。我们需要为这些数据生成并存储唯一识别的键。如果使用Base64编码（[A-Z, a-z, 0-9, ., -]）,将需要6个字母的字符串：
 
 [source,text]
-====
+----
     64^6 ~= 68.7 billion unique strings
-====
+----
 
 如果一个字节存储一个字符，存储36个键的总空间大小为：
 
 [source,text]
-====
+----
     3.6B * 6 => 22 GB
-====
+----
 
 22GB与36TB相比可以忽略不急。为了留有余地，我们将采用70%模型（意味着在任何时候我们都不希望使用总存储容量的70%以上的空间），这将会把存储空间的大小提升到51.4TB。
 
 *带宽预估：* 对于一个写请求来说，我们期望每秒有12个新的粘贴数据，从而导致每秒有120KB大小的数据增长。
 
 [source,text]
-====
+----
     12 * 10KB => 120 KB/s
-====
+----
 
 对于读请求，我们期望每秒有个58个请求。因此，传出的总数据（发送给用户）是0.6MB/s。
 
 [source,text]
-====
+----
     58 * 10KB => 0.6 MB/s
-====
+----
 
 虽然每秒总出入的数据不大，但是我们设计服务时应该牢记这些数据。
 
@@ -107,9 +109,9 @@ Pastebin和URL压缩服务的一些需求相同，但是还有一些我们应该
 因为每天有5百万个读请求，因为缓存这些请求的20%，需要的空间大小是：
 
 [source,text]
-====
+----
     0.2 * 5M * 10KB ~= 10 GB
-====
+----
 
 '''
 
@@ -118,9 +120,9 @@ Pastebin和URL压缩服务的一些需求相同，但是还有一些我们应该
 我们可以使用SOAP或者REST APIs来暴露我们服务的功能。以下定义的APIs是用来创建、检索和删除paste的API：
 
 [source,text]
-====
+----
     addPaste(api_dev_key, paste_data, custom_url=None user_name=None, paste_name=None, expire_date=None)
-====
+----
 
 * *参数：*
 +
@@ -131,42 +133,42 @@ user_name (string): :: 用于生成URL的可选的用户名；
 paste_name (string): :: 可选的paste的名称；
 expire_date (string): :: 可选的为paste指定过期时间。
 
-* *return：* (string)
+* *返回值：* (string)
 +
 paste成功新增后返回一个可以访问此paste的URL，否则，返回一个错误码。
 
 类似地，还有检索和删除的API：
 
 [source,text]
-====
+----
     getPaste(api_dev_key, api_paste_key)
-====
+----
 
 “api_paste_key”是一个表示要检索paste的密钥。这个API将会返回paste的文本数据。
 
 [source,text]
-====
+----
     deletePaste(api_dev_key, api_paste_key)
-====
+----
 
 成功删除返回‘true’，否则返回‘false’。
 
 === 6. 数据库设计
 
-关于要存储的数据的特性:
+关于要存储的数据的特性: ::
 
 . 需要存储数十亿条记录；
 . 存储的每一个元数据对象都很小（不超过100字节）；
-. Each paste object we are storing can be of medium size (it can be a few MB).
-. There are no relationships between records, except if we want to store which user created what Paste.
-. Our service is read-heavy.
+. 每一个将要存储的paste对象都是中等大小的（它可以是几MB）；
+. 记录之间没有关系，除非我们想保存哪个用户创建了哪些Paste；
+. 我们的服务会有大量的读请求。
 
-*数据库表：* Database Schema:
+*数据库表：*
 
 我们需要两张表，一个存储Paste相关的信息，一个存储用户数据。
 
 .Paste
-[width="25%", cols=">s,>m,e"]
+[width="25%",cols=">s,>m,e"]
 |===
 3+| Paste
 | PK|URLHash: varchar(16)|
@@ -200,8 +202,7 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 +
 应用程序层将会处理所有的请求和响应。应用程序服务器将会与后端数据存储组件通信以服务请求。
 +
-*如何处理写请求？*
-接收到写请求后，应用程序服务器将会生成一个6位字母的随机字符串，它将会作为paste的键（如果用户没有提供自定义键）。然后应用服务器将paste的内容和生成的键存储到数据库中。插入成功后，服务器会把生成的键返回给用户。这里可能会有的一个问题是，因为重复的键导致数据插入失败。因为生成随机键时，有一定的几率会生成一个已经存在的键。在这种情况下，我们将会重新生成键，并重新尝试数据入库。我们应该一直重试，直到因为重复键导致的失败消失。如果用户提供的自定义键已存在于数据库中，应该向用户返回一个错误。
+*如何处理写请求？* 接收到写请求后，应用程序服务器将会生成一个6位字母的随机字符串，它将会作为paste的键（如果用户没有提供自定义键）。然后应用服务器将paste的内容和生成的键存储到数据库中。插入成功后，服务器会把生成的键返回给用户。这里可能会有的一个问题是，因为重复的键导致数据插入失败。因为生成随机键时，有一定的几率会生成一个已经存在的键。在这种情况下，我们将会重新生成键，并重新尝试数据入库。我们应该一直重试，直到因为重复键导致的失败消失。如果用户提供的自定义键已存在于数据库中，应该向用户返回一个错误。
 +
 解决上述问题的另一个方案是，运行一个独立的密钥生成服务（KGS），它预先生成随机的六个字母的字符串并存储到数据库中（称之为key-DB）。当我们想要存储新的paste时，将只需获取一个已生成的密钥并使用它。这种方法将会使事情变得简单快捷，因为我们无需担心键重复或者冲突的问题。KGS将会保证所有新增到Key-DB中的密钥是唯一的。KGS会使用两张表存储密钥，一张表存储未使用的密钥，另一张表存储已使用的密钥。一旦KGS将一些密钥提供给应用服务器，它将会把这些密钥移动到已使用的密钥表中。KGS总会缓存一些密钥在内存中，以便当服务器需要密钥时，可以很快的提供给它。一旦KGS将一些密钥加载到内存中，这些密钥将会被移动到已使用的密钥表中，这种方式确保每个服务器获取的密钥都是唯一的。如果KGS在这些加载到内存的密钥未使用完之前宕机，那么就会浪费掉这些密钥。鉴于我们有大量的密钥，我们可以忽略掉这些丢失的。
 +
@@ -218,21 +219,20 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 . 元数据库：可以使用关系型数据库，如MySQL，或者分布式键值存储，如Dynamo或者Cassandra。
 . 对象存储：可以将内容存储在如Amazon的S3这样的对象存储中。每当我们想要充分利用内容存储容量时，可以通过增加更多的服务轻松增加容量。
 +
-image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/pastebin/detailed-component-design-for-pastebin.png[caption="", title="Detailed component design for Pastebin"]
-
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/pastebin/detailed-component-design-for-pastebin.png[caption="",title="Detailed component design for Pastebin"]
 
 === 9. 清除或数据库清理
 
-请参考link:designing-a-url-shortening-service-like-tinyurl.adoc[设计URL压缩服务] 。
+请参考link:designing-a-url-shortening-service-like-tinyurl.adoc#10-清除或数据库清理[设计URL压缩服务] 。
 
 === 10.	数据分区和备份
 
-请参考link:designing-a-url-shortening-service-like-tinyurl.adoc[设计URL压缩服务]。
+请参考link:designing-a-url-shortening-service-like-tinyurl.adoc#7-数据分区和备份[设计URL压缩服务]。
 
 === 11.	缓存和负载均衡
 
-请参考link:designing-a-url-shortening-service-like-tinyurl.adoc[设计URL压缩服务]。
+请参考link:designing-a-url-shortening-service-like-tinyurl.adoc#8-缓存[设计URL压缩服务]。
 
 === 12.	安全和权限
 
-请参考link:designing-a-url-shortening-service-like-tinyurl.adoc[设计URL压缩服务]。
+请参考link:designing-a-url-shortening-service-like-tinyurl.adoc#12-安全和权限[设计URL压缩服务]。

@@ -11,11 +11,17 @@ URL压缩服务用于为长URL创建一个更短的别名。我们将这些缩�
 
 例如，我们通过TinyURL缩短这个页面的URL：
 
+[source,http request]
+----
 https://www.educative.io/collection/page/5668639101419520/5649050225344512/5668600916475904/
+----
 
 我们将得到:
 
+[source,http request]
+----
 http://tinyurl.com/jlg8zpc
+----
 
 压缩后的URL大约是原始URL的三分之一大小。
 
@@ -83,21 +89,21 @@ _你应该在面试开始时阐明系统的需求。确保面试官提出的问�
 
 假设存储的对象每个大约是500字节（只是一个大概的预估，稍后我们将对其深入研究），我们将需要15TB的存储空间：
 
-[source, text]
+[source,text]
 ----
 30 billion * 500 bytes = 15 TB
 ----
 
 带宽预估：对于写请求，因为我们预估每秒有200个新的URL，所以我们的服务接收到的数据总量是每秒100KB：
 
-[source, text]
+[source,text]
 ----
 200 * 500 bytes = 100 KB/s
 ----
 
 对于读请求，因为我们预估每秒有20K个URL重定向，所以我们的服务总传出的数据量是每秒10MB：
 
-[source, text]
+[source,text]
 ----
 20K * 500 bytes = ~10 MB/s
 ----
@@ -106,14 +112,14 @@ _你应该在面试开始时阐明系统的需求。确保面试官提出的问�
 
 因为每秒有2万个请求，所以一天大约会有17亿个请求。
 
-[source, text]
+[source,text]
 ----
 20K * 3600 seconds * 24 hours = ~1.7 billion
 ----
 
 为了缓存20%的请求URL，我们将需要170GB大小的内存。
 
-[source, text]
+[source,text]
 ----
 0.2 * 1.7 billion * 500 bytes = ~170GB
 ----
@@ -122,7 +128,7 @@ _你应该在面试开始时阐明系统的需求。确保面试官提出的问�
 
 *高层级预估：* 假设每月有5亿个新的URL，和100：1的读写比，以下是我们服务的高层级预估的概览：
 
-[source, text]
+[source,text]
 ----
 New URLs 200/s
 URL redirections 20K/s
@@ -133,19 +139,19 @@ Memory for cache 170GB
 ----
 
 === 4.系统APIs
+
 [NOTE]
 _一旦我们整理完需求，定义系统API是一个很好的选择。应该显示地声明系统期望的内容。_
 
 我们可以使用SOAP或REST API对外暴露我们服务的功能。以下定义的API用于创建和删除URL：
 
-[source, text]
+[source,text]
 ----
 createURL(api_dev_key, original_url, custom_alias=None, user_name=None,
 expire_date=None)
 ----
 
-*参数：*
-api_dev_key (string)：注册账户的API开发者密钥。此外，这还用于根据分配的配额限制用户。
+*参数：* api_dev_key (string)：注册账户的API开发者密钥。此外，这还用于根据分配的配额限制用户。
 
 original_url (string): 被压缩的原始URL。
 
@@ -155,10 +161,9 @@ user_name (string): 编码中使用的可选的用户名。
 
 expire_date (string): 压缩URL可选的过期时间。
 
-*返回值： (string)*
-成功新增后返回压缩的URL；否则，返回错误码。
+*返回值： (string)* 成功新增后返回压缩的URL；否则，返回错误码。
 
-[source, text]
+[source,text]
 ----
 deleteURL(api_dev_key, url_key)
 ----
@@ -168,6 +173,7 @@ deleteURL(api_dev_key, url_key)
 *我们如何检测和防止数据滥用？* 在当前的设计中，恶意用户可以通过消耗所有的URL密钥来迫使我们破产。为了防止数据滥用，我们可以通过用户的api_dev_key来限制用户。每一个api_dev_key可以限制URL的创建数量和一段时间内URL重定向的数量（可以为每个开发者的密钥设置不同的时间段）。
 
 === 5. Database Design
+
 [NOTE]
 在面试的早期阶段定义数据库模式将有助于理解不同组件之间的数据流，之后会指导数据分区。
 
@@ -178,15 +184,12 @@ deleteURL(api_dev_key, url_key)
 . 记录与除了存储创建URL的用户有关联，与其他的记录是没有关系的。
 . 我们的服务是包含大量读操作的。
 
-*数据库模式：*
-我们需要两张表：一个用于存储URL映射的相关信息，一个存储创建短链接的用户数据。
-
-
+*数据库模式：* 我们需要两张表：一个用于存储URL映射的相关信息，一个存储创建短链接的用户数据。
 
 *我们使用哪种数据库呢？* 因为我们预计要存储数十亿行数据，并且我们不需要使用对象之间的关系，NoSQL的键值对存储，如 https://en.wikipedia.org/wiki/Amazon_DynamoDB[DynamoDB] 、 https://en.wikipedia.org/wiki/Apache_Cassandra[Cassandra] 或 https://en.wikipedia.org/wiki/Riak[Riak] 都是一个很好的选择。选择使用NoSQL也更容易扩展。详情请参考 https://www.educative.io/collection/page/5668639101419520/5649050225344512/5728116278296576/[SQL vs NoSQL]。
 
-
 === 6. 基本系统设计与算法
+
 本节要解决的问题是，如何为给定的URL生成一个短的且唯一的值。
 
 在第一章的TinyURL例子中，压缩的URL是“http://tinyurl.com/jlg8zpc”。这个URL的最后6位字符是我们想生成的短值。我们在这提供了两种解决方案：
@@ -195,8 +198,7 @@ deleteURL(api_dev_key, url_key)
 
 我们计算给定URL的唯一hash值（如： https://en.wikipedia.org/wiki/MD5[MD5] 或者 https://en.wikipedia.org/wiki/SHA-2[SHA256] 等）。然后对hash值进行编码以进行展示。这种编码可以是base36（[a-z, 0-9]）或者base62([A-Z, a-z, 0-9])，并且如果我们添加‘-’和‘.’，那么我们可以使用base64编码。一个合理的问题是，压缩键的长度应该是几个字符？6个、8个或者10个字符。
 
-使用base64编码，一串6个字母长的键将生成64^6=约687亿种不同的字符串。
-使用base64编码，一串8个字幕长的键将生成64^8=约281万亿种不同的字符串。
+使用base64编码，一串6个字母长的键将生成64^6=约687亿种不同的字符串。 使用base64编码，一串8个字幕长的键将生成64^8=约281万亿种不同的字符串。
 
 假设有687亿种唯一字符串，那么6个字母的足以满足我们的系统。
 
@@ -212,8 +214,8 @@ id=design, and http://www.educative.io/distributed.php%3Fid%3Ddesign 除URL编�
 
 另一种解决方案是可以追加用户ID（应该是唯一的）到输入的URL上，如果用户没有登录，那么必须让用户选择一个唯一值。即使在此之后，如果发生冲突，我们也必须生成键，直到获得一个唯一的键值。
 
-
 ==== 6.2. 离线生成密钥
+
 我们可以拥有一个独立的密钥生成服务（KGS），该服务可以预先生成随机的六个字母并将其存储到数据库中（我们称之为密钥数据库）。每当我们想要压缩URL时，我们将会获取某个已经生成的密钥并使用它。这种方法会使用URL压缩变得简单、快捷。我们不但不用编码URL，而且不必担心重复和冲突问题。KGS将会确保所有新增到数据库的密钥是唯一的。
 
 *并发会导致问题吗？* 一旦一个密钥被使用，应在数据库中对其进行标记，确保它不会再次被使用。如果有多个服务同时读取密钥，可能会发生这样一种情况，两个或多个服务试图从数据库中读取同一个密钥。该如何解决这个并发问题呢？
@@ -257,8 +259,7 @@ URL压缩的高级系统设计
 
 *哪种缓存驱逐策略最合适我们的需求？* 当缓存已满，并且我们想用较新或较热的URL替换缓存中的链接数据时，该如何选择呢？最近最少使用策略（LRU）可能是一个合理的策略。根绝此策略，我们将首先放弃最近最少使用的URL。我们可以使用 https://docs.oracle.com/javase/7/docs/api/java/util/LinkedHashMap.html[LinkedHashMap] 或者类似的数据结构存储我们的URL和哈希值，这也将跟踪最近访问过的URL。
 
-为了进一步提高效率，我们可以备份缓存服务器以在他们之间进行负载。
-To further increase the efficiency, we can replicate our caching servers to distribute load between them.
+为了进一步提高效率，我们可以备份缓存服务器以在他们之间进行负载。 To further increase the efficiency, we can replicate our caching servers to distribute load between them.
 
 *如何更新每一个备份的缓存？* 每当发生高速缓存为命中时，服务器会访问后台数据库。当这种情况发生时，我们可以更新缓存，并且传递新的条目传递给所有的缓存备份。每个副本可以通过添加新的条目更新其缓存。如果副本已经具有该条目，可以简单地忽略此次更新。
 
@@ -287,10 +288,7 @@ To further increase the efficiency, we can replicate our caching servers to dist
 * 我们应该删除一段时间内未使用的链接吗？比如这个时间为6个月。这可能很棘手。由于存储设备价格便宜，我们可以决定永久保存链接。
 
 
-image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/url-shortening/detailed-component-design-for-URL-shortening.png[]
-
-URL压缩系统组件设计详情
-
+image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/url-shortening/detailed-component-design-for-URL-shortening.png[title="URL压缩系统组件设计详情"]
 
 === 11. 遥测
 
