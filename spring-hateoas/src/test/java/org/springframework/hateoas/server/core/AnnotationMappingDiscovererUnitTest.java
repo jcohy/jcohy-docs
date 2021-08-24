@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2020 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
  * Unit tests for {@link AnnotationMappingDiscoverer}.
- * 
+ *
  * @author Oliver Gierke
  * @author Kevin Conaway
  * @author Mark Paluch
@@ -153,6 +153,29 @@ class AnnotationMappingDiscovererUnitTest {
 		assertThat(discoverer.getMapping(method)).isEqualTo("/type/otherMethod");
 	}
 
+	@Test // #1412
+	void removesMatchingExpressionFromTemplateVariable() throws Exception {
+
+		Method method = MyController.class.getMethod("mappingWithMatchingExpression");
+		assertThat(discoverer.getMapping(method)).isEqualTo("/type/foo/{bar}");
+	}
+
+	@Test // #1454
+	void extractsMultipleRegularExpressionVariablesCorrectly() throws Exception {
+
+		Method method = MyController.class.getMethod("multipleRegularExpressions");
+
+		assertThat(discoverer.getMapping(method)).isEqualTo("/type/spring-web/{symbolicName}-{version}{extension}");
+	}
+
+	@Test // #1469
+	void keepsTrailingSlash() throws Exception {
+
+		Method method = TrailingSlashes.class.getMethod("trailingSlash");
+
+		assertThat(discoverer.getMapping(method)).isEqualTo("/api/myentities/");
+	}
+
 	@RequestMapping("/type")
 	interface MyController {
 
@@ -164,6 +187,12 @@ class AnnotationMappingDiscovererUnitTest {
 
 		@RequestMapping
 		void noMethodMapping();
+
+		@RequestMapping("/foo/{bar:[ABC]{1}}")
+		void mappingWithMatchingExpression();
+
+		@GetMapping("/spring-web/{symbolicName:[a-z-]+}-{version:\\d\\.\\d\\.\\d}{extension:\\.[a-z]+}")
+		void multipleRegularExpressions();
 	}
 
 	interface ControllerWithoutTypeLevelMapping {
@@ -231,5 +260,13 @@ class AnnotationMappingDiscovererUnitTest {
 
 		@RequestMapping({ "/method", "/methodAlias" })
 		void method();
+	}
+
+	// #1469
+
+	interface TrailingSlashes {
+
+		@RequestMapping("/api/myentities/")
+		Object trailingSlash();
 	}
 }

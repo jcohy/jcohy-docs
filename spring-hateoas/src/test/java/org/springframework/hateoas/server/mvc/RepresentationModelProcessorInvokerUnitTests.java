@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 the original author or authors.
+ * Copyright 2020-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@ package org.springframework.hateoas.server.mvc;
 
 import static java.util.Collections.*;
 import static org.assertj.core.api.Assertions.*;
-
-import java.util.Collections;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.hateoas.CollectionModel;
@@ -38,7 +36,7 @@ public class RepresentationModelProcessorInvokerUnitTests {
 	void doesNotInvokeGenericProcessorForCollectionModel() {
 
 		RepresentationModelProcessorInvoker invoker = new RepresentationModelProcessorInvoker(
-				Collections.singletonList(new GenericPostProcessor<>()));
+				singletonList(new GenericPostProcessor<>()));
 
 		assertThatCode(() -> invoker.invokeProcessorsFor(CollectionModel.empty())) //
 				.doesNotThrowAnyException();
@@ -71,6 +69,20 @@ public class RepresentationModelProcessorInvokerUnitTests {
 		assertThat(firstProcessor.invoked).isFalse();
 	}
 
+	@Test // #1425
+	void doesInvokeProcessorForCollectionModelOfRepresentationModel() {
+
+		CollectionModelOfGenericModelProcessor processor = new CollectionModelOfGenericModelProcessor();
+		RepresentationModelProcessorInvoker invoker = new RepresentationModelProcessorInvoker(
+				singletonList(processor));
+
+		GenericModel<?> model = new GenericModel<>();
+
+		invoker.invokeProcessorsFor(CollectionModel.of(singletonList(model)));
+
+		assertThat(processor.invoked).isTrue();
+	}
+
 	// #1280
 
 	static class GenericPostProcessor<T extends GenericModel<T>> implements RepresentationModelProcessor<T> {
@@ -93,6 +105,21 @@ public class RepresentationModelProcessorInvokerUnitTests {
 
 		@Override
 		public CollectionModel<EntityModel<FirstEntity>> process(CollectionModel<EntityModel<FirstEntity>> model) {
+
+			invoked = true;
+
+			return model;
+		}
+	}
+
+	// 1425
+	static class CollectionModelOfGenericModelProcessor
+			implements RepresentationModelProcessor<CollectionModel<GenericModel<?>>> {
+
+		boolean invoked = false;
+
+		@Override
+		public CollectionModel<GenericModel<?>> process(CollectionModel<GenericModel<?>> model) {
 
 			invoked = true;
 

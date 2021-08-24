@@ -1,0 +1,573 @@
+[[reactive-stream-tck-flow]]
+= Reactive Streams TCK for `java.util.concurrent.Flow.*`
+
+*Reactive Streams 技术兼容工具* (以下简称: *TCK*) 的目的是帮助 Reactive Streams 库的实现者根据 https://github.com/reactive-streams/reactive-streams-jvm[Reactive Streams](中文地址 <<reactive-stream-jvm>>) 中定义的规则来验证他们的实现。
+
+由于此版本的 TCK 旨在验证 Java 9（在 `java.util.concurrent.Flow.*` 下）中包含的接口，因此至少需要 Java 9 才能运行此 TCK。 如果您正在寻找在 Reactive Streams 包含在 JDK9 中之前用于响应式流的 TCK，请查看<<reactive-stream-tck>>
+
+== TCK 的结构
+
+TCK 的目标是包含规范中定义的所有规则,然而有一些描述性的规则，构建自动化测试是不现实的。因此， TCK 不能充分验证所有实现，但是他可以验证最重要的规则。
+
+TCK 分为 4 个 TestNG 测试类，这些类将由实现者扩展，提供 `Publisher` / `Subscriber` / `Processor` 实现，以便测试工具进行验证。
+
+测试分为以下几个部分:
+
+* `FlowPublisherVerification`
+* `FlowSubscriberWhiteboxVerification`
+* `FlowSubscriberBlackboxVerification`
+* `IdentityFlowProcessorVerification`
+
+以下部分包括有关如何使用这些选项的示例，并描述了各种配置选项。
+
+TCK 在 http://search.maven.org/#search|ga|1|reactive-streams-tck[Maven Central] 上作为二进制构件提供：
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams-tck-flow</artifactId>
+  <version>1.0.3</version>
+  <scope>test</scope>
+</dependency>
+----
+
+当前最新版本号请参考 https://github.com/reactive-streams/reactive-streams-jvm[Reactive Streams Specification](中文地址 <<reactive-stream-jvm>>)，确保您的 Reactive Streams API 和 TCK 版本依赖匹配。
+
+=== 测试方法命名约定
+
+由于 TCK 针对的是 Reactive Stream 实现者，因此我们期待并鼓励研究 TCK 的来源，因为它在实现的过程中可能会有所帮助。
+
+为了使测试用例和规则之间的映射更容易，涵盖特定规则的每个测试用例都遵循以下命名约定：`TYPE_spec###_DESC`：
+
+* `TYPE`: <<type-required-flow,required>>, <<type-optional-flow,optional>>, <<type-stochastic-flow,stochastic>>,<<type-untested-flow,untested>> 它们描述了该测试是否覆盖了必须或应该实现的规则。后面会进行详细解释。
+* `###` 是规则编号 (`1.xx` 是关于 `Publisher` 的, `2.xx` 是关于 Subscribers 的等等.)
+* `DESC` 是对这个测试用例中究竟测试什么的一个简短描述，因为有时一个规则可能有多个测试用例才能完成完整的规则测试。
+
+这是一个示例测试方法签名：
+
+[source,java]
+----
+  // Verifies rule: https://github.com/reactive-streams/reactive-streams-jvm#1.1
+  @Test public void required_spec101_subscriptionRequestMustResultInTheCorrectNumberOfProducedElements() throws Throwable {
+    // ...
+  }
+----
+
+==== 测试类型说明:
+
+[source,java]
+----
+@Test public void required_spec101_subscriptionRequestMustResultInTheCorrectNumberOfProducedElements() throws Throwable
+----
+
+[[type-required-flow]]
+`required_` 意味着这个测试用例是一个硬性需求，它涵盖了规范中 *MUST* 或 *MUST NOT* 规则。
+
+[source,java]
+----
+@Test public void optional_spec104_mustSignalOnErrorWhenFails() throws Throwable
+----
+
+[[type-optional-flow]]
+`optional_` 表示这个测试用例是一个可选的需求, 他包含了规范中的 *MAY* 或 *SHOULD* 规则.如果需要更多配置才能运行它，也可以使用此前缀，例如 `@Additional(implement = "createFailedPublisher") @Test` 向实现者发出信号，为了运行这个测试，必须实现 `Publisher<T> createFailedPublisher()` 方法。
+
+[source,java]
+----
+@Test public void stochastic_spec103_mustSignalOnMethodsSequentially() throws Throwable
+----
+
+[[type-stochastic-flow]]
+`stochastic_` 意味着规则不可能或不能确定地验证——通常这意味着这个测试用例可能会产生误报（"绿色"），即使在某些情况下，给定的实现可能会违反测试的行为。
+
+[source,java]
+----
+@Test public void untested_spec106_mustConsiderSubscriptionCancelledAfterOnErrorOrOnCompleteHasBeenCalled() throws Throwable
+----
+
+[[type-untested-flow]]
+`untested_`  意味着测试用例没有实现，要么是因为它本身就很难验证（例如，使用  "*SHOULD consider X as Y*" 这类措词的规则）。 此类测试将在您的测试运行中显示为 `SKIPPED`，并带有一条消息指出 TCK 无法验证此规则。用这个前缀标记的规则是最受欢迎的-鼓励拉请求! - 鼓励 pull requests ！
+
+=== 测试隔离
+
+所有测试断言都被隔离在所需的TestEnvironment中，因此并行运行TCK测试是安全的。
+
+=== 测试功能受限的 Publishers
+
+由于设计中的某些内部或基本决策，某些 `Publisher` 将无法通过所有 TCK 测试。 例如， 我们有可能实现了一个 `FuturePublisher`,并且要求他只能运行一次 `onNext` — 这意味着不可能针对它运行所有 TCK 测试，因为其中有一些需要发出多个元素。
+
+为了通知 TCK 发布者只能发出最多 2 个元素的信号，请重写 `maxElementsFromPublisher` 方法，如下所示:
+
+[source,java]
+----
+@Override public long maxElementsFromPublisher() {
+  return 2;
+}
+----
+
+TCK 还支持无法发出完成信号的发布者。 假如一个由计时器支持的 `Publisher` — 这样的发布者在记到一定时间后没有一种自然的方式来发出 "complete" 结束信号。 有可能需要实现一个 `Processor`，它从 `TickPublisher` 中获取 `n` 个元素，然后向下游发出完成信号，但这会在 TCK 和最初想要测试的发布者之间增加一个间接层。 建议使用 `TakeNElementsProcessor` 或通过通知 TCK 发布者无法发出完成信号来测试此类无限制发布者。 然后 TCK 将跳过所有需要发出 `onComplete` 信号的测试。
+
+为了通知 TCK 您的 `Publisher` 无法发出完成信号，请重写 `maxElementsFromPublisher` 方法，如下所示:
+
+[source,java]
+----
+@Override public long maxElementsFromPublisher() {
+  return publisherUnableToSignalOnComplete(); // == Long.MAX_VALUE == unbounded
+}
+----
+
+=== 测试一个 "failed" Publisher
+Reactive Streams 规范规定了发布者的某些 “失败” 行为，例如，它无法初始化发出元素所需的连接。 使用 TCK 专门针对此类已知失败的发布者可能很有用。
+
+为了在失败的发布者上运行额外的测试，实现 `createFailedPublisher` 方法。 返回的预期行为是遵循 <<rule-1.4,规则 1.4>> 和  <<rule-1.9,规则 1.9>> — 它们与发出 `Subscription` 和发出失败信号的顺序有关。
+
+[source,java]
+----
+@Override public Flow.Publisher<T> createFailedPublisher() {
+  final String invalidData = "this input string is known it to be failed";
+  return new MyPublisher(invalidData);
+}
+----
+
+如果不存在要将 `Publisher` 置于的已知错误状态，则通过从 `createFailedPublisher` 方法返回 `null` 来忽略这些测试。重要的是要记住，在通过 `onSubscribe` 发送订阅信号之前发送 `onNext / onComplete / onError` 信号都是非法的，关于此规则的详细信息请参考 Reactive Streams 规范。
+
+== Publisher 验证
+
+`FlowPublisherVerification` 测试验证发布者以及规范的一些订阅规则。
+
+为了在你的测试套件中包含它的测试，只需要简单地扩展它，如下:
+
+[source,java]
+----
+package com.example.streams;
+
+import org.reactivestreams.tck.flow.FlowPublisherVerification;
+import org.reactivestreams.tck.TestEnvironment;
+
+import java.util.concurrent.Flow;
+
+public class RangePublisherTest extends FlowPublisherVerification<Integer> {
+
+  public RangePublisherTest() {
+    super(new TestEnvironment());
+  }
+
+  @Override
+  public Flow.Publisher<Integer> createPublisher(long elements) {
+    return new RangePublisher<Integer>(1, elements);
+  }
+
+  @Override
+  public Flow.Publisher<Integer> createFailedPublisher() {
+    return new Publisher<Integer>() {
+      @Override
+      public void subscribe(Subscriber<Integer> s) {
+        s.onError(new RuntimeException("Can't subscribe subscriber: " + s + ", because of reasons."));
+      }
+    };
+  }
+
+  // ADDITIONAL CONFIGURATION
+
+  @Override
+  public long maxElementsFromPublisher() {
+    return Long.MAX_VALUE - 1;
+  }
+
+  @Override
+  public long boundedDepthOfOnNextAndRequestRecursion() {
+    return 1;
+  }
+}
+----
+
+值得注意的配置选项包括：
+
+* `maxElementsFromPublisher` – 如果被测试的发布者的长度有界，则必须重写此方法，例如 它包装了一个 `Future<T>` ，因此最多只能发布 `1` 个元素，在这种情况下，您将从此方法返回 `1`。 它会导致所有需要更多元素以验证某个规则的测试被跳过，
+* `boundedDepthOfOnNextAndRequestRecursion` – 在验证同步发布者时必须重写它。此方法返回的数字将用于验证 `Subscription` 是否遵守规则 3.3 并避免 “无限递归”。
+
+=== 超时配置
+测试发布者超时有两种方法，一种是设置 `defaultTimeoutMillis`，它对应于 TCK 中使用的所有等待某事发生的方法。 另一个超时是 `publisherReferenceGCTimeoutMillis`，它仅用于验证 https://github.com/reactive-streams/reactive-streams-jvm#3.13[Rule 3.13]，它定义了订阅者引用必须由发布者删除。
+
+请注意，TCK 区分 "等待信号" (`defaultTimeoutMillis`) 和 "在给定时间内没有信号发生 (defaultNoSignalsTimeoutMillis)" 的超时。 虽然后者的默认值为前者，但在持续集成的服务器上运行时可以独立的调整他们（例如，降低无信号超时）。 另一个配置选项是 "轮询超时"，每当操作必须轮询 `defaultTimeoutMillis` 才能出现信号（最常见的错误）时使用它，然后它可以轮询并使用 `defaultPollTimeoutMillis` 检查预期的错误，而不是阻止完整的默认超时。
+
+为了配置这些超时(例如在缓慢的持续集成机器上运行时)，您可以:
+
+使用 `env` 变量设置这些超时，在这种情况下，你可以:
+
+[source,bash]
+----
+export DEFAULT_TIMEOUT_MILLIS=100
+export DEFAULT_NO_SIGNALS_TIMEOUT_MILLIS=100
+export DEFAULT_POLL_TIMEOUT_MILLIS=20
+export PUBLISHER_REFERENCE_GC_TIMEOUT_MILLIS=300
+----
+
+或者在代码中定义超时：
+
+[source,java]
+----
+public class RangePublisherTest extends FlowPublisherVerification<Integer> {
+
+  public static final long DEFAULT_TIMEOUT_MILLIS = 100L;
+  public static final long DEFAULT_NO_SIGNALS_TIMEOUT_MILLIS = DEFAULT_TIMEOUT_MILLIS;
+  public static final long DEFAULT_POLL_TIMEOUT_MILLIS = 20L;
+  public static final long PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS = 300L;
+
+  public RangePublisherTest() {
+    super(new TestEnvironment(DEFAULT_TIMEOUT_MILLIS, DEFAULT_TIMEOUT_MILLIS, DEFAULT_POLL_TIMEOUT_MILLIS), PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS);
+  }
+
+  // ...
+}
+----
+
+请注意，显式传入的值优先于环境变量提供的值
+
+== Subscriber 验证
+
+`Subscriber` 分为两个风格的测试文件
+
+强烈建议实现 `FlowSubscriberWhiteboxVerification<T>` 而不是 `FlowSubscriberBlackboxVerification<T>` ，即使需要做更多的工作，因为它可以测试更多的规则和极端情况下的实现，否则将不会被测试 — 这是 使用黑盒验证时的情况。
+
+=== createElement 和 Helper Publisher 实现
+由于没有相应的发布者就无法测试订阅者，因此 TCK 订阅者验证既提供默认的  "*helper publisher*" 来驱动其测试，也允许用自定义实现替换此发布者。 默认情况下， "*helper publisher*"  者是一个异步发布者 — 这意味着订阅者不能盲目地假设单线程执行。
+
+当扩展订阅者验证类时，必须给出表示通过流传递的元素类型的类型参数。 通常是不敏感的类型元素表示，但有时订阅者可能被限制为只能在一组已知的类型中工作 - 例如 `FileSubscriber extends Flow.Subscriber<ByteBuffer>` ，它写入每个元素 (ByteBuffer ) 并接收到一个文件中。 对于元素类型不可知的订阅者，最简单的方法是使用 `Integer` 对测试进行参数化，并在 `createElement(int idx)` 方法（在下面详细解释）中，返回传入的 `int`。 如果实现者需要处理特定类型，则应使用该类型对验证类进行参数化（例如 `class StringSubTest extends FlowSubscriberWhiteboxVerification<String>`），并且必须重写 `createElement` 方法返回一个 `String`。
+
+虽然提供了 Helper Publisher 实现，但没有创建它的元素 — 这是因为给定的订阅者可能只与 `HashedMessage` 或其他一些特定类型的元素一起使用。 TCK 无法自动生成这样的特殊消息，因此 TCK 提供了 `T createElement(Integer id)` 方法作为订阅者验证的一部分来实现，该方法应该采用给定的 `id` 并返回 `T` 类型的元素（其中 `T` 是类型是从  `Subscriber<T>` 中来的，这主要是因为  `... extends FlowSubscriberWhiteboxVerification<T>`) 表示将传递给订阅者的流元素。
+
+最简单的有效实现是使用 `Integer` 作为元素类型在验证中将传入的 `id` 作为元素返回：
+
+[source,java]
+----
+public class MySubscriberTest extends FlowSubscriberBlackboxVerification<Integer> {
+
+  // ...
+
+  @Override
+  public Integer createElement(int element) { return element; }
+}
+----
+
+
+NOTE: 可以从多个线程并发调用 `createElement` 方法
+
+**Very advanced**: 虽然大多数的实现者都不希望这样做，但这可以完全控制并推动 TCK 测试的发布者。 这可以通过实现 `createHelperPublisher` 方法来实现，在该方法中，可以通过返回自定义发布者来实现 `createHelperPublisher` 方法，然后 TCK 可以通过这个实现来驱动您的订阅者测试：
+
+[source,java]
+----
+@Override public Flow.Publisher<Message> createHelperPublisher(long elements) {
+  return new Flow.Publisher<Message>() { /* CUSTOM IMPL HERE WHICH OF COURSE ALSO SHOULD PASS THE TCK */ };
+}
+----
+
+
+=== Subscriber 白盒验证
+
+Whitebox Verification 能够验证大部分 Subscriber 规范，但付出的成本是必须通过 `SubscriberPuppet` 将生成和取消的需求控制权移交给 TCK。
+
+根据实现 `SubscriberPuppet` 的经验 - 对于某些实现者来说可能很棘手甚至不可能，因此，并非所有实现者都使用 `FlowSubscriberWhiteboxVerification`，也有的需要使用 `FlowSubscriberBlackboxVerification`。
+
+对于使用白盒验证的最简单（也是最常见）的订阅者实现，归根结底为通过额外的信号和注册测试探针来扩展（或委托）您的实现，如下面的示例所示：
+
+[source,java]
+----
+package com.example.streams;
+
+import org.reactivestreams.tck.flow.FlowSubscriberWhiteboxVerification;
+import org.reactivestreams.tck.TestEnvironment;
+
+import java.util.concurrent.Flow;
+
+public class MyFlowSubscriberWhiteboxVerificationTest extends FlowSubscriberWhiteboxVerification<Integer> {
+
+  public MyFlowSubscriberWhiteboxVerificationTest() {
+    super(new TestEnvironment());
+  }
+
+  // The implementation under test is "SyncSubscriber":
+  // class SyncSubscriber<T> extends Flow.Subscriber<T> { /* ... */ }
+
+  @Override
+  public Flow.Subscriber<Integer> createSubscriber(final WhiteboxSubscriberProbe<Integer> probe) {
+    // in order to test the SyncSubscriber we must instrument it by extending it,
+    // and calling the WhiteboxSubscriberProbe in all of the Subscribers methods:
+    return new SyncSubscriber<Integer>() {
+      @Override
+      public void onSubscribe(final Flow.Subscription s) {
+        super.onSubscribe(s);
+
+        // register a successful Subscription, and create a Puppet,
+        // for the WhiteboxVerification to be able to drive its tests:
+        probe.registerOnSubscribe(new SubscriberPuppet() {
+
+          @Override
+          public void triggerRequest(long elements) {
+            s.request(elements);
+          }
+
+          @Override
+          public void signalCancel() {
+            s.cancel();
+          }
+        });
+      }
+
+      @Override
+      public void onNext(Integer element) {
+        // in addition to normal Subscriber work that you're testing, register onNext with the probe
+        super.onNext(element);
+        probe.registerOnNext(element);
+      }
+
+      @Override
+      public void onError(Throwable cause) {
+        // in addition to normal Subscriber work that you're testing, register onError with the probe
+        super.onError(cause);
+        probe.registerOnError(cause);
+      }
+
+      @Override
+      public void onComplete() {
+        // in addition to normal Subscriber work that you're testing, register onComplete with the probe
+        super.onComplete();
+        probe.registerOnComplete();
+      }
+    };
+  }
+
+  @Override
+  public Integer createElement(int element) {
+    return element;
+  }
+
+}
+----
+
+=== Subscriber 黑盒验证
+
+除了向 TCK 提供 Subscriber 和 Publisher 实例之外，Blackbox Verification 不需要任何东西，代价是无法像 `FlowSubscriberWhiteboxVerification` 那样验证：
+
+[source,java]
+----
+package com.example.streams;
+
+import org.reactivestreams.tck.flow.FlowSubscriberBlackboxVerification;
+import org.reactivestreams.tck.TestEnvironment;
+
+import java.util.concurrent.Flow;
+
+public class MyFlowSubscriberBlackboxVerificationTest extends FlowSubscriberBlackboxVerification<Integer> {
+
+  public MyFlowSubscriberBlackboxVerificationTest() {
+    super(new TestEnvironment());
+  }
+
+  @Override
+  public Flow.Subscriber<Integer> createSubscriber() {
+    return new MySubscriber<Integer>();
+  }
+
+  @Override
+  public Integer createElement(int element) {
+    return element;
+  }
+}
+----
+
+=== Timeout 配置
+与 `FlowPublisherVerification` 类似，可以通过硬编码或使用环境变量来设置 TCK 的超时时间来验证订阅者的行为。
+
+使用 `env` 变量设置 TCK 使用的超时值：
+
+[source,bash]
+----
+export DEFAULT_TIMEOUT_MILLIS=300
+----
+
+或者 **显式定义超时时间**:
+
+[source,java]
+----
+public class MySubscriberTest extends FlowSubscriberBlackboxVerification<Integer> {
+
+  public static final long DEFAULT_TIMEOUT_MILLIS = 300L;
+
+  public RangePublisherTest() {
+    super(new TestEnvironment(DEFAULT_TIMEOUT_MILLIS));
+  }
+
+  // ...
+}
+----
+
+NOTE: 硬编码值优先于环境设置值 (!)。
+
+
+== Subscription 验证
+
+请注意，虽然 `Subscription` 没有自己的测试类，但它的规则在发布者和订阅者测试中得到验证 — 这取决于规则是否要求订阅的发布者或订阅者采取特定行动。
+
+== Identity Processor Verification（身份验证处理器）
+
+`IdentityFlowProcessorVerification` 测试所有订阅者、发布者和订阅规则的给定处理器（在内部使用 `WhiteboxSubscriberVerification`）。
+
+[source,java]
+----
+package com.example.streams;
+
+import org.reactivestreams.tck.flow.IdentityFlowProcessorVerification;
+import org.reactivestreams.tck.flow.FlowSubscriberWhiteboxVerification;
+import org.reactivestreams.tck.TestEnvironment;
+
+import java.util.concurrent.Flow;
+
+public class MyIdentityFlowProcessorVerificationTest extends IdentityFlowProcessorVerification<Integer> {
+
+  public static final long DEFAULT_TIMEOUT_MILLIS = 300L;
+  public static final long PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS = 1000L;
+
+
+  public MyIdentityFlowProcessorVerificationTest() {
+    super(new TestEnvironment(DEFAULT_TIMEOUT_MILLIS), PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS);
+  }
+
+  @Override
+  public Flow.Processor<Integer, Integer> createIdentityProcessor(int bufferSize) {
+    return new MyIdentityProcessor<Integer, Integer>(bufferSize);
+  }
+
+  @Override
+  public Flow.Publisher<Integer> createHelperPublisher(long elements) {
+    return new MyRangePublisher<Integer>(1, elements);
+  }
+
+  // ENABLE ADDITIONAL TESTS
+
+  @Override
+  public Flow.Publisher<Integer> createFailedPublisher() {
+    // return Publisher that only signals onError instead of null to run additional tests
+    // see this methods JavaDocs for more details on how the returned Publisher should work.
+    return null;
+  }
+
+  // OPTIONAL CONFIGURATION OVERRIDES
+  // only override these if understanding the implications of doing so.
+
+  @Override
+  public long maxElementsFromPublisher() {
+    return super.maxElementsFromPublisher();
+  }
+
+  @Override
+  public long boundedDepthOfOnNextAndRequestRecursion() {
+    return super.boundedDepthOfOnNextAndRequestRecursion();
+  }
+}
+----
+
+其他配置选项反映了订阅者和发布者验证中可用的选项。
+
+`IdentityFlowProcessorVerification` 还运行额外的 "sanity(健全性)" 验证，这些验证不会直接对应到规范的规则，但有助于验证处理器不会 "卡住" 或面临类似问题。 有关所包含测试的详细信息，请参阅源码。
+
+== 忽略测试
+由于测试是继承的而不是用户自定义的，因此不可能使用 `@Ignore` 注解来跳过某些测试（如果对不能实现的内容有一些已知约束，这可能是完全合理的）。 以下是跳过从 TCK 基类继承的测试的推荐模式：
+
+[source,java]
+----
+package com.example.streams;
+
+import org.reactivestreams.tck.flow.IdentityFlowProcessorVerification;
+import org.reactivestreams.tck.TestEnvironment;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+
+import java.util.concurrent.Flow;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MyIdentityProcessorTest extends IdentityFlowProcessorVerification<Integer> {
+
+  private ExecutorService e;
+
+  @BeforeClass
+  public void before() { e = Executors.newFixedThreadPool(4); }
+
+  @AfterClass
+  public void after() { if (e != null) e.shutdown(); }
+
+  public SkippingIdentityProcessorTest() {
+    super(new TestEnvironment());
+  }
+
+  @Override
+  public ExecutorService publisherExecutorService() {
+    return e;
+  }
+
+  @Override
+  public Integer createElement(int element) {
+    return element;
+  }
+
+  @Override
+  public Flow.Processor<Integer, Integer> createIdentityProcessor(int bufferSize) {
+    return new MyProcessor<Integer, Integer>(bufferSize); // return implementation to be tested
+  }
+
+  @Override
+  public Flow.Publisher<Integer> createFailedPublisher() {
+    return null; // returning null means that the tests validating a failed publisher will be skipped
+  }
+
+}
+----
+
+== 哪些验证必须由符合要求的实现来实现？
+为了符合 Reactive Streams 规范，要求实现者以 TCK 验证重写其发布者和订阅者。 如果一个库只实现了 `Subscriber`，那它就不必实现 `Publisher` 测试，这同样适用于 `IdentityFlowProcessorVerification` — 如果一个库库不包含 `Processor`，则不需要 `IdentityFlowProcessorVerification`。
+
+在订阅者验证的情况下，有两种可用的验证方式：黑盒或白盒。 强烈建议使用 `FlowSubscriberWhiteboxVerification` 测试订阅者实现者，因为它能够验证大部分规范。 `FlowSubscriberBlackboxVerification` 可以作为备选，一旦确定无法实现白盒版本 - 如果发生这种情况，请随时在 https://github.com/react-streams/reactive-streams-jvm[reactive-streams-jvm] 项目解释是什么原因导致不能进行白盒验证。
+
+总而言之：要求实现者对其实现的规范部分使用验证，并鼓励在可能的情况下对订阅者使用白盒验证而不是黑盒验证。
+
+== 将 TCK 升级到最新版本
+在未来几年，Reactive Streams 规范不会改变，但某些语义可能会在某个时候改变。 在这种情况下，有些测试方法可能会逐步的弃用或删除，随着时间的推移也可能添加新的测试。
+
+一般来说，这应该不是什么大问题，除非重写的测试方法被实现者重写了。发现需要重写所提供的测试方法的实现者鼓励通过  https://github.com/reactive-streams/reactive-streams-jvm[Reactive Streams] Opening Issues 讨论用例，并且很可能改进TCK。
+
+== 使用其他编程语言的 TCK
+
+TCK 被设计成可以使用不同的基于 JVM 的编程语言来使用它。 下面的部分展示了如何使用不同语言使用 TCK（非常欢迎更多语言的示例贡献）：
+
+=== Scala
+
+为了使用 http://www.scalatest.org/[ScalaTest] 运行 TCK，测试类必须混和 `TestNGSuiteLike` 特性（从 ScalaTest `2.2.x` 开始）。
+
+[source,scala]
+----
+class IterablePublisherTest(env: TestEnvironment, publisherShutdownTimeout: Long)
+  extends FlowPublisherVerification[Int](env, publisherShutdownTimeout)
+  with TestNGSuiteLike {
+
+  def this() {
+    this(new TestEnvironment(500), 1000)
+  }
+
+  def createFlowPublisher(elements: Long): Flow.Publisher[Int] = ???
+
+  // example error state publisher implementation
+  override def createFailedFlowPublisher(): Flow.Publisher[Int] =
+    new Flow.Publisher[Int] {
+      override def subscribe(s: Flow.Subscriber[Int]): Unit =
+        s.onError(new Exception("Unable to serve subscribers right now!"))
+    }
+
+}
+----
+
+=== Groovy, JRuby, Kotlin, others...
+
+非常欢迎对本文档的贡献！
+
+当使用未记录的一些语言使用 TCK 实现 Reactive Streams 时，请随时分享示例！

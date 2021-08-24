@@ -1,0 +1,510 @@
+[[reactive-stream-jvm]]
+= Reactive Streams Jvm
+
+Reactive Streams 的目的提供具有非阻塞背压的异步流处理标准。
+
+最新版本可在 Maven Central 中找到
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams</artifactId>
+  <version>1.0.3</version>
+</dependency>
+<dependency>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams-tck</artifactId>
+  <version>1.0.3</version>
+  <scope>test</scope>
+</dependency>
+----
+
+== 目标，设计和范围
+
+在异步系统中，处理流数据，尤其是容量不是预先确定的 “live” 数据时需要特别小心。最突出的问题是需要控制资源消耗，保证一个“快速”流数据不会搞垮流输出目标。为了对计算机资源（网络上的多台机器或一台机器上的多个CPU）的并发使用引入异步是必要的。
+
+Reactive Streams 管理跨异步边界的流数据交换 - 即将元素传递到另一个线程或线程池，确保接收方不会强制缓冲任意数量的数据。 换句话说，背压是该模型的一个组成部分，他可以限制线程之间的队列边界。 如果背压的通信是同步的（另请参见 http://reactivemanifesto.org/[Reactive Manifesto]），会导致异步处理无效，因此在实现响应流标准时所有各方面都强制要求是完全非阻塞和异步行为。
+
+此规范的可以有多个实现，这些实现通过遵守一定的规则可以进行相互操作，在流应用程序的整个处理图上保留上述优点和特性。
+
+应该注意的是，本规范未包含流操作（transformation（转换）、splitting（拆分），merging（合并））等性质。 Reactive Streams 只关心调解不同 <<api-components,API 组件>>之间的数据流 。在他们的开发过程中，已经采取了相关措施来表达合并流的基本方式。
+
+总之，Reactive Streams 是一个面向流的库的标准和规范，对于 JVM
+
+* 处理无限的元素
+* 序列
+* 在组件之间异步传递元素
+* 强制性非阻塞背压机制
+
+Reactive Streams 规范由以下部分组成：
+
+**The API**：指定了实现 Reactive Streams 的类型，并实现了不同实现之间的互操作性。
+
+**The Technology Compatibility Kit (TCK)**：只要符合 API 要求并通过 TCK 的测试，自己的实现就可以实现 Reactive Streams 规范没有涵盖的额外功能。
+
+[[api-components]]
+=== API 组件
+
+API 由以下组件组成，这些组件需要由 Reactive Stream 实现提供：
+
+1. Publisher
+2. Subscriber
+3. Subscription
+4. Processor
+
+*Publisher* 是具有无限个有序元素的提供者，根据从他的 Subscriber(s)（订阅者）收到的需求时发布它们。
+
+为了响应对 `Publisher.subscribe(Subscriber)` 的调用，`Subscriber` 具有以下方法：
+
+[source,java]
+----
+onSubscribe onNext* (onError | onComplete)?
+----
+
+这意味着总是向 `onSubscribe` 发出信号，然后是可能无限数量的 `onNext` 信号(如 `Subscriber` 所请求的那样)，如果发生故障，则是 `onError` 信号，或者当没有其他元素可用时，再发出 `onComplete` 信号——只要 `Subscription` 没有被取消。
+
+NOTE:: 以下规范使用来自 https://www.ietf.org/rfc/rfc2119.txt[https://www.ietf.org/rfc/rfc2119.txt] 的大写字母
+
+[[glossary]]
+=== 词汇表
+
+
+|===
+|术语 |定义
+
+| Signal
+| 作为名词：表示 `onSubscribe`, `onNext`, `onComplete`, `onError`, `request(n)` or `cancel` 方法之一。作为动词：表示 calling/invoking 一个信号
+
+| Demand
+| 作为名词：表示由 Subscriber 请求的但尚未由 Subscriber 交付（实现）的元素的聚合数量。 作为动词：表示请求更多元素的一种行为。
+
+| Synchronous(ly)
+| 在调用的线程上执行。
+
+| Return normally
+| 只向调用者返回声明类型的值。向 `Subscriber` 发出失败信号的唯一合法方法是通过 `onError` 方法。
+
+| Responsivity
+| 准备/响应能力。 在本文件中用来表示不同的组件不应该损害彼此的响应能力。
+
+| Non-obstructing
+| 描述在调用线程上执行的方法的质量。这意味着，例如，避免了繁重的计算和其他会暂停调用者执行线程的事情。
+
+| Terminal state（终止状态）
+| 对于 Publisher：当发出 onComplete 或 onError 信号时。 对于 Subscriber：当收到 onComplete 或 onError 信号时。
+
+| NOP
+| 对调用线程没有明显影响的执行，因此可以安全地调用任意多次。
+
+| Serial(ly)（串行）
+| 在 https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/README.md#term_signal[Signal] 的上下文中不重叠。在 JVM 的上下文中，当且仅当这些调用之间存在 happens-before 关系(也意味着这些调用不重叠)时，对对象上的方法的调用是串行的。当异步执行调用时，建立 happens-before 关系将使用(但不限于)原子、监视器或锁等技术来实现。
+
+| Thread-safe
+| 可以安全地同步或异步调用，而不需要外部同步以确保程序的正确性。
+|===
+
+
+[[specification]]
+=== SPECIFICATION
+
+==== Publisher ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Publisher.java[Code])
+
+[source,java]
+----
+public interface Publisher<T> {
+    public void subscribe(Subscriber<? super T> s);
+}
+----
+
+|===
+| ID                        | Rule
+
+| [[rule-1.1]] 1
+| `Publisher` 向 `Subscriber` 发出的 `onNext` 的信号总数必须始终小于等于 `Subscriber` 订阅( `Subscription` )请求的元素的总数.
+
+| 1.1 说明
+| *这条规则的目的是明确 `Publisher` 发出的信号不能超过 `Subscriber` 请求的元素。而且，这条规则还有一个很隐蔽但很重要的结果：因为 demand 只能在接收到之后才能被 fulfilled（满足），所以在请求元素和接收元素之间存在 happens-before 关系。*
+
+| [[rule-1.2]] 2
+| 一个 `Publisher` 可能发出少于请求的 `onNext` 信号，并通过 `onComplete` 或 `onError` 信号终止  `Subscription`.
+
+| 1.2 说明
+| *这条规则的目的是明确 `Publisher` 不保证发布的元素数量满足 `Subscriber` 需要的元素数量。他有可能无法生产所有的元素，他有可能会失败，为空，或者已经完成*
+
+| [[rule-1.3]] 3
+| 向 `Subscriber` 发出的 `onSubscribe`, `onNext`, `onError` and `onComplete` 信号必须是串行的.
+
+| 1.3 说明
+| *该规则的目的是当且仅当在每个信号之间建立了 happens-before 关系时才允许发送信号（包括来自多个线程）。*
+
+| [[rule-1.4]] 4
+| 如果 `Publisher` 失败，它必须发出 `onError` 信号。
+
+| 1.4 说明
+| *该规则的目的是明确 `Publisher` 有责任通知 `Subscribers` 它已经到达终止状态，`Subscribers` 随后可以对该信息采取一些行动，例如清理资源等。*
+
+| [[rule-1.5]] 5
+| 如果 `Publisher` 成功完成（有限流），它必须发出 `onComplete` 信号。
+
+| 1.5 说明
+| *该规则的目的是明确发布者负责通知其订阅者它已达到终端状态——订阅者可以根据此信息采取一些行动，例如清理资源等。*
+
+| [[rule-1.6]] 6
+| 如果 `Publisher` 在 `Subscriber` 发出 `onError` 或 `onComplete` 信号，则必须认为该 `Subscriber`  的 `Subscription` 已被取消。.
+
+| 1.6 说明
+| *此规则的目的是确保无论订阅是否被取消，发布者发出的信号是 `onError` 还是 `onComplete`，`Subscription` 都被同等对待。*
+
+| [[rule-1.7]] 7
+| 一旦已经发出终端状态(onError, onComplete)信号，就要求不再发生任何信号。
+
+| 1.7 说明
+| *此规则的目的是确保 `onError` 和 `onComplete` 是发布者和订阅者之间交互的最终状态。*
+
+| [[rule-1.8]] 8
+| 如果 `Subscription` 被取消，则必须停止向 `Subscriber` 发出信号。
+
+| 1.8 说明
+| *此规则的目的是确保在调用 Subscription.cancel() 时，发布者尊重订阅者取消订阅的请求。最终的原因是由于信号是异步的，所以会有传播延迟。**
+
+| [[rule-1.9]] 9
+| `Publisher.subscribe` 必须在提供给该订阅者的任何其他信号之前调用 `onSubscribe` 并且要正常返回。除非提供的订阅者为 `null` ，在这种情况下，它必须向调用者抛出 `java.lang.NullPointerException` 异常。对于其他情况，如发出失败信号(或拒绝 `Subscriber`)，则调用 `onError` (在调用 `onSubscribe` 之后).
+
+| 1.9 说明
+| *此规则的目的是确保必须再其他信号发出之前发出 `onSubscribe` 信号，以便在接收到信号时，订阅者可以执行初始化逻辑。同时 `onSubscribe` 最多只能被调用一次( 见 <<rule-2.2>>)。如果订阅者为空，则除了向调用者发出信号外别无他法，这意味着必须抛出 `java.lang.NullPointerException`。可能会出现如下情况:有状态的 `Publisher` 可能会不堪重负、被底层资源所限制、耗尽或处于终端状态。*
+
+| [[rule-1.10]] 10
+| `Publisher.subscribe` 可以根据需要多次调用，但每次必须使用不同的 `Subscriber` ( 见 <<rule-2.2>>).
+
+| 1.10 说明
+| *此规则的目的是让 `subscribe` 的调用者知道 `Subscriber` 只能够 `subscribe` 一次 `Publisher`。 此外，它还要求无论调用多少次都必须维护 `subscribe` 的语义。*
+
+| [[rule-1.11]] 11
+| 一个 `Publisher` 可以 多个 `Subscriber` 并决定每个 `Subscription` 单播还是多播。
+
+| 1.11
+| *该规则的目的是为发布者实现提供灵活性，以决定它们将支持多少(如果有的话)订阅者，以及如何分发元素。*
+|===
+
+==== 2. Subscriber ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscriber.java[Code])
+
+[source,java]
+----
+public interface Subscriber<T> {
+    public void onSubscribe(Subscription s);
+    public void onNext(T t);
+    public void onError(Throwable t);
+    public void onComplete();
+}
+----
+
+|===
+| ID | Rule
+
+| [[rule-2.1]] 1
+| 订阅者必须通过 `Subscription.request(long n)` 发出请求，以接收 `onNext` 信号。
+
+| 2.1 说明
+| *此规则的目的是确定订阅者可以决定何时以及愿意接收多少元素。为了避免可重入 Subscription 方法引起的信号重排序，强烈建议同步订阅者实现在任何信号处理的最后调用 Subscription 方法。建议订阅者请求它们能够处理的内容的上限，因为一次只请求一个元素会导致低效的 "stop-and-wait" 协议*
+
+| [[rule-2.2]] 2
+| 如果订阅者怀疑其信号处理会对发布者的响应性产生负面影响，则建议它异步分派其信号。.
+
+| 2.2 说明
+| *此规则的目的是，订阅者不应阻碍发布者的进程。 换句话说，订阅者不应该因为接收 CPU 周期而使发布者挨饿。*
+
+| [[rule-2.3]] 3
+| `Subscriber.onComplete()` 和 `Subscriber.onError(Throwable t)` 不能调用 `Subscription` 或 `Publisher` 的任何方法。
+
+| 2.3 说明
+| *此规则的目的是在处理完成信号期间防止 Publisher, Subscription 和 Subscriber 之间产生循环和竞争条件。*
+
+| [[rule-2.4]] 4
+| `Subscriber.onComplete()` 和 `Subscriber.onError(Throwable t)` 必须考虑在收到信号后取消 Subscription。
+
+| 2.4 说明
+| *此规则的目的是确保订阅者尊重发布者的终端状态信号。 在收到 `onComplete` 或 `onError` 信号后，订阅就不再有效了。*
+
+| [[rule-2.5]] 5
+| 如果订阅者已经有一个活动订阅，则订阅者必须在 `onSubscribe` 信号之后对给定订阅调用 `Subscription.cancel()`。
+
+| 2.5 说明
+| *此规则的目的是防止两个或更多独立的发布者尝试与同一个订阅者进行交互。 强制执行此规则意味着防止资源泄漏，因为额外的订阅将被取消。不遵守此规则可能会导致违反发布者规则 1。 此类违规可能会导致难以诊断的错误。*
+
+| [[rule-2.6]] 6
+| 如果不再需要订阅，订阅者必须调用 `Subscription.cancel()`。
+
+| 2.6 说明
+| *此规则的目的是确定订阅者不能在不需要订阅时将其丢弃，他们必须调用 cancel，以便可以安全、及时地回收该订阅持有的资源。 例如，订阅者只对特定元素感兴趣，然后取消其订阅，以向发布者发出完成的信号。*
+
+| [[rule-2.7]] 7
+| 订阅者必须确保对其订阅的请求和取消方法的所有调用都是串行执行的。
+
+| 2.7 说明
+| *此规则的目的是当且仅当每个调用之间建立了串行关系时，才允许调用 request 和 cancel 方法（包括来自多个线程）。*
+
+| [[rule-2.8]] 8
+| 订阅者在调用 `Subscription.cancel()` 之后接收一个或多个 `onNext` 信号，如果仍然有被请求的元素挂起( 见 <<rule-3.12>>)。 `Subscription.cancel()` 不保证立即执行底层清理操作。
+
+| 2.8 说明
+| *此规则的目的是强调在调用  `cancel` 和发布者察觉到  `cancel` 之间可能存在延迟。*
+
+| [[rule-2.9]] 9
+| 不管之前有没有调用 `Subscription.request(long n)` ，订阅者都必须准备好接受 `onComplete` 信号。
+
+| 2.9 说明
+| *这条规则的目的是确定完成与需求流无关——这允许元素流提前完成，并避免了完成轮询的需要。*
+
+| [[rule-2.10]] 10
+| 无论之前是否有 `Subscription.request(long n)` 调用，订阅者必须准备好接收一个 `onError` 信号。
+
+| 2.10 说明
+| *这条规则的目的是确定生产者失败与需求流无关。这意味着订阅者不需要轮询来确定发布者是否无法满足其请求。*
+
+| [[rule-2.11]] 11
+| `Subscriber` 必须确保所有对其信号方法的调用都在处理各自的信号之前发生。即，订阅者必须正确地将信号发布到其处理逻辑中。
+
+| 2.11 说明
+| *此规则的目的是确定订阅者的实现有责任确保其信号的异步处理是线程安全的。 https://docs.oracle.com/javase/specs/jls/se8/html/jls-17.html#jls-17.4.5[参见第 17.4.5 节中 Happens-Before 的 JMM 定义。]*
+
+| [[rule-2.12]] 12
+| Subscriber（基于 `object equality`） 只能最多调用一次 `Subscriber.onSubscribe`。
+
+| 2.12 说明
+| *该规则的目的是确定必须假设同一个订阅者最多只能订阅一次。 请注意，`object equality` 是 `a.equals(b)`。*
+
+| [[rule-2.13]] 13
+| 调用 `onSubscribe`、`onNext`、`onError` 或 `onComplete` 必须正常返回，除非提供的参数为 `null`，在这种情况下，它必须向调用者抛出 `java.lang.NullPointerException`，对于其他情况，订阅者发出失败信号的唯一合法方式是通过取消其订阅。 在违反此规则的情况下，必须将订阅者的任何关联订阅视为已取消，并且调用者必须以适合运行时环境的方式提出此错误条件。
+
+| 2.13 说明
+| *此规则的目的是为订阅者的方法建立语义，以及在违反此规则的情况下允许发布者做什么。 «以适合运行时环境的方式提出此错误条件»  可能意味着记录错误 — 或者以其他方式让某人或某物意识到这种情况 - 因为无法向出错的订阅服务器发出错误信号。*
+|===
+
+==== 3. Subscription ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscription.java[Code])
+
+[source,java]
+----
+public interface Subscription {
+    public void request(long n);
+    public void cancel();
+}
+----
+
+
+|===
+| ID | Rule
+| [[rule-3.1]] 1
+| `Subscription.request` 和 `Subscription.cancel` 必须仅在 `Subscriber` 上下文中调用。
+
+| 3.1 说明
+| *此规则的目的是建立 `Subscription`, 表示者和发布者之间的唯一关系（见 Subscriber 规则的第 12 条）。订阅者可以控制何时请求元素以及何时不再需要元素。( 见 <<rule-2.12>>)*
+
+| [[rule-3.2]] 2
+| `Subscription` 必须允许订阅者从 `onNext` 或 `onSubscribe` 同步调用 `Subscription.request`。
+
+| 3.2 说明
+| *该规则的目的是明确 `request` 的实现必须是可重入的，以避免在 `request` 和 `onNext`（以及最终 `onComplete`/ `onError`）之间相互调用的情况下堆栈溢出。 这意味着发布者可以是同步的，即在调用 `request` 的线程上发送 `onNext` 信号*
+
+| [[rule-3.3]] 3
+| `Subscription.request` 必须为发布者和订阅者之间可能的同步递归设置一个上限。
+
+| 3.3 说明
+| *该规则的目的是通过对 `request` 和 `onNext`（最终 `onComplete` / `onError`）之间的相互递归设置上限来补充 ( 见 <<rule-3.2>>)。 建议将这种相互递归的深度限制为 `1` (ONE) — 为了节省堆栈空间。 一个典型的同步打开递归的例子是 `Subscriber.onNext` -> `Subscription.request` -> `Subscriber.onNext` -> ...，否则会导致调用线程的堆栈崩溃。*
+
+| [[rule-3.4]] 4
+| `Subscription.request` 应该及时返回来尊重其调用者的响应能力。
+
+| 3.4 说明
+| *此规则的目的是确定 `request` 是一种非阻塞方法，并且应该尽可能快地在调用线程上执行，从而避免繁重的计算和其他可能导致调用方执行线程暂停的事情。*
+
+| [[rule-3.5]] 5
+| `Subscription.cancel` 必须通过及时返回来尊重其调用者的响应性，必须是幂等的并且必须是线程安全的。
+
+| 3.5 说明
+| *此规则的目的是确定 `cancel` 是一种非阻塞方法，并且应该在调用线程上尽可能快地执行，从而避免繁重的计算和其他可能导致调用方执行线程暂停的事情。 此外，多次调用而没有任何不利影响也很重要。*
+
+| [[rule-3.6]] 6
+| 取消订阅后，额外的 `Subscription.request(long n)` 必须是 NOP。
+
+| 3.6 说明
+| *此规则的目的是在取消订阅和随后不请求更多元素之间建立因果关系。*
+
+| [[rule-3.7]] 7
+| 取消订阅后，额外的 `Subscription.cancel()` 必须是 NOP。.
+
+| 3.7 说明
+| *本规则的目的被 第五条 取代。( 见 <<rule-3.5>>)*
+
+| [[rule-3.8]] 8
+| 虽然订阅没有被取消，但 `Subscription.request(long n)` 必须向相应的订阅者注册将要产生的元素的数量。
+
+| 3.8 说明
+| *此规则的目的是确保 `request` 是一个附加操作，以及确保将元素的请求交付给 `Publisher`。*
+
+| [[rule-3.9]] 9
+| 当订阅未被取消时，如果参数 <= 0，则 `Subscription.request(long n)` 必须用 `java.lang.IllegalArgumentException` 发出 `onError` 信号。异常消息应该解释为:non-positive request signals are illegal。
+
+| 3.9 说明
+| *该规则的目的是防止错误的实现在不引发任何异常的情况下继续操作。请求负数或 0 个元素(因为请求是附加的)，很可能是代表订阅者的错误计算的结果。*
+
+| [[rule-3.10]] 10
+| 虽然没有取消 `Subscription`， `Subscription.request(long n)` 可以同步调用这个（或其他）订阅者的 `onNext` 。
+
+| 3.10 说明
+| *此规则的目的是建立允许创建 synchronous Publishers，即在调用线程上执行其逻辑的发布者。*
+
+| [[rule-3.11]] 11
+| 虽然没有取消 `Subscription`，但 `Subscription.request(long n)` 可以在这个（或其他）订阅者上同步调用 `onComplete` 或 `onError` 。
+
+| 3.11 说明
+| *此规则的目的是建立允许创建 synchronous Publishers，即在调用线程上执行其逻辑的发布者。*
+
+| [[rule-3.12]] 12
+| 虽然没有取消 `Subscription`，但 `Subscription.cancel()` 必须请求发布者最终停止向其订阅者发送信号。 该操作不需要立即影响订阅。.
+
+| 3.12 说明
+| *此规则的目的是确定发布者最终会尊重取消订阅的意愿，并承认可能需要一些时间才能接收到信号。*
+
+| [[rule-3.13]] 13
+| 虽然没有取消 `Subscription`，但 `Subscription.cancel()` 必须请求发布者最终删除对相应订阅者的任何引用。
+
+| 3.13 说明
+| *此规则的目的是确保订阅者在订阅不再有效后可以正确地进行垃圾收集。 不鼓励使用相同的 `Subscriber` 对象重新订阅 [参见 Subscriber 第 12 条]，但本规范并未强制要求禁止这样做，因为这意味着必须无限期地存储先前取消的订阅。*
+
+| [[rule-3.14]] 14
+| 虽然没有取消 `Subscription`，但调用 `Subscription.cancel` 可能会导致发布者（如果有状态）在此时没有其他订阅存在时转换到 `shut-down` 状态 [参见 Publisher 规则第 9 条]。
+
+| 3.14 说明
+| *此规则的目的是允许发布者在新的订阅者的 `onSubscribe` 之后发出 `onComplete` 或 `onError` 信号，以响应来自现有订阅者的取消信号。*
+
+| [[rule-3.15]] 15
+| 调用 `Subscription.cancel` 必须正常返回。
+
+| 3.15 说明
+| *该规则的目的是当响应  `cancel` 调用的，禁止抛出异常。*
+
+| [[rule-3.16]] 16
+| 调用 `Subscription.request` 必须正常返回。
+
+| 3.16 说明
+| *该规则的目的是当响应  `request` 调用的，禁止抛出异常。*
+
+| [[rule-3.17]] 17
+| 订阅必须支持无限数量的 `request` 调用，并且必须支持高达 2^63-1 (`java.lang.Long.MAX_VALUE`) 的需求。 发布者可以将等于或大于 2^63-1 (`java.lang.Long.MAX_VALUE`) 的需求视为 “effectively unbounded”(有效边界)。
+
+| 3.17 说明
+| *该规则的目的是建立订阅者可以发出任意请求的数量，以大于 0 的数为增量( 见 <<rule-3.9>>)请求无限制数量的元素。由于在合理的时间内(每纳秒 1 个元素需要292年)，当前或预期的硬件无法实现 2^63-1 的需求，允许 Publisher 在超过这一点后停止跟踪需求。*
+|===
+
+一个 `Subscription` 由一个 `Publisher` 和一个 `Subscriber` 共享，目的是解决他们之间的数据交换。 这就是为什么 `subscribe()` 方法不返回创建的 `Subscription` 而是返回 `void` 的原因； `Subscription` 仅通过 `onSubscribe` 回调传递给 `Subscriber`。
+
+==== 4.Processor ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Processor.java[Code] )
+
+[source,java]
+----
+public interface Processor<T, R> extends Subscriber<T>, Publisher<R> {
+}
+----
+
+
+|===
+| ID | Rule
+
+| [[rule-4.1]] 1
+| 一个 `Processor` 代表一个处理阶段 — 它既是订阅者又可以是发布者，并且必须遵守两者的契约。
+
+| 4.1 说明
+| *此规则的目的是建立 Processor 的行为，并受发布者和订阅者规范的约束。 *
+
+| [[rule-4.2]] 2
+| `Processor` 可以选择恢复 `onError` 信号。 如果它选择这样做，它必须认为订阅已被取消，否则它必须立即将 `onError` 信号传播给它的订阅者。
+
+| 4.2 说明
+| *该规则的目的是告诉我们实现可能不仅仅是简单的转换。*
+|===
+
+虽然不是强制的，但当处理器的最后一个订阅者取消其订阅时，取消其上游订阅可能是一个好主意，以便让取消信号向上游传播。
+
+=== 异步与同步处理
+
+Reactive Streams API 规定所有元素处理 (`onNext`) 或终止信号 (`onError`, `onComplete`) 不得阻塞发布者。 但是，每个 `on*` 处理程序都可以同步或异步处理事件。
+
+例如:
+
+[source,text]
+----
+nioSelectorThreadOrigin map(f) filter(p) consumeTo(toNioSelectorOutput)
+----
+
+它有一个异步 origin 和一个异步 destination。 让我们假设 `origin` 和 `destination` 都是选择器事件循环。 `Subscription.request(n)` 必须从 `destination` 链接到 `origin` 。 现在，每个实现都可以选择如何执行此操作。
+
+以下使用管道符(`|`)表示异步边界（队列和调度）和 `R#` 表示资源（可能是线程）。.
+
+[source,text]
+----
+nioSelectorThreadOrigin | map(f) | filter(p) | consumeTo(toNioSelectorOutput)
+-------------- R1 ----  | - R2 - | -- R3 --- | ---------- R4 ----------------
+----
+
+在这个例子中，`map`、`filter` 和 `consumeTo` 这三个消费者都是异步调度工作。它可以在同一个事件循环(trampoline)上，也可以在不同的线程上，等等。
+
+[source,text]
+----
+nioSelectorThreadOrigin map(f) filter(p) | consumeTo(toNioSelectorOutput)
+------------------- R1 ----------------- | ---------- R2 ----------------
+----
+
+这里只是异步调度的最后一步，通过向 `NioSelectorOutput` 事件循环添加工作。 `map` 和 `filter` 步骤在原始线程上同步执行。
+
+或者另一种实现可以将操作融合到最终消费者：
+
+[source,text]
+----
+nioSelectorThreadOrigin | map(f) filter(p) consumeTo(toNioSelectorOutput)
+--------- R1 ---------- | ------------------ R2 -------------------------
+----
+
+所有这些变体都是 "asynchronous streams"。它们都有自己的位置，每个都有不同的权衡，包括性能和实现复杂性。
+
+Reactive Streams 契约允许实现在非阻塞、异步、动态推拉流的范围内灵活地管理资源和调度，并混合异步和同步处理。
+
+为了允许所有参与 API 元素 - `Publisher`/`Subscription`/`Subscriber`/`Processor` 的完全异步实现，这些接口定义的所有方法都返回 `void`。
+
+=== 订阅者控制的队列边界
+
+基本设计原则之一是所有缓冲区大小都是有限制的，订阅者必须知道这些限制并且可以进行控制。这些边界用元素计数表示(然后转换为 `onNext` 的调用计数)。任何旨在支持无限流(特别是高速率输出流)的实现都需要在整个过程中强制边界，以避免内存不足和限制资源的情况。
+
+由于背压是强制性的，因此可以避免使用无界缓冲区。一般来说，队列无限制增长的唯一情况是发布者端在一段时间内保持比订阅者高的速率，但是这种情况是由反压处理的。
+
+队列边界可以由订阅者对适当数量的元素发出信号来控制。在任何时间点，订阅者都知道:
+
+- 请求的元素总数: `P`
+- 已处理的元素数: `N`
+
+然后可能到达的元素的最大数量——直到更多的需求被通知给发布者——是 `P - N`。如果订阅者也知道其输入缓冲区中元素 B 的数量，这个界限可以被细化为 `P - B - N`。
+
+发布者必须遵守这些界限，而不管它所代表的源是否可以背压。在生产速率不受影响的源的情况下（例如时钟滴答或鼠标移动），发布者必须选择缓冲或删除元素以遵守强加的边界。
+
+订阅者在接收到一个元素后发出对一个元素的需求信号，有效地实现了停止等待协议，其中需求信号相当于确认。
+
+订阅者在接收到一个元素后发出对一个元素的需求信号，有效地实现了 Stop-and-Wait 协议，其中需求信号相当于确认。通过提供对多个元素的需求，确认的成本被分摊。 值得注意的是，订阅者可以在任何时间点发出需求信号，从而避免发布者和订阅者之间不必要的延迟（即保持其输入缓冲区填充而不必等待完整的往返）。
+
+== 法律
+
+这个项目是来自 Kaazing、Lightbend、Netflix、Pivotal、Red Hat、Twitter 和许多其他公司的工程师之间的合作。该代码被提供给公共领域，以允许想要创建兼容实现的相关方免费使用。有关详细信息，请参阅 `COPYING`。
+
+<p xmlns:dct="http://purl.org/dc/terms/" xmlns:vcard="http://www.w3.org/2001/vcard-rdf/3.0#">
+<a rel="license" href="http://creativecommons.org/publicdomain/zero/1.0/">
+<img src="http://i.creativecommons.org/p/zero/1.0/88x31.png" style="border-style: none;" alt="CC0" />
+</a>
+<br />
+To the extent possible under law,
+<a rel="dct:publisher" href="http://www.reactive-streams.org/">
+<span property="dct:title">Reactive Streams Special Interest Group</span></a>
+has waived all copyright and related or neighboring rights to
+<span property="dct:title">Reactive Streams JVM</span>.
+This work is published from:
+<span property="vcard:Country" datatype="dct:ISO3166" content="US" about="http://www.reactive-streams.org/">United States</span>.
+</p>
+
