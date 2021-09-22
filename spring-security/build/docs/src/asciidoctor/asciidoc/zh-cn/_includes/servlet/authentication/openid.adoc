@@ -1,0 +1,51 @@
+[[servlet-openid]]
+== OpenID 支持
+
+[NOTE]
+已弃用 OpenID 1.0 和 2.0 协议， 并鼓励用户迁移到 Spring-security-oauth2 支持的 OpenID Connect.
+
+命名空间支持 https://openid.net/[OpenID]  登录,而不是普通的基于表单的登录,或者除了常规的基于表单的登录之外,还支持 OpenID 登录,只需简单的更改即可:
+
+[source,xml]
+----
+<http>
+<intercept-url pattern="/**" access="ROLE_USER" />
+<openid-login />
+</http>
+----
+
+然后,您应该向 OpenID 提供程序注册自己(例如 myopenid.com) ,并将用户信息添加到内存中的 `<user-service>`:
+
+[source,xml]
+----
+<user name="https://jimi.hendrix.myopenid.com/" authorities="ROLE_USER" />
+----
+
+您应该可以使用 `myopenid.com` 网站登录进行身份验证.  通过在 `openid-login` 元素上设置 `user-service-ref` 属性,还可以选择特定的 `UserDetailsService` bean 来使用 OpenID.
+请注意,我们已从上述用户配置中省略了 `password` 属性,因为这组用户数据仅用于加载用户的权限.  系统会在内部生成一个随机密码,以防止您意外地将此用户数据用作配置中其他位置的身份验证源.
+
+=== 属性交换
+支持 OpenID https://openid.net/specs/openid-attribute-exchange-1_0.html[属性交换]..  例如,以下配置将尝试从OpenID 提供程序中检索电子邮件和全名,以供应用程序使用:
+
+[source,xml]
+----
+<openid-login>
+<attribute-exchange>
+	<openid-attribute name="email" type="https://axschema.org/contact/email" required="true"/>
+	<openid-attribute name="name" type="https://axschema.org/namePerson"/>
+</attribute-exchange>
+</openid-login>
+----
+
+每个 OpenID 属性的 "type" 是一个URI,有一种特定的模式来确定,这个例子中是 https://axschema.org/[https://axschema.org/] . 如果属性必须在成功认证后接收,可以设置 `required` 属性. 确切的模式和属性的支持将取决于你的 OpenID 提供商. 该属性值返回作为认证过程的一部分,随后可以使用下面的代码访问:
+
+[source,java]
+----
+OpenIDAuthenticationToken token =
+	(OpenIDAuthenticationToken)SecurityContextHolder.getContext().getAuthentication();
+List<OpenIDAttribute> attributes = token.getAttributes();
+----
+
+我们可以从 <<servlet-authentication-securitycontextholder>> 获取 `OpenIDAuthenticationToken`.
+`OpenIDAttribute` 包含了属性类型和接收到的值(在有多个属性值的情况下包含多个值)
+你可以提供多个 `attribute-exchange` 元素. 在每个上面使用 `identifier-matcher` 属性. 它包含一个正则表达式,会匹配由用户提供的 OpenID 标识符. 查看代码库的 OpenID 示例应用的一个示例配置. 对 Google, Yahoo 和 MyOpenID 提供了不同的属性列表.

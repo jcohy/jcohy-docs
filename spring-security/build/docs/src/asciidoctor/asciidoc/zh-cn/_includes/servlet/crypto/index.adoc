@@ -1,0 +1,233 @@
+[[crypto]]
+= Spring Security 加密 模块
+
+
+[[spring-security-crypto-introduction]]
+== 简介
+Spring Security Crypto 模块提供对对称加密,密钥生成和密码编码的支持.  该代码作为核心模块的一部分分发,但与任何其他 Spring Security (或 Spring) 代码无关.
+
+
+[[spring-security-crypto-encryption]]
+== Encryptors(加密器)
+`Encryptors` 类提供了用于构造对称加密器的工厂方法.  使用此类,您可以创建 `ByteEncryptor` 来以原始 `byte[]` 形式加密数据.  您还可以构造 `TextEncryptor` 来加密文本字符串.  加密器是线程安全的.
+
+[[spring-security-crypto-encryption-bytes]]
+=== BytesEncryptor
+使用 `Encryptors.stronger` 工厂方法来构造 `BytesEncryptor`:
+
+.BytesEncryptor
+====
+.Java
+[source,java,role="primary"]
+----
+Encryptors.stronger("password", "salt");
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+Encryptors.stronger("password", "salt")
+----
+====
+
+"stronger" 加密方法是使用 Galois Counter Mode (GCM) 的256位AES. 它使用 PKCS#5 的 PBKDF2(基于密码的密钥扩展功能#2) 的密钥. 此方法需要 Java6. 用于生成 SecretKey 的密码应保存在安全的地方,并且不能共享.  如果您的加密数据遭到破坏,该盐可用于防止针对密钥的字典攻击.  还应用了 16 字节的随机初始化向量,因此每个加密的消息都是唯一的.
+
+提供的盐应采用十六进制编码的字符串形式,并且是随机的,并且长度至少为 8 个字节.  可以使用 KeyGenerator 生成这种盐:
+
+.Generating a key
+====
+.Java
+[source,java,role="primary"]
+----
+String salt = KeyGenerators.string().generateKey(); // generates a random 8-byte salt that is then hex-encoded
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val salt = KeyGenerators.string().generateKey() // generates a random 8-byte salt that is then hex-encoded
+----
+====
+
+用户还可以使用 standard 加密方法,即  Cipher Block Chaining (CBC) 模式下的 256 位 AES. 此模式未经  https://en.wikipedia.org/wiki/Authenticated_encryption[authenticated],不提供有关数据真实性的任何保证. 为了获得更安全的选择,用户应首选 `Encryptors.stronger`.
+
+[[spring-security-crypto-encryption-text]]
+=== TextEncryptor
+使用 `Encryptors.text` 工厂方法构造一个标准的 `TextEncryptor`:
+
+.TextEncryptor
+====
+.Java
+[source,java,role="primary"]
+----
+Encryptors.text("password", "salt");
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+Encryptors.text("password", "salt")
+----
+====
+
+TextEncryptor 使用标准的 BytesEncryptor 来加密文本数据.  加密结果以十六进制编码的字符串形式返回,以便于存储在文件系统或数据库中.
+
+使用 Encryptors.queryableText 工厂方法构造一个 "queryable" TextEncryptor:
+
+.Queryable TextEncryptor
+====
+.Java
+[source,java,role="primary"]
+----
+Encryptors.queryableText("password", "salt");
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+Encryptors.queryableText("password", "salt")
+----
+====
+
+可查询的 TextEncryptor 与标准 TextEncryptor 之间的区别与初始化向量(iv) 处理有关.  可查询 TextEncryptor#encrypt 操作中使用的 iv 是共享的或常量,并且不会随机生成.  这意味着多次加密相同的文本将始终产生相同的加密结果.  这不太安全,但是对于需要查询的加密数据来说是必需的.  可查询的加密文本的一个示例是 OAuth apiKey.
+
+[[spring-security-crypto-keygenerators]]
+== 密钥生成器
+KeyGenerators 类为构造不同类型的密钥生成器提供了许多便利的工厂方法.  使用此类,您可以创建一个 BytesKeyGenerator 来生成byte[] 键.  您还可以构造一个 StringKeyGenerator 来生成字符串键.  KeyGenerators 是线程安全的.
+
+=== BytesKeyGenerator
+使用 `KeyGenerators.secureRandom` 工厂方法来生成由 SecureRandom 实例支持的 BytesKeyGenerator:
+
+.BytesKeyGenerator
+====
+.Java
+[source,java,role="primary"]
+----
+BytesKeyGenerator generator = KeyGenerators.secureRandom();
+byte[] key = generator.generateKey();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val generator = KeyGenerators.secureRandom()
+val key = generator.generateKey()
+----
+====
+
+默认密钥长度为 8 个字节. 还有一个 KeyGenerators.secureRandom 变体,可以控制密钥长度:
+
+.KeyGenerators.secureRandom
+====
+.Java
+[source,java,role="primary"]
+----
+KeyGenerators.secureRandom(16);
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+KeyGenerators.secureRandom(16)
+----
+====
+
+使用 `KeyGenerators.shared` 工厂方法构造一个 `BytesKeyGenerator`,该每次调用总是返回相同的密钥:
+
+.KeyGenerators.shared
+====
+.Java
+[source,java,role="primary"]
+----
+KeyGenerators.shared(16);
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+KeyGenerators.shared(16)
+----
+====
+
+=== StringKeyGenerator
+使用 KeyGenerators.string 工厂方法来构造一个 8 字节的 SecureRandom KeyGenerator,该十六进制将每个密钥编码为字符串:
+
+.StringKeyGenerator
+====
+.Java
+[source,java,role="primary"]
+----
+KeyGenerators.string();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+KeyGenerators.string()
+----
+====
+
+[[spring-security-crypto-passwordencoders]]
+== Password Encoding
+spring-security-crypto 模块的密码软件包提供了对密码编码的支持.  `PasswordEncoder` 是中央服务接口,具有以下签名:
+
+[source,java]
+----
+public interface PasswordEncoder {
+
+String encode(String rawPassword);
+
+boolean matches(String rawPassword, String encodedPassword);
+}
+----
+
+如果 rawPassword 一旦编码,等于已编码的 Password,则 matches 方法返回 true.  此方法旨在支持基于密码的身份验证方案.
+
+`BCryptPasswordEncoder` 实现使用广泛支持的 "bcrypt" 算法来对密码进行哈希处理.  Bcrypt 使用一个随机的 16 字节盐值,并且是一种故意慢速的算法,目的是阻止密码破解者.  可以使用 "strength" 参数调整它所做的工作量,该参数的取值范围为 4 到 31. 值越高,计算散列所需的工作就越多.  默认值为 10. 您可以在已部署的系统中更改此值,而不会影响现有密码,因为该值也存储在编码的哈希中.
+
+.BCryptPasswordEncoder
+====
+.Java
+[source,java,role="primary"]
+----
+
+// Create an encoder with strength 16
+BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(16);
+String result = encoder.encode("myPassword");
+assertTrue(encoder.matches("myPassword", result));
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+
+// Create an encoder with strength 16
+val encoder = BCryptPasswordEncoder(16)
+val result: String = encoder.encode("myPassword")
+assertTrue(encoder.matches("myPassword", result))
+----
+====
+
+`Pbkdf2PasswordEncoder` 实现使用 PBKDF2 算法对密码进行哈希处理.  为了破解密码破解,PBKDF2 是一种故意缓慢的算法,应调整为大约 0.5 秒以验证系统上的密码.
+
+
+.Pbkdf2PasswordEncoder
+====
+.Java
+[source,java,role="primary"]
+----
+// Create an encoder with all the defaults
+Pbkdf2PasswordEncoder encoder = new Pbkdf2PasswordEncoder();
+String result = encoder.encode("myPassword");
+assertTrue(encoder.matches("myPassword", result));
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+// Create an encoder with all the defaults
+val encoder = Pbkdf2PasswordEncoder()
+val result: String = encoder.encode("myPassword")
+assertTrue(encoder.matches("myPassword", result))
+----
+====

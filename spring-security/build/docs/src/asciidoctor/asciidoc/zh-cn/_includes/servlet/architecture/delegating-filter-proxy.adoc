@@ -1,0 +1,42 @@
+[[servlet-delegatingfilterproxy]]
+= DelegatingFilterProxy
+
+Spring 提供了一个名为 {security-api-url}org/springframework/web/filter/DelegatingFilterProxy.html/[`DelegatingFilterProxy`]  的 Filter 实现,该实现允许在 Servlet 容器的生命周期和 Spring 的 `ApplicationContext` 之间进行桥接.
+Servlet 容器允许使用其自己的标准注册 Filters,但它不了解 Spring 定义的 Bean.  DelegatingFilterProxy 可以通过标准的Servlet 容器机制进行注册,但是可以将所有工作委托给实现 Filter 的 Spring Bean.
+
+这是 `DelegatingFilterProxy` 如何适合 <<servlet-filters-review,``Filter`` 和  `FilterChain`>> 的图片.
+
+.DelegatingFilterProxy
+[[servlet-delegatingfilterproxy-figure]]
+image::{figures}/delegatingfilterproxy.png[]
+
+`DelegatingFilterProxy` 从 `ApplicationContext` 查找 __Bean Filter~0~__ ,然后调用  __Bean Filter~0~__.  `DelegatingFilterProxy` 的伪代码可以在下面看到.
+
+.`DelegatingFilterProxy` Pseudo Code
+====
+.Java
+[source,java,role="primary",subs="+quotes,+macros"]
+----
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+	// Lazily get Filter that was registered as a Spring Bean
+	// For the example in <<servlet-delegatingfilterproxy-figure>> `delegate` is an instance of __Bean Filter~0~__
+	Filter delegate = getFilterBean(someBeanName);
+	// delegate work to the Spring Bean
+	delegate.doFilter(request, response);
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary",subs="+quotes,+macros"]
+----
+fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
+	// Lazily get Filter that was registered as a Spring Bean
+	// For the example in <<servlet-delegatingfilterproxy-figure>> `delegate` is an instance of __Bean Filter~0~__
+	val delegate: Filter = getFilterBean(someBeanName)
+	// delegate work to the Spring Bean
+	delegate.doFilter(request, response)
+}
+----
+====
+
+`DelegatingFilterProxy` 的另一个好处是,它允许延迟查找 Filter bean 实例.  这很重要,因为容器需要在容器启动之前注册 Filter实例.  但是,Spring 通常使用 `ContextLoaderListener` 来加载 Spring Bean,直到需要注册 Filter 实例之后,Spring 才会完成.

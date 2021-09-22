@@ -19,6 +19,7 @@ public enum ProjectVersion {
     REACTOR("reactor","reactor-version","3.4.8",""),
     REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.3",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
+    HIBERNATE_ORM("hibernate-orm","hibernate-orm-version","5.5.7",""),
     SPRING_FRAMEWORK("spring-framework","spring-framework-version","5.3.6",""),
     SPRING_HATEOAS("spring-hateoas","spring-hateoas-version","1.2.5",""),
     SPRING_SECURITY("spring-security","spring-security-version","5.4.6",""),

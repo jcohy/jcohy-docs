@@ -1,0 +1,127 @@
+[[servlet-authentication-inmemory]]
+= In-Memory Authentication
+
+Spring Security 的 `InMemoryUserDetailsManager` 实现了  <<servlet-authentication-userdetailsservice,UserDetailsService>>,以支持对在内存中检索到的基于用户名/密码的身份验证.
+ `InMemoryUserDetailsManager` 通过实现 `UserDetailsManager` 接口来提供对 `UserDetails` 的管理.  当配置为<<servlet-authentication-unpwd-input,接受用户名/密码>>进行身份验证时,Spring Security 使用基于 `UserDetails` 的身份验证.
+
+在此示例中,我们使用 <<authentication-password-storage-boot-cli,Spring Boot CLI>>  对 password 的密码进行编码,并获得  `+{bcrypt}$2a$10$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW+`.
+
+.InMemoryUserDetailsManager Java 配置
+====
+.Java
+[source,java,role="primary",attrs="-attributes"]
+----
+@Bean
+public UserDetailsService users() {
+	UserDetails user = User.builder()
+		.username("user")
+		.password("{bcrypt}$2a$10$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW")
+		.roles("USER")
+		.build();
+	UserDetails admin = User.builder()
+		.username("admin")
+		.password("{bcrypt}$2a$10$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW")
+		.roles("USER", "ADMIN")
+		.build();
+	return new InMemoryUserDetailsManager(user, admin);
+}
+----
+
+.XML
+[source,xml,role="secondary",attrs="-attributes"]
+----
+<user-service>
+	<user name="user"
+		password="{bcrypt}$2a$10$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW"
+		authorities="ROLE_USER" />
+	<user name="admin"
+		password="{bcrypt}$2a$10$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW"
+		authorities="ROLE_USER,ROLE_ADMIN" />
+</user-service>
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+@Bean
+fun users(): UserDetailsService {
+    val user = User.builder()
+        .username("user")
+        .password("{bcrypt}$2a$10\$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW")
+        .roles("USER")
+        .build()
+    val admin = User.builder()
+        .username("admin")
+        .password("{bcrypt}$2a$10\$GRLdNijSQMUvl/au9ofL.eDwmoohzzS7.rmNSJZ.0FxO/BTk76klW")
+        .roles("USER", "ADMIN")
+        .build()
+    return InMemoryUserDetailsManager(user, admin)
+}
+----
+====
+
+上面的示例以安全格式存储密码,但是在入门经验方面还有很多不足.
+
+在下面的示例中,我们利用  <<authentication-password-storage-dep-getting-started,User.withDefaultPasswordEncoder>>  来确保存储在内存中的密码受到保护.  但是,它不能防止通过反编译源代码来获取密码.  因此,`User.withDefaultPasswordEncoder` 仅应用于  "入门" ,而不应用于生产.
+
+.InMemoryUserDetailsManager with User.withDefaultPasswordEncoder
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public UserDetailsService users() {
+	// The builder will ensure the passwords are encoded before saving in memory
+	UserBuilder users = User.withDefaultPasswordEncoder();
+	UserDetails user = users
+		.username("user")
+		.password("password")
+		.roles("USER")
+		.build();
+	UserDetails admin = users
+		.username("admin")
+		.password("password")
+		.roles("USER", "ADMIN")
+		.build();
+	return new InMemoryUserDetailsManager(user, admin);
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun users(): UserDetailsService {
+    // The builder will ensure the passwords are encoded before saving in memory
+    val users = User.withDefaultPasswordEncoder()
+    val user = users
+        .username("user")
+        .password("password")
+        .roles("USER")
+        .build()
+    val admin = users
+        .username("admin")
+        .password("password")
+        .roles("USER", "ADMIN")
+        .build()
+    return InMemoryUserDetailsManager(user, admin)
+}
+----
+====
+
+没有简单的方法可以将 `User.withDefaultPasswordEncoder` 与基于 XML 的配置一起使用.  对于演示或刚刚入门,您可以选择在密码前加上  `+{noop}+`  前缀,以指示 <<authentication-password-storage-dpe-format,不应使用任何编码>>.
+
+.<user-service> `+{noop}+` XML Configuration
+====
+[source,xml,attrs="-attributes"]
+----
+<user-service>
+	<user name="user"
+		password="{noop}password"
+		authorities="ROLE_USER" />
+	<user name="admin"
+		password="{noop}password"
+		authorities="ROLE_USER,ROLE_ADMIN" />
+</user-service>
+----
+====

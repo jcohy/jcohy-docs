@@ -1,0 +1,319 @@
+[[elasticsearch.query-methods]]
+= 查询方法
+
+[[elasticsearch.query-methods.finders]]
+== 查询方法查找策略
+
+Elasticsearch 模块支持所有基本的查询构建特性,如字符串查询、本地搜索查询、基于条件的查询或从方法名扩展的查询.
+
+=== 声明查询
+
+从方法名扩展的查询还远远不够,而且还可能导致不可读的方法名.在这种情况下,可以使用 `@Query` 注解(请参阅使用 <<elasticsearch.query-methods.at-query>>).
+
+[[elasticsearch.query-methods.criterions]]
+== 创建查询
+
+通常,Elasticsearch 的查询创建机制按 <<repositories.query-methods>> 中所述运行. 这是 Elasticsearch 查询方法的转换简短示例:
+
+.从方法名创建查询
+====
+[source,java]
+----
+interface BookRepository extends Repository<Book, String> {
+  List<Book> findByNameAndPrice(String name, Integer price);
+}
+----
+====
+
+上面的方法名称将被转换成以下 Elasticsearch json 查询
+
+[source]
+----
+{
+    "query": {
+        "bool" : {
+            "must" : [
+                { "query_string" : { "query" : "?", "fields" : [ "name" ] } },
+                { "query_string" : { "query" : "?", "fields" : [ "price" ] } }
+            ]
+        }
+    }
+}
+----
+
+Elasticsearch 支持的关键字列表如下.
+
+[cols="1,2,3", options="header"]
+.方法名中支持的关键字
+|===
+| 关键字
+| 示例
+| Elasticsearch Query String
+
+| `And`
+| `findByNameAndPrice`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "?", "fields" : [ "name" ] } },
+      { "query_string" : { "query" : "?", "fields" : [ "price" ] } }
+    ]
+  }
+}}`
+
+| `Or`
+| `findByNameOrPrice`
+| `{ "query" : {
+"bool" : {
+"should" : [
+      { "query_string" : { "query" : "?", "fields" : [ "name" ] } },
+      { "query_string" : { "query" : "?", "fields" : [ "price" ] } }
+    ]
+  }
+}}`
+
+| `Is`
+| `findByName`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "?", "fields" : [ "name" ] } }
+    ]
+  }
+}}`
+
+| `Not`
+| `findByNameNot`
+| `{ "query" : {
+"bool" : {
+"must_not" : [
+      { "query_string" : { "query" : "?", "fields" : [ "name" ] } }
+    ]
+  }
+}}`
+
+| `Between`
+| `findByPriceBetween`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : ?, "to" : ?, "include_lower" : true, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+| `LessThan`
+| `findByPriceLessThan`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : null, "to" : ?, "include_lower" : true, "include_upper" : false } } }
+    ]
+  }
+}}`
+
+| `LessThanEqual`
+| `findByPriceLessThanEqual`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : null, "to" : ?, "include_lower" : true, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+| `GreaterThan`
+| `findByPriceGreaterThan`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : ?, "to" : null, "include_lower" : false, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+
+| `GreaterThanEqual`
+| `findByPriceGreaterThan`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : ?, "to" : null, "include_lower" : true, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+| `Before`
+| `findByPriceBefore`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : null, "to" : ?, "include_lower" : true, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+| `After`
+| `findByPriceAfter`
+| `{ "query" : {
+"bool" : {
+"must" : [
+    {"range" : {"price" : {"from" : ?, "to" : null, "include_lower" : true, "include_upper" : true } } }
+    ]
+  }
+}}`
+
+| `Like`
+| `findByNameLike`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "?*", "fields" : [ "name" ] }, "analyze_wildcard": true }
+    ]
+  }
+}}`
+
+| `StartingWith`
+| `findByNameStartingWith`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "?*", "fields" : [ "name" ] }, "analyze_wildcard": true }
+    ]
+  }
+}}`
+
+| `EndingWith`
+| `findByNameEndingWith`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "*?", "fields" : [ "name" ] }, "analyze_wildcard": true }
+    ]
+  }
+}}`
+
+| `Contains/Containing`
+| `findByNameContaining`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "\*?*", "fields" : [ "name" ] }, "analyze_wildcard": true }
+    ]
+  }
+}}`
+
+| `In` (when annotated as FieldType.Keyword)
+| `findByNameIn(Collection<String>names)`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      {"bool" : {"must" : [
+            {"terms" : {"name" : ["?","?"]}}
+          ]
+        }
+      }
+    ]
+  }
+}}`
+
+
+| `In`
+| `findByNameIn(Collection<String>names)`
+| `{ "query": {"bool": {"must": [{"query_string":{"query": "\"?\" \"?\"", "fields": ["name"]}}]}}}`
+
+| `NotIn`  (when annotated as FieldType.Keyword)
+| `findByNameNotIn(Collection<String>names)`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      {"bool" : {"must_not" : [
+            {"terms" : {"name" : ["?","?"]}}
+          ]
+        }
+      }
+    ]
+  }
+}}`
+
+| `NotIn`
+| `findByNameNotIn(Collection<String>names)`
+| `{"query": {"bool": {"must": [{"query_string": {"query": "NOT(\"?\" \"?\")", "fields": ["name"]}}]}}}`
+
+| `Near`
+| `findByStoreNear`
+| `Not Supported Yet !`
+
+| `True`
+| `findByAvailableTrue`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "true", "fields" : [ "available" ] } }
+    ]
+  }
+}}`
+
+| `False`
+| `findByAvailableFalse`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "false", "fields" : [ "available" ] } }
+    ]
+  }
+}}`
+
+| `OrderBy`
+| `findByAvailableTrueOrderByNameDesc`
+| `{ "query" : {
+"bool" : {
+"must" : [
+      { "query_string" : { "query" : "true", "fields" : [ "available" ] } }
+    ]
+  }
+}, "sort":[{"name":{"order":"desc"}}]
+}`
+
+|===
+
+NOTE: 不支持使用 `GeoJson` 参数构建 Geo-shape 查询的方法名称.
+如果需要在存储库中具有这样的功能,  请在自定义存储库实现中将 `ElasticsearchOperations` 与 `CriteriaQuery` 一起使用.
+
+== 方法返回类型
+
+Repository 可以定义为以下类型来返回多个元素:
+
+* `List<T>`
+* `Stream<T>`
+* `SearchHits<T>`
+* `List<SearchHit<T>>`
+* `Stream<SearchHit<T>>`
+* `SearchPage<T>`
+
+[[elasticsearch.query-methods.at-query]]
+== 使用 @Query 注解
+
+.在方法上使用 `@Query` 注解声明查询.
+====
+[source,java]
+----
+interface BookRepository extends ElasticsearchRepository<Book, String> {
+    @Query("{\"match\": {\"name\": {\"query\": \"?0\"}}}")
+    Page<Book> findByName(String name,Pageable pageable);
+}
+----
+注解参数 String 必须是一个有效的 Elasticsearch JSON 查询.它将会作为 query 元素的 value 发送到 Elasticsearch 中;  例如,如果使用参数 _John_ 调用该函数,它将产生以下查询内容:
+[source,json]
+----
+{
+  "query": {
+    "match": {
+      "name": {
+        "query": "John"
+      }
+    }
+  }
+}
+----
+====

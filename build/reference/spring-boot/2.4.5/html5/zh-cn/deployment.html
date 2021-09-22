@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Asciidoctor 2.0.12">
+<title>部署 Spring Boot 应用程序</title>
+<link rel="stylesheet" href="css/site.css">
+<script src="js/setup.js"></script><script defer src="js/site.js"></script>
+
+</head>
+<body id="deployment" class="book toc2 toc-left"><div id="banner-container" class="container" role="banner">
+  <div id="banner" class="contained" role="banner">
+    <div id="switch-theme">
+      <input type="checkbox" id="switch-theme-checkbox" />
+      <label for="switch-theme-checkbox">Dark Theme</label>
+    </div>
+  </div>
+</div>
+<div id="tocbar-container" class="container" role="navigation">
+  <div id="tocbar" class="contained" role="navigation">
+    <button id="toggle-toc"></button>
+  </div>
+</div>
+<div id="main-container" class="container">
+  <div id="main" class="contained">
+    <div id="doc" class="doc">
+<div id="header">
+<h1>部署 Spring Boot 应用程序</h1>
+<div id="toc" class="toc2">
+<div id="toctitle">Table of Contents</div>
+<span id="back-to-index"><a href="index.html">Back to index</a></span><ul class="sectlevel1">
+<li><a href="#containers-deployment">1. 打包成容器</a></li>
+<li><a href="#cloud-deployment">2. 部署到云端</a>
+<ul class="sectlevel2">
+<li><a href="#cloud-deployment-cloud-foundry">2.1. Cloud Foundry</a>
+<ul class="sectlevel3">
+<li><a href="#cloud-deployment-cloud-foundry-services">2.1.1. 绑定到服务</a></li>
+</ul>
+</li>
+<li><a href="#cloud-deployment-kubernetes">2.2. Kubernetes</a>
+<ul class="sectlevel3">
+<li><a href="#cloud-deployment-kubernetes-container-lifecycle">2.2.1. Kubernetes 容器生命周期</a></li>
+</ul>
+</li>
+<li><a href="#cloud-deployment-heroku">2.3. Heroku</a></li>
+<li><a href="#cloud-deployment-openshift">2.4. OpenShift</a></li>
+<li><a href="#cloud-deployment-aws">2.5. Amazon Web Services (AWS)</a>
+<ul class="sectlevel3">
+<li><a href="#aws-elastic-beanstalk">2.5.1. AWS Elastic Beanstalk</a>
+<ul class="sectlevel4">
+<li><a href="#使用-tomcat-平台">使用 Tomcat 平台</a></li>
+<li><a href="#使用-java-se-平台">使用 Java SE 平台</a></li>
+</ul>
+</li>
+<li><a href="#简介">2.5.2. 简介</a></li>
+</ul>
+</li>
+<li><a href="#cloud-deployment-boxfuse">2.6. Boxfuse 和 Amazon Web Services</a></li>
+<li><a href="#cloud-deployment-gae">2.7. Google Cloud</a></li>
+</ul>
+</li>
+<li><a href="#deployment-install">3. 安装 Spring Boot 应用程序</a>
+<ul class="sectlevel2">
+<li><a href="#deployment-install-supported-operating-systems">3.1. 支持的操作系统</a></li>
+<li><a href="#deployment-service">3.2. Unix/Linux 服务</a>
+<ul class="sectlevel3">
+<li><a href="#deployment-initd-service">3.2.1. 作为 init.d 服务安装 (系统V)</a>
+<ul class="sectlevel4">
+<li><a href="#deployment-initd-service-securing">保护 init.d 服务</a></li>
+</ul>
+</li>
+<li><a href="#deployment-systemd-service">3.2.2. 作为 systemd 服务安装</a></li>
+<li><a href="#deployment-script-customization">3.2.3. 自定义启动脚本</a>
+<ul class="sectlevel4">
+<li><a href="#deployment-script-customization-when-it-written">编写后自定义启动脚本</a></li>
+<li><a href="#deployment-script-customization-when-it-runs">运行时自定义脚本</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#deployment-windows">3.3. Microsoft Windows 服务</a></li>
+</ul>
+</li>
+<li><a href="#deployment-whats-next">4. 下一步</a></li>
+</ul>
+</div>
+</div>
+<div id="content">
+<div id="preamble">
+<div class="sectionbody">
+<div class="paragraph">
+<p>Spring Boot 的灵活打包选项在部署应用程序时提供了很多选择.  您可以将 Spring Boot 应用程序部署到各种云平台,容器镜像 (例如Docker) 或虚拟机/真实机上.</p>
+</div>
+<div class="paragraph">
+<p>本节介绍一些更常见的部署方案.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="containers-deployment"><a class="anchor" href="#containers-deployment"></a>1. 打包成容器</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>如果从容器中运行应用程序,则可以使用可执行 jar,但是将其爆炸并以其他方式运行通常也是一个优点.  某些 PaaS 实施也可能选择在运行存档之前将其解压缩.  例如,Cloud Foundry 以这种方式运行.  运行解压缩存档的最简单方法是启动相应的启动器,如下所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ jar -xf myapp.jar
+$ java org.springframework.boot.loader.JarLauncher</pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+在应用程序的 main 方法上使用 <code>JarLauncher</code> 可以预测类路径加载顺序. 该 jar 包含一个 <code>classpath.idx</code> 文件,该文件由 <code>JarLauncher</code> 在构造类路径时使用.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>还可以通过为依赖以及应用程序类和资源 (通常会更频繁地更改) <a href="spring-boot-features.html#boot-features-container-images-docker">creating separate layers</a> 来创建更有效的容器镜像.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="cloud-deployment"><a class="anchor" href="#cloud-deployment"></a>2. 部署到云端</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Spring Boot 的可执行 jar 已为大多数流行的云 PaaS (平台即服务) 提供商提供.  这些提供程序往往要求您 "自带容器".  他们管理应用程序流程 (不是专门用于 Java 应用程序) ,因此他们需要一个中间层,以使您的应用程序适应云中正在运行的流程的概念.</p>
+</div>
+<div class="paragraph">
+<p>两家受欢迎的云提供商,Heroku 和 Cloud Foundry,采用了 &#8220;buildpack&#8221; 方法.  buildpack 将部署的代码包装在启动应用程序所需的任何内容中.  它可能是 JDK,可能是对 <code>Java</code>,嵌入式 Web 服务器或成熟的应用程序服务器的调用.
+一个 buildpack 是可插入的,但是理想情况下,您应该能够通过尽可能少的自定义来获得它.  这减少了您无法控制的功能的占用空间.  它使开发和生产环境之间的差异最小化.</p>
+</div>
+<div class="paragraph">
+<p>理想情况下,您的应用程序像 Spring Boot 可执行 jar 一样,具有打包运行所需的一切.</p>
+</div>
+<div class="paragraph">
+<p>在本节中,我们研究如何使在 &#8220;Getting Started&#8221; 部分中开发的<a href="getting-started.html#getting-started-first-application">简单应用程序</a>启动并在云中运行.</p>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-cloud-foundry"><a class="anchor" href="#cloud-deployment-cloud-foundry"></a>2.1. Cloud Foundry</h3>
+<div class="paragraph">
+<p>如果未指定其他构建包,Cloud Foundry 将提供默认的构建包.  Cloud Foundry <a href="https://github.com/cloudfoundry/java-buildpack">Java buildpack</a> 对 Spring 应用程序 (包括Spring Boot) 提供了出色的支持.  您可以部署独立的可执行 jar 应用程序以及传统的 <code>.war</code> 打包应用程序.</p>
+</div>
+<div class="paragraph">
+<p>一旦构建了应用程序 (例如,使用 <code>mvn clean package</code>) 并 <a href="https://docs.cloudfoundry.org/cf-cli/install-go-cli.html">安装了 cf 命令行工具</a>,就可以使用 <code>cf push</code> 命令部署应用程序,并替换已编译的 <code>.jar</code> 的路径.
+推送应用程序之前,请确保已使用 <a href="https://docs.cloudfoundry.org/cf-cli/getting-started.html#login"><code>cf</code> 命令行客户端登录</a>.  下面的行显示了使用 <code>cf push</code> 命令部署应用程序:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ cf push acloudyspringtime -p target/demo-0.0.1-SNAPSHOT.jar</pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+在前面的示例中,我们用 <code>acloudyspringtime</code> 替换您给cf作为应用程序名称的任何值.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>有关更多选项,请参阅 <a href="https://docs.cloudfoundry.org/cf-cli/getting-started.html#push"><code>cf push</code> 文档</a>.  如果在同一目录中存在 Cloud Foundry <a href="https://docs.cloudfoundry.org/devguide/deploy-apps/manifest.html"><code>manifest.yml</code></a> 文件,则将其考虑.</p>
+</div>
+<div class="paragraph">
+<p>此时,cf 开始上载您的应用程序,产生类似于以下示例的输出:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>Uploading acloudyspringtime... <strong>OK</strong>
+Preparing to start acloudyspringtime... <strong>OK</strong>
+-----&gt; Downloaded app package (<strong>8.9M</strong>)
+-----&gt; Java Buildpack Version: v3.12 (offline) | https://github.com/cloudfoundry/java-buildpack.git#6f25b7e
+-----&gt; Downloading Open Jdk JRE 1.8.0_121 from https://java-buildpack.cloudfoundry.org/openjdk/trusty/x86_64/openjdk-1.8.0_121.tar.gz (found in cache)
+       Expanding Open Jdk JRE to .java-buildpack/open_jdk_jre (1.6s)
+-----&gt; Downloading Open JDK Like Memory Calculator 2.0.2_RELEASE from https://java-buildpack.cloudfoundry.org/memory-calculator/trusty/x86_64/memory-calculator-2.0.2_RELEASE.tar.gz (found in cache)
+       Memory Settings: -Xss349K -Xmx681574K -XX:MaxMetaspaceSize=104857K -Xms681574K -XX:MetaspaceSize=104857K
+-----&gt; Downloading Container Certificate Trust Store 1.0.0_RELEASE from https://java-buildpack.cloudfoundry.org/container-certificate-trust-store/container-certificate-trust-store-1.0.0_RELEASE.jar (found in cache)
+       Adding certificates to .java-buildpack/container_certificate_trust_store/truststore.jks (0.6s)
+-----&gt; Downloading Spring Auto Reconfiguration 1.10.0_RELEASE from https://java-buildpack.cloudfoundry.org/auto-reconfiguration/auto-reconfiguration-1.10.0_RELEASE.jar (found in cache)
+Checking status of app 'acloudyspringtime'...
+  0 of 1 instances running (1 starting)
+  ...
+  0 of 1 instances running (1 starting)
+  ...
+  0 of 1 instances running (1 starting)
+  ...
+  1 of 1 instances running (1 running)
+
+App started</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>恭喜你！ 该应用程序现已上线！</p>
+</div>
+<div class="paragraph">
+<p>应用程序上线后,可以使用 <code>cf apps</code> 命令验证已部署应用程序的状态,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ cf apps
+Getting applications in ...
+OK
+
+name                 requested state   instances   memory   disk   urls
+...
+acloudyspringtime    started           1/1         512M     1G     acloudyspringtime.cfapps.io
+...</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>一旦 Cloud Foundry 确认已部署了您的应用程序,您就应该能够在给定的URI上找到该应用程序.  在前面的示例中,您可以在  <code>https://acloudyspringtime.cfapps.io/</code> 上找到它.</p>
+</div>
+<div class="sect3">
+<h4 id="cloud-deployment-cloud-foundry-services"><a class="anchor" href="#cloud-deployment-cloud-foundry-services"></a>2.1.1. 绑定到服务</h4>
+<div class="paragraph">
+<p>默认情况下,有关正在运行的应用程序的元数据以及服务连接信息作为环境变量 (例如: <code>$VCAP_SERVICES</code>) 暴露给应用程序.  该架构决定是由于 Cloud Foundry 的多语言 (可以将任何语言和平台支持为 buildpack) 所决定的.  过程范围的环境变量与语言无关.</p>
+</div>
+<div class="paragraph">
+<p>环境变量并非总是使用最简单的 API,因此 Spring Boot 会自动提取它们并将数据平整为可通过Spring的 <code>Environment</code> 抽象访问的属性,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-java" data-lang="java">@Component
+class MyBean implements EnvironmentAware {
+
+    private String instanceId;
+
+    @Override
+    public void setEnvironment(Environment environment) {
+        this.instanceId = environment.getProperty("vcap.application.instance_id");
+    }
+
+    // ...
+
+}
+</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>所有 Cloud Foundry 属性均以 <code>vcap</code> 为前缀.  您可以使用 <code>vcap</code> 属性来访问应用程序信息 (例如,应用程序的公共 URL) 和服务信息 (例如,数据库凭据) .  有关完整的详细信息,请参见 <a href="https://docs.spring.io/spring-boot/docs/2.4.5/api//org/springframework/boot/cloud/CloudFoundryVcapEnvironmentPostProcessor.html">&#8216;CloudFoundryVcapEnvironmentPostProcessor&#8217;</a> Javadoc.</p>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+<a href="https://github.com/pivotal-cf/java-cfenv/">Java CFEnv</a> 项目更适合诸如配置数据源之类的任务.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-kubernetes"><a class="anchor" href="#cloud-deployment-kubernetes"></a>2.2. Kubernetes</h3>
+<div class="paragraph">
+<p>Spring Boot 通过检查环境中的 <code>"*_SERVICE_HOST"</code> 和 <code>"*_SERVICE_PORT"</code> 变量来自动检测 Kubernetes 部署环境. 您可以使用  configprop:spring.main.cloud-platform[] 配置属性覆盖此检测.</p>
+</div>
+<div class="paragraph">
+<p>Spring Boot 帮助您<a href="spring-boot-features.html#boot-features-application-availability">管理应用程序的状态</a>,并<a href="production-ready-features.html#production-ready-kubernetes-probes">使用 Actuator 通过 HTTP Kubernetes 探针</a>将其导出.</p>
+</div>
+<div class="sect3">
+<h4 id="cloud-deployment-kubernetes-container-lifecycle"><a class="anchor" href="#cloud-deployment-kubernetes-container-lifecycle"></a>2.2.1. Kubernetes 容器生命周期</h4>
+<div class="paragraph">
+<p>当 Kubernetes 删除应用程序实例时,关机过程会同时涉及多个子系统: shutdown hooks,注销服务,将实例从负载均衡器中删除&#8230;&#8203; 因为这些关机进程并行发生 (并且由于分布式系统的性质) , 有一个窗口,在此期间可以将流量路由到也已开始其关闭处理的 Pod.</p>
+</div>
+<div class="paragraph">
+<p>您可以在 preStop 处理程序中配置睡眠执行,以避免将请求路由到已经开始关闭的 Pod. 此睡眠时间应足够长,以使新请求停止路由到 Pod,并且其持续时间因部署而异. 可以通过 pod 配置文件中的 PodSpec 来配置 preStop 处理程序,如下所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-yml" data-lang="yml">spec:
+  containers:
+  - name: example-container
+    image: example-image
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sh", "-c", "sleep 10"]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>一旦停止前挂钩完成,SIGTERM 将 被发送到容器,并且将 <a href="spring-boot-features.html#boot-features-graceful-shutdown">正常关机</a>,从而允许完成所有剩余的运行中请求.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-heroku"><a class="anchor" href="#cloud-deployment-heroku"></a>2.3. Heroku</h3>
+<div class="paragraph">
+<p>Herokui 是另一个流行的 PaaS 平台.  要自定义 Heroku 构建,您需要提供一个 <code>Procfile</code>,该文件提供了部署应用程序所需的内容.   Heroku 为 Java 应用程序分配了一个要使用的 <code>port</code> ,然后确保可以路由到外部URI.</p>
+</div>
+<div class="paragraph">
+<p>您必须配置您的应用程序以监听正确的端口.  以下示例显示了我们的入门 REST 应用程序的 <code>Procfile</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>web: java -Dserver.port=$PORT -jar target/demo-0.0.1-SNAPSHOT.jar</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Spring Boot 使 <code>-D</code> 参数成为可从Spring <code>Environment</code> 实例访问的属性.  <code>server.port</code> 配置属性被馈送到嵌入式Tomcat,Jetty  或 Undertow 实例,然后在启动时使用该端口.  <code>$PORT</code> 环境变量是由 Heroku PaaS 分配给我们的.</p>
+</div>
+<div class="paragraph">
+<p>这应该是您需要的一切.  Heroku 部署最常见的部署工作流程是  <code>git push</code> 将代码推送生产环境,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ git push heroku master
+
+Initializing repository, <strong>done</strong>.
+Counting objects: 95, <strong>done</strong>.
+Delta compression using up to 8 threads.
+Compressing objects: 100% (78/78), <strong>done</strong>.
+Writing objects: 100% (95/95), 8.66 MiB | 606.00 KiB/s, <strong>done</strong>.
+Total 95 (delta 31), reused 0 (delta 0)
+
+-----&gt; Java app detected
+-----&gt; Installing OpenJDK 1.8... <strong>done</strong>
+-----&gt; Installing Maven 3.3.1... <strong>done</strong>
+-----&gt; Installing settings.xml... <strong>done</strong>
+-----&gt; Executing: mvn -B -DskipTests=true clean install
+
+       [INFO] Scanning for projects...
+       Downloading: https://repo.spring.io/...
+       Downloaded: https://repo.spring.io/... (818 B at 1.8 KB/sec)
+        ....
+       Downloaded: https://s3pository.heroku.com/jvm/... (152 KB at 595.3 KB/sec)
+       [INFO] Installing /tmp/build_0c35a5d2-a067-4abc-a232-14b1fb7a8229/target/...
+       [INFO] Installing /tmp/build_0c35a5d2-a067-4abc-a232-14b1fb7a8229/pom.xml ...
+       [INFO] ------------------------------------------------------------------------
+       [INFO] <strong>BUILD SUCCESS</strong>
+       [INFO] ------------------------------------------------------------------------
+       [INFO] Total time: 59.358s
+       [INFO] Finished at: Fri Mar 07 07:28:25 UTC 2014
+       [INFO] Final Memory: 20M/493M
+       [INFO] ------------------------------------------------------------------------
+
+-----&gt; Discovering process types
+       Procfile declares types -&gt; <strong>web</strong>
+
+-----&gt; Compressing... <strong>done</strong>, 70.4MB
+-----&gt; Launching... <strong>done</strong>, v6
+       https://agile-sierra-1405.herokuapp.com/ <strong>deployed to Heroku</strong>
+
+To git@heroku.com:agile-sierra-1405.git
+ * [new branch]      master -&gt; master</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>您的应用程序现在应该已经在 Heroku 上启动并运行了.  有关更多详细信息,请参阅将Spring Boot <a href="https://devcenter.heroku.com/articles/deploying-spring-boot-apps-to-heroku">应用程序部署到 Heroku</a>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-openshift"><a class="anchor" href="#cloud-deployment-openshift"></a>2.4. OpenShift</h3>
+<div class="paragraph">
+<p><a href="https://www.openshift.com/">OpenShift</a> 是 Kubernetes 容器编排平台的 Red Hat 公共 (和企业) 扩展.  与 Kubernetes 相似,OpenShift 具有许多用于安装基于 Spring Boot 的应用程序的选项.</p>
+</div>
+<div class="paragraph">
+<p>OpenShift 提供了许多资源来描述如何部署 Spring Boot 应用程序,包括:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://blog.openshift.com/using-openshift-enterprise-grade-spring-boot-deployments/">使用S2I构建器</a></p>
+</li>
+<li>
+<p><a href="https://access.redhat.com/documentation/en-us/reference_architectures/2017/html-single/spring_boot_microservices_on_red_hat_openshift_container_platform_3/">Architecture 指南</a></p>
+</li>
+<li>
+<p><a href="https://blog.openshift.com/using-spring-boot-on-openshift/">在Wildfly上作为传统的Web应用程序运行</a></p>
+</li>
+<li>
+<p><a href="https://blog.openshift.com/openshift-commons-briefing-96-cloud-native-applications-spring-rhoar/">OpenShift 公共简报</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-aws"><a class="anchor" href="#cloud-deployment-aws"></a>2.5. Amazon Web Services (AWS)</h3>
+<div class="paragraph">
+<p>Amazon Web Services 提供了多种安装基于 Spring Boot 的应用程序的方式,既可以作为传统的 Web 应用程序 (war) ,也可以作为具有嵌入式 Web 服务器的可执行 jar 文件安装.  选项包括:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>AWS Elastic Beanstalk</p>
+</li>
+<li>
+<p>AWS Code Deploy</p>
+</li>
+<li>
+<p>AWS OPS Works</p>
+</li>
+<li>
+<p>AWS Cloud Formation</p>
+</li>
+<li>
+<p>AWS Container Registry</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>每个都有不同的功能和定价模型.  在本文档中,我们仅描述最简单的选项: AWS Elastic Beanstalk.</p>
+</div>
+<div class="sect3">
+<h4 id="aws-elastic-beanstalk"><a class="anchor" href="#aws-elastic-beanstalk"></a>2.5.1. AWS Elastic Beanstalk</h4>
+<div class="paragraph">
+<p>如官方的 <a href="https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/create_deploy_Java.html">Elastic Beanstalk Java 指南</a> 中所述,部署Java应用程序有两个主要选项.  您可以使用 &#8220;Tomcat Platform&#8221; 或 &#8220;Java SE platform&#8221;.</p>
+</div>
+<div class="sect4">
+<h5 id="使用-tomcat-平台"><a class="anchor" href="#使用-tomcat-平台"></a>使用 Tomcat 平台</h5>
+<div class="paragraph">
+<p>该选项适用于产生 war 文件的 Spring Boot 项目.  无需特殊配置.  您只需要遵循官方指南即可.</p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="使用-java-se-平台"><a class="anchor" href="#使用-java-se-平台"></a>使用 Java SE 平台</h5>
+<div class="paragraph">
+<p>此选项适用于产生 jar 文件并运行嵌入式 Web 容器的 Spring Boot 项目.  Elastic Beanstalk 环境在端口 80 上运行 nginx 实例来代理在端口 5000 上运行的实际应用程序. 要对其进行配置,请将以下行添加到 <code>application.properties</code> 文件:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>server.port=5000</pre>
+</div>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+<div class="title">上传二进制文件而不是源文件</div>
+<div class="paragraph">
+<p>默认情况下,Elastic Beanstalk 上传源码并在 AWS 中进行编译.  但是,最好改为上传二进制文件.  为此,请在 <code>.elasticbeanstalk/config.yml</code> 文件中添加类似于以下内容的行:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-xml" data-lang="xml">deploy:
+    artifact: target/demo-0.0.1-SNAPSHOT.jar</code></pre>
+</div>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+<div class="title">通过设置环境类型来降低成本</div>
+<div class="paragraph">
+<p>默认情况下,Elastic Beanstalk 环境是负载平衡的.  负载均衡器的成本很高.  为避免该费用,请按照 <a href="https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-create-wizard.html#environments-create-wizard-capacity">Amazon文档中</a> 的说明将环境类型设置为  &#8220;Single instance&#8221;.  您还可以使用CLI和以下命令来创建单实例环境:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>eb create -s</pre>
+</div>
+</div>
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="简介"><a class="anchor" href="#简介"></a>2.5.2. 简介</h4>
+<div class="paragraph">
+<p>这是使用 AWS 的最简单方法之一,但还有更多内容需要介绍,例如如何将 Elastic Beanstalk 集成到任何 CI/CD 工具中,如何使用Elastic Beanstalk Maven 插件而不是 CLI 等等.  有一篇 <a href="https://exampledriven.wordpress.com/2017/01/09/spring-boot-aws-elastic-beanstalk-example/">博客文章</a> 详细介绍了这些主题.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-boxfuse"><a class="anchor" href="#cloud-deployment-boxfuse"></a>2.6. Boxfuse 和 Amazon Web Services</h3>
+<div class="paragraph">
+<p><a href="https://boxfuse.com/">Boxfuse</a> 的工作原理是将您的 Spring Boot 可执行 jar 或 war 变成一个最小的 VM 镜像,该镜像可以在 VirtualBox 或 AWS 上不变地部署.  Boxfuse 与 Spring Boot 进行了深度集成,并使用 Spring Boot 配置文件中的信息自动配置端口和运行状况检查URL.  Boxfuse 在生成的镜像以及它提供的所有资源 (实例,安全组,弹性负载均衡器等) 中都利用了此信息.</p>
+</div>
+<div class="paragraph">
+<p>创建 <a href="https://console.boxfuse.com">Boxfuse  帐户</a>,将其连接到您的 AWS 帐户,安装 Boxfuse Client 的最新版本,并确保该应用程序已由 Maven 或 Gradle 构建 (通过使用例如 <code>mvn clean package</code>) 后,您可以 使用与以下类似的命令将您的Spring Boot应用程序部署到AWS:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ boxfuse run myapp-1.0.jar -env=prod</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>有关更多选项,请参见 <a href="https://boxfuse.com/docs/commandline/run.html"><code>boxfuse run</code> 文档</a>.  如果当前目录中存在 <a href="https://boxfuse.com/docs/commandline/#configuration"><code>boxfuse.conf</code></a>  文件,则将其考虑.</p>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+默认情况下,Boxfuse 在启动时会激活一个名为 <code>boxfuse</code> 的 Spring 配置文件.  如果您的可执行 jar 或 war 包含  <a href="https://boxfuse.com/docs/payloads/springboot.html#configuration"><code>application-boxfuse.properties</code></a>  文件,则 Boxfuse 的配置将基于其包含的属性.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>此时,<code>boxfuse</code> 为您的应用程序创建一个镜像,然后上传该镜像,并在 AWS 上配置和启动必要的资源,其输出类似于以下示例:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>Fusing Image for myapp-1.0.jar ...
+Image fused in 00:06.838s (53937 K) -&gt; axelfontaine/myapp:1.0
+Creating axelfontaine/myapp ...
+Pushing axelfontaine/myapp:1.0 ...
+Verifying axelfontaine/myapp:1.0 ...
+Creating Elastic IP ...
+Mapping myapp-axelfontaine.boxfuse.io to 52.28.233.167 ...
+Waiting for AWS to create an AMI for axelfontaine/myapp:1.0 in eu-central-1 (this may take up to 50 seconds) ...
+AMI created in 00:23.557s -&gt; ami-d23f38cf
+Creating security group boxfuse-sg_axelfontaine/myapp:1.0 ...
+Launching t2.micro instance of axelfontaine/myapp:1.0 (ami-d23f38cf) in eu-central-1 ...
+Instance launched in 00:30.306s -&gt; i-92ef9f53
+Waiting for AWS to boot Instance i-92ef9f53 and Payload to start at https://52.28.235.61/ ...
+Payload started in 00:29.266s -&gt; https://52.28.235.61/
+Remapping Elastic IP 52.28.233.167 to i-92ef9f53 ...
+Waiting 15s for AWS to complete Elastic IP Zero Downtime transition ...
+Deployment completed successfully. axelfontaine/myapp:1.0 is up and running at https://myapp-axelfontaine.boxfuse.io/</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>您的应用程序现在应该已启动并在 AWS 上运行.</p>
+</div>
+<div class="paragraph">
+<p>请参阅有关在 <a href="https://boxfuse.com/blog/spring-boot-ec2.html">EC2上部署Spring Boot应用程序</a> 的博客文章以及 <a href="https://boxfuse.com/docs/payloads/springboot.html">Boxfuse Spring Boot集成的文档</a> ,以开始使用 Maven 构建来运行该应用程序.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cloud-deployment-gae"><a class="anchor" href="#cloud-deployment-gae"></a>2.7. Google Cloud</h3>
+<div class="paragraph">
+<p>Google Cloud 有多个选项可用于启动 Spring Boot 应用程序.  最容易上手的可能是 App Engine,但您也可以找到在 Container Engine 的容器中或 Compute Engine 的虚拟机上运行 Spring Boot 的方法.</p>
+</div>
+<div class="paragraph">
+<p>要在 App Engine 中运行,您可以先在用户界面中创建一个项目,该项目将为您设置一个唯一的标识符,并还设置 HTTP 路由.  将 Java 应用程序添加到项目中,并将其保留为空,然后使用  <a href="https://cloud.google.com/sdk/install">Google Cloud SDK</a> 从命令行或 CI 构建将 Spring Boot 应用程序推送到该插槽中.</p>
+</div>
+<div class="paragraph">
+<p>App Engine Standard 要求您使用 WAR 包装.  请按照 <a href="https://github.com/GoogleCloudPlatform/java-docs-samples/tree/master/appengine-java8/springboot-helloworld/README.md">这些步骤</a>  将 App Engine 标准应用程序部署到 Google Cloud.</p>
+</div>
+<div class="paragraph">
+<p>另外,App Engine Flex 要求您创建一个 <code>app.yaml</code> 文件来描述您的应用程序所需的资源.  通常,您将此文件放在 <code>src/main/appengine</code> 中,它应类似于以下文件:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-yaml" data-lang="yaml">service: default
+
+runtime: java
+env: flex
+
+runtime_config:
+  jdk: openjdk8
+
+handlers:
+- url: /.*
+  script: this field is required, but ignored
+
+manual_scaling:
+  instances: 1
+
+health_check:
+  enable_health_check: False
+
+env_variables:
+  ENCRYPT_KEY: your_encryption_key_here</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>您可以通过将项目 ID 添加到构建配置中来部署应用程序 (例如,使用 Maven 插件) ,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-xml" data-lang="xml">&lt;plugin&gt;
+    &lt;groupId&gt;com.google.cloud.tools&lt;/groupId&gt;
+    &lt;artifactId&gt;appengine-maven-plugin&lt;/artifactId&gt;
+    &lt;version&gt;1.3.0&lt;/version&gt;
+    &lt;configuration&gt;
+        &lt;project&gt;myproject&lt;/project&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>然后使用  <code>mvn appengine:deploy</code> 进行部署 (如果您需要先进行身份验证,则构建会失败) .</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deployment-install"><a class="anchor" href="#deployment-install"></a>3. 安装 Spring Boot 应用程序</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>除了使用 <code>java -jar</code> 运行 Spring Boot 应用程序之外,还可以为 Unix 系统制作完全可执行的应用程序.  完全可执行的 jar 可以像其他可执行二进制文件一样执行,也可以在 <a href="#deployment-service"><code>init.d</code> 或 <code>systemd</code> 中注册</a>.  这使得在普通生产环境中安装和管理 Spring Boot 应用程序变得非常容易.</p>
+</div>
+<div class="admonitionblock caution">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-caution" title="Caution"></i>
+</td>
+<td class="content">
+完全可执行的 jar 通过将额外的脚本嵌入文件的开头来工作.  当前,某些工具不接受此格式,因此您可能无法始终使用此技术.  例如,<code>jar -xf</code> 可能在无提示的情况下无法提取出已完全可执行的 jar 或 war.
+建议仅当您打算直接执行 jar 或 war 时才使其完全可执行,而不是使用 <code>java -jar</code> 来运行它或将其部署到 servlet 容器中.
+</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock caution">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-caution" title="Caution"></i>
+</td>
+<td class="content">
+不能使 zip64 格式的 jar 文件完全可执行.  尝试这样做将导致直接或使用 <code>java -jar</code> 执行时将 jar 文件报告为已损坏.  包含一个或多个 zip64 格式嵌套 jar 的标准格式 jar 文件可以完全执行.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>要使用 Maven 创建 &#8220;完全可执行&#8221; 的 jar,请使用以下插件配置:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-xml" data-lang="xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-maven-plugin&lt;/artifactId&gt;
+    &lt;configuration&gt;
+        &lt;executable&gt;true&lt;/executable&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>以下示例显示了等效的 Gradle 配置:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-groovy" data-lang="groovy">bootJar {
+    launchScript()
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>然后,您可以通过输入 <code>./my-application.jar</code> (其中 <code>my-application</code> 是 artifacts 的名称) 来运行您的应用程序.  包含 jar 的目录用作应用程序的工作目录.</p>
+</div>
+<div class="sect2">
+<h3 id="deployment-install-supported-operating-systems"><a class="anchor" href="#deployment-install-supported-operating-systems"></a>3.1. 支持的操作系统</h3>
+<div class="paragraph">
+<p>默认脚本支持大多数 Linux 发行版,并已在 CentOS 和 Ubuntu 上进行了测试.  其他平台,例如 OS X 和 FreeBSD,则需要使用自定义的 <code>EmbeddedLaunchScript</code>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deployment-service"><a class="anchor" href="#deployment-service"></a>3.2. Unix/Linux 服务</h3>
+<div class="paragraph">
+<p>通过使用 <code>init.d</code> 或 <code>systemd</code>,可以轻松地将 Spring Boot 应用程序作为 <code>Unix/Linux</code> 服务启动.</p>
+</div>
+<div class="sect3">
+<h4 id="deployment-initd-service"><a class="anchor" href="#deployment-initd-service"></a>3.2.1. 作为 init.d 服务安装 (系统V)</h4>
+<div class="paragraph">
+<p>如果您将 Spring Boot 的 Maven 或 Gradle 插件配置为生成<a href="#deployment-install">完全可执行的 jar</a>,并且不使用自定义的 <code>EmbeddedLaunchScript</code>,则您的应用程序可以用作 <code>init.d</code> 服务.  为此,将 jar 链接到 <code>init.d</code> 以支持标准的 <code>start</code>, <code>stop</code>, <code>restart</code>, 和 <code>status</code> 命令.</p>
+</div>
+<div class="paragraph">
+<p>该脚本支持以下功能:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>以拥有 jar 文件的用户身份启动服务</p>
+</li>
+<li>
+<p>使用 <code>/var/run/&lt;appname&gt;/&lt;appname&gt;.pid</code> 跟踪应用程序的 PID</p>
+</li>
+<li>
+<p>将控制台日志写入 <code>/var/log/&lt;appname&gt;.log</code></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>假设您在 <code>/var/myapp</code> 中安装了 Spring Boot 应用程序,要将 Spring Boot 应用程序安装为 <code>init.d</code> 服务,请创建一个符号链接,如下所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ sudo ln -s /var/myapp/myapp.jar /etc/init.d/myapp</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>安装后,您可以按照通常的方式启动和停止服务.  例如,在基于 Debian 的系统上,可以使用以下命令启动它:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ service myapp start</pre>
+</div>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+如果您的应用程序无法启动,请检查写入  <code>/var/log/&lt;appname&gt;.log</code> 的日志文件中是否有错误.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>您还可以使用标准操作系统工具将应用程序标记为自动启动.  例如,在 Debian 上,您可以使用以下命令:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ update-rc.d myapp defaults &lt;priority&gt;</pre>
+</div>
+</div>
+<div class="sect4">
+<h5 id="deployment-initd-service-securing"><a class="anchor" href="#deployment-initd-service-securing"></a>保护 init.d 服务</h5>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+以下是一组有关如何保护作为 <code>init.d</code> 服务运行的 Spring Boot 应用程序的准则.  它并不旨在详尽列出增强应用程序及其运行环境所应进行的所有工作.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>当以 root 身份执行时 (例如使用 root 来启动 init.d 服务时) ,默认的可执行脚本以 <code>RUN_AS_USER</code> 环境变量中指定的用户身份运行应用程序.
+如果未设置环境变量,则使用拥有 jar 文件的用户.  您永远不要以 <code>root</code> 用户身份运行Spring Boot应用程序,因此 <code>RUN_AS_USER</code> 绝不应该是 root 用户,并且应用程序的 jar 文件也绝不应该由 root 用户拥有.  而是创建一个特定用户来运行您的应用程序并设置 <code>RUN_AS_USER</code> 环境变量,或使用 <code>chown</code> 使其成为 jar 文件的所有者,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ chown bootapp:bootapp your-app.jar</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>在这种情况下,默认的可执行脚本以 <code>bootapp</code> 用户身份运行该应用程序.</p>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+为了减少应用程序的用户帐户被盗的机会,您应该考虑阻止它使用登录外壳程序.  例如,您可以将帐户的外壳程序设置为 <code>/usr/sbin/nologin</code>.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>您还应该采取措施防止修改应用程序的 jar 文件.  首先,配置其权限,使其不能被写入,只能由其所有者读取或执行,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ chmod 500 your-app.jar</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>其次,如果您的应用程序或运行该应用程序的帐户受到威胁,您还应采取措施限制损害.  如果攻击者确实获得了访问权限,则他们可以使 jar 文件可写并更改其内容.  防止这种情况发生的一种方法是使用 <code>chattr</code> 使其不可变,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ sudo chattr +i your-app.jar</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>这将阻止任何用户 (包括 root 用户) 修改 jar.</p>
+</div>
+<div class="paragraph">
+<p>如果使用 root 来控制应用程序的服务,并且您使用 <a href="#deployment-script-customization-conf-file">使用 <code>.conf</code> 文件</a> 来自定义其启动,则 root 用户将读取并评估 <code>.conf</code> 文件.
+应该相应地对其进行保护.  使用 <code>chmod</code>,以便文件只能由所有者读取,并使用 <code>chown</code> 使 root 用户成为所有者,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ chmod 400 your-app.conf
+$ sudo chown root:root your-app.conf</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="deployment-systemd-service"><a class="anchor" href="#deployment-systemd-service"></a>3.2.2. 作为 systemd 服务安装</h4>
+<div class="paragraph">
+<p><code>systemd</code> 是 System V init 系统的后继产品,现在被许多现代Linux发行版使用.  尽管您可以继续在 <code>systemd</code> 中使用 <code>init.d</code> 脚本,但也可以通过使用 <code>systemd</code> 的 &#8216;service&#8217; 脚本来启动Spring Boot应用程序.</p>
+</div>
+<div class="paragraph">
+<p>假设您在 <code>/var/myapp</code> 中安装了 Spring Boot 应用程序,要将 Spring Boot 应用程序安装为 <code>systemd</code> 服务,请创建一个名为 <code>myapp.service</code> 的脚本并将其放在 <code>/etc/systemd/system</code> 目录中.  以下脚本提供了一个示例:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>[Unit]
+Description=myapp
+After=syslog.target
+
+[Service]
+User=myapp
+ExecStart=/var/myapp/myapp.jar
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target</pre>
+</div>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+切记更改应用程序的 <code>Description</code>, <code>User</code> 和  <code>ExecStart</code> 字段.
+</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<code>ExecStart</code> 字段未声明脚本操作命令,这意味着默认情况下使用 <code>run</code> 命令.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>请注意,与作为 <code>init.d</code> 服务运行时不同,运行应用程序的用户,PID 文件和控制台日志文件由 <code>systemd</code> 本身管理,因此必须通过在  &#8216;service&#8217;  脚本中使用适当的字段进行配置.  有关更多详细信息,请查阅 <a href="https://www.freedesktop.org/software/systemd/man/systemd.service.html">服务单元配置手册页</a> .</p>
+</div>
+<div class="paragraph">
+<p>要将应用程序标记为在系统启动时自动启动,请使用以下命令:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ systemctl enable myapp.service</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>有关更多详细信息,请参考 <code>man systemctl</code>.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="deployment-script-customization"><a class="anchor" href="#deployment-script-customization"></a>3.2.3. 自定义启动脚本</h4>
+<div class="paragraph">
+<p>由 Maven 或 Gradle 插件编写的默认嵌入式启动脚本可以通过多种方式进行自定义.  对于大多数人来说,使用默认脚本以及一些自定义设置通常就足够了.  如果发现无法自定义所需的内容,请使用 <code>EmbeddedLaunchScript</code> 选项完全编写自己的文件.</p>
+</div>
+<div class="sect4">
+<h5 id="deployment-script-customization-when-it-written"><a class="anchor" href="#deployment-script-customization-when-it-written"></a>编写后自定义启动脚本</h5>
+<div class="paragraph">
+<p>在将启动脚本写入 jar 文件时,自定义启动脚本的元素通常很有意义.  例如,<code>init.d</code> 脚本可以提供  &#8220;description&#8221;.  由于您已经预先了解了描述 (并且无需更改) ,因此在生成jar时也可以提供它.</p>
+</div>
+<div class="paragraph">
+<p>要自定义书面元素,请使用 Spring Boot Maven 插件的 <code>embeddedLaunchScriptProperties</code> 选项或 <a href="https://docs.spring.io/spring-boot/docs/2.4.5/gradle-plugin/reference/htmlsingle/#packaging-executable-configuring-launch-script">Spring Boot Gradle插件的 <code>launchScript</code> 的 <code>properties</code> 属性</a>.</p>
+</div>
+<div class="paragraph">
+<p>默认脚本支持以下属性替换:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 10%;">
+<col style="width: 30%;">
+<col style="width: 30%;">
+<col style="width: 30%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+<th class="tableblock halign-left valign-top">Gradle default</th>
+<th class="tableblock halign-left valign-top">Maven default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>mode</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The script mode.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>auto</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>auto</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoProvides</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The <code>Provides</code> section of &#8220;INIT INFO&#8221;</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>${task.baseName}</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>${project.artifactId}</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoRequiredStart</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Required-Start</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>$remote_fs $syslog $network</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>$remote_fs $syslog $network</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoRequiredStop</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Required-Stop</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>$remote_fs $syslog $network</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>$remote_fs $syslog $network</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoDefaultStart</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Default-Start</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>2 3 4 5</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>2 3 4 5</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoDefaultStop</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Default-Stop</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>0 1 6</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>0 1 6</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoShortDescription</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Short-Description</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Single-line version of <code>${project.description}</code> (falling back to <code>${task.baseName}</code>)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>${project.name}</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoDescription</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Description</code> section of &#8220;INIT INFO&#8221;.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>${project.description}</code> (falling back to <code>${task.baseName}</code>)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>${project.description}</code> (falling back to <code>${project.name}</code>)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>initInfoChkconfig</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>chkconfig</code> section of &#8220;INIT INFO&#8221;</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>2345 99 01</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>2345 99 01</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>confFolder</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The default value for <code>CONF_FOLDER</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Folder containing the jar</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Folder containing the jar</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>inlinedConfScript</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Reference to a file script that should be inlined in the default launch script.
+  This can be used to set environmental variables such as <code>JAVA_OPTS</code> before any external config files are loaded</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>logFolder</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default value for <code>LOG_FOLDER</code>.
+  Only valid for an <code>init.d</code> service</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>logFilename</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default value for <code>LOG_FILENAME</code>.
+  Only valid for an <code>init.d</code> service</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pidFolder</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default value for <code>PID_FOLDER</code>.
+  Only valid for an <code>init.d</code> service</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>pidFilename</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default value for the name of the PID file in <code>PID_FOLDER</code>.
+  Only valid for an <code>init.d</code> service</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>useStartStopDaemon</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Whether the <code>start-stop-daemon</code> command, when it&#8217;s available, should be used to control the process</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>true</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>true</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>stopWaitTime</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Default value for <code>STOP_WAIT_TIME</code> in seconds.
+  Only valid for an <code>init.d</code> service</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">60</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">60</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect4">
+<h5 id="deployment-script-customization-when-it-runs"><a class="anchor" href="#deployment-script-customization-when-it-runs"></a>运行时自定义脚本</h5>
+<div class="paragraph">
+<p>对于在编写 jar 之后需要自定义脚本的项目,可以使用环境变量或<a href="#deployment-script-customization-conf-file">配置文件</a>.</p>
+</div>
+<div class="paragraph">
+<p>默认脚本支持以下环境属性:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 14.2857%;">
+<col style="width: 85.7143%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">变量</th>
+<th class="tableblock halign-left valign-top">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>MODE</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">操作的 <code>mode</code>.  默认值取决于jar的构建方式,但通常是自动的 (这意味着它会通过检查 <code>init.d</code> 目录中的符号链接来尝试猜测它是否为初始化脚本) .  如果要在前台运行脚本,可以将其显式设置为服务,以便 <code>stop|start|status|restart</code> 命令可以运行或 <code>run</code>.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>RUN_AS_USER</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">将用于运行应用程序的用户.  未设置时,将使用拥有 jar 文件的用户.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>USE_START_STOP_DAEMON</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">是否可以使用 <code>start-stop-daemon</code> 命令来控制该过程.  默认为 <code>true</code>.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>PID_FOLDER</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">pid 目录的根名称 (默认为 <code>/var/run</code>) .</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>LOG_FOLDER</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">放置日志文件的目录的名称 (默认为 <code>/var/log</code>) .</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>CONF_FOLDER</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">从中读取 <code>.conf</code> 文件的目录的名称 (默认情况下与 jar 文件相同的目录) .</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>LOG_FILENAME</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>LOG_FOLDER</code> 中的日志文件名 (默认为 <code>&lt;appname&gt;.log</code>) .</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>APP_NAME</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">应用程序的名称.  如果 jar 是从符号链接运行的,则脚本会猜测应用程序名称.  如果它不是符号链接,或者您要显式设置应用程序名称,则这将很有用.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>RUN_ARGS</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">传递给程序 (Spring Boot 应用程序) 的参数.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>JAVA_HOME</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">默认情况下,使用 <code>PATH</code> 查找 <code>Java</code> 可执行文件的位置,但是如果 <code>$JAVA_HOME/bin/java</code> 中有可执行文件,则可以显式设置它.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>JAVA_OPTS</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">启动 JVM 时传递给 JVM 的选项.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>JARFILE</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">jar 文件的显式位置,以防脚本用于启动实际上未嵌入的 jar.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>DEBUG</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">如果不为空,则在 shell 进程中设置 <code>-x</code> 标志,从而易于查看脚本中的逻辑.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>STOP_WAIT_TIME</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">停止应用程序之前强制关闭的等待时间 (以秒为单位)  (默认为 <code>60</code> ) .</p></td>
+</tr>
+</tbody>
+</table>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<code>PID_FOLDER</code>, <code>LOG_FOLDER</code>, 和 <code>LOG_FILENAME</code> 变量仅对 <code>init.d</code> 服务有效.  对于 <code>systemd</code>,通过使用  &#8216;service&#8217; 脚本进行等效的自定义.  有关更多详细信息,请参见 <a href="https://www.freedesktop.org/software/systemd/man/systemd.service.html">服务单元配置手册页</a> .
+</td>
+</tr>
+</table>
+</div>
+<div id="deployment-script-customization-conf-file" class="paragraph">
+<p>除了 <code>JARFILE</code> 和 <code>APP_NAME</code>,可以使用 <code>.conf文</code> 件配置上一节中列出的设置.  该文件应位于jar文件的旁边,并且具有相同的名称,但后缀为 <code>.conf</code> 而不是 <code>.jar</code>.  例如,名为 <code>/var/myapp/myapp.jar</code> 的jar使用名为 <code>/var/myapp/myapp.conf</code> 的配置文件,如以下示例所示:</p>
+</div>
+<div class="listingblock">
+<div class="title">myapp.conf</div>
+<div class="content">
+<pre>JAVA_OPTS=-Xmx1024M
+LOG_FOLDER=/custom/log/folder</pre>
+</div>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+如果您不喜欢将配置文件放在 jar 文件旁边,则可以设置 <code>CONF_FOLDER</code> 环境变量以自定义配置文件的位置.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>要了解有关适当保护此文件的信息,请参阅<a href="#deployment-initd-service-securing">保护init.d服务的准则</a>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deployment-windows"><a class="anchor" href="#deployment-windows"></a>3.3. Microsoft Windows 服务</h3>
+<div class="paragraph">
+<p>可以使用 <a href="https://github.com/kohsuke/winsw"><code>winsw</code></a> 将 Spring Boot 应用程序作为 Windows 服务启动.</p>
+</div>
+<div class="paragraph">
+<p>(<a href="https://github.com/snicoll-scratches/spring-boot-daemon">一个单独维护的示例</a>) 逐步说明了如何为 Spring Boot 应用程序创建 Windows 服务.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deployment-whats-next"><a class="anchor" href="#deployment-whats-next"></a>4. 下一步</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>请访问 <a href="https://www.cloudfoundry.org/">Cloud Foundry</a>, <a href="https://www.heroku.com/">Heroku</a> , <a href="https://www.openshift.com">OpenShift</a> 和 <a href="https://boxfuse.com">Boxfuse</a> 网站,以获取有关PaaS可以提供的各种功能的更多信息.  这些只是最受欢迎的 Java PaaS 提供程序中的四个.  由于 Spring Boot 非常适合基于云的部署,因此您也可以自由考虑其他提供商.</p>
+</div>
+<div class="paragraph">
+<p>下一节将继续介绍 <em><a href="spring-boot-cli.html#cli">Spring Boot CLI</a></em>,或者您可以继续阅读有关 <em><a href="build-tool-plugins.html#build-tool-plugins">构建工具插件</a></em> 的信息.</p>
+</div>
+</div>
+</div>
+</div>
+<div id="footer">
+<div id="footer-text">
+Last updated 2021-09-13 15:54:50 +0800
+</div>
+</div>
+</div>
+  </div>
+</div>
+</body>
+</html>

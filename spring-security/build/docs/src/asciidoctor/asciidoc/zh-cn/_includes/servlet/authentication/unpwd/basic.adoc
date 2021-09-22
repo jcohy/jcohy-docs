@@ -1,0 +1,89 @@
+[[servlet-authentication-basic]]
+= Basic Authentication
+
+本节详细介绍了 Spring Security 如何为基于 servlet 的应用程序提供对 https://tools.ietf.org/html/rfc7617[Basic HTTP Authentication]  的支持.
+
+让我们看一下 HTTP 基本身份验证在 Spring Security 中如何工作.  首先,我们看到  https://tools.ietf.org/html/rfc7235#section-4.1[WWW-Authenticate]  header 被发送回未经身份验证的客户端.
+
+.Sending WWW-Authenticate Header
+image::{figures}/basicauthenticationentrypoint.png[]
+
+该图基于 <<servlet-securityfilterchain,`SecurityFilterChain`>> 图.
+
+image:{icondir}/number_1.png[] 首先,用户向未经身份验证和授权的  `/private` 资源发出请求.
+
+image:{icondir}/number_2.png[] Spring Security 的 <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>>  通过抛出 `AccessDeniedException` 来指示未经身份验证的请求被拒绝.
+
+image:{icondir}/number_3.png[] 由于用户未通过身份验证,因此 <<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>>  会启动 "开始身份验证".
+配置的 <<servlet-authentication-authenticationentrypoint,`AuthenticationEntryPoint`>>  是  {security-api-url}org/springframework/security/web/authentication/www/BasicAuthenticationEntryPoint.html[`BasicAuthenticationEntryPoint`]  的实例,该实例发送 WWW-Authenticate  header .
+`RequestCache` 通常是一个 `NullRequestCache`,它不保存请求,因为客户端能够重播它最初请求的请求.
+
+当客户端收到 WWW-Authenticate  header 时,它知道应该使用用户名和密码重试.  以下是正在处理的用户名和密码的流程.
+
+[[servlet-authentication-basicauthenticationfilter]]
+.Authenticating Username and Password
+image::{figures}/basicauthenticationfilter.png[]
+
+该图基于 <<servlet-securityfilterchain,`SecurityFilterChain`>> 图.
+
+
+image:{icondir}/number_1.png[] 当用户提交其用户名和密码时,`BasicAuthenticationFilter` 通过从 `HttpServletRequest` 中提取用户名和密码来创建 `UsernamePasswordAuthenticationToken`,这是一种  <<servlet-authentication-authentication,`Authentication`>>  类型.
+
+image:{icondir}/number_2.png[] 接下来,将 `UsernamePasswordAuthenticationToken` 传递到 `AuthenticationManager` 进行身份验证.  AuthenticationManager 详细信息取决于 <<servlet-authentication-unpwd-storage,用户信息的存储方式>>.
+
+image:{icondir}/number_3.png[] 如果身份验证失败,则为失败.
+
+* 清除 <<servlet-authentication-securitycontextholder>>
+* `RememberMeServices.loginFail` 被调用.如果记住我未配置,则为空.
+// FIXME: link to rememberme
+* 调用 `AuthenticationEntryPoint` 触发 WWW-Authenticate 重新发送.
+
+image:{icondir}/number_4.png[] 如果身份验证成功,则为成功.
+
+身份验证是在 `SecurityContextHolder` 上设置的.
+
+`RememberMeServices.loginSuccess` 被调用.  如果记住我未配置,则为空.
+
+`BasicAuthenticationFilter` 调用 `FilterChain.doFilter(request,response)` 继续进行其余的应用程序逻辑.
+
+* 在 <<servlet-authentication-securitycontextholder>> 上设置  <<servlet-authentication-authentication>>
+* `RememberMeServices.loginSuccess` 被调用.  如果记住我未配置,则为空.
+// FIXME: link to rememberme
+* `BasicAuthenticationFilter` 调用  `FilterChain.doFilter(request,response)` 继续进行其余的应用程序逻辑.
+
+Spring Security 的 HTTP 基本身份验证支持默认为启用.  但是,一旦提供了任何基于 servlet 的配置,就必须显式提供 HTTP Basic.
+
+最小的显式配置可以在下面找到:
+
+.Explicit HTTP Basic Configuration
+====
+[source,java,role="primary"]
+.Java
+----
+protected void configure(HttpSecurity http) {
+	http
+		// ...
+		.httpBasic(withDefaults());
+}
+----
+
+[source,xml,role="secondary"]
+.XML
+----
+<http>
+	<!-- ... -->
+	<http-basic />
+</http>
+----
+
+[source,kotlin,role="secondary"]
+.Kotlin
+----
+fun configure(http: HttpSecurity) {
+	http {
+		// ...
+		httpBasic { }
+	}
+}
+----
+====

@@ -1,0 +1,123 @@
+[[elasticsearch.reactive.repositories]]
+= Reactive Elasticsearch Repositories
+
+响应式 Elasticsearch 存储库支持建立在核心存储库支持的基础上,在使用  <<repositories>> 时解释了如何利用 <<elasticsearch.clients.reactive>> 执行的 <<elasticsearch.reactive.operations>> 提供的操作.
+
+Spring Data Elasticsearch 响应式存储库支持使用 https://projectreactor.io/[Project Reactor] 作为其响应式组合库的选择.
+
+主要使用 3 个接口:
+
+* `ReactiveRepository`
+* `ReactiveCrudRepository`
+* `ReactiveSortingRepository`
+
+[[elasticsearch.reactive.repositories.usage]]
+== 使用
+
+要使用 `Repository` 访问存储在 Elasticsearch 中的 domain 对象,只需为其创建一个接口.另外,您将需要一个实体.
+
+.`Person` 实体
+====
+[source,java]
+----
+public class Person {
+
+  @Id
+  private String id;
+  private String firstname;
+  private String lastname;
+  private Address address;
+
+  // … getters and setters omitted
+}
+----
+====
+
+NOTE: 请注意 `id` 属性的类型必须是 `String`.
+
+.创建 repository interface 来持久化 Person 实体
+====
+[source]
+----
+interface ReactivePersonRepository extends ReactiveSortingRepository<Person, String> {
+
+  Flux<Person> findByFirstname(String firstname);                                   <1>
+
+  Flux<Person> findByFirstname(Publisher<String> firstname);                        <2>
+
+  Flux<Person> findByFirstnameOrderByLastname(String firstname);                    <3>
+
+  Flux<Person> findByFirstname(String firstname, Sort sort);                        <4>
+
+  Flux<Person> findByFirstname(String firstname, Pageable page);                    <5>
+
+  Mono<Person> findByFirstnameAndLastname(String firstname, String lastname);       <6>
+
+  Mono<Person> findFirstByLastname(String lastname);                                <7>
+
+  @Query("{ \"bool\" : { \"must\" : { \"term\" : { \"lastname\" : \"?0\" } } } }")
+  Flux<Person> findByLastname(String lastname);                                     <8>
+
+  Mono<Long> countByFirstname(String firstname)                                     <9>
+
+  Mono<Boolean> existsByFirstname(String firstname)                                 <10>
+
+  Mono<Long> deleteByFirstname(String firstname)                                    <11>
+}
+----
+<1> 根据 `lastname` 查询匹配的所有人.
+<2> 等待 `Publisher` 输入,为 `firstname` 绑定参数值.
+<3> 按 `lastname` 进行排序.
+<4> 按照 `Sort` 定义的排序规则进行排序.
+<5> 使用 `Pageable` 进行分页.
+<6> 使用 `And` / `Or` 关键字进行条件查询.
+<7> 查找第一个匹配的实体.
+<8> 根据 `lastname` 查询匹配的所有人, 方法使用 `@Query` 注解参数进行查询.
+<9> 计算所有匹配 `firstname` 的实体.
+<10> 检查是否至少存在一个与 `firstname` 匹配的实体.
+<11> 删除所有与 `firstname` 匹配的实体.
+====
+
+[[elasticsearch.reactive.repositories.configuration]]
+== 配置
+
+对于 Java 配置,请使用 `@EnableReactiveElasticsearchRepositories` 注解. 如果未配置 base package,则 SpringBoor 将扫描带 configuration 注解的类所在的包.
+
+下面展示了如何使用 Java 配置:
+
+.Java configuration for repositories
+====
+[source,java]
+----
+@Configuration
+@EnableReactiveElasticsearchRepositories
+public class Config extends AbstractReactiveElasticsearchConfiguration {
+
+  @Override
+  public ReactiveElasticsearchClient reactiveElasticsearchClient() {
+    return ReactiveRestClients.create(ClientConfiguration.localhost());
+  }
+}
+----
+====
+
+由于上一个示例中的存储库扩展了 `ReactiveSortingRepository`,因此所有 CRUD 操作以及对实体的排序方法都可用. 使用存储库实例是将其注入客户端的依赖,如以下示例所示:
+
+.Sorted access to Person entities
+====
+[source,java]
+----
+public class PersonRepositoryTests {
+
+  @Autowired ReactivePersonRepository repository;
+
+  @Test
+  public void sortsElementsCorrectly() {
+
+    Flux<Person> persons = repository.findAll(Sort.by(new Order(ASC, "lastname")));
+
+    // ...
+  }
+}
+----
+====

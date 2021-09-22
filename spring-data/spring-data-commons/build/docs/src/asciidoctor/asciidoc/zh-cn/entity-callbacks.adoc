@@ -1,0 +1,162 @@
+[[entity-callbacks]]
+= Entity Callbacks (实体回调)
+
+Spring Data 基础结构提供了用于在调用某些方法之前和之后修改实体的钩子.
+
+这些所谓的 `EntityCallback` 实例提供了一种方便的方式来检查并可能以回调方式修改实体.
+
+`EntityCallback` 看起来很像 `ApplicationListener`. 一些 Spring Data 模块发布特定的存储库事件 (例如 `BeforeSaveEvent`) ,这些事件允许修改给定实体. 在某些情况下,例如使用不可变类型时,这些事件可能会引起麻烦. 同样,事件发布依赖于 `ApplicationEventMulticaster`. 如果使用异步 `TaskExecutor` 进行配置,则可能导致不可预测的结果,因为事件处理可以在不同的线程中执行.
+
+实体回调为同步和响应式 API 提供集成点,以确保在处理链中定义明确的检查点处按顺序执行,并返回可能修改的实体或响应式包装器类型.
+
+实体回调通常按 API 类型分开. 这种分离意味着同步 API 仅考虑同步实体回调,而响应式实现仅考虑响应式实体回调.
+
+[NOTE]
+====
+实体回调 API 在 Spring Data Commons 2.2 引入. 这是应用实体修改的推荐方法. 在调用可能已注册的 `EntityCallback` 实例之前,仍将发布现有的特定于存储库的 `ApplicationEvents`.
+====
+
+[[entity-callbacks.implement]]
+== 实现 Entity Callbacks
+
+`EntityCallback` 通过其泛型类型参数直接与 domain 类型相关联. 每个 Spring Data 模块通常附带一组涵盖实体生命周期的预定义 `EntityCallback` 接口.
+
+.Anatomy of an `EntityCallback`
+====
+[source,java]
+----
+@FunctionalInterface
+public interface BeforeSaveCallback<T> extends EntityCallback<T> { <1>
+
+	/**
+	 * Entity callback method invoked before a domain object is saved.
+	 * Can return either the same or a modified instance.
+	 *
+	 * @return the domain object to be persisted.
+	 */
+	T onBeforeSave(T entity , <2>
+                String collection ); <3>
+}
+----
+<1> 保存实体之前要调用的 `BeforeSaveCallback` 方法. 返回一个可能被修改的实例.
+<2> 实体被持久化之前.
+<3> 许多 store 特定的参数,例如持久化的实体集合.
+====
+
+.Anatomy of a reactive `EntityCallback`
+====
+[source,java]
+----
+@FunctionalInterface
+public interface ReactiveBeforeSaveCallback<T> extends EntityCallback<T> { <1>
+
+	/**
+	 * Entity callback method invoked on subscription, before a domain object is saved.
+	 * The returned Publisher can emit either the same or a modified instance.
+	 *
+	 * @return Publisher emitting the domain object to be persisted.
+	 */
+	Publisher<T> onBeforeSave(T entity ,  <2>
+                            String collection ); <3>
+}
+----
+<1> 保存实体之前,要在订阅上调用的 `BeforeSaveCallback` 特定方法. 发出可能已修改的实例.
+<2> 实体在持久化之前.
+<3> 许多 store 特定的参数,例如持久化的实体集合.
+====
+
+NOTE: 可选的实体回调参数由实现中的 Spring Data 模块定义,并从 `EntityCallback.callback()` 的调用站点中推断出来.
+
+实现适合您的应用程序需求的接口,如下例所示:
+
+.`BeforeSaveCallback` 示例
+====
+[source,java]
+----
+class DefaultingEntityCallback implements BeforeSaveCallback<Person>, Ordered {      <2>
+
+	@Override
+	public Object onBeforeSave(Person entity, String collection) {                   <1>
+
+		if(collection == "user") {
+		    return // ...
+		}
+
+		return // ...
+	}
+
+	@Override
+	public int getOrder() {
+		return 100;                                                                  <2>
+	}
+}
+----
+<1> 根据您的要求实现回调.
+<2> 如果存在相同 domain 类型的多个实体回调,则可能对实体回调进行排序. 排序遵循最低优先级.
+====
+
+[[entity-callbacks.register]]
+== 注册 Entity Callbacks
+
+如果实体的实现在 `ApplicationContext` 中注册,则由实体的实现获取 `EntityCallback` Bean. 大多数 template  API 已经实现了 `ApplicationContextAware`,因此可以访问 `ApplicationContext`
+
+以下示例说明了有效的实体回调注册的集合:
+
+.`EntityCallback` Bean 注册示例
+====
+[source,java]
+----
+@Order(1)                                                           <1>
+@Component
+class First implements BeforeSaveCallback<Person> {
+
+	@Override
+	public Person onBeforeSave(Person person) {
+		return // ...
+	}
+}
+
+@Component
+class DefaultingEntityCallback implements BeforeSaveCallback<Person>,
+                                                           Ordered { <2>
+
+	@Override
+	public Object onBeforeSave(Person entity, String collection) {
+		// ...
+	}
+
+	@Override
+	public int getOrder() {
+		return 100;                                                  <2>
+	}
+}
+
+@Configuration
+public class EntityCallbackConfiguration {
+
+    @Bean
+    BeforeSaveCallback<Person> unorderedLambdaReceiverCallback() {   <3>
+        return (BeforeSaveCallback<Person>) it -> // ...
+    }
+}
+
+@Component
+class UserCallbacks implements BeforeConvertCallback<User>,
+                                        BeforeSaveCallback<User> {   <4>
+
+	@Override
+	public Person onBeforeConvert(User user) {
+		return // ...
+	}
+
+	@Override
+	public Person onBeforeSave(User user) {
+		return // ...
+	}
+}
+----
+<1> `BeforeSaveCallback` 可以从 `@Order` 注解进行排序.
+<2> `BeforeSaveCallback` 可以实现 `Ordered` 接口排序.
+<3> `BeforeSaveCallback` 使用 lambda 表达式. 默认情况下无序,最后调用.
+<4> 将多个实体回调接口组合在一个实现类中.
+====

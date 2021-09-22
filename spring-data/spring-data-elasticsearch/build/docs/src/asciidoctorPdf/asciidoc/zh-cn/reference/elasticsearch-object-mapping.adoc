@@ -1,0 +1,254 @@
+[[elasticsearch.mapping]]
+= Elasticsearch 对象映射
+
+Spring Data Elasticsearch Object Mapping 是将 Java 对象 (domain entity)和存储在 Elasticsearch 中的 JSON 相互映射的过程
+
+早期的 Spring Data Elasticsearch 版本使用 Jackson 进行转换,Spring Data Elasticsearch 3.2.x 引入了 <<elasticsearch.mapping.meta-model>> 对象映射,基于 Jackson 的映射不再使用,而是使用 `MappingElasticsearchConverter`
+
+删除基于 Jackson 的映射的主要原因是:
+
+* 自定义字段的映射需要使用 `@JsonFormat` 或 `@JsonInclude` 之类的注解来完成. 当在不同的基于 JSON 的数据存储中使用相同的对象或使用 JSON 的 API 发送时.这通常会导致问题
+* 自定义字段类型和格式也需要存储到 Elasticsearch 索引映射中. 基于 Jackson 的注解未完全提供表示 Elasticsearch 类型所需的所有信息..
+* 不仅仅在实体之间转换需要字段映射,还必须在查询参数,返回数据以及其他地方映射字段.
+
+使用 `MappingElasticsearchConverter` 现在覆盖了所有这些情况.
+
+[[elasticsearch.mapping.meta-model]]
+== Meta Model Object Mapping
+
+基于元模型的方法使用 domain 类型信息 读取/写入 Elasticsearch.这允许为特定的 domain 类型映射注册 `Converter` 实例.
+
+[[elasticsearch.mapping.meta-model.annotations]]
+=== 映射注解概述
+
+`MappingElasticsearchConverter` 使用元数据来驱动对象到文档的映射.元数据来自可以注解的实体属性.
+
+有以下注解可用:
+
+* `@Document`: 类级别注解,表示此类是映射到数据库的候选对象.以下为最重要的属性.:
+** `indexName`: 此实体的索引名称
+** `type`: [line-through]#映射类型. 如果未设置,则使用类的简单小写名称.# (从版本4.0开始不推荐使用)
+** `shards`: 索引分片的数量
+** `replicas`: 索引副本数量
+** `refreshIntervall`: 索引刷新间隔.用于创建索引. 默认为 _"1s"_.
+** `indexStoreType`:  索引的索引存储类型.用于创建索引. 默认为 _"fs"_.
+** `createIndex`: 配置是否在 repository 加载时创建索引. 默认为 _true_.
+** `versionType`: 版本管理配置. 默认为 _EXTERNAL_.
+
+* `@Id`: 字段级注解,标记字段本身的意图.
+* `@Transient`: 默认情况下,存储或检索文档时,所有的字段都映射到文档中,此字段可以标识不映射该字段
+* `@PersistenceConstructor`: 标记已有的构造函数 - 可以是一个 protected package - 当从数据库实例化对象时使用.按照构造函数参数名称映射到检索到的文档中的键值.
+* `@Field`: 字段级注解,可以定义字段的属性, 大多数属性映射到各自的 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html[Elasticsearch Mapping] 定义 (以下列表不完整,请查看注解的 Javadoc 以获取完整的参考) :
+** `name`: 将在 Elasticsearch 文档中表示的字段名称,如果未设置,则使用 Java 字段名称.
+** `type`: 字段类型,可以是 _Text, Keyword, Long, Integer, Short, Byte, Double, Float, Half_Float, Scaled_Float, Date, Date_Nanos, Boolean, Binary, Integer_Range, Float_Range, Long_Range, Double_Range, Date_Range, Ip_Range, Object, Nested, Ip, TokenCount, Percolator, Flattened, Search_As_You_Type_. 请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html[Elasticsearch 映射类型]
+** 为 _Date_ 类型声明 `format` 和 `pattern` . 日期类型必须指定 `format` .
+** `store`: 标记是否将原始字段值存储在 Elasticsearch 中, 默认为 _false_.
+** `analyzer`, `searchAnalyzer`, `normalizer` 指定自定义 analyzers 和 normalizer.
+* `@GeoPoint`: 将字段标记为 _geo_point_ 数据类型. 如果字段是 `GeoPoint` 类的实例,则可以省略.
+
+NOTE: 从 `TemporalAccessor` 扩展 的属性必须具有类型为 `FieldType.Date` 的 `@Field` 注解,或必须为此类型注册自定义转换器. +
+如果使用自定义日期格式,则需要使用 _uuuu_ 作为年份而不是 _yyyy_. 这是 https://www.elastic.co/guide/en/elasticsearch/reference/current/migrate-to-java-time.html#java-time-migration-incompatible-date-formats[Elasticsearch 7 中的变化].
+
+映射元数据基础架构是在 spring-data-commons 项目中定义的,该项目与技术无关..
+
+[[elasticsearch.mapping.meta-model.rules]]
+=== 映射规则
+
+==== Type Hints(类型提示)
+
+映射使用发送到服务器的文档中的类型提示来允许通用类型映射. 这些类型提示在文档中表示为 `_class` 属性,并针对每个聚合根写入.
+
+.Type Hints
+====
+[source,java]
+----
+public class Person {              <1>
+
+  @Id String id;
+  String firstname;
+  String lastname;
+}
+----
+[source,json]
+----
+{
+  "_class" : "com.example.Person", <1>
+  "id" : "cb7bef",
+  "firstname" : "Sarah",
+  "lastname" : "Connor"
+}
+----
+<1> 默认情况下,domain 类型类名用于类型提示.
+====
+
+类型提示可以配置为保存自定义信息.. 使用 `@TypeAlias` 注解执行此操作.
+
+NOTE: 请确保将具有 `@TypeAlias` 的类型添加到初始实体集(`AbstractElasticsearchConfiguration#getInitialEntitySet`)中,以便在首次从存储中读取数据时已经具有可用的实体信息.
+
+.Type Hints with Alias
+====
+[source,java]
+----
+@TypeAlias("human")                <1>
+public class Person {
+
+  @Id String id;
+  // ...
+}
+----
+[source,json]
+----
+{
+  "_class" : "human",              <1>
+  "id" : ...
+}
+----
+<1> 编写实体时使用配置的别名.
+====
+
+NOTE: 除非属性类型为 `Object`, 接口或实际值类型与属性声明不匹配,否则不会为嵌套对象编写类型提示.
+
+==== Geospatial 类型
+
+Geospatial 类型,比如 `Point` & `GeoPoint` 将被转换为 _lat/lon_ 对.
+
+.Geospatial 类型
+====
+[source,java]
+----
+public class Address {
+
+  String city, street;
+  Point location;
+}
+----
+[source,json]
+----
+{
+  "city" : "Los Angeles",
+  "street" : "2800 East Observatory Road",
+  "location" : { "lat" : 34.118347, "lon" : -118.3026284 }
+}
+----
+====
+
+==== Collections(集合)
+
+对于集合中的值,在类型提示和 <<elasticsearch.mapping.meta-model.conversions>> 时,与聚合根具有相同的映射规则.
+
+.Collections
+====
+[source,java]
+----
+public class Person {
+
+  // ...
+
+  List<Person> friends;
+
+}
+----
+[source,json]
+----
+{
+  // ...
+
+  "friends" : [ { "firstname" : "Kyle", "lastname" : "Reese" } ]
+}
+----
+====
+
+==== Maps
+
+对于 Maps 内的值,在类型提示和 <<elasticsearch.mapping.meta-model.conversions>> 时,与聚合根具有相同的映射规则.然而,Map 的 键 需要一个字符串来由 Elasticsearch 处理.
+
+.Collections
+====
+[source,java]
+----
+public class Person {
+
+  // ...
+
+  Map<String, Address> knownLocations;
+
+}
+----
+[source,json]
+----
+{
+  // ...
+
+  "knownLocations" : {
+    "arrivedAt" : {
+       "city" : "Los Angeles",
+       "street" : "2800 East Observatory Road",
+       "location" : { "lat" : 34.118347, "lon" : -118.3026284 }
+     }
+  }
+}
+----
+====
+
+[[elasticsearch.mapping.meta-model.conversions]]
+=== 自定义转换
+
+看看 <<elasticsearch.mapping.meta-model,  上一节>>中的 `Configuration`,ElasticsearchCustomConversions 允许为  mapping domain 和简单类型注册特定规则.
+
+.Meta Model Object Mapping Configuration
+====
+[source,java]
+----
+@Configuration
+public class Config extends AbstractElasticsearchConfiguration {
+
+  @Override
+  public RestHighLevelClient elasticsearchClient() {
+    return RestClients.create(ClientConfiguration.create("localhost:9200")).rest();
+  }
+
+  @Bean
+  @Override
+  public ElasticsearchCustomConversions elasticsearchCustomConversions() {
+    return new ElasticsearchCustomConversions(
+      Arrays.asList(new AddressToMap(), new MapToAddress()));       <1>
+  }
+
+  @WritingConverter                                                 <2>
+  static class AddressToMap implements Converter<Address, Map<String, Object>> {
+
+    @Override
+    public Map<String, Object> convert(Address source) {
+
+      LinkedHashMap<String, Object> target = new LinkedHashMap<>();
+      target.put("ciudad", source.getCity());
+      // ...
+
+      return target;
+    }
+  }
+
+  @ReadingConverter                                                 <3>
+  static class MapToAddress implements Converter<Map<String, Object>, Address> {
+
+    @Override
+    public Address convert(Map<String, Object> source) {
+
+      // ...
+      return address;
+    }
+  }
+}
+----
+[source,json]
+----
+{
+  "ciudad" : "Los Angeles",
+  "calle" : "2800 East Observatory Road",
+  "localidad" : { "lat" : 34.118347, "lon" : -118.3026284 }
+}
+----
+<1> 添加 `Converter` 实现.
+<2> 设置将 `DomainType` 类型写入到 Elasticsearch  的 `Converter`.
+<3> 设置从搜索结果中读取到 `DomainType` 类型的 `Converter`.
+====

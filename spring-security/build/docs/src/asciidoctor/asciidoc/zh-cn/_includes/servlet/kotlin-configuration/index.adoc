@@ -1,0 +1,93 @@
+
+[[kotlin-config]]
+= Kotlin Configuration
+从 Spring Security 5.3 开始,Spring Security Kotlin Configuration 支持已经可用.  它使用户可以使用本地 Kotlin DSL 轻松配置 Spring Security.
+
+NOTE: Spring Security 提供了一个 https://github.com/spring-projects/spring-security/tree/master/samples/boot/kotlin[示例应用程序],演示了如何使用 Spring Security Kotlin 配置.
+
+[[kotlin-config-httpsecurity]]
+== HttpSecurity
+
+Spring Security 如何知道我们要要求所有用户进行身份验证?
+ Spring Security 如何知道我们要支持基于表单的身份验证?
+ 在后台调用了一个名为 `WebSecurityConfigurerAdapter` 的配置类.  它具有一种名为 configure 的方法,具有以下默认实现:
+
+[source,kotlin]
+----
+fun configure(http: HttpSecurity) {
+   http {
+        authorizeRequests {
+            authorize(anyRequest, authenticated)
+        }
+       formLogin { }
+       httpBasic { }
+    }
+}
+----
+
+上面的默认配置:
+
+* 确保对我们应用程序的任何请求都需要对用户进行身份验证
+* 允许用户使用基于表单的登录进行身份验证
+* 允许用户使用 HTTP Basic 身份验证进行身份验证
+
+您会注意到此配置与 XML 命名空间配置非常相似:
+
+[source,xml]
+----
+<http>
+	<intercept-url pattern="/**" access="authenticated"/>
+	<form-login />
+	<http-basic />
+</http>
+----
+
+== 多个 HttpSecurity
+
+我们可以配置多个 `HttpSecurity` 实例,就像我们可以具有多个 `<http>`  块一样.  关键是多次扩展 `WebSecurityConfigurerAdapter`.  例如,以下示例说明了以  `/api/` 开头的URL具有不同的配置.
+
+[source,kotlin]
+----
+@EnableWebSecurity
+class MultiHttpSecurityConfig {
+    @Bean                                                            <1>
+    public fun userDetailsService(): UserDetailsService {
+        val users: User.UserBuilder = User.withDefaultPasswordEncoder()
+        val manager = InMemoryUserDetailsManager()
+        manager.createUser(users.username("user").password("password").roles("USER").build())
+        manager.createUser(users.username("admin").password("password").roles("USER","ADMIN").build())
+        return manager
+    }
+
+    @Configuration
+    @Order(1)                                                        <2>
+    class ApiWebSecurityConfigurationAdapter: WebSecurityConfigurerAdapter() {
+        override fun configure(http: HttpSecurity) {
+            http {
+                securityMatcher("/api/**")                           <3>
+                authorizeRequests {
+                    authorize(anyRequest, hasRole("ADMIN"))
+                }
+                httpBasic { }
+            }
+        }
+    }
+
+    @Configuration                                                   <4>
+    class FormLoginWebSecurityConfigurerAdapter: WebSecurityConfigurerAdapter() {
+        override fun configure(http: HttpSecurity) {
+            http {
+                authorizeRequests {
+                    authorize(anyRequest, authenticated)
+                }
+                formLogin { }
+            }
+        }
+    }
+}
+----
+
+<1> 正常配置身份验证
+<2> 创建一个包含 `@Order` 的 `WebSecurityConfigurerAdapter` 实例,以指定应首先考虑哪个 `WebSecurityConfigurerAdapter`.
+<3>  `http.antMatcher` 声明此 `HttpSecurity` 仅适用于以  `/api/` 开头的URL
+<4> 创建 `WebSecurityConfigurerAdapter` 的另一个实例.  如果网址不是以  `/api/`  开头,则将使用此配置.  在 `ApiWebSecurityConfigurationAdapter` 之后考虑此配置,因为它的 `@Order` 值在1以后 (没有 `@Order` 默认为 `last`) .
