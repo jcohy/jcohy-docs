@@ -363,22 +363,19 @@ Spring Boot 在运行时将 `application.properties` (或 `.yml` 文件和其他
 
 NOTE: Servlet API 的版本已被覆盖,因为与 Tomcat 9 和 Undertow 2.0 不同,Jetty 9.4 不支持 Servlet 4.0.
 
-以下 Gradle 示例显示了如何使用 Undertow 代替 Spring WebFlux 的 Reactor Netty:
+以下 Gradle 示例匹配直必要的依赖和 {gradle-docs}/resolution_rules.html#sec:module_replacement[模块替换]，显示了如何使用 Undertow 代替 Spring WebFlux 的 Reactor Netty:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations.all {
-		resolutionStrategy.dependencySubstitution.all { dependency ->
-			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-reactor-netty') {
-				dependency.useTarget("org.springframework.boot:spring-boot-starter-undertow:$dependency.requested.version", 'Use Undertow instead of Reactor Netty')
-			}
+dependencies {
+	implementation "org.springframework.boot:spring-boot-starter-undertow"
+	implementation "org.springframework.boot:spring-boot-starter-webflux"
+	modules {
+		module("org.springframework.boot:spring-boot-starter-reactor-netty") {
+			replacedBy("org.springframework.boot:spring-boot-starter-undertow", "Use Undertow instead of Reactor Netty")
 		}
 	}
-
-	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-webflux'
-		// ...
-	}
+}
 ----
 
 NOTE: `spring-boot-starter-reactor-netty` 使用 `WebClient` 该类是必需的,因此即使您需要包括其他 HTTP 服务器,也可能需要保持对 Netty 的依赖.
@@ -994,7 +991,7 @@ NOTE: 建议使用容器的内置支持进行分段上传,而不要引入其他�
 * 一个名为 `defaultViewResolver` 的 `InternalResourceViewResolver`.  这一章查找可以通过使用 `DefaultServlet` 呈现的物理资源 (包括静态资源和 JSP 页面,如果使用的话) .
 它在视图名称中应用前缀和后缀,然后在 Servlet 上下文中查找具有该路径的物理资源 (默认值均为空,但可通过 `spring.mvc.view.prefix` 和 `spring.mvc` 进行外部配置访问.  view.suffix) .  您可以通过提供相同类型的bean覆盖它.
 * 名为 `beanNameViewResolver` 的 `BeanNameViewResolver`.  这是视图解析器链的有用成员,可以拾取与要解析的视图同名的所有 bean.  不必重写或替换它.
-* 仅当实际上存在 `View` 类型的bean时,才添加一个名为 `viewResolver` 的 `ContentNegotiatingViewResolver`.  这是一个  '`master`' 解析器,委派给所有其他解析器,并尝试查找与客户端发送的 '`Accept`' HTTP 请求头匹配的内容.
+* 仅当实际上存在 `View` 类型的bean时,才添加一个名为 `viewResolver` 的 `ContentNegotiatingViewResolver`.  这是一个组合解析器,委派给所有其他解析器,并尝试查找与客户端发送的 '`Accept`' HTTP 请求头匹配的内容.
 您可能想学习有关 https://spring.io/blog/2013/06/03/content-negotiation-using-views[`ContentNegotiatingViewResolver` 的有用博客] ,以了解更多信息,并且您也可以查看源代码以获取详细信息.  您可以通过定义一个名为 `viewResolver` 的bean来关闭自动配置的 `ContentNegotiatingViewResolver`.
 * 如果您使用 Thymeleaf,则还有一个名为 `thymeleafViewResolver` 的 `ThymeleafViewResolver`.  它通过在视图名称前后加上前缀和后缀来查找资源.
 前缀为  `spring.thymeleaf.prefix`,后缀为 `spring.thymeleaf.suffix`.  前缀和后缀的值分别默认为 '`classpath:/templates/`' 和 '`.html`'.  您可以通过提供同名的 bean 来覆盖 `ThymeleafViewResolver`.
@@ -1219,19 +1216,17 @@ NOTE: Groovy 配置不支持 Spring 扩展.  不会检测到任何 `logback-spri
 	</dependency>
 ----
 
-以下示例显示了在 Gradle 中设置 starters 的一种方法:
+Gradle 提供了设置 starters 的几种方式.
+其中一种方式就是使用 {gradle-docs}/resolution_rules.html#sec:module_replacement[模块替换].
+首先，请声明对 Log4j 2 starter 的依赖，并告诉 Gradle 任何出现的默认 logging starter 器都应替换为 Log4j 2 starter，如以下示例所示：
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-web'
-	}
-
-	configurations.all {
-		resolutionStrategy.dependencySubstitution.all { dependency ->
-			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-logging') {
-				dependency.useTarget("org.springframework.boot:spring-boot-starter-log4j2:$dependency.requested.version", 'Use Log4j2 instead of Logback')
-			}
+dependencies {
+	implementation "org.springframework.boot:spring-boot-starter-log4j2"
+	modules {
+		module("org.springframework.boot:spring-boot-starter-logging") {
+			replacedBy("org.springframework.boot:spring-boot-starter-log4j2", "Use Log4j2 instead of Logback")
 		}
 	}
 }
@@ -1521,56 +1516,41 @@ include::{code-examples}/jpa/HibernateSecondLevelCacheExample.java[tag=configura
 要完全控制 `EntityManagerFactory` 的配置,您需要添加一个名为 '`entityManagerFactory`' 的 `@Bean`.  如果存在这种类型的 Bean,Spring Boot 自动配置将关闭其实体管理器.
 
 [[howto-use-two-entity-managers]]
-=== 使用两个 EntityManager
-即使默认的 `EntityManagerFactory` 正常工作,您也需要定义一个新的 Bean.  否则,该类型的第二个 bean 的存在将关闭默认值.  为了简化操作,您可以使用 Spring Boot 提供的便捷 `EntityManagerBuilder`.  或者,您可以直接从 Spring ORM 中直接访问 `LocalContainerEntityManagerManagerBean`,如以下示例所示:
+[[howto-use-multiple-entity-managers]]
+=== 使用多个 EntityManagerFactories
+如果您需要对多个数据源使用 JPA，则每个数据源可能需要一个 `EntityManagerFactory`。
+Spring ORM 中的 `LocalContainerEntityManagerFactoryBean` 允许您根据需要配置 `EntityManagerFactory`。
+您还可以重用 `JpaProperties` 来绑定每个 `EntityManagerFactory` 的设置，如下例所示：
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	// add two data sources configured as above
-
-	@Bean
-	public LocalContainerEntityManagerFactoryBean customerEntityManagerFactory(
-			EntityManagerFactoryBuilder builder) {
-		return builder
-				.dataSource(customerDataSource())
-				.packages(Customer.class)
-				.persistenceUnit("customers")
-				.build();
-	}
-
-	@Bean
-	public LocalContainerEntityManagerFactoryBean orderEntityManagerFactory(
-			EntityManagerFactoryBuilder builder) {
-		return builder
-				.dataSource(orderDataSource())
-				.packages(Order.class)
-				.persistenceUnit("orders")
-				.build();
-	}
+include::{code-examples}/jpa/CustomEntityManagerFactoryExample.java[tag=configuration]
 ----
 
+上面的示例为名为 `firstDataSource` 的 `DataSource` bean 创建了一个 `EntityManagerFactory`。
+它扫描与 `Order` 位于同一包中的实体。
+可以使用 `app.first.jpa` 命名空间映射其他 JPA 属性。
+
 NOTE: 当您自己为 `LocalContainerEntityManagerFactoryBean` 创建bean时,在自动配置的 `LocalContainerEntityManagerFactoryBean` 创建期间应用的所有自定义设置都将丢失.  例如,对于 Hibernate,`spring.jpa.hibernate` 前缀下的任何属性都不会自动应用于您的 `LocalContainerEntityManagerManagerBean`.
-如果您依靠这些属性来配置诸如命名策略或 DDL 模式之类的东西,那么在创建 `LocalContainerEntityManagerManagerBean` bean时将需要显式配置.
-另一方面,如果您使用自动配置的 `EntityManagerFactoryBuilder` 来构建 `LocalContainerEntityManagerFactoryBean` bean,那么将自动应用通过 `spring.jpa.properties` 指定的应用于自动配置的 `EntityManagerFactoryBuilder` 的属性.
+如果您依靠这些属性来配置诸如命名策略或 DDL 模式之类的东西,那么在创建 `LocalContainerEntityManagerManagerBean` bean 时将需要显式配置.
 
-上面的配置几乎可以独立工作.  为了完成此图,您还需要为两个 `EntityManager` 配置 `TransactionManager`.  如果将其中一个标记为 `@Primary`,则可以由 Spring Boot 中的默认 `JpaTransactionManager` 拾取.
-另一个必须显式地注入到新实例中.  另外,您也许可以使用跨两个 JTA 事务管理器.
+您应该为其他需要 JPA 访问权限的数据源提供类似的配置。 为了完成此操作，您还需要为每个 `EntityManagerFactory` 配置一个 `JpaTransactionManager`。 另外,您也许可以使用跨两个 JTA 事务管理器.
 
-如果使用Spring Data,则需要相应地配置 `@EnableJpaRepositories`,如以下示例所示:
+如果使用 Spring Data,则需要相应地配置 `@EnableJpaRepositories`,如以下示例所示:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	@Configuration(proxyBeanMethods = false)
-	@EnableJpaRepositories(basePackageClasses = Customer.class,
-			entityManagerFactoryRef = "customerEntityManagerFactory")
-	public class CustomerConfiguration {
+	@EnableJpaRepositories(basePackageClasses = Order.class,
+			entityManagerFactoryRef = "firstEntityManagerFactory")
+	public class OrderConfiguration {
 		...
 	}
 
 	@Configuration(proxyBeanMethods = false)
-	@EnableJpaRepositories(basePackageClasses = Order.class,
-			entityManagerFactoryRef = "orderEntityManagerFactory")
-	public class OrderConfiguration {
+	@EnableJpaRepositories(basePackageClasses = Customer.class,
+			entityManagerFactoryRef = "secondEntityManagerFactory")
+	public class CustomerConfiguration {
 		...
 	}
 ----

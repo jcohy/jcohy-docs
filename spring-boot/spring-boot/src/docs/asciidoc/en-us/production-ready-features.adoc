@@ -139,6 +139,7 @@ If your application is a web application (Spring MVC, Spring WebFlux, or Jersey)
 
 | `heapdump`
 | Returns an `hprof` heap dump file.
+  Requires a HotSpot JVM.
 
 | `jolokia`
 | Exposes JMX beans over HTTP (when Jolokia is on the classpath, not available for WebFlux).
@@ -675,6 +676,7 @@ If no `HealthIndicator` returns a status that is known to the `StatusAggregator`
 TIP: The `HealthContributorRegistry` can be used to register and unregister health indicators at runtime.
 
 
+
 [[production-ready-health-indicators]]
 ==== Auto-configured HealthIndicators
 The following `HealthIndicators` are auto-configured by Spring Boot when appropriate.
@@ -693,7 +695,7 @@ with the `key` listed in the table below.
 | {spring-boot-actuator-module-code}/couchbase/CouchbaseHealthIndicator.java[`CouchbaseHealthIndicator`]
 | Checks that a Couchbase cluster is up.
 
-| `datasource`
+| `db`
 | {spring-boot-actuator-module-code}/jdbc/DataSourceHealthIndicator.java[`DataSourceHealthIndicator`]
 | Checks that a connection to `DataSource` can be obtained.
 
@@ -769,6 +771,7 @@ Additional `HealthIndicators` are available but not enabled by default:
 
 
 
+[[production-ready-health-indicators-writing]]
 ==== Writing Custom HealthIndicators
 To provide custom health information, you can register Spring beans that implement the {spring-boot-actuator-module-code}/health/HealthIndicator.java[`HealthIndicator`] interface.
 You need to provide an implementation of the `health()` method and return a `Health` response.
@@ -887,34 +890,42 @@ TIP: To handle the error automatically, consider extending from `AbstractReactiv
 
 
 
+[[reactive-health-indicators-autoconfigured]]
 ==== Auto-configured ReactiveHealthIndicators
 The following `ReactiveHealthIndicators` are auto-configured by Spring Boot when appropriate:
 
-[cols="1,4"]
+[cols="2,4,6"]
 |===
-| Name | Description
+| Key | Name | Description
 
+| `cassandra`
 | {spring-boot-actuator-module-code}/cassandra/CassandraDriverReactiveHealthIndicator.java[`CassandraDriverReactiveHealthIndicator`]
 | Checks that a Cassandra database is up.
 
+| `couchbase`
 | {spring-boot-actuator-module-code}/couchbase/CouchbaseReactiveHealthIndicator.java[`CouchbaseReactiveHealthIndicator`]
 | Checks that a Couchbase cluster is up.
 
+| `elasticsearch`
 | {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchReactiveHealthIndicator.java[`ElasticsearchReactiveHealthIndicator`]
 | Checks that an Elasticsearch cluster is up.
 
+| `mongo`
 | {spring-boot-actuator-module-code}/mongo/MongoReactiveHealthIndicator.java[`MongoReactiveHealthIndicator`]
 | Checks that a Mongo database is up.
 
+| `neo4j`
 | {spring-boot-actuator-module-code}/neo4j/Neo4jReactiveHealthIndicator.java[`Neo4jReactiveHealthIndicator`]
 | Checks that a Neo4j database is up.
 
+| `redis`
 | {spring-boot-actuator-module-code}/redis/RedisReactiveHealthIndicator.java[`RedisReactiveHealthIndicator`]
 | Checks that a Redis server is up.
 |===
 
 TIP: If necessary, reactive indicators replace the regular ones.
 Also, any `HealthIndicator` that is not handled explicitly is wrapped automatically.
+
 
 
 [[production-ready-health-groups]]
@@ -2390,15 +2401,15 @@ include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag
 ----
 
 Using a `MeterBinder` ensures that the correct dependency relationships are set up and that the bean is available when the metric's value is retrieved.
-By default, metrics from all `MeterBinder` beans will be automatically bound to the Spring-managed `MeterRegistry`.
 A `MeterBinder` implementation can also be useful if you find that you repeatedly instrument a suite of metrics across components or applications.
 
+NOTE: By default, metrics from all `MeterBinder` beans will be automatically bound to the Spring-managed `MeterRegistry`.
 
 
-[[production-ready-metrics-per-meter-properties]]
+
+[[production-ready-metrics-customizing]]
 === Customizing individual metrics
 If you need to apply customizations to specific `Meter` instances you can use the `io.micrometer.core.instrument.config.MeterFilter` interface.
-By default, all `MeterFilter` beans will be automatically applied to the micrometer `MeterRegistry.Config`.
 
 For example, if you want to rename the `mytag.region` tag to `mytag.area` for all meter IDs beginning with `com.example`, you can do the following:
 
@@ -2406,6 +2417,10 @@ For example, if you want to rename the `mytag.region` tag to `mytag.area` for al
 ----
 include::{code-examples}/actuate/metrics/MetricsFilterBeanExample.java[tag=configuration]
 ----
+
+NOTE: By default, all `MeterFilter` beans will be automatically bound to the Spring-managed `MeterRegistry`.
+Make sure to register your metrics using the Spring-managed `MeterRegistry` and not any of the static methods on `Metrics`.
+These use the global registry that is not Spring-managed.
 
 
 
@@ -2430,6 +2445,7 @@ As the order of common tags cannot be guaranteed using this approach, Graphite u
 
 
 
+[[production-ready-metrics-per-meter-properties]]
 ==== Per-meter properties
 In addition to `MeterFilter` beans, it's also possible to apply a limited set of customization on a per-meter basis using properties.
 Per-meter customizations apply to any all meter IDs that start with the given name.
@@ -2612,6 +2628,7 @@ If your Cloud Foundry UAA or Cloud Controller services use self-signed certifica
 
 
 
+[[production-ready-custom-context-path]]
 === Custom context path
 If the server's context-path has been configured to anything other than `/`, the Cloud Foundry endpoints will not be available at the root of the application.
 For example, if `server.servlet.context-path=/app`, Cloud Foundry endpoints will be available at `/app/cloudfoundryapplication/*`.

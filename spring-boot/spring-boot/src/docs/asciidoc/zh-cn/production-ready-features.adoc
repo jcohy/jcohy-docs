@@ -127,7 +127,7 @@ Actuator 是制造术语,指的是用于移动或控制某物的机械装置. Ac
 | ID | 描述
 
 | `heapdump`
-| 返回一个 `hprof` 堆 dump 文件.
+| 返回一个 `hprof` 堆 dump 文件.  需要一个 HotSpot JVM.
 
 | `jolokia`
 | 通过 HTTP 暴露 JMX bean (当 Jolokia 在 classpath 上时,不适用于 WebFlux) . 需要依赖 `jolokia-core`
@@ -582,7 +582,7 @@ Spring Boot 会自动配置以下 `HealthIndicators`.您也可以通过配置 `m
 | {spring-boot-actuator-module-code}/couchbase/CouchbaseHealthIndicator.java[`CouchbaseHealthIndicator`]
 | Checks that a Couchbase cluster is up.
 
-| `datasource`
+| `db`
 | {spring-boot-actuator-module-code}/jdbc/DataSourceHealthIndicator.java[`DataSourceHealthIndicator`]
 | Checks that a connection to `DataSource` can be obtained.
 
@@ -656,6 +656,7 @@ TIP: 你可以通过设置 `management.health.defaults.enabled` 属性来禁用�
 | Exposes the "Readiness" application availability state.
 |===
 
+[[production-ready-health-indicators-writing]]
 ==== 编写自定义 HealthIndicators
 要提供自定义健康信息,可以注册实现  {spring-boot-actuator-module-code}/health/HealthIndicator.java[`HealthIndicator`] 接口的 Spring bean. 你需要提供 `health()` 方法的实现并返回一个 `Health` 响应. Health 响应应包括一个状态,并且可以选择包括要显示的其他详细信息. 以下代码展示了一个 `HealthIndicator` 实现示例:
 
@@ -762,27 +763,37 @@ TIP: 在响应式应用程序中,`ReactiveHealthContributorRegistry` 可用于�
 
 TIP: 要自动处理错误,请考虑从 `AbstractReactiveHealthIndicator` 进行扩展.
 
+[[reactive-health-indicators-autoconfigured]]
 ==== 自动配置的  ReactiveHealthIndicators
-适当时,Spring Boot会自动配置以下 `ReactiveHealthIndicators`:
+适当时,Spring Boot 会自动配置以下 `ReactiveHealthIndicators`:
 
-[cols="1,4"]
+[cols="2,4,6"]
 |===
-| 名称 | 描述
+| Key | Name | Description
 
+| `cassandra`
 | {spring-boot-actuator-module-code}/cassandra/CassandraDriverReactiveHealthIndicator.java[`CassandraDriverReactiveHealthIndicator`]
-| 检查 Cassandra 数据库是否已启动.
+| Checks that a Cassandra database is up.
 
+| `couchbase`
 | {spring-boot-actuator-module-code}/couchbase/CouchbaseReactiveHealthIndicator.java[`CouchbaseReactiveHealthIndicator`]
-| 检查 Couchbase 集群是否已启动.
+| Checks that a Couchbase cluster is up.
 
+| `elasticsearch`
+| {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchReactiveHealthIndicator.java[`ElasticsearchReactiveHealthIndicator`]
+| Checks that an Elasticsearch cluster is up.
+
+| `mongo`
 | {spring-boot-actuator-module-code}/mongo/MongoReactiveHealthIndicator.java[`MongoReactiveHealthIndicator`]
-| 检查 Mongo 数据库是否已启动.
+| Checks that a Mongo database is up.
 
+| `neo4j`
 | {spring-boot-actuator-module-code}/neo4j/Neo4jReactiveHealthIndicator.java[`Neo4jReactiveHealthIndicator`]
-| 检查 Neo4j 数据库是否已启动.
+| Checks that a Neo4j database is up.
 
+| `redis`
 | {spring-boot-actuator-module-code}/redis/RedisReactiveHealthIndicator.java[`RedisReactiveHealthIndicator`]
-| 检查 Redis 服务器是否已启动.
+| Checks that a Redis server is up.
 |===
 
 TIP: 必要时,响应式指示器取代常规指示器. 此外,任何未明确处理的 `HealthIndicator` 都会自动包装.
@@ -2050,9 +2061,11 @@ include::{code-examples}/actuate/metrics/MetricsMeterRegistryInjectionExample.ja
 include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag=example]
 ----
 
-使用 `MeterBinder` 可以确保设置正确的依赖关系,并且在获取指标值时 Bean 可用. 默认情况下,所有 `MeterBinder` bean 的指标都将自动绑定到 Spring 管理的 `MeterRegistry`. 如果你发现跨组件或应用程序重复记录一套指标,则 `MeterBinder` 实现也可能很有用.
+使用 `MeterBinder` 可以确保设置正确的依赖关系,并且在获取指标值时 Bean 可用. 如果你发现跨组件或应用程序重复记录一套指标,则 `MeterBinder` 实现也可能很有用.
 
-[[production-ready-metrics-per-meter-properties]]
+NOTE:: 默认情况下,所有 `MeterBinder` bean 的指标都将自动绑定到 Spring 管理的 `MeterRegistry`
+
+[[production-ready-metrics-customizing]]
 === 自定义单个指标
 
 如果需要将自定义应用于特定的仪表实例,则可以使用 `io.micrometer.core.instrument.config.MeterFilter` 接口.  默认情况下,所有 `MeterFilter` bean都将自动应用于 micrometer `MeterRegistry.Config`.
@@ -2063,6 +2076,10 @@ include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag
 ----
 include::{code-examples}/actuate/metrics/MetricsFilterBeanExample.java[tag=configuration]
 ----
+
+NOTE: 默认情况下, 所有的 `MeterFilter` 将自动绑定到由 Spring 管理的 `MeterRegistry`.
+确保使用 Spring 管理的 `MeterRegistry` 而不是 `Metrics` 上的任何静态方法来注册您的指标。 这些使用非 Spring 管理的全局注册表。
+
 
 [[production-ready-metrics-common-tags]]
 ==== 常用标签
@@ -2082,6 +2099,7 @@ include::{code-examples}/actuate/metrics/MetricsFilterBeanExample.java[tag=confi
 
 NOTE: 如果你使用 Graphite,那么标签的顺序很重要. 由于使用此方法无法保证通用标签的顺序,因此建议 Graphite 用户定义自定义 `MeterFilter`.
 
+[[production-ready-metrics-per-meter-properties]]
 ==== Per-meter 属性
 除了 `MeterFilter` bean 之外,还可以使用 properties 在 per-meter 基础上自定义. Per-meter 定义适用于以给定名称开头的所有 meter ID. 例如,以下将禁用任何以 `example.remote` 开头的 ID 的 meter:
 
@@ -2223,6 +2241,7 @@ NOTE: 常规用户无法直接访问 `/cloudfoundryapplication` 路径. 为了�
 	    skip-ssl-validation: true
 ----
 
+[[production-ready-custom-context-path]]
 === 自定义上下文路径
 如果服务器的 context-path 已配置为 `/` 以外的其他内容,则 Cloud Foundry 端点将无法在应用程序的根目录中使用. 例如,如果 `server.servlet.context-path=/app`,Cloud Foundry 端点将在 `/app/cloudfoundryapplication/*` 上可用.
 
