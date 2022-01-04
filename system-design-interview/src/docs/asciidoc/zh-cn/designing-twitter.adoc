@@ -9,10 +9,8 @@
 
 Twitter是一款在线社交网络服务，用户可以发布和阅读称之为“推文”的140字符的消息。注册的用户可以发布和阅读推文，然而未注册的用户只能阅读推文。用户通过网站界面、SMS或者手机应用程序访问Twitter。
 
-Twitter is an online social networking service where users post and read short 140-character messages called "tweets." Registered users can post and read tweets, but those who are not registered can only read them.
-Users access Twitter through their website interface, SMS, or mobile app.
 
-[[requirements-and-goals-of-the-system]]
+[[需求和系统目标]]
 === 2. 需求和系统目标
 
 我们将使用以下需求设计一个简单版本的Twitter：
@@ -53,39 +51,33 @@ Users access Twitter through their website interface, SMS, or mobile app.
 200M users * 5 favorites => 1B favorites
 ----
 
-我们的系统总共会生成多少推文页面？假设平均一个用户每天访问他们的时间线主页两次，并且访问其他人的主页5次。如果一个用户在每个页面上看到20个推文，那么系统每天生成推文视图的数量是20B：
+我们的系统总共会生成多少推文页面？假设平均一个用户每天访问他们的时间线主页两次，并且访问其他人的主页5次。如果一个用户在每个页面上看到20个推文，那么系统每天浏览推文的数量是20B：
 
 [source,text]
 ----
 200M DAU * ((2 + 5) * 20 tweets) => 28B/day
 ----
 
-Storage Estimates Let’s say each tweet has 140 characters and we need two bytes to store a character without compression.
-Let’s assume we need 30 bytes to store metadata with each tweet (like ID, timestamp, user ID, etc.).
-Total storage we would need:
+存储评估假设每条推文有140个字符，我们需要两个字节存储一个没有被压缩的字符。假设我们需要30个字节存储每条推文的元数据（比如ID，时间戳，用户ID等）。总计需要存储量是：
 
 [source,text]
 ----
 100M * (280 + 30) bytes => 30GB/day
 ----
 
-What would our storage needs be for five years?
-How much storage we would need for users’ data, follows, favorites?
-We will leave this for the exercise.
+5的年数据需要多大的存储量呢？
+需要多少空间存储用户的数据、关注数据和收藏数据？将这些留给读者作为练习。
 
-Not all tweets will have media, let’s assume that on average every fifth tweet has a photo and every tenth has a video.
-Let’s also assume on average a photo is 200KB and a video is 2MB.
-This will lead us to have 24TB of new media every day.
+不是每条推文都有媒体数据，假设平均每５条推文中有一张图片，每１０条推文中有一个视频。假设平均每张图片的大小是200KB，每个视频的大小是2MB。那么每天将会有24TB的媒体数据。
 
 [source,text]
 ----
 (100M/5 photos * 200KB) + (100M/10 videos * 2MB) ~= 24TB/day
 ----
 
+*带宽预估* 因为每天有24TB的数据，因此数据传输速度是290MB/秒。请记住，我们每天有280亿的推文浏览量。我们必须展示每个推文中的图片，但是假设用户平均观看到他们时间轴上的第三个视频。因此，总输出数据量是：
 *Bandwidth Estimates* Since total ingress is 24TB per day, this would translate into 290MB/sec.
-Remember that we have 28B tweet views per day.
-We must show the photo of every tweet (if it has a photo), but let’s assume that the users watch every 3rd video they see in their timeline.
-So, total egress will be:
+
 
 [source,text]
 ----
@@ -94,52 +86,44 @@ Total ~= 35GB/s
 ----
 
 [[system-APIs]]
-=== 4. System APIs
+=== 4. 系统的APIs
 
 [NOTE]
-Once we've finalized the requirements, it's always a good idea to define the system APIs.
-This should explicitly state what is expected from the system.
+一旦我们明确了需求，那么定义系统的API接口是一个很好的主意。这应该明确说明期望系统提供的功能。
 
-We can have SOAP or REST APIs to expose the functionality of our service.
-Following could be the definition of the API for posting a new tweet:
+我们可以使用SOAP或者Rest API来暴露我们服务提供的功能。以下定义的是发布一个新推文接口：
 
 [source,text]
 ----
 tweet(api_dev_key, tweet_data, tweet_location, user_location, media_ids, maximum_results_to_return)
 ----
 
-*Parameters:*
+*参数：*
 
-. api_dev_key (string): The API developer key of a registered account.This will be used to, among other things, throttle users based on their allocated quota.
-. tweet_data (string): The text of the tweet, typically up to 140 characters.
-. tweet_location (string): Optional location (longitude, latitude) this Tweet refers to.
-. user_location (string): Optional location (longitude, latitude) of the user adding the tweet.
-. media_ids (number[]): Optional list of media_ids to be associated with the Tweet.
-(All the media photo, video, etc. need to be uploaded separately).
+. api_dev_key (string): 注册账户的API开发者密钥。这样用于根据分配的配额限制用户。
+. tweet_data (string): 推文的内容，通常最多为140个字符。
+. tweet_location (string): 此推文所引用的可选的位置（经度，纬度）。
+. user_location (string): 用户添加到推文的可选的位置（经度，纬度）。
+. media_ids (number[]): 可选的推文相关的媒体数据ID的列表。（需要单独上传所有媒体照片、视频）。
 
-*Returns:* (string) A successful post will return the URL to access that tweet.Otherwise, an appropriate HTTP error is returned.
+*返回：* （字符串）成功地发布推文后返回访问此推文的URL地址。否则，返回一个合适的HTTP错误。
 
 [[high-level-system-design]]
-=== 5. High Level System Design
+=== 5. 高级系统设计
 
-We need a system that can efficiently store all the new tweets, 100M/86400s => 1150 tweets per second and read 28B/86400s => 325K tweets per second.
-It is clear from the requirements that this will be a read-heavy system.
+我们需要一个可以高效地存储所有新的推文的系统，每秒存储100M/86400s => 1150个推文，并且每秒可读取28B/86400s => 325K个推文。从需求中可以看出，这将是一个读取密集型的系统。
 
-At a high level, we need multiple application servers to serve all these requests with load balancers in front of them for traffic distributions.
-On the backend, we need an efficient database that can store all the new tweets and can support a huge number of reads.
-We also need some file storage to store photos and videos.
+在高层级上，我们需要多个应用服务器来处理所有的请求，并在它们前面使用负载均衡器进行流量分配。在后端，我们需要一个高效的数据库来存储所有新推文，并支持大量的读操作。我们也需要一些文件存储来保存图片和视频。
+
 
 image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/twitter/design-twitter-high-level-system-design.png[]
 
-Although our expected daily write load is 100 million and read load is 28 billion tweets.
-This means on average our system will receive around 1160 new tweets and 325K read requests per second.
-This traffic will be distributed unevenly throughout the day, though, at peak time we should expect at least a few thousand write requests and around 1M read requests per second.
-We should keep this in mind while designing the architecture of our system.
+尽管我们预期的写入量是每天1亿条推文，读取量是每日280亿推文。这意味着我们的系统平均每秒将接受1160条新的推文的写入和325000条读取推文的操作。该流量在一天中分布不均匀，但是在高峰期，我们应该预计每秒至少有几千条推文的写入请求和每秒大约1,000,000条读取推文的请求。在设计系统架构时，我们应该牢记这一点。
 
 [[database-schema]]
-=== 6. Database Schema
+=== 6. 数据库架构
 
-We need to store data about users, their tweets, their favorite tweets, and people they follow.
+我们需要存储的数据有用户的信息、用户的推文、用户收藏的推文和用户关注的其他用户的信息。
 
 .Tweet
 [width="25%",cols="<s,>m"]
@@ -180,7 +164,7 @@ We need to store data about users, their tweets, their favorite tweets, and peop
 ||CreationDate:datetime|
 |===
 
-For choosing between SQL and NoSQL databases to store the above schema, please see ‘Database schema’ under Designing Instagram.
+对于选择使用关系型数据库还是非关系型数据库来存储数据，请参考设计Instagram中的link:designing-instagram.adoc#数据库架构[数据库架构] 。
 
 [[data-sharding]]
 === 7. Data Sharding
@@ -334,8 +318,7 @@ By monitoring these counters, we will realize if we need more replication, load 
 [[extended-requirements]]
 === 13. Extended Requirements
 
-*How do we serve feeds?*
-Get all the latest tweets from the people someone follows and merge/sort them by time.
+*How do we serve feeds?* Get all the latest tweets from the people someone follows and merge/sort them by time.
 Use pagination to fetch/show tweets.
 Only fetch top N tweets from all the people someone follows.
 This N will depend on the client’s Viewport, since on a mobile we show fewer tweets compared to a Web client.
@@ -349,8 +332,7 @@ Alternately, we can pre-generate the feed to improve efficiency; for details ple
 We can rank trending topics based on the frequency of tweets or search queries or retweets or likes.
 We can give more weight to topics which are shown to more people.
 
-*Who to follow?How to give suggestions?*
-This feature will improve user engagement.
+*Who to follow?How to give suggestions?* This feature will improve user engagement.
 We can suggest friends of people someone follows.
 We can go two or three levels down to find famous people for the suggestions.
 We can give preference to people with more followers.
