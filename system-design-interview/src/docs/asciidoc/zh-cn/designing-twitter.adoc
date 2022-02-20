@@ -3,7 +3,6 @@
 
 设计一个类似Twitter的网络社交服务。服务中的用户可以发布推文、关注其他用户和收藏推文。难度等级：中等
 
-
 [[twitter是什么]]
 === 1.Twitter是什么？
 
@@ -111,7 +110,6 @@ tweet(api_dev_key, tweet_data, tweet_location, user_location, media_ids, maximum
 
 在高层级上，我们需要多个应用服务器来处理所有的请求，并在它们前面使用负载均衡器进行流量分配。在后端，我们需要一个高效的数据库来存储所有新推文，并支持大量的读操作。我们也需要一些文件存储来保存图片和视频。
 
-
 image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/system-design-interview/twitter/design-twitter-high-level-system-design.png[]
 
 尽管我们预期的写入量是每天1亿条推文，读取量是每日280亿推文。这意味着我们的系统平均每秒将接受1160条新的推文的写入和325000条读取推文的操作。该流量在一天中分布不均匀，但是在高峰期，我们应该预计每秒至少有几千条推文的写入请求和每秒大约1,000,000条读取推文的请求。在设计系统架构时，我们应该牢记这一点。
@@ -172,22 +170,18 @@ image::https://jcohy-resources.oss-cn-beijing.aliyuncs.com/jcohy-docs/images/sys
 . 如果用户变成热点数据怎么办？ 存储此用户数据的服务器上可能有很多查询。这种高负载会影响我们服务的性能。
 . 随着时间的推移，一些用户最终可能会存储大量推文或与其他用户相比拥有大量关注。 保持不断增长的用户数据的均匀分布是相当困难的。
 
+为了解决这些问题，我们必须重新分区或重新分配我们的数据，或者使用一致性哈希函数来解决这些问题。
 
-To recover from these situations either we have to repartition/redistribute our data or use consistent hashing.
+*基于TweetID的分区:* 哈希函数会将TweetID映射到一个随机的服务器，我们将在其中存储该推文。我们必须查询所有服务器来搜索推文，每个服务器都会返回一组推文。中央服务器将汇总这些结果并将它们返回给用户。让我们看一下时间线生成示例； 以下是我们的系统为生成用户的时间线而必须执行的步骤数：
 
-*Sharding based on TweetID:* Our hash function will map each TweetID to a random server where we will store that Tweet.
-To search for tweets, we have to query all servers, and each server will return a set of tweets.
-A centralized server will aggregate these results to return them to the user.
-Let’s look into timeline generation example; here are the number of steps our system has to perform to generate a user’s timeline:
+. 我们的应用（app）服务器会找到用户关注的所有人；
+. 应用服务器会将查询发送到所有数据库服务器以查找来自这些人的推文；
+. 每个数据库服务器都会找到每个用户的推文，按新近度对它们进行排序并返回排名靠前的推文；
+. 应用服务器会将所有结果合并并重新排序，将排名靠前的结果返回给用户。
 
-. Our application (app) server will find all the people the user follows.
-. App server will send the query to all database servers to find tweets from these people.
-. Each database server will find the tweets for each user, sort them by recency and return the top tweets.
-. App server will merge all the results and sort them again to return the top results to the user.
+这种方法解决了热点用户的问题，但是，与通过 UserID 分片相比，我们必须查询所有数据库分区才能找到用户的推文，这会导致高延迟。
 
-This approach solves the problem of hot users, but, in contrast to sharding by UserID, we have to query all database partitions to find tweets of a user, which can result in higher latencies.
-
-We can further improve our performance by introducing cache to store hot tweets in front of the database servers.
+我们可以通过在数据库服务器前引入缓存来存储热门推文来进一步提高服务器的性能。
 
 *Sharding based on Tweet creation time:* Storing tweets based on creation time will give us the advantage of fetching all the top tweets quickly and we only have to query a very small set of servers.
 The problem here is that the traffic load will not be distributed, e.g., while writing, all new tweets will be going to one server and the remaining servers will be sitting idle.
