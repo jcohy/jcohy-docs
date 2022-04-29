@@ -1,0 +1,3272 @@
+[[mongo.core]]
+= MongoDB 支持
+
+MongoDB 支持包含许多功能:
+
+* Spring 支持通过基于 Java 的 `@Configuration` 类和 XML 命名空间来配置 Mongo driver 实例和副本集.
+* `MongoTemplate` 模板工具类，执行常见的 Mongo 操作。包括 documents 和 POJOs 之间的映射.
+* 将异常转换为 Spring 的数据访问异常层次结构。.
+* 与 Spring 的转换服务集成丰富的对象映射.
+* 基于注解的映射元数据，可扩展以支持其他元数据格式。.
+* 持久化和映射生命周期事件。.
+* 基于 Java 的查询（Query） , 构造条件（Criteria）, 和 更新（Update） DSLs.
+* Repository 接口的自动实现，包括对自定义 finder 方法的支持。.
+* QueryDSL 集成以支持类型安全的查询。.
+* 对 JPA 实体的跨存储持久化支持，该JPA实体的字段可以通过 MongoDB 透明地持久化和检索（已弃用 - 无需替换即可删除）.
+* GeoSpatial 集成.
+
+对于大多数任务，您应该使用 `MongoTemplate` 或 Repository 支持, 它们都具有丰富的映射功能. `MongoTemplate` 是寻找访问功能的地方，比如递增计数器或特别CRUD操作. `MongoTemplate` 还提供回调方法，这样您就可以很容易地获得底层 API artifacts, 例如 `com.mongodb.client.MongoDatabase`, 直接与 MongoDB 通信.在各种 API 构件上使用命名约定的目标是将这些约定复制到基础的 MongoDB Java 驱动程序中，这样您就可以轻松地将现有知识映射到 Spring API 上.
+
+[[mongodb-getting-started]]
+== 入门
+
+在 https://spring.io/tools/sts[STS] 中创建一个基于 Spring 的项目，是一种简单的方法来建立一个工作环境.
+
+首先，需要设置一个正在运行的 MongoDB 服务器。关于如何启动 MongoDB 实例，请参考 https://docs.mongodb.org/manual/core/introduction/[MongoDB 快速入门指南]。安装完成后，启动 MongoDB 通常需要运行以下命令: `${MONGO_HOME}/bin/mongod`
+
+在 STS 中创建一个 Spring 工程:
+
+. Go to File -> New -> Spring Template Project -> Simple Spring Utility Project, 并在提示时按 Yes. 然后输入一个项目名和包名, 例如 `org.spring.mongodb.example`.
+. 将一下内容添加到 pom.xml 文件的 `dependencies` 元素中:
++
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>org.springframework.data</groupId>
+    <artifactId>spring-data-mongodb</artifactId>
+    <version>{version}</version>
+  </dependency>
+
+</dependencies>
+----
+. 将 pom.xml 中的 Spring 版本切换为
++
+[source,xml,subs="+attributes"]
+----
+<spring.framework.version>{springVersion}</spring.framework.version>
+----
+. 将 Spring Milestone repository 存储库的以下位置添加到您的 `pom.xml` ，与 `<dependencies/>` 元素同级:
++
+[source,xml]
+----
+<repositories>
+  <repository>
+    <id>spring-milestone</id>
+    <name>Spring Maven MILESTONE Repository</name>
+    <url>https://repo.spring.io/libs-milestone</url>
+  </repository>
+</repositories>
+----
+
+这个库也可以在 https://repo.spring.io/milestone/org/springframework/data/[这里浏览] 。
+The repository is also .
+
+您可能还希望将日志级别设置为 `DEBUG`，以查看一些其他信息。编辑 `log4j.properties` 文件:
+
+[source]
+----
+log4j.category.org.springframework.data.mongodb=DEBUG
+log4j.appender.stdout.layout.ConversionPattern=%d{ABSOLUTE} %5p %40.40c:%4L - %m%n
+----
+
+然后，创建一个 `Person` 实体类:
+
+[source,java]
+----
+package org.spring.mongodb.example;
+
+public class Person {
+
+  private String id;
+  private String name;
+  private int age;
+
+  public Person(String name, int age) {
+    this.name = name;
+    this.age = age;
+  }
+
+  public String getId() {
+    return id;
+  }
+  public String getName() {
+    return name;
+  }
+  public int getAge() {
+    return age;
+  }
+
+  @Override
+  public String toString() {
+    return "Person [id=" + id + ", name=" + name + ", age=" + age + "]";
+  }
+}
+----
+
+你还需要一个主应用程序来运行:
+
+[source,java]
+----
+package org.spring.mongodb.example;
+
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.data.mongodb.core.MongoOperations;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+
+import com.mongodb.client.MongoClients;
+
+public class MongoApp {
+
+  private static final Log log = LogFactory.getLog(MongoApp.class);
+
+  public static void main(String[] args) throws Exception {
+
+    MongoOperations mongoOps = new MongoTemplate(MongoClients.create(), "database");
+    mongoOps.insert(new Person("Joe", 34));
+
+    log.info(mongoOps.findOne(new Query(where("name").is("Joe")), Person.class));
+
+    mongoOps.dropCollection("person");
+  }
+}
+----
+
+运行主程序时，上面的示例输出如下:
+
+[source]
+----
+10:01:32,062 DEBUG apping.MongoPersistentEntityIndexCreator:  80 - Analyzing class class org.spring.example.Person for index information.
+10:01:32,265 DEBUG ramework.data.mongodb.core.MongoTemplate: 631 - insert Document containing fields: [_class, age, name] in collection: Person
+10:01:32,765 DEBUG ramework.data.mongodb.core.MongoTemplate:1243 - findOne using query: { "name" : "Joe"} in db.collection: database.Person
+10:01:32,953  INFO      org.spring.mongodb.example.MongoApp:  25 - Person [id=4ddbba3c0be56b7e1b210166, name=Joe, age=34]
+10:01:32,984 DEBUG ramework.data.mongodb.core.MongoTemplate: 375 - Dropped collection [database.person]
+----
+
+即使在这个简单的例子中，也有一些事情需要注意:
+
+* 通过使用标准的 `com.mongodb.client.MongoClient` 对象和要使用的数据库名称，你可以实例化 Spring Mongo 的 <<mongo-template,`MongoTemplate`>>.
+* 映射使用标准的 POJO 对象，而不需要任何额外的元数据(尽管您可以选择提供该信息。See <<mapping-chapter,here>>)。
+* 约定用于处理 `id` 字段，在存储在数据库中时将其转换为一个 `ObjectId`
+* 映射约定可以使用字段访问。注意，`Person` 类只有getter。
+* 如果构造函数参数名称与存储文档的字段名称匹配，则使用它们实例化对象
+
+[[mongo.examples-repo]]
+== Repository 示例
+
+这里有一个 GitHub 库，里面有 https://github.com/spring-projects/spring-data-examples[几个例子] ，您可以下载下来体验研究一下库的使用.
+
+[[mongodb-connectors]]
+== 使用 Spring 连接 MongoDB
+
+第一步是使用 IoC 容器创建一个 `com.mongodb.client.MongoClient`  对象。有两种主要方法可以做到这一点，一种是使用基于 java 的 bean 元数据，另一种是使用基于 xml 的 bean 元数据。下面将讨论这两种情况。
+
+NOTE: 对于那些不熟悉如何使用基于 Java Bean 元数据而不是基于 xml 元数据配置 Spring 容器的人，请参阅参考文档中的 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/core.html#beans-java-instantiating-container[高级介绍] 以及此处的 https://docs.spring.io/spring/docs/3.2.x/spring-framework-reference/html/new-in-3.0.html#new-java-configuration[详细文档] 。
+
+[[mongo.mongo-java-config]]
+=== 使用基于 Java 的方式注册一个 Mongo 实例
+
+下面的例子展示了一个使用基于 Java Bean 元数据注册 `com.mongodb.client.MongoClient` 实例的例子:
+
+.使用基于 Java Bean 元数据注册 `com.mongodb.client.MongoClient` 对象
+====
+[source,java]
+----
+@Configuration
+public class AppConfig {
+
+  /*
+   * Use the standard Mongo driver API to create a com.mongodb.client.MongoClient instance.
+   */
+   public @Bean MongoClient mongoClient() {
+       return MongoClients.create("mongodb://localhost:27017");
+   }
+}
+----
+====
+
+这种方式允许您使用标准的 `com.mongodb.client.MongoClient` 实例，而容器使用 Spring 的 `MongoClientFactoryBean`。与直接实例化 `com.mongodb.client.MongoClient` 实例相比，FactoryBean 还有一个额外的优势，它为容器提供了一个 `ExceptionTranslator` 实现，可以将 MongoDB 的异常转换为 Spring 的 `DataAccessException` 层次结构中的异常，用于用 `@Repository` 注解的数据访问类。这个层次结构和 `@Repository` 的使用在 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html[Spring 的 DAO 支持特性]中有描述。
+
+下面的例子展示了一个基于 java bean元数据的例子，它支持 `@Repository` 注解类的异常转换:
+
+.通过 `MongoClientFactoryBean` 注册一个 `com.mongodb.client.MongoClient` 对象，并启用 Spring 的异常转换支持。
+====
+[source,java]
+----
+@Configuration
+public class AppConfig {
+
+    /*
+     * Factory bean that creates the com.mongodb.client.MongoClient instance
+     */
+     public @Bean MongoClientFactoryBean mongo() {
+          MongoClientFactoryBean mongo = new MongoClientFactoryBean();
+          mongo.setHost("localhost");
+          return mongo;
+     }
+}
+----
+====
+
+`com.mongodb.client.MongoClient` 对象是由 `MongoClientFactoryBean` 在 `@Configuration` 注解的类中创建的，要访问 `com.mongodb.client.MongoClient` ，请使用 `private @Autowired Mongo mongo;` 字段。
+
+[[mongo.mongo-xml-config]]
+=== 通过基于 XML 元数据配置 Mongo 实例
+
+虽然可以使用 Spring 传统的  `<beans/>`  XML 命名空间向容器注册 `com.mongodb.client.MongoClient` 的实例，但 XML 可能非常冗长。XML 命名空间是配置常用对象(如 Mongo 实例)的更好选择。mongo 名称空间允许您创建一个 mongo 实例服务器位置、副本集和选项。
+
+要使用 Mongo 命名空间元素，需要引用 Mongo schema，如下所示:
+
+.XML schema to configure MongoDB
+====
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns:mongo="http://www.springframework.org/schema/data/mongo"
+          xsi:schemaLocation=
+          "
+          http://www.springframework.org/schema/data/mongo https://www.springframework.org/schema/data/mongo/spring-mongo.xsd
+          http://www.springframework.org/schema/beans
+          https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!-- Default bean name is 'mongo' -->
+    <mongo:mongo-client host="localhost" port="27017"/>
+
+</beans>
+----
+====
+
+下面的例子展示了使用 `MongoClientSettings` 更高级的配置(注意，这些不是推荐值):
+
+.使用 `MongoClientSettings` 配置 `com.mongodb.client.MongoClient`
+====
+[source,xml]
+----
+<beans>
+
+  <mongo:mongo-client host="localhost" port="27017">
+    <mongo:client-settings connection-pool-max-connection-life-time="10"
+        connection-pool-min-size="10"
+		connection-pool-max-size="20"
+		connection-pool-maintenance-frequency="10"
+		connection-pool-maintenance-initial-delay="11"
+		connection-pool-max-connection-idle-time="30"
+		connection-pool-max-wait-time="15" />
+  </mongo:mongo-client>
+
+</beans>
+----
+====
+
+使用副本集配置如下:
+
+.使用副本集配置 `com.mongodb.client.MongoClient` 对象
+====
+[source,xml]
+----
+<mongo:mongo-client id="replicaSetMongo" replica-set="rs0">
+    <mongo:client-settings cluster-hosts="127.0.0.1:27017,localhost:27018" />
+</mongo:mongo-client>
+----
+====
+
+[[mongo.mongo-db-factory]]
+=== MongoDatabaseFactory 接口
+
+虽然 `com.mongodb.client.MongoClient` 是 MongoDB 驱动程序 API 的入口点，但是连接到特定的 MongoDB 数据库实例需要额外的信息，例如数据库名称和可选的用户名和密码。有了这些信息，您就可以获得 `com.mongodb.client.MongoDatabase` 对象并访问特定 `MongoDB` 数据库实例的所有功能。Spring 提供了 `org.springframework.data.mongodb.core.MongoDatabaseFactory` 接口，如下清示，用来引导连接到数据库:
+
+[source,java]
+----
+public interface MongoDatabaseFactory {
+
+  MongoDatabase getDatabase() throws DataAccessException;
+
+  MongoDatabase getDatabase(String dbName) throws DataAccessException;
+}
+----
+
+下面的部分将展示如何使用容器和基于 java 或基于 xml 的元数据来配置 `MongoDatabaseFactory` 接口的实例。反过来，你可以使用 `MongoDatabaseFactory` 实例来配置 `MongoTemplate`。
+
+不需要使用 IoC 容器来创建一个 `MongoTemplate` 实例，你可以在 Java 代码中直接使用它们，如下所示:
+
+[source,java]
+----
+public class MongoApp {
+
+  private static final Log log = LogFactory.getLog(MongoApp.class);
+
+  public static void main(String[] args) throws Exception {
+
+    MongoOperations mongoOps = new MongoTemplate(new SimpleMongoClientDatabaseFactory(MongoClients.create(), "database"));
+
+    mongoOps.insert(new Person("Joe", 34));
+
+    log.info(mongoOps.findOne(new Query(where("name").is("Joe")), Person.class));
+
+    mongoOps.dropCollection("person");
+  }
+}
+----
+
+粗体显示的代码强调了 `SimpleMongoClientDbFactory` 的使用，这是与 <<mongodb-getting-started,入门章节>> 中显示的唯一区别。
+
+NOTE: 当选择 `com.mongodb.client.MongoClient` 作为入口点时，使用 `SimpleMongoClientDbFactory`。
+
+[[mongo.mongo-db-factory-java]]
+=== 通过基于 Java 的方式注册一个 `MongoDatabaseFactory` 实例
+
+要向容器注册一个 `MongoDatabaseFactory` 实例，需要编写类似于前面代码中突出显示的代码。下面展示了一个简单的例子
+
+[source,java]
+----
+@Configuration
+public class MongoConfiguration {
+
+  public @Bean MongoDatabaseFactory mongoDatabaseFactory() {
+    return new SimpleMongoClientDatabaseFactory(MongoClients.create(), "database");
+  }
+}
+----
+
+MongoDB 3 连接 DB 时修改了认证模式。因此，用于身份验证的一些配置选项不再有效。你应该使用特定的 `MongoClient` 选项，通过 `MongoCredential` 设置凭据来提供认证数据，如下所示:
+
+[source,java]
+----
+@Configuration
+public class ApplicationContextEventTestsAppConfig extends AbstractMongoClientConfiguration {
+
+  @Override
+  public String getDatabaseName() {
+    return "database";
+  }
+
+  @Override
+  protected void configureClientSettings(Builder builder) {
+
+  	builder
+  	    .credential(MongoCredential.createCredential("name", "db", "pwd".toCharArray()))
+  	    .applyToClusterSettings(settings  -> {
+  	    	settings.hosts(singletonList(new ServerAddress("127.0.0.1", 27017)));
+  	    });
+  }
+}
+----
+
+为了在基于 xml 的配置中使用身份验证，请在 `<mongo-client>` 元素上使用 `credential` 属性。
+
+NOTE: 在基于xml的配置中使用的用户名和密码凭证必须在包含保留字符时进行 URL 编码, 例如 `:`, `%`, `@`, or `,`.
+下面的例子显示了编码后的凭证:
+`m0ng0@dmin:mo_res:bw6},Qsdxx@admin@database` -> `m0ng0%40dmin:mo_res%3Abw6%7D%2CQsdxx%40admin@database`
+请查看 https://tools.ietf.org/html/rfc3986#section-2.2[section 2.2 of RFC 3986] 获取更多信息.
+
+[[mongo.mongo-db-factory-xml]]
+=== 通过基于 XML 的方式注册一个 `MongoDatabaseFactory` 实例
+
+与使用 `<beans/>` 命名空间相比，`mongo` 命名空间提供了一种创建 `SimpleMongoClientDbFactory` 的便捷方式，如下所示:
+
+[source,xml]
+----
+<mongo:db-factory dbname="database">
+----
+
+如果需要在 `com.mongodb.client.MongoClient` 实例上配置用于创建 SimpleMongoClientDbFactory 的其他选项，则可以使用 `mongo-ref` 属性引用现有 bean，如下例所示。为了展示另一个常见的使用模式，下面的代码展示了属性占位符的使用，它可以让你参数化配置和创建一个 `MongoTemplate`:
+
+[source,xml]
+----
+<context:property-placeholder location="classpath:/com/myapp/mongodb/config/mongo.properties"/>
+
+<mongo:mongo-client host="${mongo.host}" port="${mongo.port}">
+  <mongo:client-settings connection-pool-max-connection-life-time="${mongo.pool-max-life-time}"
+    connection-pool-min-size="${mongo.pool-min-size}"
+    connection-pool-max-size="${mongo.pool-max-size}"
+	connection-pool-maintenance-frequency="10"
+	connection-pool-maintenance-initial-delay="11"
+	connection-pool-max-connection-idle-time="30"
+	connection-pool-max-wait-time="15" />
+</mongo:mongo-client>
+
+<mongo:db-factory dbname="database" mongo-ref="mongoClient"/>
+
+<bean id="anotherMongoTemplate" class="org.springframework.data.mongodb.core.MongoTemplate">
+  <constructor-arg name="mongoDbFactory" ref="mongoDbFactory"/>
+</bean>
+----
+
+[[mongo-template]]
+== 介绍 `MongoTemplate`
+
+`MongoTemplate` 类位于 `org.springframework.data.mongodb.core` 包中，是 Spring MongoDB 支持的核心类，为与数据库交互提供了丰富的特性。该模板提供了创建、更新、删除和查询 MongoDB 文档的 documents 操作，并提供了 domain 对象和 MongoDB  documents 之间的映射关系。
+
+NOTE: 一旦配置, `MongoTemplate` 是线程安全的，可以在多个实例中重用
+
+MongoDB documents 和 domain 类之间的映射是通过委托给 `MongoConverter` 接口的一个实现来完成的。Spring 提供了 `MappingMongoConverter`，但是您也可以编写自己的转换器。有关更多详细信息，请参阅 "`<<mongo.custom-converters>>`"。
+
+`MongoTemplate` 类实现了 `MongoOperations` 接口。在尽可能的情况下，MongoDB 操作的方法都以 MongoDB driver Collection 对象中可用的方法命名，以使已经使用过该驱动 API的 MongoDB 开发人员熟悉该 API。例如，你可以找到 `find`、`findAndModify`、`findAndReplace`、`findOne`、`insert`、`remove`、`save`、`update` 和 `updateMulti` 等方法。该设计目标是尽可能轻松地在基础 MongoDB 驱动程序和 `MongoOperations` 之间进行转换。这两个 api 的主要区别在于，`MongoOperations` 可以传递 domain 对象，而不是 `Document`。此外，`MongoOperations` 拥有用于查询、标准和更新操作的流式 api，而不是通过填充 `Document` 来指定这些操作的参数。
+
+NOTE: 在 `MongoTemplate` 实例上引用操作的首选方式是通过它的接口 `MongoOperations`。
+
+默认的 `MongoTemplate` 使用的转换器实现是 `MappingMongoConverter`。虽然 `MappingMongoConverter` 可以使用额外的元数据来指定对象到文档的映射，但它也可以通过使用 IDs 和集合名称映射的一些约定来转换不包含额外元数据的对象。这些约定以及映射注解的使用将在 "`<<mapping-chapter>>`"  一章中进行解释
+
+`MongoTemplate` 的另一个核心特性是将 MongoDB Java 驱动程序抛出的异常转换到 Spring 的可移植的数据访问异常层次结构中。有关更多信息，请参阅 "`<<mongo.exception>>`"。
+
+`MongoTemplate` 提供了许多简便的方法来帮助您轻松地执行常见的任务。然而，如果你需要直接访问 MongoDB 驱动程序 API，你可以使用几个 Execute 回调方法之一。执行回调给您一个`com.mongodb.client.MongoCollection` 或 `com.mongodb.client.MongoDatabase` 对象的引用。有关更多信息，请参阅 <<mongo.executioncallback,"`Execution Callbacks`">> 一节。
+
+下一节包含如何在 Spring 容器的上下文中使用 `MongoTemplate` 的示例。
+
+[[mongo-template.instantiating]]
+=== 实例化 `MongoTemplate`
+
+你可以使用 Java 来创建和注册一个 MongoTemplate 的实例，如下所示:
+
+====
+[source,java]
+----
+@Configuration
+public class AppConfig {
+
+  public @Bean MongoClient mongoClient() {
+      return MongoClients.create("mongodb://localhost:27017");
+  }
+
+  public @Bean MongoTemplate mongoTemplate() {
+      return new MongoTemplate(mongoClient(), "mydatabase");
+  }
+}
+----
+====
+
+`MongoTemplate` 有几个重载的构造函数:
+
+* `MongoTemplate(MongoClient mongo, String databaseName)`: 需要 `MongoClient` 对象和要操作的数据库名称
+* `MongoTemplate(MongoDatabaseFactory mongoDbFactory)`: 需要 MongoDbFactory 对象， 该对象封装了 `MongoClient` 对象、数据库名称、用户名和密码。
+* `MongoTemplate(MongoDatabaseFactory mongoDbFactory, MongoConverter mongoConverter)`: 添加一个 `MongoConverter` 用于映射。
+
+你也可以通过使用 Spring 的 XML <beans/> schema 来配置 `MongoTemplate`，如下所示
+
+[source,xml]
+----
+<mongo:mongo-client host="localhost" port="27017"/>
+
+<bean id="mongoTemplate" class="org.springframework.data.mongodb.core.MongoTemplate">
+  <constructor-arg ref="mongoClient"/>
+  <constructor-arg name="databaseName" value="geospatial"/>
+</bean>
+----
+
+在创建 `MongoTemplate` 时，你可能想要设置的其他可选属性是默认的 `WriteResultCheckingPolicy`、`WriteConcern` 和 `ReadPreference` 属性。
+
+NOTE: 在 `MongoTemplate` 实例上引用操作的首选方式是通过它的接口 `MongoOperations`。
+
+[[mongo-template.writeresultchecking]]
+=== `WriteResultChecking` Policy
+
+在开发过程中，如果从 `MongoDB` 操作返回的 `com.mongodb.WriteResult` 包含一个错误，那么记录或抛出一个异常都是很方便的。在开发过程中，常常会忘记这样做，结果应用程序看起来好像成功运行了，而实际上，数据库并没有按照您的期望进行修改。你可以将 `MongoTemplate` 的 `WriteResultChecking` 属性设置为以下值之一: `EXCEPTION` 或 `NONE`，分别抛出一个 `Exception` 或什么都不做。默认值是使用一个 `NONE` 的 `WriteResultChecking` 值。
+
+[[mongo-template.writeconcern]]
+=== `WriteConcern`
+
+如果没有通过  `com.mongodb.client.MongoClient` 指定，那么可以设置 `com.mongodb.WriteConcern` 属性，`MongoTemplate` 使用该属性进行写操作。如果没有设置 `WriteConcern` 属性，它默认由 MongoDB 驱动的 DB 或 Collection 设置。
+
+[[mongo-template.writeconcernresolver]]
+=== `WriteConcernResolver`
+
+对于更高级的情况，您想要在每个操作的基础上设置不同的 `WriteConcern` 值(用于删除、更新、插入和保存操作)，可以在 `MongoTemplate` 上配置一个名为 `WriteConcernResolver` 的策略接口。因为 `MongoTemplate` 是用来持久化 POJO 的，所以 `WriteConcernResolver` 可以让你创建一个策略来映射一个特定的 POJO 类到一个 `WriteConcern` 值。下面的清单显示了 `WriteConcernResolver` 接口
+
+[source,java]
+----
+public interface WriteConcernResolver {
+  WriteConcern resolve(MongoAction action);
+}
+----
+
+您可以使用 `MongoAction` 参数来确定 `WriteConcern` 值，或者使用 Template 本身的值作为默认值。`MongoAction` 包含要写入的集合名称、POJO 的 `java.lang.Class`、转换后的 `Document`、操作(`REMOVE`、`UPDATE`、`INSERT`、`INSERT_LIST` 或 `SAVE`)，以及其他一些上下文信息。下面的例子展示了两组获得不同 `WriteConcern` 设置的类
+
+[source]
+----
+private class MyAppWriteConcernResolver implements WriteConcernResolver {
+
+  public WriteConcern resolve(MongoAction action) {
+    if (action.getEntityClass().getSimpleName().contains("Audit")) {
+      return WriteConcern.NONE;
+    } else if (action.getEntityClass().getSimpleName().contains("Metadata")) {
+      return WriteConcern.JOURNAL_SAFE;
+    }
+    return action.getDefaultWriteConcern();
+  }
+}
+----
+
+[[mongo-template.save-update-remove]]
+== 保存, 更新, 和 删除 Documents
+
+`MongoTemplate` 允许您保存、更新和删除 domain 对象，并将这些对象映射到存储在 MongoDB 中的 Documents。
+
+考虑下面的类:
+
+[source,java]
+----
+public class Person {
+
+  private String id;
+  private String name;
+  private int age;
+
+  public Person(String name, int age) {
+    this.name = name;
+    this.age = age;
+  }
+
+  public String getId() {
+    return id;
+  }
+  public String getName() {
+    return name;
+  }
+  public int getAge() {
+    return age;
+  }
+
+  @Override
+  public String toString() {
+    return "Person [id=" + id + ", name=" + name + ", age=" + age + "]";
+  }
+
+}
+----
+
+如上的  `Person` 类，你可以保存、更新和删除对象，如下所示:
+
+NOTE: `MongoOperations` 是 `MongoTemplate` 实现的接口。
+
+[source,java]
+----
+package org.spring.example;
+
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+import static org.springframework.data.mongodb.core.query.Update.update;
+import static org.springframework.data.mongodb.core.query.Query.query;
+
+import java.util.List;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.data.mongodb.core.MongoOperations;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.SimpleMongoClientDbFactory;
+
+import com.mongodb.client.MongoClients;
+
+public class MongoApp {
+
+  private static final Log log = LogFactory.getLog(MongoApp.class);
+
+  public static void main(String[] args) {
+
+    MongoOperations mongoOps = new MongoTemplate(new SimpleMongoClientDbFactory(MongoClients.create(), "database"));
+
+    Person p = new Person("Joe", 34);
+
+    // Insert is used to initially store the object into the database.
+    mongoOps.insert(p);
+    log.info("Insert: " + p);
+
+    // Find
+    p = mongoOps.findById(p.getId(), Person.class);
+    log.info("Found: " + p);
+
+    // Update
+    mongoOps.updateFirst(query(where("name").is("Joe")), update("age", 35), Person.class);
+    p = mongoOps.findOne(query(where("name").is("Joe")), Person.class);
+    log.info("Updated: " + p);
+
+    // Delete
+    mongoOps.remove(p);
+
+    // Check that deletion worked
+    List<Person> people =  mongoOps.findAll(Person.class);
+    log.info("Number of people = : " + people.size());
+
+
+    mongoOps.dropCollection(Person.class);
+  }
+}
+----
+
+上面的例子将产生以下日志输出(包括来自 `MongoTemplate` 的调试消息):
+
+[source]
+----
+DEBUG apping.MongoPersistentEntityIndexCreator:  80 - Analyzing class class org.spring.example.Person for index information.
+DEBUG work.data.mongodb.core.MongoTemplate: 632 - insert Document containing fields: [_class, age, name] in collection: person
+INFO               org.spring.example.MongoApp:  30 - Insert: Person [id=4ddc6e784ce5b1eba3ceaf5c, name=Joe, age=34]
+DEBUG work.data.mongodb.core.MongoTemplate:1246 - findOne using query: { "_id" : { "$oid" : "4ddc6e784ce5b1eba3ceaf5c"}} in db.collection: database.person
+INFO               org.spring.example.MongoApp:  34 - Found: Person [id=4ddc6e784ce5b1eba3ceaf5c, name=Joe, age=34]
+DEBUG work.data.mongodb.core.MongoTemplate: 778 - calling update using query: { "name" : "Joe"} and update: { "$set" : { "age" : 35}} in collection: person
+DEBUG work.data.mongodb.core.MongoTemplate:1246 - findOne using query: { "name" : "Joe"} in db.collection: database.person
+INFO               org.spring.example.MongoApp:  39 - Updated: Person [id=4ddc6e784ce5b1eba3ceaf5c, name=Joe, age=35]
+DEBUG work.data.mongodb.core.MongoTemplate: 823 - remove using query: { "id" : "4ddc6e784ce5b1eba3ceaf5c"} in collection: person
+INFO               org.spring.example.MongoApp:  46 - Number of people = : 0
+DEBUG work.data.mongodb.core.MongoTemplate: 376 - Dropped collection [database.person]
+----
+
+`MongoConverter` 通过识别(通过约定)Id 属性名，在存储在数据库中的 `String` 和 `ObjectId` 之间进行隐式转换。
+
+NOTE: 前面的例子是为了展示在 `MongoTemplate` 上保存、更新和删除操作的使用，而不是为了展示复杂的映射功能。
+
+上例中使用的查询语法将在  "`<<mongo.query>>`" 一节中进行更详细的解释。
+
+[[mongo-template.id-handling]]
+=== `_id` 字段是如何进行映射
+
+MongoDB 要求您为所有 documents 有一个 `_id` 字段。如果你不提供一个，驱动程序会给一个 `ObjectId` 分配一个生成的值。当你使用 `MappingMongoConverter` 时，某些规则控制Java 类的属性如何映射到这个 `_id` 字段:
+
+. 一个 `@Id` (`org.springframework.data.annotation.Id`) 注解的属性或字段映射到 `_id` 字段.
+. 没有注解但命名为 `id` 的属性或字段映射到 `id` 映射到 `_id` 字段.
+
+下面概述了在使用 `MappingMongoConverter`(默认的 `MongoTemplate`)时，在映射到 `_id` document 字段的属性上进行的类型转换(如果有的话)。
+
+. 如果可能，您可以在 Java 类中声明一个 `String` 类型的 `id` 属性或字段，Spring 将使用 `Converter<String, ObjectId>` 转换为并存储为 `ObjectId`  ,如果可以转换，将委托给 MongoDB Java driver. 如果不能转换为 `ObjectId`, 那么该值将作为字符串存储在数据库中。
+. 在 Java 类中声明为 `BigInteger` 的 `id` 属性或字段，Spring 将使用  `Converter<BigInteger, ObjectId>` 转换为并存储为 `ObjectId`.
+
+如果 Java 类中没有前面几组规则中指定的字段或属性，那么驱动程序将生成一个隐式的 `_id` 文件，但不会映射到 Java 类的属性或字段。
+
+当查询和更新时，`MongoTemplate` 使用了与上述保存文档规则相对应的转换器，这样查询中使用的字段名和类型就可以与 domain 类中的内容相匹配。
+
+有些环境需要自定义方法来映射 `Id` 值，例如存储在 MongoDB 中的数据，该数据不通过 Spring 数据映射。Documents 可以包含可以用作 `ObjectID` 或字符串表示的 `_id` 值。将 Documents 从存储读取回 domain 类型即可。由于隐式的 `ObjectId` 转换，通过文档的 `id` 查询文档可能很麻烦。因此，无法以这种方式检索文档。对于这些情况，`@MongoId` 对实际的 `id` 映射尝试提供了更多的控制。
+
+.`@MongoId` mapping
+====
+[source,java]
+----
+public class PlainStringId {
+  @MongoId String id; <1>
+}
+
+public class PlainObjectId {
+  @MongoId ObjectId id; <2>
+}
+
+public class StringToObjectId {
+  @MongoId(FieldType.OBJECT_ID) String id; <3>
+}
+----
+<1> id 被当作 `String` 处理，无需进一步转换。
+<2> id 被视为 `ObjectId`。
+<3> 如果给定的 `String` 是一个有效的 `ObjectId` 十六进制，则 id 被视为 `ObjectId`，否则作为 String。对应于 `@Id` 的使用。
+====
+
+[[mongo-template.type-mapping]]
+=== 类型映射
+
+MongoDB 集合可以包含表示各种类型实例的 documents。如果您存储类的层次结构或具有 `Object` 类型属性的类，此特性将非常有用。在后一种情况下，当检索对象时，必须正确地读入该属性中保存的值。因此，我们需要一种机制来与实际文档一起存储类型信息。
+
+为了实现这一点，`MappingMongoConverter` 使用了一个 `MongoTypeMapper` 抽象，并将 `DefaultMongoTypeMapper` 作为其主要实现。它的默认行为是将完全限定类名存储在文档中的 `_class` 下。类型提示是为顶级文档以及每个值(如果它是复杂类型和声明的属性类型的子类型)编写的。下面的例子(最后是 JSON 表示)展示了映射是如何工作的:
+
+.类型映射
+====
+[source,java]
+----
+public class Sample {
+  Contact value;
+}
+
+public abstract class Contact { … }
+
+public class Person extends Contact { … }
+
+Sample sample = new Sample();
+sample.value = new Person();
+
+mongoTemplate.save(sample);
+
+{
+  "value" : { "_class" : "com.acme.Person" },
+  "_class" : "com.acme.Sample"
+}
+----
+====
+
+Spring Data MongoDB 将类型信息存储为实际根类以及嵌套类型的最后一个字段(因为它很复杂，而且是 `Contact` 的子类型)。因此，如果你现在使用 `mongoTemplate.findAll(Object.class, "sample")`，你可以发现存储的文档是一个 `Sample` 实例。您还可以发现 `value` 属性实际上是一个 `Person`。
+
+==== 自定义类型映射
+
+如果您希望避免将整个 Java 类名编写为类型信息，而更希望使用 key，则可以在实体类上使用 `@TypeAlias` 注解。如果需要进一步定制映射，请查看 `TypeInformationMapper` 接口。该接口的实例可以在 `DefaultMongoTypeMapper` 上配置，而 `DefaultMongoTypeMapper` 又可以在 `MappingMongoConverter` 上配置。下面的例子展示了如何为实体定义类型别名:
+
+.为 Entity 定义一个类型别名
+====
+[source,java]
+----
+@TypeAlias("pers")
+class Person {
+
+}
+----
+====
+
+注意，结果 document 包含 `pers` 作为 `_class` Field 中的值。
+
+[WARNING]
+====
+只有当映射上下文知道实际的类型时，类型别名才有效。所需的实体元数据要么在第一次保存时确定，要么必须通过配置初始实体集提供。默认情况下，配置类扫描 base 包寻找候选包。
+
+[source,java]
+----
+@Configuration
+public class AppConfig extends AbstractMongoClientConfiguration {
+
+  @Override
+  protected Set<Class<?>> getInitialEntitySet() {
+    return Collections.singleton(Person.class);
+  }
+
+  // ...
+}
+----
+====
+
+==== 配置自定义类型映射
+
+下面的例子展示了如何在 `MappingMongoConverter` 中配置一个自定义的 `MongoTypeMapper`:
+
+.使用 Spring Java Config 配置 `MongoTypeMapper`
+====
+[source,java]
+----
+class CustomMongoTypeMapper extends DefaultMongoTypeMapper {
+  //implement custom type mapping here
+}
+----
+
+
+[source,java]
+----
+@Configuration
+class SampleMongoConfiguration extends AbstractMongoClientConfiguration {
+
+  @Override
+  protected String getDatabaseName() {
+    return "database";
+  }
+
+  @Bean
+  @Override
+  public MappingMongoConverter mappingMongoConverter() throws Exception {
+    MappingMongoConverter mmc = super.mappingMongoConverter();
+    mmc.setTypeMapper(customTypeMapper());
+    return mmc;
+  }
+
+  @Bean
+  public MongoTypeMapper customTypeMapper() {
+    return new CustomMongoTypeMapper();
+  }
+}
+----
+====
+
+注意，前面的示例扩展了 `AbstractMongoClientConfiguration` 类，并覆盖了我们配置自定义 `MongoTypeMapper` 的 `MappingMongoConverter` 的 bean 定义。
+
+下面的例子展示了如何使用 XML 配置一个自定义的 `MongoTypeMapper`:
+
+.使用 XML 自定义一个 `MongoTypeMapper`
+====
+[source,xml]
+----
+<mongo:mapping-converter type-mapper-ref="customMongoTypeMapper"/>
+
+<bean name="customMongoTypeMapper" class="com.bubu.mongo.CustomMongoTypeMapper"/>
+----
+====
+
+[[mongo-template.save-insert]]
+=== 保存和插入 Documents 的方法
+
+在 `MongoTemplate` 中有几个简便的方法来保存和插入对象。为了对转换过程进行更细粒度的控制，你可以用 `MappingMongoConverter` 注册 Spring 转换器——例如 `Converter<Person, Document>` 和 `Converter<Document, Person>`。
+
+NOTE: 插入操作和保存操作的区别在于，如果对象不存在，则保存操作执行插入操作。
+
+使用保存操作的简单情况是保存 POJO。在本例中，集合名称由类的名称(非完全限定)决定。您还可以使用特定的集合名称调用保存操作。您可以使用映射元数据覆盖用于存储对象的集合。
+
+在插入或保存时，如果没有设置 `Id` 属性，则假设它的值将由数据库自动生成。因此，为了成功地自动生成 `ObjectId`，类中的 `Id` 属性或字段的类型必须是 `String`、`ObjectId` 或 `BigInteger`。
+
+下面的例子展示了如何保存 documents 并获取它的内容:
+
+.使用 `MongoTemplate` 插入和检索文档
+====
+[source,java]
+----
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+import static org.springframework.data.mongodb.core.query.Criteria.query;
+…
+
+Person p = new Person("Bob", 33);
+mongoTemplate.insert(p);
+
+Person qp = mongoTemplate.findOne(query(where("age").is(33)), Person.class);
+----
+====
+
+插入和保存操作如下:
+
+* `void` *save* `(Object objectToSave)`: 将对象保存到默认集合。
+* `void` *save* `(Object objectToSave, String collectionName)`: 将对象保存到指定的集合中。
+
+也可以使用类似的插入操作:
+
+* `void` *insert* `(Object objectToSave)`: 将对象插入到默认集合。
+* `void` *insert* `(Object objectToSave, String collectionName)`: 将对象插入到特定集合。
+
+[[mongo-template.save-insert.collection]]
+==== 我的 Documents 被保存到哪个集合?
+
+有两种方法可以管理用于文档的集合名称。默认集合名是以小写字母开头的类名。因此 `com.test.Person` 类存储在 `person` 集合中。您可以通过使用 `@Document` 注解提供不同的集合名称来自定义这一点。您还可以通过提供您自己的集合名称作为 `MongoTemplate` 方法调用的最后一个参数来覆盖集合名称。
+
+[[mongo-template.save-insert.individual]]
+==== 插入或保存单个对象
+
+MongoDB 驱动支持在单个操作中插入一组 documents。`MongoOperations` 接口中的以下方法支持此功能:
+
+* *insert*: 插入对象。如果存在具有相同 `id` 的文档，则会生成错误。
+* *insertAll*: 将对象 `Collection` 作为第一个参数。该方法根据前面指定的规则检查每个对象并将其插入到适当的集合中。
+* *save*: 保存对象，覆盖具有相同 `id` 的对象。
+
+[[mongo-template.save-insert.batch]]
+==== 批量插入数据
+
+MongoDB 驱动支持在一个操作中插入一组 documents。`MongoOperations` 接口中的以下方法支持此功能:
+
+* *insert* methods: 将 `Collection` 作为第一个参数。它们在对数据库的单个批处理写入中插入对象列表。
+
+[[mongodb-template-update]]
+=== 在集合中更新 Documents
+
+对于更新，您可以使用 `MongoOperation.updateFirst` 找到的第一个文档。或者您可以使用 `MongoOperation.updateMulti` 更新所有匹配查询的文档。下面的例子显示了所有 `SAVINGS` 账户的更新，其中我们使用  `$inc`  操作符在余额中添加了一次性的 `$50.00` 奖金:
+
+.使用 `MongoTemplate` 更新 documents
+====
+[source,java]
+----
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+import static org.springframework.data.mongodb.core.query.Query;
+import static org.springframework.data.mongodb.core.query.Update;
+
+...
+
+WriteResult wr = mongoTemplate.updateMulti(new Query(where("accounts.accountType").is(Account.Type.SAVINGS)),
+  new Update().inc("accounts.$.balance", 50.00), Account.class);
+----
+====
+
+除了前面讨论的 `Query` 之外，我们还通过使用 `Update` 对象提供更新定义。`Update` 类有匹配 `MongoDB` 可用更新修饰符的方法。
+
+大多数方法返回 `Update` 对象，为 API 提供流式支持。
+
+[[mongodb-template-update.methods]]
+==== 更新 Documents 的方法
+
+* *updateFirst*: 将与查询文档条件匹配的第一个文档与更新的文档进行更新。
+* *updateMulti*: 更新所有匹配的文档。
+
+WARNING: `updateFirst` 不支持排序。请使用 <<mongo-template.find-and-upsert, findAndModify>> 应用 `Sort`.
+
+[[mongodb-template-update.update]]
+==== `Update` 类中的方法
+
+您可以对 `Update` 类使用一点“语法糖”，因为它的方法是链接在一起的。此外，您还可以通过使用 `public static Update update(String key, Object value)` 和使用静态导入启动一个新的 `Update` 实例的创建。
+
+`Update` 包含以下方法:
+
+* `Update` *addToSet* `(String key, Object value)` 使用 `$addToSet` 更新修饰符进行更新
+* `Update` *currentDate* `(String key)` 使用 `$currentDate` update 更新修饰符进行更新
+* `Update` *currentTimestamp* `(String key)` 使用 带有 `$type` `timestamp` 的 `$currentDate` 更新修饰符进行更新
+* `Update` *inc* `(String key, Number inc)` 使用 `$inc` 更新修饰符进行更新
+* `Update` *max* `(String key, Object max)` 使用 `$max` 更新修饰符进行更新
+* `Update` *min* `(String key, Object min)` 使用 `$min` 更新修饰符进行更新
+* `Update` *multiply* `(String key, Number multiplier)` 使用 `$mul` 更新修饰符进行更新
+* `Update` *pop* `(String key, Update.Position pos)` 使用 `$pop` 更新修饰符进行更新
+* `Update` *pull* `(String key, Object value)` 使用 `$pull` 更新修饰符进行更新
+* `Update` *pullAll* `(String key, Object[] values)` 使用 `$pullAll` 更新修饰符进行更新
+* `Update` *push* `(String key, Object value)` 使用 `$push` 更新修饰符进行更新
+* `Update` *pushAll* `(String key, Object[] values)` 使用 `$pushAll` 更新修饰符进行更新
+* `Update` *rename* `(String oldName, String newName)` 使用 `$rename` 更新修饰符进行更新
+* `Update` *set* `(String key, Object value)` 使用 `$set` 更新修饰符进行更新
+* `Update` *setOnInsert* `(String key, Object value)` 使用 `$setOnInsert` 更新修饰符进行更新
+* `Update` *unset* `(String key)` 使用 `$unset` 更新修饰符进行更新
+
+有些更新修饰符, 例如 `$push` 和 `$addToSet`, 允许嵌套附加的操作符.
+
+[source]
+----
+// { $push : { "category" : { "$each" : [ "spring" , "data" ] } } }
+new Update().push("category").each("spring", "data")
+
+// { $push : { "key" : { "$position" : 0 , "$each" : [ "Arya" , "Arry" , "Weasel" ] } } }
+new Update().push("key").atPosition(Position.FIRST).each(Arrays.asList("Arya", "Arry", "Weasel"));
+
+// { $push : { "key" : { "$slice" : 5 , "$each" : [ "Arya" , "Arry" , "Weasel" ] } } }
+new Update().push("key").slice(5).each(Arrays.asList("Arya", "Arry", "Weasel"));
+
+// { $addToSet : { "values" : { "$each" : [ "spring" , "data" , "mongodb" ] } } }
+new Update().addToSet("values").each("spring", "data", "mongodb");
+----
+
+[[mongo-template.upserts]]
+=== 在集合中 "`Upserting`" Documents
+
+与执行 `updateFirst` 操作相关，还可以执行 "`upsert`" 操作，如果没有找到与查询匹配的文档，则该操作将执行插入操作。插入的文档是查询文档和更新文档的组合。下面的例子展示了如何使用 `upsert` 方法:
+
+[source]
+----
+template.update(Person.class)
+  .matching(query(where("ssn").is(1111).and("firstName").is("Joe").and("Fraizer").is("Update"))
+  .apply(update("address", addr))
+  .upsert();
+----
+
+WARNING: `upsert` 不支持排序. 请使用 <<mongo-template.find-and-upsert, findAndModify>> 应用 `Sort`.
+
+[[mongo-template.find-and-upsert]]
+=== 在一个集合中 Finding 和 Upserting Documents
+
+`MongoCollection` 的 `findAndModify(…)`  方法可以更新文档，并在单个操作中返回旧的或最新更新的文档。`MongoTemplate` 提供了四个 `findAndModify` 重载方法，它们接受 `Query` 和 `Update` 类，并将 `Document` 转换为 POJOs:
+
+[source,java]
+----
+<T> T findAndModify(Query query, Update update, Class<T> entityClass);
+
+<T> T findAndModify(Query query, Update update, Class<T> entityClass, String collectionName);
+
+<T> T findAndModify(Query query, Update update, FindAndModifyOptions options, Class<T> entityClass);
+
+<T> T findAndModify(Query query, Update update, FindAndModifyOptions options, Class<T> entityClass, String collectionName);
+----
+
+下面的例子将一些 `Person` 对象插入到容器中，并执行 `findAndUpdate` 操作:
+
+[source,java]
+----
+template.insert(new Person("Tom", 21));
+template.insert(new Person("Dick", 22));
+template.insert(new Person("Harry", 23));
+
+Query query = new Query(Criteria.where("firstName").is("Harry"));
+Update update = new Update().inc("age", 1);
+
+Person oldValue = template.update(Person.class)
+  .matching(query)
+  .apply(update)
+  .findAndModifyValue(); // return's old person object
+
+assertThat(oldValue.getFirstName()).isEqualTo("Harry");
+assertThat(oldValue.getAge()).isEqualTo(23);
+
+Person newValue = template.query(Person.class)
+  .matching(query)
+  .findOneValue();
+
+assertThat(newValue.getAge()).isEqualTo(24);
+
+Person newestValue = template.update(Person.class)
+  .matching(query)
+  .apply(update)
+  .withOptions(FindAndModifyOptions.options().returnNew(true)) // Now return the newly updated document when updating
+  .findAndModifyValue();
+
+assertThat(newestValue.getAge()).isEqualTo(25);
+----
+
+`FindAndModifyOptions` 方法允许您设置 `returnNew`、`upsert` 和 `remove` 的选项。下面是前面代码片段的一个扩展示例:
+
+[source,java]
+----
+Person upserted = template.update(Person.class)
+  .matching(new Query(Criteria.where("firstName").is("Mary")))
+  .apply(update)
+  .withOptions(FindAndModifyOptions.options().upsert(true).returnNew(true))
+  .findAndModifyValue()
+
+assertThat(upserted.getFirstName()).isEqualTo("Mary");
+assertThat(upserted.getAge()).isOne();
+----
+
+[[mongo-template.aggregation-update]]
+=== 聚合管道更新(Aggregation Pipeline Updates)
+
+由 `MongoOperations` 和 `ReactiveMongoOperations` 公开的更新方法也通过 `AggregationUpdate` 接受一个 <<mongo.aggregation, Aggregation Pipeline>>。使用 `AggregationUpdate` 允许在更新操作中利用 https://docs.mongodb.com/manual/reference/method/db.collection.update/#update-with-aggregation-pipeline[MongoDB 4.2 aggregations]。在更新中使用聚合可以通过一个操作表示多个阶段和多个条件来更新一个或多个字段。
+
+更新可包括以下阶段:
+
+* `AggregationUpdate.set(...).toValue(...)` -> `$set : { ... }`
+* `AggregationUpdate.unset(...)` -> `$unset : [ ... ]`
+* `AggregationUpdate.replaceWith(...)` -> `$replaceWith : { ... }`
+
+.Update Aggregation
+====
+[source,java]
+----
+AggregationUpdate update = Aggregation.newUpdate()
+    .set("average").toValue(ArithmeticOperators.valueOf("tests").avg())     <1>
+    .set("grade").toValue(ConditionalOperators.switchCases(                 <2>
+        when(valueOf("average").greaterThanEqualToValue(90)).then("A"),
+        when(valueOf("average").greaterThanEqualToValue(80)).then("B"),
+        when(valueOf("average").greaterThanEqualToValue(70)).then("C"),
+        when(valueOf("average").greaterThanEqualToValue(60)).then("D"))
+        .defaultTo("F")
+    );
+
+template.update(Student.class)                                              <3>
+    .apply(update)
+    .all();                                                                 <4>
+----
+[source,javascript]
+----
+db.students.update(                                                         <3>
+   { },
+   [
+     { $set: { average : { $avg: "$tests" } } },                            <1>
+     { $set: { grade: { $switch: {                                          <2>
+                           branches: [
+                               { case: { $gte: [ "$average", 90 ] }, then: "A" },
+                               { case: { $gte: [ "$average", 80 ] }, then: "B" },
+                               { case: { $gte: [ "$average", 70 ] }, then: "C" },
+                               { case: { $gte: [ "$average", 60 ] }, then: "D" }
+                           ],
+                           default: "F"
+     } } } }
+   ],
+   { multi: true }                                                          <4>
+)
+----
+<1> 第一个 `$set` 阶段根据 _tests_ 字段的 _average_ 计算新的字段 _average_ 值。
+<2> 第二个 `$set` 阶段根据第一个聚合阶段计算的 _average_ 字段计算一个新的 _grade_ 字段。
+<3> 管道在  _students_  集合上运行，并使用  `Student`  进行聚合字段映射。
+<4> 将更新应用于集合中的所有匹配文档。
+====
+
+[[mongo-template.find-and-replace]]
+=== 查找和替换文件
+
+替换整个 `Document` 最直接的方法是通过它的 `id` 使用 `save` 方法。然而，这并不总是可行的。`findAndReplace` 提供了一种替代方法，它允许通过一个简单的查询来标识要替换的文档。
+
+.查找和替换文件
+====
+[source,java]
+----
+Optional<User> result = template.update(Person.class)      <1>
+    .matching(query(where("firstame").is("Tom")))          <2>
+    .replaceWith(new Person("Dick"))
+    .withOptions(FindAndReplaceOptions.options().upsert()) <3>
+    .as(User.class)                                        <4>
+    .findAndReplace();                                     <5>
+----
+<1> 对于给定的 domain 类型，使用流式更新 API 来映射查询并派生集合名称，或者只使用 `MongoOperations#findAndReplace`。
+<2> 实际的匹配查询映射到给定的 domain 类型。通过查询提供 `sort`, `fields` 和 `collation` 设置。
+<3> 额外的可选钩子提供默认值以外的选项，比如 `upsert`。
+<4> 用于映射操作结果的可选投影类型。如果没有给定，则使用初始 domain 类型。
+<5> 触发实际处理。使用 `findAndReplaceValue` 获取可空结果而不是 `Optional` 结果。
+====
+
+IMPORTANT: 请注意，替换的文档不能有 `id` 本身，因为现有文档的 `id` 将由存储本身转入替换的文档。还要记住，根据可能给定的排序顺序，`findAndReplace` 将只替换与查询条件匹配的第一个文档。
+
+[[mongo-template.delete]]
+=== 删除 Documents 的方法
+
+你可以使用五种重载方法中的一种从数据库中删除对象:
+
+====
+[source,java]
+----
+template.remove(tywin, "GOT");                                              <1>
+
+template.remove(query(where("lastname").is("lannister")), "GOT");           <2>
+
+template.remove(new Query().limit(3), "GOT");                               <3>
+
+template.findAllAndRemove(query(where("lastname").is("lannister"), "GOT");  <4>
+
+template.findAllAndRemove(new Query().limit(3), "GOT");                     <5>
+----
+<1> 从关联集合中移除单个由 `_id` 指定的实体
+<2> 从 `GOT` 集合中删除符合查询条件的所有文档。
+<3> 删除 `GOT` 集合中的前三个文档。与 <2> 不同，要删除的文档由它们的 `_id` 标识，运行给定的查询，首先应用 `sort`、`limit` 和 `skip` 选项，然后在单独的步骤中一次性删除所有选项。
+<4> 从 `GOT` 集合中删除匹配查询条件的所有文档。与 <3> 不同，文档不是在批处理中删除的，而是一个一个地删除。
+<5> 删除 `GOT` 集合中的前三个文档。与 <3> 不同，文档不是在批处理中删除的，而是一个一个地删除。
+====
+
+[[mongo-template.optimistic-locking]]
+=== 乐观锁
+
+`@Version`  注解提供了类似于 `MongoDB` 上下文中 JPA 的语法，并确保更新只应用于具有匹配版本的文档。因此，version 属性的实际值被添加到更新查询中，这样一来，如果在此期间另一个操作改变了文档，则更新不会产生任何影响。在这种情况下，抛出一个 `OptimisticLockingFailureException`。下面的例子展示了这些特性:
+
+====
+[source,java]
+----
+@Document
+class Person {
+
+  @Id String id;
+  String firstname;
+  String lastname;
+  @Version Long version;
+}
+
+Person daenerys = template.insert(new Person("Daenerys"));                            <1>
+
+Person tmp = template.findOne(query(where("id").is(daenerys.getId())), Person.class); <2>
+
+daenerys.setLastname("Targaryen");
+template.save(daenerys);                                                              <3>
+
+template.save(tmp); // throws OptimisticLockingFailureException                       <4>
+----
+<1> 开始插入文档。`version` 设置为 `0`。
+<2> 加载刚插入的文档。`version` 仍然是 `0`。
+<3> 用 `version = 0` 更新文档。将 `lastname` 和 bump `version` 设置为 `1`。
+<4> 尝试更新先前加载的仍然 `version = 0` 的文档。由于当前版本为 `1`，该操作会以 `OptimisticLockingFailureException` 异常失败。
+====
+
+IMPORTANT: 乐观锁需要将 `WriteConcern` 设置为 `ACKNOWLEDGED`。否则，`OptimisticLockingFailureException` 可以被接受。
+
+NOTE: 从 2.2 版本开始，当从数据库中删除实体时，`MongoOperations` 也包含了 `@Version` 属性。要删除一个没有版本检查的文档，请使用 `MongoOperations#remove(Query,...)` 而不是 `MongoOperations#remove(Object)` 。
+
+NOTE: 从 2.2 版本开始，存储库在删除具有版本实体时检查确认删除的结果。如果一个具有版本的实体不能通过 `CrudRepository.delete(Object)` 删除，则会引发 `OptimisticLockingFailureException`。在这种情况下，版本发生了变化或者对象被删除。使用 `CrudRepository.deleteById(ID)` 绕过乐观锁功能，并删除对象，无论其版本如何。
+
+[[mongo.query]]
+== 查询 Documents
+
+你可以使用 `Query` 和 `Criteria` 来进行查询。他们具有与原生 MongoDB 操作符相同的方法名称。例如，`lt`, `lte`, `is` 等。`Query` 和 `Criteria` 类具有流式 API，这样，您可以进行链式构建多种查询方法，同时也具有更高的可读性。静态导入使您不用使用 'new' 关键字来创建  `Query` 和 `Criteria` 实例。您还可以使用 `BasicQuery` 从普通 json 字符串创建查询实例，如以下示例所示：
+
+.从 JSON 字符串创建一个 Query 实例
+====
+[source,java]
+----
+BasicQuery query = new BasicQuery("{ age : { $lt : 50 }, accounts.balance : { $gt : 1000.00 }}");
+List<Person> result = mongoTemplate.find(query, Person.class);
+----
+====
+
+Spring MongoDB  还支持 GeoSpatial 查询  (查看 <<mongo.geospatial,GeoSpatial Queries>> 章节)，Map-Reduce 操作 (查看 <<mongo.mapreduce,Map-Reduce>> 章节).
+
+[[mongodb-template-query]]
+=== 从集合中查询文档
+
+在文档的前面，我们使用  `MongoTemplate` 的 `findOne` 和 `findById` 方法来查询单个文档，这些方法返回一个 domain 对象。我们还可以查询 domain 对象的集合。假设，我们有许多 `Person` 对象，它具有 name 和 age 属性，并且具有一个嵌入的 balance 对象，我们现在可以使用以下代码运行查询：:
+
+.使用 MongoTemplate 查询文档
+====
+[source,java]
+----
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+import static org.springframework.data.mongodb.core.query.Query.query;
+
+// ...
+
+List<Person> result = template.query(Person.class)
+  .matching(query(where("age").lt(50).and("accounts.balance").gt(1000.00d)))
+  .all();
+----
+====
+
+所有的 find 方法都以一个 `Query` 对象作为参数。此对象定义用于执行查询的条件和选项。criteria 是通过使用 `Criteria` 对象指定的，该对象具有一个静态工厂方法  `where`，该方法用于实例化一个新的 `Criteria` 对象。我们建议对 `org.springframework.data.mongodb.core.query.Criteria.where` 和 `Query` 使用静态导入。`Query.query` 更具可读性。
+
+该查询返回满足指定条件的 `Person` 对象列表。本节的其余部分列出了与 MongoDB 提供的操作符相对应的 `Criteria` 和 `Query` 类的方法。大多数方法返回 `Criteria` 对象，为 API 提供流式风格。
+
+[[mongodb-template-query.criteria]]
+==== Criteria 类方法
+
+`Criteria` 类提供了以下方法，它们都对应 MongoDB 中的操作符:
+
+* `Criteria` *all* `(Object o)` 使用 `$all` 操作符创建一个 criterion。
+* `Criteria` *and* `(String key)` 将指定的 `key`  的  `Criteria` 链接到当前的 `Criteria` 并返回新创建的 `Criteria` 。
+* `Criteria` *andOperator* `(Criteria... criteria)` 使用  `$and`  操作符为所有提供的条件创建一个 and 查询(需要 MongoDB 2.0 或更高版本)。
+* `Criteria` *elemMatch* `(Criteria c)` 使用 `$elemMatch` 操作符创建一个 criterion。
+* `Criteria` *exists* `(boolean b)` 使用 `$exists` 操作符创建一个 criterion。
+* `Criteria` *gt* `(Object o)` 使用 `$gt` 操作符创建一个 criterion。
+* `Criteria` *gte* `(Object o)` 使用 `$gte` 操作符创建一个 criterion。
+* `Criteria` *in* `(Object... o)` 为 varargs 参数使用 `$in` 操作符创建一个 criterion。
+* `Criteria` *in* `(Collection<?> collection)` 使用集合 `$in` 操作符创建一个 criterion。
+* `Criteria` *is* `(Object o)` 使用字段匹配 (`{ key:value }`) 创建一个条件. 如果指定的值是一个文档，则字段的顺序和文档中的确切相等性很重要。
+* `Criteria` *lt* `(Object o)` 使用 `$lt` 操作符创建一个 criterion。
+* `Criteria` *lte* `(Object o)` 使用 `$lte` 操作符创建一个 criterion。
+* `Criteria` *mod* `(Number value, Number remainder)` 使用 `$mod` 操作符创建一个 criterion。
+* `Criteria` *ne* `(Object o)` 使用 `$ne` 操作符创建一个 criterion。
+* `Criteria` *nin* `(Object... o)` 使用 `$nin` 操作符创建一个 criterion。
+* `Criteria` *norOperator* `(Criteria... criteria)` 使用 `$nor` 操作符为所有提供的条件创建一个 nor 查询。
+* `Criteria` *not* `()` 使用 `$not` meta 操作符创建一个条件，它会直接影响后面的子句。
+* `Criteria` *orOperator* `(Criteria... criteria)` 使用 `$or` 操作符为所有提供的条件创建一个查询。
+* `Criteria` *regex* `(String re)` 使用 `$regex` 操作符创建一个 criterion。
+* `Criteria` *size* `(int s)` 使用 `$size` 操作符创建一个 criterion。
+* `Criteria` *type* `(int t)` 使用 `$type` 操作符创建一个 criterion。
+* `Criteria` *matchingDocumentStructure* `(MongoJsonSchema schema)` 使用 `$jsonSchema` 操作符创建一个 <<mongo.jsonSchema,JSON schema criteria>>. `$jsonSchema` 只能应用在查询的顶层，而不是特定的属性。使用 schema 的 `properties` 属性来匹配嵌套的字段。
+* `Criteria` *bits()* 是 https://docs.mongodb.com/manual/reference/operator/query-bitwise/[MongoDB bitwise query operators] 操作符的网关 `$bitsAllClear`.
+
+
+Criteria 类还提供了以下用于地理空间查询的方法（请参阅 <<mongo.geospatial,GeoSpatial Queries>> 部分中查看它们）：
+
+* `Criteria` *within* `(Circle circle)` 使用 `$geoWithin $center` 操作符创建地理空间条件.
+* `Criteria` *within* `(Box box)` 使用 `$geoWithin $box` 操作符创建地理空间条件.
+* `Criteria` *withinSphere* `(Circle circle)` 使用 `$geoWithin $center` 操作符创建地理空间条件.
+* `Criteria` *near* `(Point point)` 使用 `$near` 操作符创建地理空间条件。
+* `Criteria` *nearSphere* `(Point point)` 使用 `$nearSphere$center` 操作符创建地理空间条件，这只适用于MongoDB 1.7和更高版本。
+* `Criteria` *minDistance* `(double minDistance)` 使用 `$minDistance` 操作符创建地理空间条件，用于与 $near 一起使用。
+* `Criteria` *maxDistance* `(double maxDistance)` 使用 `$maxDistance` 操作符创建地理空间条件，用于与 $near 一起使用。
+
+
+[[mongodb-template-query.query]]
+==== Query 类的方法
+
+`Query` 有一些其他方法为查询提供选项:
+
+* `Query` *addCriteria* `(Criteria criteria)` 用于向查询添加附加条件
+* `Field` *fields* `()` 用于定义在查询中包含的字段
+* `Query` *limit* `(int limit)` 用于将返回结果的大小限制在所提供的限制范围内(用于分页)
+* `Query` *skip* `(int skip)` 用于跳过结果中提供的文档数量(用于分页)
+* `Query` *with* `(Sort sort)` 用于为结果提供排序定义
+
+[[mongo-template.querying]]
+=== 查询文档的方法
+
+查询方法需要指定返回的类型 `T` ，对于应该操作由返回类型指示的集合以外的集合的查询，查询方法使用显式声明的集合名重载。下面的查询方法可以让你找到一个或多个文档:
+
+* *findAll*: 查询来自集合的 `T` 类型的对象列表.
+* *findOne*: 将 ad-hoc 查询的结果映射到指定类型的对象的单个实例.
+* *findById*: 根据 ID 查询对象.
+* *find*: 将 ad-hoc 查询的结果映射到指定类型的列表.
+* *findAndRemove*: 将 ad-hoc 查询的结果映射到指定类型的对象的单个实例。返回匹配查询的第一个文档并从数据库的集合中删除。.
+
+[[mongo-template.query.distinct]]
+=== 查询不同的值
+
+MongoDB 可以从查询结果中获取同一个字段的不同值。
+结果值不需要具有相同的数据类型，也不局限于简单的类型。对于检索来说，真实的结果类型确实很重要，以便于进行转换和类型化。下面的示例演示如何查询不同的值。:
+
+.Retrieving distinct values
+====
+[source,java]
+----
+template.query(Person.class)  <1>
+  .distinct("lastname")       <2>
+  .all();                     <3>
+----
+<1> 查询 `Person` 集合.
+<2> 获取 `lastname` 字段的不同值，字段名称根据实体类型属性进行映射，并考虑 `@Field` 上的注解.
+<3> 检索所有的不同值的对象列表 (由于未指定明确的结果类型).
+====
+
+将不同的值检索到  `Object` 集合中是最灵活的方式，因为它尝试确定 domain 类型的属性值并将结果转换为所需的类型或映射文档结构.
+
+有时，当所需字段的所有值都固定为某一类型时，直接获取正确类型的集合会更方便，如下例所示:
+
+.Retrieving strongly typed distinct values
+====
+[source,java]
+----
+template.query(Person.class)  <1>
+  .distinct("lastname")       <2>
+  .as(String.class)           <3>
+  .all();                     <4>
+----
+<1> 查询 `Person` 集合.
+<2> 获取 `lastname` 字段的不同值，字段名称根据实体类型属性进行映射，并考虑 `@Field` 上的注解。.
+<3> 检索到的值被转换为所需的目标类型 -- 在本例中为 `String`. 如果存储的字段包含文档，也可以将值映射到更复杂的类型。
+<4> 以字符串列表的形式检索所有不同的值。如果无法将类型转换为所需的目标类型，此方法将抛出 `DataAccessException`.
+====
+
+[[mongo.geospatial]]
+=== 地理空间查询
+
+MongoDB 通过使用 `$near`, `$within`, `geoWithin` 和 `$nearSphere` 等操作符来支持地理空间查询。特定于地理空间查询的方法在 `Criteria` 类中可用。还有一些形状类（`Box`, `Circle`, 和 `Point`）与地理空间相关的标准方法结合使用.
+
+NOTE: 在 MongoDB 事务中使用地理空间查询时需要注意，请参阅 <<mongo.transactions.behavior>>。.
+
+要理解如何执行地理空间查询，请考虑下面的 `Venue` 类（取自集成测试并依赖于 `MappingMongoConverter`）:
+
+[source,java]
+----
+@Document(collection="newyork")
+public class Venue {
+
+  @Id
+  private String id;
+  private String name;
+  private double[] location;
+
+  @PersistenceConstructor
+  Venue(String name, double[] location) {
+    super();
+    this.name = name;
+    this.location = location;
+  }
+
+  public Venue(String name, double x, double y) {
+    super();
+    this.name = name;
+    this.location = new double[] { x, y };
+  }
+
+  public String getName() {
+    return name;
+  }
+
+  public double[] getLocation() {
+    return location;
+  }
+
+  @Override
+  public String toString() {
+    return "Venue [id=" + id + ", name=" + name + ", location="
+        + Arrays.toString(location) + "]";
+  }
+}
+----
+
+要查找 `Circle` 的位置，可以使用以下查询:
+
+[source,java]
+----
+Circle circle = new Circle(-73.99171, 40.738868, 0.01);
+List<Venue> venues =
+    template.find(new Query(Criteria.where("location").within(circle)), Venue.class);
+----
+
+要使用球面坐标查找 `Circle` 中的 venues, 可以使用以下查询:
+
+[source,java]
+----
+Circle circle = new Circle(-73.99171, 40.738868, 0.003712240453784);
+List<Venue> venues =
+    template.find(new Query(Criteria.where("location").withinSphere(circle)), Venue.class);
+----
+
+要在 `Box` 查找 venues，可以使用以下查询:
+
+[source,java]
+----
+//lower-left then upper-right
+Box box = new Box(new Point(-73.99756, 40.73083), new Point(-73.988135, 40.741404));
+List<Venue> venues =
+    template.find(new Query(Criteria.where("location").within(box)), Venue.class);
+----
+
+要在  `Point` 附近查找 venues，可以使用以下查询:
+
+[source,java]
+----
+Point point = new Point(-73.99171, 40.738868);
+List<Venue> venues =
+    template.find(new Query(Criteria.where("location").near(point).maxDistance(0.01)), Venue.class);
+----
+
+[source,java]
+----
+Point point = new Point(-73.99171, 40.738868);
+List<Venue> venues =
+    template.find(new Query(Criteria.where("location").near(point).minDistance(0.01).maxDistance(100)), Venue.class);
+----
+
+要使用球面坐标查找 `Point` 附近的 venues，可以使用以下查询:
+
+[source,java]
+----
+Point point = new Point(-73.99171, 40.738868);
+List<Venue> venues =
+    template.find(new Query(
+        Criteria.where("location").nearSphere(point).maxDistance(0.003712240453784)),
+        Venue.class);
+----
+
+[[mongo.geo-near]]
+==== 地理邻近查询
+
+[WARNING]
+====
+*Changed in 2.2!* +
+MongoDB 4.2。
+https://docs.mongodb.com/master/release-notes/4.2-compatibility/[MongoDB 4.2] 取消了对 `geoNear` 命令的支持，该命令以前用于运行 `NearQuery`.
+
+Spring Data MongoDB 2.2 `MongoOperations#geoNear` 使用 `$geoNear` https://docs.mongodb.com/manual/reference/operator/aggregation/geoNear/[聚合]
+代替 `geoNear` 命令来运行 `NearQuery`.
+
+以前在包装器类型中返回的计算距离(使用 geoNear 命令时为 `dis`)现在嵌入到结果文档中。如果给定的 domain 类型已经包含具有该名称的属性，则计算的距离命名为 `calculated-distance`，后缀可能是随机的.
+
+目标类型可能包含一个以返回的距离命名的属性，以便（另外）将其直接读回 domain 类型，如下所示。
+
+[source,java]
+----
+GeoResults<VenueWithDisField> = template.query(Venue.class) <1>
+    .as(VenueWithDisField.class)                            <2>
+    .near(NearQuery.near(new GeoJsonPoint(-73.99, 40.73), KILOMETERS))
+    .all();
+----
+<1> 用于标识目标集合和潜在查询映射的域类型.
+<2> 包含类型为 `Number` 的 `dis` 字段的目标类型.
+====
+
+MongoDB支持查询数据库中的地理位置，同时计算与给定原点的距离。使用 geo-near 查询，您可以表达例如 "查找周围 10 英里内的所有餐厅" 之类的查询。为此，`MongoOperations` 提供了 `geoNear(…)` 方法，这些方法将 `NearQuery` 作为参数（以及已经熟悉的实体类型和集合），如下例所示:
+
+[source,java]
+----
+Point location = new Point(-73.99171, 40.738868);
+NearQuery query = NearQuery.near(location).maxDistance(new Distance(10, Metrics.MILES));
+
+GeoResults<Restaurant> = operations.geoNear(query, Restaurant.class);
+----
+
+我们使用 `NearQuery` builder API 设置一个查询，将给定 `Point` 周围的所有餐厅实例返回到 10 英里。这里使用的 `Metrics` enum 实际上实现了一个接口，以便其他指标也可以插入到距离中。`Metric` 由一个乘数支持，用于将给定 metric 的距离值转换为本机距离。这里所示的代码将考虑 10 英里。使用其中一个内置指标（英里和公里）会自动触发要在查询中设置的球面标志。如果要避免这种情况，请将普通的  `double` 值传递到  `maxDistance(…)`。有关更多信息，请参阅 `NearQuery` 和 `Distance` 的 https://docs.spring.io/spring-data/mongodb/docs/{version}/api/index.html[JavaDoc]。
+
+geo-near 操作返回封装 `Georateult` 实例的 `GeoResults` 包装器对象。包装的地理位置允许访问所有结果的平均距离。单个 `GeoResult` 对象携带找到的实体加上其距离的距离.
+
+[[mongo.geo-json]]
+=== GeoJSON Support
+
+MongoDB 支持 https://geojson.org/[GeoJSON] 和用于地理空间数据的简单(遗留)坐标对。这些格式既可用于存储数据，也可用于查询数据。请参阅关于 https://docs.mongodb.org/manual/core/2dsphere/#geospatial-indexes-store-geojson/[GeoJSON 支持的 MongoDB 手册]，了解需求和限制.
+
+[[mongo.geo-json.domain.classes]]
+==== 在 domain 类中 GeoJSON 类型
+
+在 domain 类中使用 https://geojson.org/[GeoJSON] 类型很简单。 `org.springframework.data.mongodb.core.geo`  包含  `GeoJsonPoint`, `GeoJsonPolygon` 等类型。这些类型是 `org.springframework.data.geo` 的扩展。以下示例使用 `GeoJsonPoint`:
+
+====
+[source,java]
+----
+public class Store {
+
+	String id;
+
+	/**
+	 * location is stored in GeoJSON format.
+	 * {
+	 *   "type" : "Point",
+	 *   "coordinates" : [ x, y ]
+	 * }
+	 */
+	GeoJsonPoint location;
+}
+----
+====
+
+[[mongo.geo-json.query-methods]]
+==== 在 Repository 查询方法中的 GeoJSON 类型
+
+使用 GeoJSON 类型作为存储库查询参数强制在创建查询时使用 `$geometry` 操作符，如下面的示例所示:
+
+====
+[source,java]
+----
+public interface StoreRepository extends CrudRepository<Store, String> {
+
+	List<Store> findByLocationWithin(Polygon polygon);  <1>
+
+}
+
+/*
+ * {
+ *   "location": {
+ *     "$geoWithin": {
+ *       "$geometry": {
+ *         "type": "Polygon",
+ *         "coordinates": [
+ *           [
+ *             [-73.992514,40.758934],
+ *             [-73.961138,40.760348],
+ *             [-73.991658,40.730006],
+ *             [-73.992514,40.758934]
+ *           ]
+ *         ]
+ *       }
+ *     }
+ *   }
+ * }
+ */
+repo.findByLocationWithin(                              <2>
+  new GeoJsonPolygon(
+    new Point(-73.992514, 40.758934),
+    new Point(-73.961138, 40.760348),
+    new Point(-73.991658, 40.730006),
+    new Point(-73.992514, 40.758934)));                 <3>
+
+/*
+ * {
+ *   "location" : {
+ *     "$geoWithin" : {
+ *        "$polygon" : [ [-73.992514,40.758934] , [-73.961138,40.760348] , [-73.991658,40.730006] ]
+ *     }
+ *   }
+ * }
+ */
+repo.findByLocationWithin(                              <4>
+  new Polygon(
+    new Point(-73.992514, 40.758934),
+    new Point(-73.961138, 40.760348),
+    new Point(-73.991658, 40.730006)));
+----
+<1> Repository 方法定义允许同时使用 GeoJSON 和遗留格式调用它.
+<2> 使用 GeoJSON 类型可以使用 `$geometry` 操作符.
+<3> 注意，GeoJSON polygons 需要定义一个封闭的环.
+<4> 使用遗留格式的 `$polygon` 操作.
+====
+
+[[mongo.geo-json.metrics]]
+==== Metrics（度量） 和 Distance（距离） 计算
+
+然后，MongoDB `$geoNear` 运算符允许使用 GeoJSON Point 或传统坐标对.
+
+====
+[source,java]
+----
+NearQuery.near(new Point(-73.99171, 40.738868))
+----
+[source,json]
+----
+{
+  "$geoNear": {
+    //...
+    "near": [-73.99171, 40.738868]
+  }
+}
+----
+====
+====
+[source,java]
+----
+NearQuery.near(new GeoJsonPoint(-73.99171, 40.738868))
+----
+[source,json]
+----
+{
+  "$geoNear": {
+    //...
+    "near": { "type": "Point", "coordinates": [-73.99171, 40.738868] }
+  }
+}
+
+----
+====
+
+尽管在语法上不同，但无论集合中的文档使用何种格式，服务端都可以接受这两种格式
+
+WARNING: 距离的计算有很大的不同。使用遗留格式在类似地球的球体上对弧度进行操作，而 GeoJSON 格式使用 _Meters_.
+
+请确保将  `Metric`  设置为所需的测量单位，以确保正确计算距离。
+
+换句话说:
+
+====
+假设您有 5 个文档，如下所示:
+[source,json]
+----
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a5"),
+    "name" : "Penn Station",
+    "location" : { "type" : "Point", "coordinates" : [  -73.99408, 40.75057 ] }
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a6"),
+    "name" : "10gen Office",
+    "location" : { "type" : "Point", "coordinates" : [ -73.99171, 40.738868 ] }
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a9"),
+    "name" : "City Bakery ",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796aa"),
+    "name" : "Splash Bar",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796ab"),
+    "name" : "Momofuku Milk Bar",
+    "location" : { "type" : "Point", "coordinates" : [ -73.985839, 40.731698 ] }
+}
+----
+====
+
+使用 GeoJSON 从  `[-73.99171, 40.738868]`  获取 400 米半径范围内的所有文档如下所示:
+
+.GeoNear with GeoJSON
+====
+[source,json]
+----
+{
+    "$geoNear": {
+        "maxDistance": 400, <1>
+        "num": 10,
+        "near": { type: "Point", coordinates: [-73.99171, 40.738868] },
+        "spherical":true, <2>
+        "key": "location",
+        "distanceField": "distance"
+    }
+}
+----
+返回以下 3 个文档:
+[source,json]
+----
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a6"),
+    "name" : "10gen Office",
+    "location" : { "type" : "Point", "coordinates" : [ -73.99171, 40.738868 ] }
+    "distance" : 0.0 <3>
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a9"),
+    "name" : "City Bakery ",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+    "distance" : 69.3582262492474 <3>
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796aa"),
+    "name" : "Splash Bar",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+    "distance" : 69.3582262492474 <3>
+}
+----
+<1> 距离中心点的最大距离 _Meters_（米）.
+<2> GeoJSON 总是在一个球体上运行。
+<3> 距离中心点的距离 _Meters_ （米）.
+====
+
+现在，当使用传统坐标对时，可以像前面讨论的那样对弧度进行操作。因此，我们在构建  `$geoNear`  命令时使用 `Metrics#KILOMETERS`。该 `Metric` 可确保距离乘数设置正确。
+
+.GeoNear with Legacy Coordinate Pairs
+====
+[source,json]
+----
+{
+    "$geoNear": {
+        "maxDistance": 0.0000627142377, <1>
+        "distanceMultiplier": 6378.137, <2>
+        "num": 10,
+        "near": [-73.99171, 40.738868],
+        "spherical":true, <3>
+        "key": "location",
+        "distanceField": "distance"
+    }
+}
+----
+返回 3 个文档就像 GeoJSON 变体一样:
+[source,json]
+----
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a6"),
+    "name" : "10gen Office",
+    "location" : { "type" : "Point", "coordinates" : [ -73.99171, 40.738868 ] }
+    "distance" : 0.0 <4>
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796a9"),
+    "name" : "City Bakery ",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+    "distance" : 0.0693586286032982 <4>
+}
+{
+    "_id" : ObjectId("5c10f3735d38908db52796aa"),
+    "name" : "Splash Bar",
+    "location" : { "type" : "Point", "coordinates" : [ -73.992491, 40.738673 ] }
+    "distance" : 0.0693586286032982 <4>
+}
+----
+<1> 与中心点的最大距离（弧度） _Radians_.
+<2> 随着距离的增加，我们得到的是公里数 _Kilometers_.
+<3> 确保我们操作的是一个2d 球体索引.
+<4> 到中心点的距离(以公里为单位) _Kilometers_ - 乘以1000等于 GeoJSON 的米 _Meters_ .
+====
+
+[[mongo.geo-json.jackson-modules]]
+==== GeoJSON Jackson Modules
+
+通过使用  <<core.web>>，Spring Data 向 `ObjectMapper` 注册额外的 Jackson 模块，以反序列化常见的 Spring Data domain 类型。请参阅 <<core.web.basic.jackson-mappers>> 部分，了解有关此功能的更多信息。
+
+MongoDB 模块还通过其 `GeoJsonConfiguration` 为以下 `GeoJSON` 类型注册 `JSONDESerializer`，从而暴露 `GeoJsonModule`.
+----
+org.springframework.data.mongodb.core.geo.GeoJsonPoint
+org.springframework.data.mongodb.core.geo.GeoJsonMultiPoint
+org.springframework.data.mongodb.core.geo.GeoJsonLineString
+org.springframework.data.mongodb.core.geo.GeoJsonMultiLineString
+org.springframework.data.mongodb.core.geo.GeoJsonPolygon
+org.springframework.data.mongodb.core.geo.GeoJsonMultiPolygon
+----
+
+[NOTE]
+====
+`GeoJsonModule` 只注册 `JSONDESerializer`！
+
+默认情况下，下一个主要版本（4.0）将同时注册 GeoJSON 类型的 `JSONSerializer` 和 `JSONSerializer`.
+====
+
+[[mongo.textsearch]]
+=== 全文查询
+
+从 MongoDB 2.6 版本开始，您可以使用 `$text` 操作符运行全文查询。`TextQuery` 和 `TextCriteria` 中提供了特定于全文查询的方法和操作。进行全文搜索时，请参阅 https://docs.mongodb.org/manual/reference/operator/query/text/#behavior[MongoDB reference] ，了解其行为和限制.
+
+==== 全文搜索
+
+在实际使用全文搜索之前，必须正确设置搜索索引。有关如何创建索引结构的更多详细信息，请参见 <<mapping-usage-indexes.text-index,Text Index>>。以下示例显示了如何设置全文搜索:
+
+[source,javascript]
+----
+db.foo.createIndex(
+{
+  title : "text",
+  content : "text"
+},
+{
+  weights : {
+              title : 3
+            }
+}
+)
+----
+
+搜索 `coffee cake` 的查询可以按如下方式定义和运行:
+
+.Full Text Query
+====
+[source,java]
+----
+Query query = TextQuery
+  .queryText(new TextCriteria().matchingAny("coffee", "cake"));
+
+List<Document> page = template.find(query, Document.class);
+----
+====
+
+使用 `TextQuery.sortByScore` 根据权重按相关性对结果进行排序。
+
+.Full Text Query - Sort by Score
+====
+[source,java]
+----
+Query query = TextQuery
+  .queryText(new TextCriteria().matchingAny("coffee", "cake"))
+  .sortByScore() <1>
+  .includeScore(); <2>
+
+List<Document> page = template.find(query, Document.class);
+----
+<1> 使用 `score` 属性根据触发 `.sort({'score': {'$meta': 'textScore'}})` 的相关性对结果进行排序.
+<2> 使用 `TextQuery.includeScore()` 在结果文档中包含计算出的相关性.
+====
+
+您可以通过在前面加上  `-` 或使用 `notMatching` 来搜索过滤，如下面的示例所示(请注意，这两行具有相同的效果，因此是多余的):
+
+[source,java]
+----
+// search for 'coffee' and not 'cake'
+TextQuery.queryText(new TextCriteria().matching("coffee").matching("-cake"));
+TextQuery.queryText(new TextCriteria().matching("coffee").notMatching("cake"));
+----
+
+`TextCriteria.matching` 取提供的术语。因此，您可以使用双引号（例如，`\"coffee cake\")`）或使用  `TextCriteria.phrase.` 来定义短语。以下示例显示了定义短语的方式：:
+
+[source,java]
+----
+// search for phrase 'coffee cake'
+TextQuery.queryText(new TextCriteria().matching("\"coffee cake\""));
+TextQuery.queryText(new TextCriteria().phrase("coffee cake"));
+----
+
+可以使用 `TextCriteria` 上的对应方法为 `$caseSensitive` 和 `$diacriticSensitive` 设置标志。请注意，这两个可选标志已经在 MongoDB 3.2 中引入，除非显式设置，否则不包含在查询中.
+
+[[mongo.collation]]
+=== 排序规则
+
+从 3.4 版本开始，MongoDB 支持用于集合和索引创建的排序规则以及各种查询操作。排序规则基于 http://userguide.icu-project.org/collation/concepts[ICU collations] 定义字符串比较规则。排序规则文档由各种属性组成，这些属性封装在 `Collation` 中，如下面所示:
+
+====
+[source,java]
+----
+Collation collation = Collation.of("fr")         <1>
+
+  .strength(ComparisonLevel.secondary()          <2>
+    .includeCase())
+
+  .numericOrderingEnabled()                      <3>
+
+  .alternate(Alternate.shifted().punct())        <4>
+
+  .forwardDiacriticSort()                        <5>
+
+  .normalizationEnabled();                       <6>
+----
+<1> `Collation` 需要设置区域. 区域的 String 表现形式, 一个 `Locale` (考虑语言，国家和其他形式) 或一个 `CollationLocale`. 语言环境是强制创建的.
+<2> Collation strength 定义了表示字符之间的比较级别. 根据所选的 strength，可以配置各种选项（区分大小写、大小写顺序等）
+<3> 指定是否将数字字符串作为数字或作为字符串进行比较.
+<4> 指定排序规则是否应将空格和标点符号视为基本字符，以便进行比较.
+<5> 指定带有变音符号的字符串是否从字符串后面排序，例如使用某些法语字典排序.
+<6> 指定是否检查文本是否需要规范化以及是否执行规范化.
+====
+
+Collations 可用于创建集合和索引。如果创建的集合指定了排序规则，则除非指定其他排序规则，否则排序规则将应用于索引创建和查询。排序规则对整个操作有效，不能按字段指定。
+
+与其他元数据一样，排序规则可以通过 `@Document` 注解的 `collation` 属性从 doamin 类型继承，并且将在运行查询时直接应用创建集合或索引。
+
+NOTE: 当 MongoDB 在第一次交互时自动创建集合时，不使用带注解的排序规则。这将需要额外的存储交互来延迟整个过程。请使用 `MongoOperations`.
+
+[source,java]
+----
+Collation french = Collation.of("fr");
+Collation german = Collation.of("de");
+
+template.createCollection(Person.class, CollectionOptions.just(collation));
+
+template.indexOps(Person.class).ensureIndex(new Index("name", Direction.ASC).collation(german));
+----
+
+NOTE: 如果未指定排序规则 (`Collation.simple()`),MongoDB 将使用简单的二进制比较。.
+
+在集合操作中使用排序规则是在查询或操作选项中指定  `Collation`  实例的问题，如下两个示例所示：
+
+.Using collation with `find`
+====
+[source,java]
+----
+Collation collation = Collation.of("de");
+
+Query query = new Query(Criteria.where("firstName").is("Amél")).collation(collation);
+
+List<Person> results = template.find(query, Person.class);
+----
+====
+
+.Using collation with `aggregate`
+====
+[source,java]
+----
+Collation collation = Collation.of("de");
+
+AggregationOptions options = AggregationOptions.builder().collation(collation).build();
+
+Aggregation aggregation = newAggregation(
+  project("tags"),
+  unwind("tags"),
+  group("tags")
+    .count().as("count")
+).withOptions(options);
+
+AggregationResults<TagCount> results = template.aggregate(aggregation, "tags", TagCount.class);
+----
+====
+
+WARNING: 仅当用于操作的排序规则与索引排序规则匹配时才使用索引.
+
+<<mongo.repositories>> 通过  `@Query` 注解的 `collation` 属性来支持 `Collations`.
+
+.Collation support for Repositories
+====
+[source,java]
+----
+public interface PersonRepository extends MongoRepository<Person, String> {
+
+  @Query(collation = "en_US")  <1>
+  List<Person> findByFirstname(String firstname);
+
+  @Query(collation = "{ 'locale' : 'en_US' }") <2>
+  List<Person> findPersonByFirstname(String firstname);
+
+  @Query(collation = "?1") <3>
+  List<Person> findByFirstname(String firstname, Object collation);
+
+  @Query(collation = "{ 'locale' : '?1' }") <4>
+  List<Person> findByFirstname(String firstname, String collation);
+
+  List<Person> findByFirstname(String firstname, Collation collation); <5>
+
+  @Query(collation = "{ 'locale' : 'en_US' }")
+  List<Person> findByFirstname(String firstname, @Nullable Collation collation); <6>
+}
+----
+<1> 静态配置 collation `{ 'locale' : 'en_US' }`.
+<2> 静态配置 collation `{ 'locale' : 'en_US' }`.
+<3> 根据第 2 个方法参数动态配置 collation. 允许的类型包括 `String` (eg. 'en_US'), `Locacle` (eg. Locacle.US) 和 `Document` (eg. new Document("locale", "en_US"))
+<4> 根据第 2 个方法参数动态配置 collation.
+<5> 将  `Collation` 方法参数应用于查询.
+<6> The `Collation` 方法参数如果不为空，则重写 `@Query` 的默认 `collation`.
+
+NOTE: 如果您为 repository finder 方法启用了自动索引创建，那么在创建索引时，将包括一个潜在的 collation 定义，如（1）和（2）所示.
+
+TIP: 更具体的 `Collation` 可能会超出其他 `Collation` 的定义。这意味着方法参数优于查询方法注解，而非 doamin 类型注解。
+====
+
+include::./mongo-json-schema.adoc[leveloffset=+1]
+
+[[mongo.query.fluent-template-api]]
+=== Fluent Template API
+
+The `MongoOperations` interface is one of the central components when it comes to more low-level interaction with MongoDB. It offers a wide range of methods covering needs from collection creation, index creation, and CRUD operations to more advanced functionality, such as Map-Reduce and aggregations.
+You can find multiple overloads for each method. Most of them cover optional or nullable parts of the API.
+
+`FluentMongoOperations` provides a more narrow interface for the common methods of `MongoOperations` and provides a more readable, fluent API.
+The entry points (`insert(…)`, `find(…)`, `update(…)`, and others) follow a natural naming schema based on the operation to be run. Moving on from the entry point, the API is designed to offer only context-dependent methods that lead to a terminating method that invokes the actual `MongoOperations` counterpart -- the `all` method in the case of the following example:
+
+====
+[source,java]
+----
+List<SWCharacter> all = ops.find(SWCharacter.class)
+  .inCollection("star-wars")                        <1>
+  .all();
+----
+<1> Skip this step if `SWCharacter` defines the collection with `@Document` or if you use the class name as the collection name, which is fine.
+====
+
+Sometimes, a collection in MongoDB holds entities of different types, such as a `Jedi` within a collection of `SWCharacters`.
+To use different types for `Query` and return value mapping, you can use `as(Class<?> targetType)` to map results differently, as the following example shows:
+
+====
+[source,java]
+----
+List<Jedi> all = ops.find(SWCharacter.class)    <1>
+  .as(Jedi.class)                               <2>
+  .matching(query(where("jedi").is(true)))
+  .all();
+----
+<1> The query fields are mapped against the `SWCharacter` type.
+<2> Resulting documents are mapped into `Jedi`.
+====
+
+TIP: You can directly apply <<projections>> to result documents by providing the target type via `as(Class<?>)`.
+
+NOTE: Using projections allows `MongoTemplate` to optimize result mapping by limiting the actual response to fields required
+by the projection target type. This applies as long as the `Query` itself does not contain any field restriction and the
+target type is a closed interface or DTO projection.
+
+You can switch between retrieving a single entity and retrieving multiple entities as a `List` or a `Stream` through the terminating methods: `first()`, `one()`, `all()`, or `stream()`.
+
+When writing a geo-spatial query with `near(NearQuery)`, the number of terminating methods is altered to include only the methods that are valid for running a `geoNear` command in MongoDB (fetching entities as a `GeoResult` within `GeoResults`), as the following example shows:
+
+====
+[source,java]
+----
+GeoResults<Jedi> results = mongoOps.query(SWCharacter.class)
+  .as(Jedi.class)
+  .near(alderaan) // NearQuery.near(-73.9667, 40.78).maxDis…
+  .all();
+----
+====
+
+[[mongo.query.kotlin-support]]
+=== Type-safe Queries for Kotlin
+
+Kotlin embraces domain-specific language creation through its language syntax and its extension system.
+Spring Data MongoDB ships with a Kotlin Extension for `Criteria` using https://kotlinlang.org/docs/reference/reflection.html#property-references[Kotlin property references] to build type-safe queries.
+Queries using this extension are typically benefit from improved readability.
+Most keywords on `Criteria` have a matching Kotlin extension, such as `inValues` and `regex`.
+
+Consider the following example explaining Type-safe Queries:
+
+====
+[source,kotlin]
+----
+import org.springframework.data.mongodb.core.query.*
+
+mongoOperations.find<Book>(
+  Query(Book::title isEqualTo "Moby-Dick")               <1>
+)
+
+mongoOperations.find<Book>(
+  Query(titlePredicate = Book::title exists true)
+)
+
+mongoOperations.find<Book>(
+  Query(
+    Criteria().andOperator(
+      Book::price gt 5,
+      Book::price lt 10
+    ))
+)
+
+// Binary operators
+mongoOperations.find<BinaryMessage>(
+  Query(BinaryMessage::payload bits { allClear(0b101) }) <2>
+)
+
+// Nested Properties (i.e. refer to "book.author")
+mongoOperations.find<Book>(
+  Query(Book::author / Author::name regex "^H")          <3>
+)
+----
+<1> `isEqualTo()` is an infix extension function with receiver type `KProperty<T>` that returns `Criteria`.
+<2> For bitwise operators, pass a lambda argument where you call one of the methods of `Criteria.BitwiseCriteriaOperators`.
+<3> To construct nested properties, use the `/` character (overloaded operator `div`).
+====
+
+[[mongo.query.additional-query-options]]
+=== Additional Query Options
+
+MongoDB offers various ways of applying meta information, like a comment or a batch size, to a query.Using the `Query` API
+directly there are several methods for those options.
+
+====
+[source,java]
+----
+Query query = query(where("firstname").is("luke"))
+    .comment("find luke")         <1>
+    .batchSize(100)                                 <2>
+----
+<1> The comment propagated to the MongoDB profile log.
+<2> The number of documents to return in each response batch.
+====
+
+On the repository level the `@Meta` annotation provides means to add query options in a declarative way.
+
+====
+[source,java]
+----
+@Meta(comment = "find luke", batchSize = 100, flags = { SLAVE_OK })
+List<Person> findByFirstname(String firstname);
+----
+====
+
+include::../{spring-data-commons-docs}/query-by-example.adoc[leveloffset=+1]
+include::query-by-example.adoc[leveloffset=+1]
+
+[[mongo.query.count]]
+== Counting Documents
+
+In pre-3.x versions of SpringData MongoDB the count operation used MongoDBs internal collection statistics.
+With the introduction of <<mongo.transactions>> this was no longer possible because statistics would not correctly reflect potential changes during a transaction requiring an aggregation-based count approach.
+So in version 2.x `MongoOperations.count()` would use the collection statistics if no transaction was in progress, and the aggregation variant if so.
+
+As of Spring Data MongoDB 3.x any `count` operation uses regardless the existence of filter criteria the aggregation-based count approach via MongoDBs `countDocuments`.
+If the application is fine with the limitations of working upon collection statistics `MongoOperations.estimatedCount()` offers an alternative.
+
+[NOTE]
+====
+MongoDBs native `countDocuments` method and the `$match` aggregation, do not support `$near` and `$nearSphere` but require `$geoWithin` along with `$center` or `$centerSphere` which does not support `$minDistance` (see https://jira.mongodb.org/browse/SERVER-37043).
+
+Therefore a given `Query` will be rewritten for `count` operations using `Reactive`-/`MongoTemplate` to bypass the issue like shown below.
+
+[source,javascript]
+----
+{ location : { $near : [-73.99171, 40.738868], $maxDistance : 1.1 } } <1>
+{ location : { $geoWithin : { $center: [ [-73.99171, 40.738868], 1.1] } } } <2>
+
+{ location : { $near : [-73.99171, 40.738868], $minDistance : 0.1, $maxDistance : 1.1 } } <3>
+{$and :[ { $nor :[ { location :{ $geoWithin :{ $center :[ [-73.99171, 40.738868 ], 0.01] } } } ]}, { location :{ $geoWithin :{ $center :[ [-73.99171, 40.738868 ], 1.1] } } } ] } <4>
+----
+<1> Count source query using `$near`.
+<2> Rewritten query now using `$geoWithin` with `$center`.
+<3> Count source query using `$near` with `$minDistance` and `$maxDistance`.
+<4> Rewritten query now a combination of `$nor` `$geowithin` critierias to work around unsupported `$minDistance`.
+====
+
+[[mongo.mapreduce]]
+== Map-Reduce Operations
+
+You can query MongoDB by using Map-Reduce, which is useful for batch processing, for data aggregation, and for when the query language does not fulfill your needs.
+
+Spring provides integration with MongoDB's Map-Reduce by providing methods on `MongoOperations` to simplify the creation and running of Map-Reduce operations.It can convert the results of a Map-Reduce operation to a POJO and integrates with Spring's https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/core.html#resources[Resource abstraction].This lets you place your JavaScript files on the file system, classpath, HTTP server, or any other Spring Resource implementation and then reference the JavaScript resources through an easy URI style syntax -- for example, `classpath:reduce.js;`.Externalizing JavaScript code in files is often preferable to embedding them as Java strings in your code.Note that you can still pass JavaScript code as Java strings if you prefer.
+
+[[mongo.mapreduce.example]]
+=== Example Usage
+
+To understand how to perform Map-Reduce operations, we use an example from the book, _MongoDB - The Definitive Guide_ footnote:[Kristina Chodorow. _MongoDB - The Definitive Guide_. O'Reilly Media, 2013].In this example, we create three documents that have the values [a,b], [b,c], and [c,d], respectively.The values in each document are associated with the key, 'x', as the following example shows (assume these documents are in a collection named `jmr1`):
+
+[source]
+----
+{ "_id" : ObjectId("4e5ff893c0277826074ec533"), "x" : [ "a", "b" ] }
+{ "_id" : ObjectId("4e5ff893c0277826074ec534"), "x" : [ "b", "c" ] }
+{ "_id" : ObjectId("4e5ff893c0277826074ec535"), "x" : [ "c", "d" ] }
+----
+
+The following map function counts the occurrence of each letter in the array for each document:
+
+[source,java]
+----
+function () {
+    for (var i = 0; i < this.x.length; i++) {
+        emit(this.x[i], 1);
+    }
+}
+----
+
+The follwing reduce function sums up the occurrence of each letter across all the documents:
+
+[source,java]
+----
+function (key, values) {
+    var sum = 0;
+    for (var i = 0; i < values.length; i++)
+        sum += values[i];
+    return sum;
+}
+----
+
+Running the preceding functions result in the following collection:
+
+[source]
+----
+{ "_id" : "a", "value" : 1 }
+{ "_id" : "b", "value" : 2 }
+{ "_id" : "c", "value" : 2 }
+{ "_id" : "d", "value" : 1 }
+----
+
+Assuming that the map and reduce functions are located in `map.js` and `reduce.js` and bundled in your jar so they are available on the classpath, you can run a Map-Reduce operation as follows:
+
+[source,java]
+----
+MapReduceResults<ValueObject> results = mongoOperations.mapReduce("jmr1", "classpath:map.js", "classpath:reduce.js", ValueObject.class);
+for (ValueObject valueObject : results) {
+  System.out.println(valueObject);
+}
+----
+
+The preceding exmaple produces the following output:
+
+[source]
+----
+ValueObject [id=a, value=1.0]
+ValueObject [id=b, value=2.0]
+ValueObject [id=c, value=2.0]
+ValueObject [id=d, value=1.0]
+----
+
+The `MapReduceResults` class implements `Iterable` and provides access to the raw output and timing and count statistics.The following listing shows the `ValueObject` class:
+
+[source,java]
+----
+public class ValueObject {
+
+  private String id;
+  private float value;
+
+  public String getId() {
+    return id;
+  }
+
+  public float getValue() {
+    return value;
+  }
+
+  public void setValue(float value) {
+    this.value = value;
+  }
+
+  @Override
+  public String toString() {
+    return "ValueObject [id=" + id + ", value=" + value + "]";
+  }
+}
+----
+
+By default, the output type of `INLINE` is used so that you need not specify an output collection.To specify additional Map-Reduce options, use an overloaded method that takes an additional `MapReduceOptions` argument.The class `MapReduceOptions` has a fluent API, so adding additional options can be done in a compact syntax.The following example sets the output collection to `jmr1_out` (note that setting only the output collection assumes a default output type of `REPLACE`):
+
+[source,java]
+----
+MapReduceResults<ValueObject> results = mongoOperations.mapReduce("jmr1", "classpath:map.js", "classpath:reduce.js",
+                                                                     new MapReduceOptions().outputCollection("jmr1_out"), ValueObject.class);
+----
+
+There is also a static import (`import static org.springframework.data.mongodb.core.mapreduce.MapReduceOptions.options;`) that can be used to make the syntax slightly more compact, as the following example shows:
+
+[source,java]
+----
+MapReduceResults<ValueObject> results = mongoOperations.mapReduce("jmr1", "classpath:map.js", "classpath:reduce.js",
+                                                                     options().outputCollection("jmr1_out"), ValueObject.class);
+----
+
+You can also specify a query to reduce the set of data that is fed into the Map-Reduce operation.The following example removes the document that contains [a,b] from consideration for Map-Reduce operations:
+
+[source,java]
+----
+Query query = new Query(where("x").ne(new String[] { "a", "b" }));
+MapReduceResults<ValueObject> results = mongoOperations.mapReduce(query, "jmr1", "classpath:map.js", "classpath:reduce.js",
+                                                                     options().outputCollection("jmr1_out"), ValueObject.class);
+----
+
+Note that you can specify additional limit and sort values on the query, but you cannot skip values.
+
+[[mongo.server-side-scripts]]
+== Script Operations
+
+[WARNING]
+====
+https://docs.mongodb.com/master/release-notes/4.2-compatibility/[MongoDB 4.2] removed support for the `eval` command used
+by `ScriptOperations`. +
+There is no replacement for the removed functionality.
+====
+
+MongoDB allows running JavaScript functions on the server by either directly sending the script or calling a stored one. `ScriptOperations` can be accessed through `MongoTemplate` and provides basic abstraction for `JavaScript` usage. The following example shows how to us the `ScriptOperations` class:
+
+====
+[source,java]
+----
+ScriptOperations scriptOps = template.scriptOps();
+
+ExecutableMongoScript echoScript = new ExecutableMongoScript("function(x) { return x; }");
+scriptOps.execute(echoScript, "directly execute script");     <1>
+
+scriptOps.register(new NamedMongoScript("echo", echoScript)); <2>
+scriptOps.call("echo", "execute script via name");            <3>
+----
+<1> Run the script directly without storing the function on server side.
+<2> Store the script using 'echo' as its name. The given name identifies the script and allows calling it later.
+<3> Run the script with name 'echo' using the provided parameters.
+====
+
+[[mongo.group]]
+== Group Operations
+
+As an alternative to using Map-Reduce to perform data aggregation, you can use the https://www.mongodb.org/display/DOCS/Aggregation#Aggregation-Group[`group` operation] which feels similar to using SQL's group by query style, so it may feel more approachable vs. using Map-Reduce. Using the group operations does have some limitations, for example it is not supported in a shared environment and it returns the full result set in a single BSON object, so the result should be small, less than 10,000 keys.
+
+Spring provides integration with MongoDB's group operation by providing methods on MongoOperations to simplify the creation and running of group operations. It can convert the results of the group operation to a POJO and also integrates with Spring's https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/core.html#resources[Resource abstraction] abstraction. This will let you place your JavaScript files on the file system, classpath, http server or any other Spring Resource implementation and then reference the JavaScript resources via an easy URI style syntax, e.g. 'classpath:reduce.js;. Externalizing JavaScript code in files if often preferable to embedding them as Java strings in your code. Note that you can still pass JavaScript code as Java strings if you prefer.
+
+[[mongo.group.example]]
+=== Example Usage
+
+In order to understand how group operations work the following example is used, which is somewhat artificial. For a more realistic example consult the book 'MongoDB - The definitive guide'. A collection named `group_test_collection` created with the following rows.
+
+[source]
+----
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f1"), "x" : 1 }
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f2"), "x" : 1 }
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f3"), "x" : 2 }
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f4"), "x" : 3 }
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f5"), "x" : 3 }
+{ "_id" : ObjectId("4ec1d25d41421e2015da64f6"), "x" : 3 }
+----
+
+We would like to group by the only field in each row, the `x` field and aggregate the number of times each specific value of `x` occurs. To do this we need to create an initial document that contains our count variable and also a reduce function which will increment it each time it is encountered. The Java code to run the group operation is shown below
+
+[source,java]
+----
+GroupByResults<XObject> results = mongoTemplate.group("group_test_collection",
+                                                      GroupBy.key("x").initialDocument("{ count: 0 }").reduceFunction("function(doc, prev) { prev.count += 1 }"),
+                                                      XObject.class);
+----
+
+The first argument is the name of the collection to run the group operation over, the second is a fluent API that specifies properties of the group operation via a `GroupBy` class. In this example we are using just the `intialDocument` and `reduceFunction` methods. You can also specify a key-function, as well as a finalizer as part of the fluent API. If you have multiple keys to group by, you can pass in a comma separated list of keys.
+
+The raw results of the group operation is a JSON document that looks like this
+
+[source]
+----
+{
+  "retval" : [ { "x" : 1.0 , "count" : 2.0} ,
+               { "x" : 2.0 , "count" : 1.0} ,
+               { "x" : 3.0 , "count" : 3.0} ] ,
+  "count" : 6.0 ,
+  "keys" : 3 ,
+  "ok" : 1.0
+}
+----
+
+The document under the "retval" field is mapped onto the third argument in the group method, in this case XObject which is shown below.
+
+[source,java]
+----
+public class XObject {
+
+  private float x;
+
+  private float count;
+
+
+  public float getX() {
+    return x;
+  }
+
+  public void setX(float x) {
+    this.x = x;
+  }
+
+  public float getCount() {
+    return count;
+  }
+
+  public void setCount(float count) {
+    this.count = count;
+  }
+
+  @Override
+  public String toString() {
+    return "XObject [x=" + x + " count = " + count + "]";
+  }
+}
+----
+
+You can also obtain the raw result as a `Document` by calling the method `getRawResults` on the `GroupByResults` class.
+
+There is an additional method overload of the group method on `MongoOperations` which lets you specify a `Criteria` object for selecting a subset of the rows. An example which uses a `Criteria` object, with some syntax sugar using static imports, as well as referencing a key-function and reduce function javascript files via a Spring Resource string is shown below.
+
+[source]
+----
+import static org.springframework.data.mongodb.core.mapreduce.GroupBy.keyFunction;
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+
+GroupByResults<XObject> results = mongoTemplate.group(where("x").gt(0),
+                                        "group_test_collection",
+                                        keyFunction("classpath:keyFunction.js").initialDocument("{ count: 0 }").reduceFunction("classpath:groupReduce.js"), XObject.class);
+----
+
+[[mongo.aggregation]]
+== Aggregation Framework Support
+
+Spring Data MongoDB provides support for the Aggregation Framework introduced to MongoDB in version 2.2.
+
+For further information, see the full https://docs.mongodb.org/manual/aggregation/[reference documentation] of the aggregation framework and other data aggregation tools for MongoDB.
+
+[[mongo.aggregation.basic-concepts]]
+=== Basic Concepts
+
+The Aggregation Framework support in Spring Data MongoDB is based on the following key abstractions: `Aggregation`, `AggregationOperation`, and `AggregationResults`.
+
+* `Aggregation`
++
+An `Aggregation` represents a MongoDB `aggregate` operation and holds the description of the aggregation pipeline instructions. Aggregations are created by invoking the appropriate `newAggregation(…)` static factory method of the `Aggregation` class, which takes a list of `AggregateOperation` and an optional input class.
++
+The actual aggregate operation is run by the `aggregate` method of the `MongoTemplate`, which takes the desired output class as a parameter.
++
+* `TypedAggregation`
++
+A `TypedAggregation`, just like an `Aggregation`, holds the instructions of the aggregation pipeline and a reference to the input type, that is used for mapping domain properties to actual document fields.
++
+At runtime, field references get checked against the given input type, considering potential `@Field` annotations and raising errors when referencing nonexistent properties.
++
+* `AggregationOperation`
++
+An `AggregationOperation` represents a MongoDB aggregation pipeline operation and describes the processing that should be performed in this aggregation step. Although you could manually create an `AggregationOperation`, we recommend using the static factory methods provided by the `Aggregate` class to construct an `AggregateOperation`.
++
+* `AggregationResults`
++
+`AggregationResults` is the container for the result of an aggregate operation. It provides access to the raw aggregation result, in the form of a `Document` to the mapped objects and other information about the aggregation.
++
+The following listing shows the canonical example for using the Spring Data MongoDB support for the MongoDB Aggregation Framework:
++
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+Aggregation agg = newAggregation(
+    pipelineOP1(),
+    pipelineOP2(),
+    pipelineOPn()
+);
+
+AggregationResults<OutputType> results = mongoTemplate.aggregate(agg, "INPUT_COLLECTION_NAME", OutputType.class);
+List<OutputType> mappedResult = results.getMappedResults();
+----
+
+Note that, if you provide an input class as the first parameter to the `newAggregation` method, the `MongoTemplate` derives the name of the input collection from this class. Otherwise, if you do not not specify an input class, you must provide the name of the input collection explicitly. If both an input class and an input collection are provided, the latter takes precedence.
+
+[[mongo.aggregation.supported-aggregation-operations]]
+=== Supported Aggregation Operations
+
+The MongoDB Aggregation Framework provides the following types of aggregation operations:
+
+* Pipeline Aggregation Operators
+* Group Aggregation Operators
+* Boolean Aggregation Operators
+* Comparison Aggregation Operators
+* Arithmetic Aggregation Operators
+* String Aggregation Operators
+* Date Aggregation Operators
+* Array Aggregation Operators
+* Conditional Aggregation Operators
+* Lookup Aggregation Operators
+* Convert Aggregation Operators
+* Object Aggregation Operators
+* Script Aggregation Operators
+
+At the time of this writing, we provide support for the following Aggregation Operations in Spring Data MongoDB:
+
+.Aggregation Operations currently supported by Spring Data MongoDB
+[cols="2*"]
+|===
+| Pipeline Aggregation Operators
+| `bucket`, `bucketAuto`, `count`, `facet`, `geoNear`, `graphLookup`, `group`, `limit`, `lookup`, `match`, `project`, `replaceRoot`, `skip`, `sort`, `unwind`
+
+| Set Aggregation Operators
+| `setEquals`, `setIntersection`, `setUnion`, `setDifference`, `setIsSubset`, `anyElementTrue`, `allElementsTrue`
+
+| Group Aggregation Operators
+| `addToSet`, `first`, `last`, `max`, `min`, `avg`, `push`, `sum`, `(*count)`, `stdDevPop`, `stdDevSamp`
+
+| Arithmetic Aggregation Operators
+| `abs`, `add` (*via `plus`), `ceil`, `divide`, `exp`, `floor`, `ln`, `log`, `log10`, `mod`, `multiply`, `pow`, `round`, `sqrt`, `subtract` (*via `minus`), `trunc`
+
+| String Aggregation Operators
+| `concat`, `substr`, `toLower`, `toUpper`, `stcasecmp`, `indexOfBytes`, `indexOfCP`, `split`, `strLenBytes`, `strLenCP`, `substrCP`, `trim`, `ltrim`, `rtim`
+
+| Comparison Aggregation Operators
+| `eq` (*via: `is`), `gt`, `gte`, `lt`, `lte`, `ne`
+
+| Array Aggregation Operators
+| `arrayElementAt`, `arrayToObject`, `concatArrays`, `filter`, `in`, `indexOfArray`, `isArray`, `range`, `reverseArray`, `reduce`, `size`, `slice`, `zip`
+
+| Literal Operators
+| `literal`
+
+| Date Aggregation Operators
+| `dayOfYear`, `dayOfMonth`, `dayOfWeek`, `year`, `month`, `week`, `hour`, `minute`, `second`, `millisecond`, `dateToString`, `dateFromString`, `dateFromParts`, `dateToParts`, `isoDayOfWeek`, `isoWeek`, `isoWeekYear`
+
+| Variable Operators
+| `map`
+
+| Conditional Aggregation Operators
+| `cond`, `ifNull`, `switch`
+
+| Type Aggregation Operators
+| `type`
+
+| Convert Aggregation Operators
+| `convert`, `toBool`, `toDate`, `toDecimal`, `toDouble`, `toInt`, `toLong`, `toObjectId`, `toString`
+
+| Object Aggregation Operators
+| `objectToArray`, `mergeObjects`
+
+| Script Aggregation Operators
+| `function`, `accumulator`
+|===
+
+* The operation is mapped or added by Spring Data MongoDB.
+
+Note that the aggregation operations not listed here are currently not supported by Spring Data MongoDB. Comparison aggregation operators are expressed as `Criteria` expressions.
+
+[[mongo.aggregation.projection]]
+=== Projection Expressions
+
+Projection expressions are used to define the fields that are the outcome of a particular aggregation step. Projection expressions can be defined through the `project` method of the `Aggregation` class, either by passing a list of `String` objects or an aggregation framework `Fields` object. The projection can be extended with additional fields through a fluent API by using the `and(String)` method and aliased by using the `as(String)` method.
+Note that you can also define fields with aliases by using the `Fields.field` static factory method of the aggregation framework, which you can then use to construct a new `Fields` instance. References to projected fields in later aggregation stages are valid only for the field names of included fields or their aliases (including newly defined fields and their aliases). Fields not included in the projection cannot be referenced in later aggregation stages. The following listings show examples of projection expression:
+
+.Projection expression examples
+====
+[source,java]
+----
+// generates {$project: {name: 1, netPrice: 1}}
+project("name", "netPrice")
+
+// generates {$project: {thing1: $thing2}}
+project().and("thing1").as("thing2")
+
+// generates {$project: {a: 1, b: 1, thing2: $thing1}}
+project("a","b").and("thing1").as("thing2")
+----
+====
+
+.Multi-Stage Aggregation using Projection and Sorting
+====
+[source,java]
+----
+// generates {$project: {name: 1, netPrice: 1}}, {$sort: {name: 1}}
+project("name", "netPrice"), sort(ASC, "name")
+
+// generates {$project: {name: $firstname}}, {$sort: {name: 1}}
+project().and("firstname").as("name"), sort(ASC, "name")
+
+// does not work
+project().and("firstname").as("name"), sort(ASC, "firstname")
+----
+====
+
+More examples for project operations can be found in the `AggregationTests` class. Note that further details regarding the projection expressions can be found in the https://docs.mongodb.org/manual/reference/operator/aggregation/project/#pipe._S_project[corresponding section] of the MongoDB Aggregation Framework reference documentation.
+
+[[mongo.aggregation.facet]]
+=== Faceted Classification
+
+As of Version 3.4, MongoDB supports faceted classification by using the Aggregation Framework. A faceted classification uses semantic categories (either general or subject-specific) that are combined to create the full classification entry. Documents flowing through the aggregation pipeline are classified into buckets. A multi-faceted classification enables various aggregations on the same set of input documents, without needing to retrieve the input documents multiple times.
+
+==== Buckets
+
+Bucket operations categorize incoming documents into groups, called buckets, based on a specified expression and bucket boundaries. Bucket operations require a grouping field or a grouping expression. You can define them by using the `bucket()` and `bucketAuto()` methods of the `Aggregate` class. `BucketOperation` and `BucketAutoOperation` can expose accumulations based on aggregation expressions for input documents. You can extend the bucket operation with additional parameters through a fluent API by using the `with…()` methods and the `andOutput(String)` method. You can alias the operation by using the `as(String)` method. Each bucket is represented as a document in the output.
+
+`BucketOperation` takes a defined set of boundaries to group incoming documents into these categories. Boundaries are required to be sorted. The following listing shows some examples of bucket operations:
+
+.Bucket operation examples
+====
+[source,java]
+----
+// generates {$bucket: {groupBy: $price, boundaries: [0, 100, 400]}}
+bucket("price").withBoundaries(0, 100, 400);
+
+// generates {$bucket: {groupBy: $price, default: "Other" boundaries: [0, 100]}}
+bucket("price").withBoundaries(0, 100).withDefault("Other");
+
+// generates {$bucket: {groupBy: $price, boundaries: [0, 100], output: { count: { $sum: 1}}}}
+bucket("price").withBoundaries(0, 100).andOutputCount().as("count");
+
+// generates {$bucket: {groupBy: $price, boundaries: [0, 100], 5, output: { titles: { $push: "$title"}}}
+bucket("price").withBoundaries(0, 100).andOutput("title").push().as("titles");
+----
+====
+
+`BucketAutoOperation` determines boundaries in an attempt to evenly distribute documents into a specified number of buckets. `BucketAutoOperation` optionally takes a granularity value that specifies the https://en.wikipedia.org/wiki/Preferred_number[preferred number] series to use to ensure that the calculated boundary edges end on preferred round numbers or on powers of 10. The following listing shows examples of bucket operations:
+
+.Bucket operation examples
+====
+[source,java]
+----
+// generates {$bucketAuto: {groupBy: $price, buckets: 5}}
+bucketAuto("price", 5)
+
+// generates {$bucketAuto: {groupBy: $price, buckets: 5, granularity: "E24"}}
+bucketAuto("price", 5).withGranularity(Granularities.E24).withDefault("Other");
+
+// generates {$bucketAuto: {groupBy: $price, buckets: 5, output: { titles: { $push: "$title"}}}
+bucketAuto("price", 5).andOutput("title").push().as("titles");
+----
+====
+
+To create output fields in buckets, bucket operations can use `AggregationExpression` through `andOutput()` and <<mongo.aggregation.projection.expressions, SpEL expressions>> through `andOutputExpression()`.
+
+Note that further details regarding bucket expressions can be found in the https://docs.mongodb.org/manual/reference/operator/aggregation/bucket/[`$bucket` section] and
+https://docs.mongodb.org/manual/reference/operator/aggregation/bucketAuto/[`$bucketAuto` section] of the MongoDB Aggregation Framework reference documentation.
+
+==== Multi-faceted Aggregation
+
+Multiple aggregation pipelines can be used to create multi-faceted aggregations that characterize data across multiple dimensions (or facets) within a single aggregation stage. Multi-faceted aggregations provide multiple filters and categorizations to guide data browsing and analysis. A common implementation of faceting is how many online retailers provide ways to narrow down search results by applying filters on product price, manufacturer, size, and other factors.
+
+You can define a `FacetOperation` by using the `facet()` method of the `Aggregation` class. You can customize it with multiple aggregation pipelines by using the `and()` method. Each sub-pipeline has its own field in the output document where its results are stored as an array of documents.
+
+Sub-pipelines can project and filter input documents prior to grouping. Common use cases include extraction of date parts or calculations before categorization. The following listing shows facet operation examples:
+
+.Facet operation examples
+====
+[source,java]
+----
+// generates {$facet: {categorizedByPrice: [ { $match: { price: {$exists : true}}}, { $bucketAuto: {groupBy: $price, buckets: 5}}]}}
+facet(match(Criteria.where("price").exists(true)), bucketAuto("price", 5)).as("categorizedByPrice"))
+
+// generates {$facet: {categorizedByCountry: [ { $match: { country: {$exists : true}}}, { $sortByCount: "$country"}]}}
+facet(match(Criteria.where("country").exists(true)), sortByCount("country")).as("categorizedByCountry"))
+
+// generates {$facet: {categorizedByYear: [
+//     { $project: { title: 1, publicationYear: { $year: "publicationDate"}}},
+//     { $bucketAuto: {groupBy: $price, buckets: 5, output: { titles: {$push:"$title"}}}
+// ]}}
+facet(project("title").and("publicationDate").extractYear().as("publicationYear"),
+      bucketAuto("publicationYear", 5).andOutput("title").push().as("titles"))
+  .as("categorizedByYear"))
+----
+====
+
+Note that further details regarding facet operation can be found in the https://docs.mongodb.org/manual/reference/operator/aggregation/facet/[`$facet` section] of the MongoDB Aggregation Framework reference documentation.
+
+[[mongo.aggregation.sort-by-count]]
+==== Sort By Count
+
+Sort by count operations group incoming documents based on the value of a specified expression, compute the count of documents in each distinct group, and sort the results by count. It offers a handy shortcut to apply sorting when using <<mongo.aggregation.facet>>. Sort by count operations require a grouping field or grouping expression. The following listing shows a sort by count example:
+
+.Sort by count example
+====
+[source,java]
+----
+// generates { $sortByCount: "$country" }
+sortByCount("country");
+----
+====
+
+A sort by count operation is equivalent to the following BSON (Binary JSON):
+
+----
+{ $group: { _id: <expression>, count: { $sum: 1 } } },
+{ $sort: { count: -1 } }
+----
+
+[[mongo.aggregation.projection.expressions]]
+==== Spring Expression Support in Projection Expressions
+
+We support the use of SpEL expressions in projection expressions through the `andExpression` method of the `ProjectionOperation` and `BucketOperation` classes. This feature lets you define the desired expression as a SpEL expression. On running a query, the SpEL expression is translated into a corresponding MongoDB projection expression part. This arrangement makes it much easier to express complex calculations.
+
+===== Complex Calculations with SpEL expressions
+
+Consider the following SpEL expression:
+
+[source,java]
+----
+1 + (q + 1) / (q - 1)
+----
+
+The preceding expression is translated into the following projection expression part:
+
+[source,javascript]
+----
+{ "$add" : [ 1, {
+    "$divide" : [ {
+        "$add":["$q", 1]}, {
+        "$subtract":[ "$q", 1]}
+    ]
+}]}
+----
+
+You can see examples in more context in <<mongo.aggregation.examples.example5>> and <<mongo.aggregation.examples.example6>>. You can find more usage examples for supported SpEL expression constructs in `SpelExpressionTransformerUnitTests`. The following table shows the SpEL transformations supported by Spring Data MongoDB:
+
+.Supported SpEL transformations
+[%header,cols="2"]
+|===
+| SpEL Expression
+| Mongo Expression Part
+| a == b
+| { $eq : [$a, $b] }
+| a != b
+| { $ne : [$a , $b] }
+| a > b
+| { $gt : [$a, $b] }
+| a >= b
+| { $gte : [$a, $b] }
+| a < b
+| { $lt : [$a, $b] }
+| a <= b
+| { $lte : [$a, $b] }
+| a + b
+| { $add : [$a, $b] }
+| a - b
+| { $subtract : [$a, $b] }
+| a * b
+| { $multiply : [$a, $b] }
+| a / b
+| { $divide : [$a, $b] }
+| a^b
+| { $pow : [$a, $b] }
+| a % b
+| { $mod : [$a, $b] }
+| a && b
+| { $and : [$a, $b] }
+| a \|\| b
+| { $or : [$a, $b] }
+| !a
+| { $not : [$a] }
+|===
+
+In addition to the transformations shown in the preceding table, you can use standard SpEL operations such as `new` to (for example) create arrays and reference expressions through their names (followed by the arguments to use in brackets). The following example shows how to create an array in this fashion:
+
+[source,java]
+----
+// { $setEquals : [$a, [5, 8, 13] ] }
+.andExpression("setEquals(a, new int[]{5, 8, 13})");
+----
+
+[[mongo.aggregation.examples]]
+==== Aggregation Framework Examples
+
+The examples in this section demonstrate the usage patterns for the MongoDB Aggregation Framework with Spring Data MongoDB.
+
+[[mongo.aggregation.examples.example1]]
+===== Aggregation Framework Example 1
+
+In this introductory example, we want to aggregate a list of tags to get the occurrence count of a particular tag from a MongoDB collection (called `tags`) sorted by the occurrence count in descending order. This example demonstrates the usage of grouping, sorting, projections (selection), and unwinding (result splitting).
+
+[source,java]
+----
+class TagCount {
+ String tag;
+ int n;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+Aggregation agg = newAggregation(
+    project("tags"),
+    unwind("tags"),
+    group("tags").count().as("n"),
+    project("n").and("tag").previousOperation(),
+    sort(DESC, "n")
+);
+
+AggregationResults<TagCount> results = mongoTemplate.aggregate(agg, "tags", TagCount.class);
+List<TagCount> tagCount = results.getMappedResults();
+----
+
+The preceding listing uses the following algorithm:
+
+. Create a new aggregation by using the `newAggregation` static factory method, to which we pass a list of aggregation operations. These aggregate operations define the aggregation pipeline of our `Aggregation`.
+. Use the `project` operation to select the `tags` field (which is an array of strings) from the input collection.
+. Use the `unwind` operation to generate a new document for each tag within the `tags` array.
+. Use the `group` operation to define a group for each `tags` value for which we aggregate the occurrence count (by using the `count` aggregation operator and collecting the result in a new field called `n`).
+. Select the `n` field and create an alias for the ID field generated from the previous group operation (hence the call to `previousOperation()`) with a name of `tag`.
+. Use the `sort` operation to sort the resulting list of tags by their occurrence count in descending order.
+. Call the `aggregate` method on `MongoTemplate` to let MongoDB perform the actual aggregation operation, with the created `Aggregation` as an argument.
+
+Note that the input collection is explicitly specified as the `tags` parameter to the `aggregate` Method. If the name of the input collection is not specified explicitly, it is derived from the input class passed as the first parameter to the `newAggreation` method.
+
+[[mongo.aggregation.examples.example2]]
+===== Aggregation Framework Example 2
+
+This example is based on the https://docs.mongodb.org/manual/tutorial/aggregation-examples/#largest-and-smallest-cities-by-state[Largest and Smallest Cities by State] example from the MongoDB Aggregation Framework documentation. We added additional sorting to produce stable results with different MongoDB versions. Here we want to return the smallest and largest cities by population for each state by using the aggregation framework. This example demonstrates grouping, sorting, and projections (selection).
+
+[source,java]
+----
+class ZipInfo {
+   String id;
+   String city;
+   String state;
+   @Field("pop") int population;
+   @Field("loc") double[] location;
+}
+
+class City {
+   String name;
+   int population;
+}
+
+class ZipInfoStats {
+   String id;
+   String state;
+   City biggestCity;
+   City smallestCity;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<ZipInfo> aggregation = newAggregation(ZipInfo.class,
+    group("state", "city")
+       .sum("population").as("pop"),
+    sort(ASC, "pop", "state", "city"),
+    group("state")
+       .last("city").as("biggestCity")
+       .last("pop").as("biggestPop")
+       .first("city").as("smallestCity")
+       .first("pop").as("smallestPop"),
+    project()
+       .and("state").previousOperation()
+       .and("biggestCity")
+          .nested(bind("name", "biggestCity").and("population", "biggestPop"))
+       .and("smallestCity")
+          .nested(bind("name", "smallestCity").and("population", "smallestPop")),
+    sort(ASC, "state")
+);
+
+AggregationResults<ZipInfoStats> result = mongoTemplate.aggregate(aggregation, ZipInfoStats.class);
+ZipInfoStats firstZipInfoStats = result.getMappedResults().get(0);
+----
+
+Note that the `ZipInfo` class maps the structure of the given input-collection. The `ZipInfoStats` class defines the structure in the desired output format.
+
+The preceding listings use the following algorithm:
+
+. Use the `group` operation to define a group from the input-collection. The grouping criteria is the combination of the `state` and `city` fields, which forms the ID structure of the group. We aggregate the value of the `population` property from the grouped elements by using the `sum` operator and save the result in the `pop` field.
+. Use the `sort` operation to sort the intermediate-result by the `pop`, `state` and `city` fields, in ascending order, such that the smallest city is at the top and the biggest city is at the bottom of the result. Note that the sorting on `state` and `city` is implicitly performed against the group ID fields (which Spring Data MongoDB handled).
+. Use a `group` operation again to group the intermediate result by `state`. Note that `state` again implicitly references a group ID field. We select the name and the population count of the biggest and smallest city with calls to the `last(…)` and `first(...)` operators, respectively, in the `project` operation.
+. Select the `state` field from the previous `group` operation. Note that `state` again implicitly references a group ID field. Because we do not want an implicitly generated ID to appear, we exclude the ID from the previous operation by using `and(previousOperation()).exclude()`. Because we want to populate the nested `City` structures in our output class, we have to emit appropriate sub-documents by using the nested method.
+. Sort the resulting list of `StateStats` by their state name in ascending order in the `sort` operation.
+
+Note that we derive the name of the input collection from the `ZipInfo` class passed as the first parameter to the `newAggregation` method.
+
+[[mongo.aggregation.examples.example3]]
+===== Aggregation Framework Example 3
+
+This example is based on the https://docs.mongodb.org/manual/tutorial/aggregation-examples/#states-with-populations-over-10-million[States with Populations Over 10 Million] example from the MongoDB Aggregation Framework documentation. We added additional sorting to produce stable results with different MongoDB versions. Here we want to return all states with a population greater than 10 million, using the aggregation framework. This example demonstrates grouping, sorting, and matching (filtering).
+
+[source,java]
+----
+class StateStats {
+   @Id String id;
+   String state;
+   @Field("totalPop") int totalPopulation;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<ZipInfo> agg = newAggregation(ZipInfo.class,
+    group("state").sum("population").as("totalPop"),
+    sort(ASC, previousOperation(), "totalPop"),
+    match(where("totalPop").gte(10 * 1000 * 1000))
+);
+
+AggregationResults<StateStats> result = mongoTemplate.aggregate(agg, StateStats.class);
+List<StateStats> stateStatsList = result.getMappedResults();
+----
+
+The preceding listings use the following algorithm:
+
+. Group the input collection by the `state` field and calculate the sum of the `population` field and store the result in the new field `"totalPop"`.
+. Sort the intermediate result by the id-reference of the previous group operation in addition to the `"totalPop"` field in ascending order.
+. Filter the intermediate result by using a `match` operation which accepts a `Criteria` query as an argument.
+
+Note that we derive the name of the input collection from the `ZipInfo` class passed as first parameter to the `newAggregation` method.
+
+[[mongo.aggregation.examples.example4]]
+===== Aggregation Framework Example 4
+
+This example demonstrates the use of simple arithmetic operations in the projection operation.
+
+[source,java]
+----
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .and("netPrice").plus(1).as("netPricePlus1")
+        .and("netPrice").minus(1).as("netPriceMinus1")
+        .and("netPrice").multiply(1.19).as("grossPrice")
+        .and("netPrice").divide(2).as("netPriceDiv2")
+        .and("spaceUnits").mod(2).as("spaceUnitsMod2")
+);
+
+AggregationResults<Document> result = mongoTemplate.aggregate(agg, Document.class);
+List<Document> resultList = result.getMappedResults();
+----
+
+Note that we derive the name of the input collection from the `Product` class passed as first parameter to the `newAggregation` method.
+
+[[mongo.aggregation.examples.example5]]
+===== Aggregation Framework Example 5
+
+This example demonstrates the use of simple arithmetic operations derived from SpEL Expressions in the projection operation.
+
+[source,java]
+----
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .andExpression("netPrice + 1").as("netPricePlus1")
+        .andExpression("netPrice - 1").as("netPriceMinus1")
+        .andExpression("netPrice / 2").as("netPriceDiv2")
+        .andExpression("netPrice * 1.19").as("grossPrice")
+        .andExpression("spaceUnits % 2").as("spaceUnitsMod2")
+        .andExpression("(netPrice * 0.8  + 1.2) * 1.19").as("grossPriceIncludingDiscountAndCharge")
+
+);
+
+AggregationResults<Document> result = mongoTemplate.aggregate(agg, Document.class);
+List<Document> resultList = result.getMappedResults();
+----
+
+[[mongo.aggregation.examples.example6]]
+===== Aggregation Framework Example 6
+
+This example demonstrates the use of complex arithmetic operations derived from SpEL Expressions in the projection operation.
+
+Note: The additional parameters passed to the `addExpression` method can be referenced with indexer expressions according to their position. In this example, we reference the first parameter of the parameters array with `[0]`. When the SpEL expression is transformed into a MongoDB aggregation framework expression, external parameter expressions are replaced with their respective values.
+
+[source,java]
+----
+class Product {
+    String id;
+    String name;
+    double netPrice;
+    int spaceUnits;
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+double shippingCosts = 1.2;
+
+TypedAggregation<Product> agg = newAggregation(Product.class,
+    project("name", "netPrice")
+        .andExpression("(netPrice * (1-discountRate)  + [0]) * (1+taxRate)", shippingCosts).as("salesPrice")
+);
+
+AggregationResults<Document> result = mongoTemplate.aggregate(agg, Document.class);
+List<Document> resultList = result.getMappedResults();
+----
+
+Note that we can also refer to other fields of the document within the SpEL expression.
+
+[[mongo.aggregation.examples.example7]]
+===== Aggregation Framework Example 7
+
+This example uses conditional projection. It is derived from the https://docs.mongodb.com/manual/reference/operator/aggregation/cond/[$cond reference documentation].
+
+[source,java]
+----
+public class InventoryItem {
+
+  @Id int id;
+  String item;
+  String description;
+  int qty;
+}
+
+public class InventoryItemProjection {
+
+  @Id int id;
+  String item;
+  String description;
+  int qty;
+  int discount
+}
+----
+
+[source,java]
+----
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+
+TypedAggregation<InventoryItem> agg = newAggregation(InventoryItem.class,
+  project("item").and("discount")
+    .applyCondition(ConditionalOperator.newBuilder().when(Criteria.where("qty").gte(250))
+      .then(30)
+      .otherwise(20))
+    .and(ifNull("description", "Unspecified")).as("description")
+);
+
+AggregationResults<InventoryItemProjection> result = mongoTemplate.aggregate(agg, "inventory", InventoryItemProjection.class);
+List<InventoryItemProjection> stateStatsList = result.getMappedResults();
+----
+
+This one-step aggregation uses a projection operation with the `inventory` collection. We project the `discount` field by using a conditional operation for all inventory items that have a `qty` greater than or equal to `250`. A second conditional projection is performed for the `description` field. We apply the `Unspecified` description to all items that either do not have a `description` field or items that have a `null` description.
+
+As of MongoDB 3.6, it is possible to exclude fields from the projection by using a conditional expression.
+
+.Conditional aggregation projection
+====
+[source,java]
+----
+TypedAggregation<Book> agg = Aggregation.newAggregation(Book.class,
+  project("title")
+    .and(ConditionalOperators.when(ComparisonOperators.valueOf("author.middle")     <1>
+        .equalToValue(""))                                                          <2>
+        .then("$$REMOVE")                                                           <3>
+        .otherwiseValueOf("author.middle")                                          <4>
+    )
+	.as("author.middle"));
+----
+<1> If the value of the field `author.middle`
+<2> does not contain a value,
+<3> then use https://docs.mongodb.com/manual/reference/aggregation-variables/#variable.REMOVE[``$$REMOVE``] to exclude the field.
+<4> Otherwise, add the field value of `author.middle`.
+====
+
+[[mongo-template.index-and-collections]]
+== Index and Collection Management
+
+`MongoTemplate` provides a few methods for managing indexes and collections. These methods are collected into a helper interface called `IndexOperations`. You can access these operations by calling the `indexOps` method and passing in either the collection name or the `java.lang.Class` of your entity (the collection name is derived from the `.class`, either by name or from annotation metadata).
+
+The following listing shows the `IndexOperations` interface:
+
+[source,java]
+----
+public interface IndexOperations {
+
+  void ensureIndex(IndexDefinition indexDefinition);
+
+  void dropIndex(String name);
+
+  void dropAllIndexes();
+
+  void resetIndexCache();
+
+  List<IndexInfo> getIndexInfo();
+}
+----
+
+[[mongo-template.index-and-collections.index]]
+=== Methods for Creating an Index
+
+You can create an index on a collection to improve query performance by using the MongoTemplate class, as the following example shows:
+
+[source,java]
+----
+mongoTemplate.indexOps(Person.class).ensureIndex(new Index().on("name",Order.ASCENDING));
+----
+
+`ensureIndex` makes sure that an index for the provided IndexDefinition exists for the collection.
+
+You can create standard, geospatial, and text indexes by using the `IndexDefinition`, `GeoSpatialIndex` and `TextIndexDefinition` classes. For example, given the `Venue` class defined in a previous section, you could declare a geospatial query, as the following example shows:
+
+[source,java]
+----
+mongoTemplate.indexOps(Venue.class).ensureIndex(new GeospatialIndex("location"));
+----
+
+NOTE: `Index` and `GeospatialIndex` support configuration of <<mongo.collation,collations>>.
+
+[[mongo-template.index-and-collections.access]]
+=== Accessing Index Information
+
+The `IndexOperations` interface has the `getIndexInfo` method that returns a list of `IndexInfo` objects. This list contains all the indexes defined on the collection. The following example defines an index on the `Person` class that has an `age` property:
+
+[source,java]
+----
+template.indexOps(Person.class).ensureIndex(new Index().on("age", Order.DESCENDING).unique());
+
+List<IndexInfo> indexInfoList = template.indexOps(Person.class).getIndexInfo();
+
+// Contains
+// [IndexInfo [fieldSpec={_id=ASCENDING}, name=_id_, unique=false, sparse=false],
+//  IndexInfo [fieldSpec={age=DESCENDING}, name=age_-1, unique=true, sparse=false]]
+----
+
+[[mongo-template.index-and-collections.collection]]
+=== Methods for Working with a Collection
+
+The following example shows how to create a collection:
+
+.Working with collections by using `MongoTemplate`
+====
+[source,java]
+----
+MongoCollection<Document> collection = null;
+if (!mongoTemplate.getCollectionNames().contains("MyNewCollection")) {
+    collection = mongoTemplate.createCollection("MyNewCollection");
+}
+
+mongoTemplate.dropCollection("MyNewCollection");
+----
+====
+
+* *getCollectionNames*: Returns a set of collection names.
+* *collectionExists*: Checks to see if a collection with a given name exists.
+* *createCollection*: Creates an uncapped collection.
+* *dropCollection*: Drops the collection.
+* *getCollection*: Gets a collection by name, creating it if it does not exist.
+
+NOTE: Collection creation allows customization with `CollectionOptions` and supports <<mongo.collation,collations>>.
+
+[[mongo-template.commands]]
+== Running Commands
+
+You can get at the MongoDB driver's `MongoDatabase.runCommand( )` method by using the `executeCommand(…)` methods on `MongoTemplate`. These methods also perform exception translation into Spring's `DataAccessException` hierarchy.
+
+[[mongo-template.commands.execution]]
+=== Methods for running commands
+
+* `Document` *executeCommand* `(Document command)`: Run a MongoDB command.
+* `Document` *executeCommand* `(Document command, ReadPreference readPreference)`: Run a MongoDB command with the given nullable MongoDB `ReadPreference`.
+* `Document` *executeCommand* `(String jsonCommand)`: Run a MongoDB command expressed as a JSON string.
+
+[[mongodb.mapping-usage.events]]
+== Lifecycle Events
+
+The MongoDB mapping framework includes several `org.springframework.context.ApplicationEvent` events that your application can respond to by registering special beans in the `ApplicationContext`. Being based on Spring's `ApplicationContext` event infrastructure enables other products, such as Spring Integration, to easily receive these events, as they are a well known eventing mechanism in Spring-based applications.
+
+To intercept an object before it goes through the conversion process (which turns your domain object into a `org.bson.Document`), you can register a subclass of `AbstractMongoEventListener` that overrides the `onBeforeConvert` method. When the event is dispatched, your listener is called and passed the domain object before it goes into the converter. The following example shows how to do so:
+
+====
+[source,java]
+----
+public class BeforeConvertListener extends AbstractMongoEventListener<Person> {
+  @Override
+  public void onBeforeConvert(BeforeConvertEvent<Person> event) {
+    ... does some auditing manipulation, set timestamps, whatever ...
+  }
+}
+----
+====
+
+To intercept an object before it goes into the database, you can register a subclass of `org.springframework.data.mongodb.core.mapping.event.AbstractMongoEventListener` that overrides the `onBeforeSave` method. When the event is dispatched, your listener is called and passed the domain object and the converted `com.mongodb.Document`. The following example shows how to do so:
+
+====
+[source,java]
+----
+public class BeforeSaveListener extends AbstractMongoEventListener<Person> {
+  @Override
+  public void onBeforeSave(BeforeSaveEvent<Person> event) {
+    … change values, delete them, whatever …
+  }
+}
+----
+====
+
+Declaring these beans in your Spring ApplicationContext causes them to be invoked whenever the event is dispatched.
+
+The following callback methods are present in `AbstractMappingEventListener`:
+
+* `onBeforeConvert`: Called in `MongoTemplate` `insert`, `insertList`, and `save` operations before the object is converted to a `Document` by a `MongoConverter`.
+* `onBeforeSave`: Called in `MongoTemplate` `insert`, `insertList`, and `save` operations *before* inserting or saving the `Document` in the database.
+* `onAfterSave`: Called in `MongoTemplate` `insert`, `insertList`, and `save` operations *after* inserting or saving the `Document` in the database.
+* `onAfterLoad`: Called in `MongoTemplate` `find`, `findAndRemove`, `findOne`, and `getCollection` methods after the `Document` has been retrieved from the database.
+* `onAfterConvert`: Called in `MongoTemplate` `find`, `findAndRemove`, `findOne`, and `getCollection` methods after the `Document` has been retrieved from the database was converted to a POJO.
+
+NOTE: Lifecycle events are only emitted for root level types. Complex types used as properties within a document root are not subject to event publication unless they are document references annotated with `@DBRef`.
+
+WARNING: Lifecycle events depend on an `ApplicationEventMulticaster`, which in case of the `SimpleApplicationEventMulticaster` can be configured with a `TaskExecutor`, and therefore gives no guarantees when an Event is processed.
+
+include::../{spring-data-commons-docs}/entity-callbacks.adoc[leveloffset=+1]
+include::./mongo-entity-callbacks.adoc[leveloffset=+2]
+
+[[mongo.exception]]
+== Exception Translation
+
+The Spring framework provides exception translation for a wide variety of database and mapping technologies. This has traditionally been for JDBC and JPA. The Spring support for MongoDB extends this feature to the MongoDB Database by providing an implementation of the `org.springframework.dao.support.PersistenceExceptionTranslator` interface.
+
+The motivation behind mapping to Spring's https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/data-access.html#dao-exceptions[consistent data access exception hierarchy] is that you are then able to write portable and descriptive exception handling code without resorting to coding against MongoDB error codes. All of Spring's data access exceptions are inherited from the root `DataAccessException` class so that you can be sure to catch all database related exception within a single try-catch block. Note that not all exceptions thrown by the MongoDB driver inherit from the `MongoException` class. The inner exception and message are preserved so that no information is lost.
+
+Some of the mappings performed by the `MongoExceptionTranslator` are `com.mongodb.Network to DataAccessResourceFailureException` and `MongoException` error codes 1003, 12001, 12010, 12011, and 12012 to `InvalidDataAccessApiUsageException`. Look into the implementation for more details on the mapping.
+
+[[mongo.executioncallback]]
+== Execution Callbacks
+
+One common design feature of all Spring template classes is that all functionality is routed into one of the template's `execute` callback methods. Doing so helps to ensure that exceptions and any resource management that may be required are performed consistently. While JDBC and JMS need this feature much more than MongoDB does, it still offers a single spot for exception translation and logging to occur. Consequently, using these `execute` callbacks is the preferred way to access the MongoDB driver's `MongoDatabase` and `MongoCollection` objects to perform uncommon operations that were not exposed as methods on `MongoTemplate`.
+
+The following list describes the `execute` callback methods.
+
+* `<T> T` *execute* `(Class<?> entityClass, CollectionCallback<T> action)`: Runs the given `CollectionCallback` for the entity collection of the specified class.
+
+* `<T> T` *execute* `(String collectionName, CollectionCallback<T> action)`: Runs the given `CollectionCallback` on the collection of the given name.
+
+* `<T> T` *execute* `(DbCallback<T> action)`: Runs a DbCallback, translating any exceptions as necessary. Spring Data MongoDB provides support for the Aggregation Framework introduced to MongoDB in version 2.2.
+
+* `<T> T` *execute* `(String collectionName, DbCallback<T> action)`: Runs a `DbCallback` on the collection of the given name translating any exceptions as necessary.
+
+* `<T> T` *executeInSession* `(DbCallback<T> action)`: Runs the given `DbCallback` within the same connection to the database so as to ensure consistency in a write-heavy environment where you may read the data that you wrote.
+
+The following example uses the `CollectionCallback` to return information about an index:
+
+[source,java]
+----
+boolean hasIndex = template.execute("geolocation", new CollectionCallbackBoolean>() {
+  public Boolean doInCollection(Venue.class, DBCollection collection) throws MongoException, DataAccessException {
+    List<Document> indexes = collection.getIndexInfo();
+    for (Document document : indexes) {
+      if ("location_2d".equals(document.get("name"))) {
+        return true;
+      }
+    }
+    return false;
+  }
+});
+----
+
+[[gridfs]]
+== GridFS Support
+
+MongoDB supports storing binary files inside its filesystem, GridFS. Spring Data MongoDB provides a `GridFsOperations` interface as well as the corresponding implementation, `GridFsTemplate`, to let you interact with the filesystem. You can set up a `GridFsTemplate` instance by handing it a `MongoDatabaseFactory` as well as a `MongoConverter`, as the following example shows:
+
+.JavaConfig setup for a GridFsTemplate
+====
+[source,java]
+----
+class GridFsConfiguration extends AbstractMongoClientConfiguration {
+
+  // … further configuration omitted
+
+  @Bean
+  public GridFsTemplate gridFsTemplate() {
+    return new GridFsTemplate(mongoDbFactory(), mappingMongoConverter());
+  }
+}
+----
+====
+
+The corresponding XML configuration follows:
+
+.XML configuration for a GridFsTemplate
+====
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:mongo="http://www.springframework.org/schema/data/mongo"
+  xsi:schemaLocation="http://www.springframework.org/schema/data/mongo
+                      https://www.springframework.org/schema/data/mongo/spring-mongo.xsd
+                      http://www.springframework.org/schema/beans
+                      https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <mongo:db-factory id="mongoDbFactory" dbname="database" />
+  <mongo:mapping-converter id="converter" />
+
+  <bean class="org.springframework.data.mongodb.gridfs.GridFsTemplate">
+    <constructor-arg ref="mongoDbFactory" />
+    <constructor-arg ref="converter" />
+  </bean>
+
+</beans>
+----
+====
+
+The template can now be injected and used to perform storage and retrieval operations, as the following example shows:
+
+.Using GridFsTemplate to store files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void storeFileToGridFs() {
+
+    FileMetadata metadata = new FileMetadata();
+    // populate metadata
+    Resource file = … // lookup File or Resource
+
+    operations.store(file.getInputStream(), "filename.txt", metadata);
+  }
+}
+----
+====
+
+The `store(…)` operations take an `InputStream`, a filename, and (optionally) metadata information about the file to store. The metadata can be an arbitrary object, which will be marshaled by the `MongoConverter` configured with the `GridFsTemplate`. Alternatively, you can also provide a `Document`.
+
+You can read files from the filesystem through either the `find(…)` or the `getResources(…)` methods. Let's have a look at the `find(…)` methods first. You can either find a single file or multiple files that match a `Query`. You can use the `GridFsCriteria` helper class to define queries. It provides static factory methods to encapsulate default metadata fields (such as `whereFilename()` and `whereContentType()`) or a custom one through `whereMetaData()`. The following example shows how to use `GridFsTemplate` to query for files:
+
+.Using GridFsTemplate to query for files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void findFilesInGridFs() {
+    GridFSFindIterable result = operations.find(query(whereFilename().is("filename.txt")))
+  }
+}
+----
+====
+
+NOTE: Currently, MongoDB does not support defining sort criteria when retrieving files from GridFS. For this reason, any sort criteria defined on the `Query` instance handed into the `find(…)` method are disregarded.
+
+The other option to read files from the GridFs is to use the methods introduced by the `ResourcePatternResolver` interface. They allow handing an Ant path into the method and can thus retrieve files matching the given pattern. The following example shows how to use `GridFsTemplate` to read files:
+
+.Using GridFsTemplate to read files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void readFilesFromGridFs() {
+    GridFsResources[] txtFiles = operations.getResources("*.txt");
+  }
+}
+----
+====
+
+`GridFsOperations` extends `ResourcePatternResolver` and lets the `GridFsTemplate` (for example) to be plugged into an `ApplicationContext` to read Spring Config files from MongoDB database.
+
+include::tailable-cursors.adoc[]
+include::change-streams.adoc[]
