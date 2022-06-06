@@ -453,22 +453,19 @@ The following Maven example shows how to exclude Tomcat and include Jetty for Sp
 
 NOTE: The version of the Servlet API has been overridden as, unlike Tomcat 9 and Undertow 2.0, Jetty 9.4 does not support Servlet 4.0.
 
-The following Gradle example shows how to use Undertow in place of Reactor Netty for Spring WebFlux:
+The following Gradle example configures the necessary dependencies and a {gradle-docs}/resolution_rules.html#sec:module_replacement[module replacement] to use Undertow in place of Reactor Netty for Spring WebFlux:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations.all {
-		resolutionStrategy.dependencySubstitution.all { dependency ->
-			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-reactor-netty') {
-				dependency.useTarget("org.springframework.boot:spring-boot-starter-undertow:$dependency.requested.version", 'Use Undertow instead of Reactor Netty')
-			}
+dependencies {
+	implementation "org.springframework.boot:spring-boot-starter-undertow"
+	implementation "org.springframework.boot:spring-boot-starter-webflux"
+	modules {
+		module("org.springframework.boot:spring-boot-starter-reactor-netty") {
+			replacedBy("org.springframework.boot:spring-boot-starter-undertow", "Use Undertow instead of Reactor Netty")
 		}
 	}
-
-	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-webflux'
-		// ...
-	}
+}
 ----
 
 NOTE: `spring-boot-starter-reactor-netty` is required to use the `WebClient` class, so you may need to keep a dependency on Netty even when you need to include a different HTTP server.
@@ -603,6 +600,7 @@ If you still choose to use `h2c`, you can check <<howto-configure-http2-h2c, the
 ====
 
 
+
 [[howto-configure-http2-tomcat]]
 ==== HTTP/2 with Tomcat
 Spring Boot ships by default with Tomcat 9.0.x which supports HTTP/2 out of the box when using JDK 9 or later.
@@ -620,6 +618,7 @@ Starting Tomcat 9.0.x on JDK 8 without that native support logs the following er
 ----
 
 This error is not fatal, and the application still starts with HTTP/1.1 SSL support.
+
 
 
 [[howto-configure-http2-jetty]]
@@ -1214,7 +1213,7 @@ If you add your own, you have to be aware of the order and in which position you
   This is a useful member of the view resolver chain and picks up any beans with the same name as the `View` being resolved.
   It should not be necessary to override or replace it.
 * A `ContentNegotiatingViewResolver` named '`viewResolver`' is added only if there *are* actually beans of type `View` present.
-  This is a '`master`' resolver, delegating to all the others and attempting to find a match to the '`Accept`' HTTP header sent by the client.
+  This is a composite resolver, delegating to all the others and attempting to find a match to the '`Accept`' HTTP header sent by the client.
   There is a useful https://spring.io/blog/2013/06/03/content-negotiation-using-views[blog about `ContentNegotiatingViewResolver`] that you might like to study to learn more, and you might also look at the source code for detail.
   You can switch off the auto-configured `ContentNegotiatingViewResolver` by defining a bean named '`viewResolver`'.
 * If you use Thymeleaf, you also have a `ThymeleafViewResolver` named '`thymeleafViewResolver`'.
@@ -1329,6 +1328,8 @@ The following example configures `HttpComponentsClientRequestFactory` with an `H
 include::{code-examples}/web/client/RestTemplateProxyCustomizationExample.java[tag=customizer]
 ----
 
+
+
 [[howto-webclient-reactor-netty-customization]]
 === Configure the TcpClient used by a Reactor Netty-based WebClient
 When Reactor Netty is on the classpath a Reactor Netty-based `WebClient` is auto-configured.
@@ -1342,6 +1343,7 @@ include::{code-examples}/web/reactive/function/client/ReactorNettyClientCustomiz
 
 TIP: Note the use of `ReactorResourceFactory` for the connection provider and event loop resources.
 This ensures efficient sharing of resources for the server receiving requests and the client making requests.
+
 
 
 [[howto-logging]]
@@ -1492,19 +1494,17 @@ The following example shows how to set up the starters in Maven:
 	</dependency>
 ----
 
-And the following example shows one way to set up the starters in Gradle:
+Gradle provides a few different ways to set up the starters.
+One way is to use a {gradle-docs}/resolution_rules.html#sec:module_replacement[module replacement].
+To do so, declare a dependency on the Log4j 2 starter and tell Gradle that any occurrences of the default logging starter should be replaced by the Log4j 2 starter, as shown in the following example:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-web'
-	}
-
-	configurations.all {
-		resolutionStrategy.dependencySubstitution.all { dependency ->
-			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-logging') {
-				dependency.useTarget("org.springframework.boot:spring-boot-starter-log4j2:$dependency.requested.version", 'Use Log4j2 instead of Logback')
-			}
+dependencies {
+	implementation "org.springframework.boot:spring-boot-starter-log4j2"
+	modules {
+		module("org.springframework.boot:spring-boot-starter-logging") {
+			replacedBy("org.springframework.boot:spring-boot-starter-log4j2", "Use Log4j2 instead of Logback")
 		}
 	}
 }
@@ -1853,45 +1853,27 @@ Spring Boot auto-configuration switches off its entity manager in the presence o
 
 
 [[howto-use-two-entity-managers]]
-=== Use Two EntityManagers
-Even if the default `EntityManagerFactory` works fine, you need to define a new one, otherwise the presence of the second bean of that type switches off the default.
-You can use the `EntityManagerBuilder` provided by Spring Boot to help you to create one.
-Alternatively, you can use the `LocalContainerEntityManagerFactoryBean` directly from Spring ORM, as shown in the following example:
+[[howto-use-multiple-entity-managers]]
+=== Using Multiple EntityManagerFactories
+If you need to use JPA against multiple data sources, you likely need one `EntityManagerFactory` per data source.
+The `LocalContainerEntityManagerFactoryBean` from Spring ORM allows you to configure an `EntityManagerFactory` for your needs.
+You can also reuse `JpaProperties` to bind settings for each `EntityManagerFactory`, as shown in the following example:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	// add two data sources configured as above
-
-	@Bean
-	public LocalContainerEntityManagerFactoryBean customerEntityManagerFactory(
-			EntityManagerFactoryBuilder builder) {
-		return builder
-				.dataSource(customerDataSource())
-				.packages(Customer.class)
-				.persistenceUnit("customers")
-				.build();
-	}
-
-	@Bean
-	public LocalContainerEntityManagerFactoryBean orderEntityManagerFactory(
-			EntityManagerFactoryBuilder builder) {
-		return builder
-				.dataSource(orderDataSource())
-				.packages(Order.class)
-				.persistenceUnit("orders")
-				.build();
-	}
+include::{code-examples}/jpa/CustomEntityManagerFactoryExample.java[tag=configuration]
 ----
+
+The example above creates an `EntityManagerFactory` using a `DataSource` bean named `firstDataSource`.
+It scans entities located in the same package as `Order`.
+It is possible to map additional JPA properties using the `app.first.jpa` namespace.
 
 NOTE: When you create a bean for `LocalContainerEntityManagerFactoryBean` yourself, any customization that was applied during the creation of the auto-configured `LocalContainerEntityManagerFactoryBean` is lost.
 For example, in case of Hibernate, any properties under the `spring.jpa.hibernate` prefix will not be automatically applied to your `LocalContainerEntityManagerFactoryBean`.
 If you were relying on these properties for configuring things like the naming strategy or the DDL mode, you will need to explicitly configure that when creating the `LocalContainerEntityManagerFactoryBean` bean.
-On the other hand, properties that get applied to the auto-configured `EntityManagerFactoryBuilder`, which are specified via `spring.jpa.properties`, will automatically be applied, provided you use the auto-configured `EntityManagerFactoryBuilder` to build the `LocalContainerEntityManagerFactoryBean` bean.
 
-The configuration above almost works on its own.
-To complete the picture, you need to configure `TransactionManagers` for the two `EntityManagers` as well.
-If you mark one of them as `@Primary`, it could be picked up by the default `JpaTransactionManager` in Spring Boot.
-The other would have to be explicitly injected into a new instance.
+You should provide a similar configuration for any additional data sources for which you need JPA access.
+To complete the picture, you need to configure a `JpaTransactionManager` for each `EntityManagerFactory` as well.
 Alternatively, you might be able to use a JTA transaction manager that spans both.
 
 If you use Spring Data, you need to configure `@EnableJpaRepositories` accordingly, as shown in the following example:
@@ -1899,16 +1881,16 @@ If you use Spring Data, you need to configure `@EnableJpaRepositories` according
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	@Configuration(proxyBeanMethods = false)
-	@EnableJpaRepositories(basePackageClasses = Customer.class,
-			entityManagerFactoryRef = "customerEntityManagerFactory")
-	public class CustomerConfiguration {
+	@EnableJpaRepositories(basePackageClasses = Order.class,
+			entityManagerFactoryRef = "firstEntityManagerFactory")
+	public class OrderConfiguration {
 		...
 	}
 
 	@Configuration(proxyBeanMethods = false)
-	@EnableJpaRepositories(basePackageClasses = Order.class,
-			entityManagerFactoryRef = "orderEntityManagerFactory")
-	public class OrderConfiguration {
+	@EnableJpaRepositories(basePackageClasses = Customer.class,
+			entityManagerFactoryRef = "secondEntityManagerFactory")
+	public class CustomerConfiguration {
 		...
 	}
 ----
@@ -1943,6 +1925,7 @@ To work with them, change the names of the annotations and flags accordingly.
 Spring Data provides web support that simplifies the use of Spring Data repositories in a web application.
 Spring Boot provides properties in the `spring.data.web` namespace for customizing its configuration.
 Note that if you are using Spring Data REST, you must use the properties in the `spring.data.rest` namespace instead.
+
 
 
 [[howto-use-exposing-spring-data-repositories-rest-endpoint]]
@@ -2367,6 +2350,7 @@ For more about Spring Security, see the {spring-security}[Spring Security projec
 [[howto-switch-off-spring-boot-security-configuration]]
 === Switch off the Spring Boot Security Configuration
 If you define a `@Configuration` with a `WebSecurityConfigurerAdapter` or a `SecurityFilterChain` bean in your application, it switches off the default webapp security settings in Spring Boot.
+
 
 
 [[howto-change-the-user-details-service-and-add-user-accounts]]
