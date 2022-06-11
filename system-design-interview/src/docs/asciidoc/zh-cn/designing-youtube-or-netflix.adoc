@@ -170,85 +170,69 @@ Youtube的高级设计。
 . 缩略图是小文件，例如，每个最大是5KB；
 . 与视频相比，缩略图的阅读量是巨大的。用户将一次看一个视频，但是可能正在查看一个包含20个其他视频缩略图的页面。
 
-Let’s evaluate storing all the thumbnails on a disk.
-Given that we have a huge number of files, we have to perform a lot of seeks to different locations on the disk to read these files.
-This is quite inefficient and will result in higher latencies.
+评估将所有的缩略图存储到硬盘上。鉴于我们有大量文件，我们必须对磁盘上的不同位置执行大量搜索才能读取这些文件。这是非常低效的，并且会导致更高的延迟。
 
-https://en.wikipedia.org/wiki/Bigtable[Bigtable] can be a reasonable choice here as it combines multiple files into one block to store on the disk and is very efficient in reading a small amount of data.
-Both of these are the two most significant requirements of our service.
-Keeping hot thumbnails in the cache will also help in improving the latencies and, given that thumbnails files are small in size, we can easily cache a large number of such files in memory.
+https://en.wikipedia.org/wiki/Bigtable[Bigtable] 在这里可以是一个合适的选择，因为它将多个文件组合成一个块存储在磁盘上，并且在读取少量数据时非常有效。这两者都是我们服务的两个最重要的要求。将热点缩略图保留在缓存中也将有助于改善延迟，并且鉴于缩略图文件很小，我们可以轻松地将大量此类文件缓存在内存中。
 
-*Video Uploads:* Since videos could be huge, if while uploading the connection drops we should support resuming from the same point.
+*视频上传：* 由于视频可能很大，我们应该支持断点续传。
 
-*Video Encoding:* Newly uploaded videos are stored on the server and a new task is added to the processing queue to encode the video into multiple formats.
-Once all the encoding will be completed the uploader will be notified and the video is made available for view/sharing.
+*视频编码：* 新上传的视频存储在服务器上，并在处理队列中添加一个新任务，将视频编码为多种格式。完成所有编码后，将通知上传者并且视频可供查看或分享。
+
+image::images/Detailed component design of Youtube.png[]
 
 Detailed component design of Youtube
 
 [[metadata-sharding]]
-=== 8. Metadata Sharding
+=== 8. 数据分片
 
-Since we have a huge number of new videos every day and our read load is extremely high, therefore, we need to distribute our data onto multiple machines so that we can perform read/write operations efficiently.
-We have many options to shard our data.
-Let’s go through different strategies of sharding this data one by one:
+由于我们每天都有大量的新视频，并且我们的读取负载非常高，因此，我们需要将我们的数据分布到多台机器上，以便我们可以高效地执行读/写操作。
+我们有很多策略来分片我们的数据。让我们逐一介绍对这些数据进行分片的不同策略：
 
-*Sharding based on UserID:* We can try storing all the data for a particular user on one server.
-While storing, we can pass the UserID to our hash function which will map the user to a database server where we will store all the metadata for that user’s videos.
-While querying for videos of a user, we can ask our hash function to find the server holding the user’s data and then read it from there.
-To search videos by titles we will have to query all servers and each server will return a set of videos.
-A centralized server will then aggregate and rank these results before returning them to the user.
+*基于 UserID 的分片：* 我们可以尝试将特定用户的所有数据存储在一台服务器上。
+在存储时，我们可以将 UserID 传递给我们的哈希函数，该函数会将用户映射到数据库服务器，我们将在其中存储该用户视频的所有元数据。
+在查询用户的视频时，我们可以使用哈希函数找到保存用户数据的服务器，然后从那里读取它。要按标题搜索视频，我们必须查询所有服务器，每个服务器将返回一组视频数据。然后，中央服务器将汇总这些结果并对其进行排序，然后再将它们返回给用户。
 
-This approach has a couple of issues:
+这种方法有几个问题：
 
-. What if a user becomes popular?
-There could be a lot of queries on the server holding that user; this could create a performance bottleneck.
-This will also affect the overall performance of our service.
-. Over time, some users can end up storing a lot of videos compared to others.
-Maintaining a uniform distribution of growing user data is quite tricky.
+. 如果用户变得流行怎么办？持有该用户的服务器上可能有很多查询；这可能会造成性能瓶颈。这也会影响我们服务的整体表现 。
+. 随着时间的推移，与其他用户相比，一些用户最终可能会存储大量视频。保持不断增长的用户数据的均匀分布非常棘手。
 
-To recover from these situations either we have to repartition/redistribute our data or used consistent hashing to balance the load between servers.
+为了应对这些情况，我们必须重新分区或重新分配我们的数据，或者使用一致哈希来平衡服务器之间的负载。
 
-*Sharding based on VideoID:* Our hash function will map each VideoID to a random server where we will store that Video’s metadata.
-To find videos of a user we will query all servers and each server will return a set of videos.
-A centralized server will aggregate and rank these results before returning them to the user.
-This approach solves our problem of popular users but shifts it to popular videos.
+*基于 VideoID 的分片：* 哈希函数会将每个 VideoID 映射到一个随机服务器，我们将在其中存储该视频的元数据。要查找用户的视频，我们将查询所有服务器，每个服务器将返回一组视频。中央服务器将对这些结果其进行汇总和排名，然后将其返回给用户。
+这种方法解决了我们的热门用户问题，但将其转移到了热门视频。
 
-We can further improve our performance by introducing a cache to store hot videos in front of the database servers.
+我们可以通过在数据库服务器前引入缓存来存储热门视频来进一步提高性能。
 
 [[video-deduplication]]
-=== 9. Video Deduplication
+=== 9. 视频去重
 
-With a huge number of users uploading a massive amount of video data our service will have to deal with widespread video duplication.
-Duplicate videos often differ in aspect ratios or encodings, can contain overlays or additional borders, or can be excerpts from a longer original video.
-The proliferation of duplicate videos can have an impact on many levels:
+随着许多用户上传大量视频数据，我们的服务将不得不处理广泛的重复视频。
+重复的视频通常在宽高比或编码方面有所不同，可能包含叠加层或额外的边框，或者可能是较长的原始视频的节选。重复视频的泛滥可能会在多个层面产生影响：
 
-. Data Storage: We could be wasting storage space by keeping multiple copies of the same video.
-. Caching: Duplicate videos would result in degraded cache efficiency by taking up space that could be used for unique content.
-. Network usage: Duplicate videos will also increase the amount of data that must be sent over the network to in-network caching systems.
-. Energy consumption: Higher storage, inefficient cache, and network usage could result in energy wastage.
+. 数据存储：保存同一视频的多个副本会浪费存储空间；
+. 缓存：重复的视频会占用可用于特定空间，从而导致缓存效率下降；
+. 网络使用：重复的视频也会增加通过网络发送到网络内缓存系统的数据量；
+. 资源消耗：更高的存储、低效的缓存和网络使用可能导致资源浪费。
 
-For the end user, these inefficiencies will be realized in the form of duplicate search results, longer video startup times, and interrupted streaming.
+对于最终用户而言，这些低效率将以重复搜索结果、更长的视频启动时间和数据流传输中断的形式实现。
 
-For our service, deduplication makes most sense early; when a user is uploading a video as compared to post-processing it to find duplicate videos later.
-Inline deduplication will save us a lot of resources that can be used to encode, transfer, and store the duplicate copy of the video.
-As soon as any user starts uploading a video, our service can run video matching algorithms (e.g., https://en.wikipedia.org/wiki/Block-matching_algorithm[Block Matching], https://en.wikipedia.org/wiki/Phase_correlation[Phase Correlation], etc.) to find duplications.
-If we already have a copy of the video being uploaded, we can either stop the upload and use the existing copy or continue the upload and use the newly uploaded video if it is of higher quality.
-If the newly uploaded video is a subpart of an existing video or, vice versa, we can intelligently divide the video into smaller chunks so that we only upload the parts that are missing.
+对于我们的服务，当用户上传视频而不是对其进行后续处理以查找重复视频时，数据去重在早期是最有意义的。
+在线数据去重将为我们节省大量可用于编码、传输和存储视频副本的资源。
+一旦任何用户开始上传视频，我们的服务就可以运行视频匹配算法(例如： https://en.wikipedia.org/wiki/Block-matching_algorithm[Block Matching], https://en.wikipedia.org/wiki/Phase_correlation[Phase Correlation], 等)来查找重复内容。如果我们已经有正在上传的视频的副本，我们可以停止上传并使用现有副本，或者如果视频质量更高，继续上传并使用新上传的视频。
+如果新上传的视频是现有视频的一部分，或者反之亦然，我们可以智能地将视频分成更小的块，以便我们只上传丢失的部分。
 
 [[load-balancing]]
-=== 10. Load Balancing
+=== 10. 负载均衡
 
-We should use https://www.educative.io/courses/grokking-the-system-design-interview/B81vnyp0GpY[Consistent Hashing] among our cache servers, which will also help in balancing the load between cache servers.
-Since we will be using a static hash-based scheme to map videos to hostnames it can lead to an uneven load on the logical replicas due to the different popularity of each video.
-For instance, if a video becomes popular, the logical replica corresponding to that video will experience more traffic than other servers.
-These uneven loads for logical replicas can then translate into uneven load distribution on corresponding physical servers.
-To resolve this issue any busy server in one location can redirect a client to a less busy server in the same cache location.
-We can use dynamic HTTP redirections for this scenario.
+我们应该在缓存服务器之间使用 https://www.educative.io/courses/grokking-the-system-design-interview/B81vnyp0GpY[一致性哈希]，这有助于均衡缓存服务器之间的负载。
+由于我们将使用基于静态哈希的方案将视频映射到主机名，因此由于每个视频的受欢迎程度不同，可能会导致逻辑副本上的负载不均匀。
+例如，如果一个视频变得流行，则与该视频对应的逻辑副本将比其他服务器经历更多的流量。
+然后，逻辑副本的这些不均匀负载可以转化为相应物理服务器上的不均匀负载分布。要解决此问题，任何一个繁忙服务器都可以将客户端重定向到相同缓存的不太繁忙的服务器。对于这种情况，我们可以使用动态 HTTP 重定向。
 
-However, the use of redirections also has its drawbacks.
-First, since our service tries to load balance locally, it leads to multiple redirections if the host that receives the redirection can’t serve the video.
-Also, each redirection requires a client to make an additional HTTP request; it also leads to higher delays before the video starts playing back.
-Moreover, inter-tier (or cross data-center) redirections lead a client to a distant cache location because the higher tier caches are only present at a small number of locations.
+然而，使用重定向也有它的缺点。首先，由于我们的服务尝试在本地进行负载平衡，如果接收重定向的主机无法提供视频，则会导致多次重定向。
+此外，每次重定向都需要客户端发出额外的 HTTP 请求；在视频开始播放之前，它还会导致更高的延迟。
+此外，层间（或跨数据中心）重定向会将客户端引导到较远的缓存位置，因为较高层的缓存仅存在于少数位置。
 
 [[cache]]
 === 11. Cache
