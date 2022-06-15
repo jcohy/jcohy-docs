@@ -1,0 +1,56 @@
+[[container-images.dockerfiles]]
+== Dockerfiles
+虽然可以在 Dockerfile 中仅几行就将 Spring Boot jar 转换为 docker 镜像,但我们将使用  <<container-images#container-images.efficient-images.layering,分层功能>> 来创建优化的 docker 镜像. 当您创建一个包含 layers 索引文件的 jar 时,`spring-boot-jarmode-layertools` jar 将作为依赖添加到您的 jar 中. 将此 jar 放在类路径上,您可以在特殊模式下启动应用程序,该模式允许引导代码运行与应用程序完全不同的内容,例如,提取层的内容.
+
+CAUTION: `layertools` 模式不能与包含启动脚本的完全可执行的  <<deployment#deployment.installing, fully executable Spring Boot archive>> 一起使用.在构建一个打算与 `layertools` 一起使用的jar文件时,禁用启动脚本配置.
+
+您可以通过以下方式使用 `layertools` jar 模式启动 jar:
+
+[source,shell,indent=0,subs="verbatim"]
+----
+$ java -Djarmode=layertools -jar my-app.jar
+----
+
+以下输出:
+
+[subs="verbatim"]
+----
+Usage:
+  java -Djarmode=layertools -jar my-app.jar
+
+Available commands:
+  list     List layers from the jar that can be extracted
+  extract  Extracts layers from the jar for image creation
+  help     Help about any command
+----
+
+`extract` 命令可用于轻松地将应用程序拆分为多个层,以添加到 dockerfile 中. 这是一个使用 `jarmode` 的 Dockerfile 的示例.
+
+[source,dockerfile,indent=0,subs="verbatim"]
+----
+FROM eclipse-temurin:11-jre as builder
+WORKDIR application
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} application.jar
+RUN java -Djarmode=layertools -jar application.jar extract
+
+FROM eclipse-temurin:11-jre
+WORKDIR application
+COPY --from=builder application/dependencies/ ./
+COPY --from=builder application/spring-boot-loader/ ./
+COPY --from=builder application/snapshot-dependencies/ ./
+COPY --from=builder application/application/ ./
+ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher"]
+----
+
+假设上述 `Dockerfile` 位于当前目录中,则可以使用 `docker build`.生成您的 docker 镜像,或者可以选择指定应用程序 jar 的路径,如以下示例所示:
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ docker build --build-arg JAR_FILE=path/to/myapp.jar .
+----
+
+这是一个多阶段的 dockerfile. 构建器阶段提取以后需要的目录. 每个 `COPY` 命令都与 jarmode 提取的层有关.
+
+当然,无需使用 jarmode 即可编写 `Dockerfile`. 您可以使用 `unzip` 和 `mv` 的某种组合将内容移至正确的层,而 jarmode 简化了这一点.
+
