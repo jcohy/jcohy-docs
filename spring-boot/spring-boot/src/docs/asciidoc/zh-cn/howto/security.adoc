@@ -1,0 +1,36 @@
+[[howto.security]]
+== 安全
+本部分解决有关使用 Spring Boot 时的安全性的问题,包括因将 Spring Security 与 Spring Boot 一起使用而引起的问题.
+
+有关 Spring Security 的更多信息,请参见 Spring Security {spring-security}[项目页面].
+
+[[howto.security.switch-off-spring-boot-configuration]]
+=== 关闭 Spring Boot 安全性配置
+如果您在应用程序中使用 `WebSecurityConfigurerAdapter` 或 `SecurityFilterChain` 定义一个 `@Configuration` Bean,它将关闭 Spring Boot 中的默认 Webapp 安全设置.
+
+[[howto.security.change-user-details-service-and-add-user-accounts]]
+=== 更改 UserDetailsService 并添加用户帐户
+如果提供类型为 `AuthenticationManager`,`AuthenticationProvider` 或 `UserDetailsService` 的 `@Bean`,则不会为 `InMemoryUserDetailsManager` 创建默认的 `@Bean`.  这意味着您拥有完整的 Spring Security 功能集 (例如 {spring-security-docs}#servlet-authentication[各种身份验证选项]) .
+
+添加用户帐户的最简单方法是提供自己的 `UserDetailsService` bean.
+
+[[howto.security.enable-https]]
+=== 在代理服务器后运行时启用 HTTPS
+对于所有应用程序而言,确保所有主要端点仅可通过 HTTPS 进行访问都是一项重要的工作.  如果您将 Tomcat 用作 Servlet 容器,则 Spring Boot 如果检测到某些环境设置,则会自动添加 Tomcat 自己的 `RemoteIpValve`,
+并且您应该能够依靠 `HttpServletRequest` 来报告它是否安全 (甚至在代理服务器的下游)  处理真实的 SSL 终止) .  标准行为由某些请求头 (`x-forwarded-for` 和 `x-forwarded-proto`) 的存在或不存在决定,它们的名称是常规名称,
+因此它应可与大多数前端代理一起使用.  您可以通过将一些条目添加到 `application.properties` 来打开,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  tomcat:
+	    remoteip:
+	      remote-ip-header: "x-forwarded-for"
+	      protocol-header: "x-forwarded-proto"
+----
+
+(这些属性中的任何一个都会在阀上切换. 或者,您可以通过添加 `TomcatServletWebServerFactory` bean 来添加 `RemoteIpValve`. )
+
+要将 Spring Security 配置为对所有 (或某些) 请求都需要安全通道,请考虑添加自己的 `SecurityFilterChain`,其中添加了以下 `HttpSecurity` 配置:
+
+include::code:MySecurityConfig[]

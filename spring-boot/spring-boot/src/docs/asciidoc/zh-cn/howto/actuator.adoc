@@ -1,0 +1,64 @@
+[[howto.actuator]]
+== Actuator
+Spring Boot 包括 Spring Boot Actuator.  本节回答了经常因使用而引起的问题.
+
+[[howto.actuator.change-http-port-or-address]]
+=== Actuator 端点更改 HTTP 端口或地址
+在独立应用程序中,Actuator HTTP 端口默认与主 HTTP 端口相同.  要使应用程序在其他端口上进行监听,请设置外部属性: `management.server.port`.  要监听完全不同的网络地址 (例如,当您拥有用于管理的内部网络和用于用户应用程序的外部网络) 时,还可以将 `management.server.address` 设置为服务器能够绑定到的有效IP地址.
+
+有关更多详细信息,请参阅  生产就绪功能 部分中的 {spring-boot-actuator-autoconfigure-module-code}/web/server/ManagementServerProperties.java[`ManagementServerProperties`]  源代码和 "`<<actuator#actuator.monitoring.customizing-management-server-port>>`" .
+
+[[howto.actuator.customize-whitelabel-error-page]]
+=== 自定义 '`whitelabel`' 错误页面
+如果遇到服务器错误,Spring Boot 会安装一个 '`whitelabel`' 错误页面,您会在浏览器客户端中看到该错误页面 (使用 JSON 和其他媒体类型的机器客户端应该看到带有正确错误代码的明智响应) .
+
+
+NOTE: 设置 `server.error.whitelabel.enabled=false` 可以关闭默认错误页面.  这样做将还原您正在使用的 servlet 容器的默认值.  请注意,Spring Boot 仍然尝试解决错误视图,因此您应该添加自己的错误页面,而不是完全禁用它.
+
+用自己的方法覆盖错误页面取决于您使用的模板技术.  例如,如果您使用 Thymeleaf,则可以添加 `error.html` 模板.  如果使用 FreeMarker,则可以添加 `error.ftlh` 模板.
+通常,您需要使用错误名称解析的 View 或处理 `/error` 路径的 `@Controller`.  除非您替换了某些默认配置,否则您应该在 `ApplicationContext` 中找到一个 `BeanNameViewResolver`,因此,以 `@Bean` 命名的错误将是一种简单的方法.
+有关更多选项,请参见 {spring-boot-autoconfigure-module-code}/web/servlet/error/ErrorMvcAutoConfiguration.java[`ErrorMvcAutoConfiguration`] .
+
+有关如何在 Servlet 容器中注册处理程序的详细信息,另请参见 "`<<web#web.servlet.spring-mvc.error-handling, 错误处理>>`" 部分.
+
+[[howto.actuator.sanitize-sensitive-values]]
+=== Sanitize Sensitive Values
+`env` 和 `configprops` 端点返回的信息可能有些敏感,因此默认情况下会清理匹配特定模式的键 (即,它们的值将替换为 `+******+`) .
+
+可以分别使用 `management.endpoint.env.keys-to-sanitize` 和  `management.endpoint.configprops.keys-to-sanitize` 来定制要使用的模式.
+
+Spring Boot 对此类密钥使用明智的默认设置: 例如,对任何以单词 "password", "secret", "key", "token", "vcap_services", "sun.java.command"  结尾的密钥进行清理.  也可以改用正则表达式,例如 `+*credentials.*+` 来清理任何将单词 `credentials` 作为密钥一部分保存的密钥.
+
+此外，Spring Boot 对具有以下结尾之一的类似 URI 的值的敏感部分进行清理：
+
+- `address`
+- `addresses`
+- `uri`
+- `uris`
+- `url`
+- `urls`
+
+URI 的敏感部分使用 `<scheme>://<username>:<password>@<host>:<port>/` 格式标识。
+例如，对于属性 `myclient.uri=http://user1:password1@localhost:8081`，经过清理的结果值为
+`++http://user1:******@localhost:8081++`。
+
+[[howto.actuator.sanitize-sensitive-values.customizing-sanitization]]
+==== 自定义 Sanitization
+Sanitization 可以通过两种不同的方式进行定制。
+
+`env` 和 `configprops` 端点使用的默认模式可以分别使用 `management.endpoint.env.keys-to-sanitize` 和 `management.endpoint.configprops.keys-to-sanitize` 替换 .
+或者，可以使用 `management.endpoint.env.additional-keys-to-sanitize` 和 `management.endpoint.configprops.additional-keys-to-sanitize` 配置其他模式。
+
+要对清理进行更多控制，请定义一个 `SanitizingFunction` bean。
+调用该函数的 `SanitizableData` 提供了对键和值以及它们来自的 `PropertySource` 的访问。
+例如，这允许您清理来自特定属性源的每个值。
+每个 `SanitizingFunction` 按顺序调用，直到函数更改可清理数据的值。
+如果没有函数更改其值，则执行内置的基于 key 的清理。
+
+[[howto.actuator.map-health-indicators-to-metrics]]
+=== 映射健康状态
+Spring Boot 通过 `Status` 类型响应式系统运行状况. 如果要监视或警告特定应用程序的运行状况,可以通过 Micrometer 暴露这些状态. 默认情况下,Spring Boot 使用状态代码 "`UP`", "`DOWN`", "`OUT_OF_SERVICE`" 和 "`UNKNOWN`". 要暴露这些状态,您需要将这些状态转换为一组数字,以便它们可以与 Micrometer `Gauge` 一起使用.
+
+以下示例显示了一种方法:
+
+include::code:MyHealthMetricsExportConfiguration[]
