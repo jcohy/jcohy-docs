@@ -26,7 +26,7 @@ public enum ProjectVersion {
     SPRING_INTEGRATION("spring-integration","spring-integration-version","5.5.11","https://docs.spring.io/spring-integration/docs/5.5.11/reference/html/"),
     SPRING_WEBSERVICES("spring-webservices","spring-webservices-version","3.1.3","https://docs.spring.io/spring-ws/docs/3.1.3/reference/html/"),
     SPRING_KAFKA("spring-kafka","spring-kafka-version","2.8.5","https://docs.spring.io/spring-kafka/docs/2.8.5/reference/html/"),
-    SPRING_BOOT("spring-boot","spring-boot-version","2.6.7",""),
+    SPRING_BOOT("spring-boot","spring-boot-version","2.7.0",""),
     SPRING_BOOT_ACTUATOR_AUTOCONFIGURE("spring-boot-actuator-autoconfigure","spring-boot-version","2.6.7",""),
     SPRING_DATA_COMMONS("spring-data-commons","spring-data-commons-version","2.6.4",""),
     SPRING_DATA_JDBC("spring-data-jdbc","spring-data-jdbc-version","2.3.4",""),

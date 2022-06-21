@@ -1,5 +1,6 @@
 package com.jcohy.docs.build;
 
+import java.io.File;
 import java.util.Map;
 
 import com.jcohy.convention.conventions.ConventionsPlugin;
@@ -10,6 +11,10 @@ import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.PluginContainer;
+import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.api.tasks.Sync;
+
+import org.springframework.util.StringUtils;
 
 /**
  * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
@@ -41,6 +46,13 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         asciidoctorTask.sources("index.adoc");
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
+        project.getTasks()
+                .withType(Sync.class, (sync -> {
+                    sync.from("src/main/resources",(spec) -> {
+                        spec.into("main/resources");
+                    });
+                }));
+        File syncedSource = new File(project.getBuildDir(), "docs/src/" + asciidoctorTask.getName());
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
