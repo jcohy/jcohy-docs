@@ -6,16 +6,16 @@ plugins {
 	id("org.springframework.boot") version "{gradle-project-version}"
 }
 
-tasks.getByName<BootJar>("bootJar") {
+tasks.named<BootJar>("bootJar") {
 	mainClass.set("com.example.ExampleApplication")
 }
 
 // tag::docker-host[]
-tasks.getByName<BootBuildImage>("bootBuildImage") {
+tasks.named<BootBuildImage>("bootBuildImage") {
 	docker {
 		host = "tcp://192.168.99.100:2376"
 		isTlsVerify = true
-		certPath = "/home/users/.minikube/certs"
+		certPath = "/home/user/.minikube/certs"
 	}
 }
 // end::docker-host[]

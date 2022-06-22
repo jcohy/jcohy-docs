@@ -1,32 +1,29 @@
 [[build-image]]
-== Packaging OCI Images
-The plugin can create an https://github.com/opencontainers/image-spec[OCI image] from an executable jar file using https://buildpacks.io[Cloud Native Buildpacks] (CNB).
+= Packaging OCI Images
+The plugin can create an https://github.com/opencontainers/image-spec[OCI image] from a jar or war file using https://buildpacks.io[Cloud Native Buildpacks] (CNB).
 Images can be built using the `bootBuildImage` task.
 
 NOTE: For security reasons, images build and run as non-root users.
 See the {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification] for more details.
 
-The task is automatically created when the `java` plugin is applied and is an instance of {boot-build-image-javadoc}[`BootBuildImage`].
+The task is automatically created when the `java` or `war` plugin is applied and is an instance of {boot-build-image-javadoc}[`BootBuildImage`].
 
-NOTE: The `bootBuildImage` task is not supported with projects using <<packaging-executable-wars, war packaging>>.
 
-NOTE: The `bootBuildImage` task can not be used with a <<packaging-executable-configuring-launch-script, fully executable Spring Boot archive>> that includes a launch script.
-Disable launch script configuration in the `bootJar` task when building a jar file that is intended to be used with `bootBuildImage`.
 
-[[build-image-docker-daemon]]
-=== Docker Daemon
+[[build-image.docker-daemon]]
+== Docker Daemon
 The `bootBuildImage` task requires access to a Docker daemon.
 By default, it will communicate with a Docker daemon over a local connection.
 This works with https://docs.docker.com/install/[Docker Engine] on all supported platforms without configuration.
 
-Environment variables can be set to configure the `bootBuildImage` task to use the https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[Docker daemon provided by minikube].
+Environment variables can be set to configure the `bootBuildImage` task to use an alternative local or remote connection.
 The following table shows the environment variables and their values:
 
 |===
 | Environment variable | Description
 
 | DOCKER_HOST
-| URL containing the host and port for the Docker daemon - e.g. `tcp://192.168.99.100:2376`
+| URL containing the host and port for the Docker daemon - for example `tcp://192.168.99.100:2376`
 
 | DOCKER_TLS_VERIFY
 | Enable secure HTTPS protocol when set to `1` (optional)
@@ -35,8 +32,6 @@ The following table shows the environment variables and their values:
 | Path to certificate and key files for HTTPS (required if `DOCKER_TLS_VERIFY=1`, ignored otherwise)
 |===
 
-On Linux and macOS, these environment variables can be set using the command `eval $(minikube docker-env)` after minikube has been started.
-
 Docker daemon connection information can also be provided using `docker` properties in the plugin configuration.
 The following table summarizes the available properties:
 
@@ -44,21 +39,24 @@ The following table summarizes the available properties:
 | Property | Description
 
 | `host`
-| URL containing the host and port for the Docker daemon - e.g. `tcp://192.168.99.100:2376`
+| URL containing the host and port for the Docker daemon - for example `tcp://192.168.99.100:2376`
 
 | `tlsVerify`
 | Enable secure HTTPS protocol when set to `true` (optional)
 
 | `certPath`
 | Path to certificate and key files for HTTPS (required if `tlsVerify` is `true`, ignored otherwise)
+
+| `bindHostToBuilder`
+| When `true`, the value of the `host` property will be provided to the container that is created for the CNB builder (optional)
 |===
 
-For more details, see also <<build-image-example-docker,examples>>.
+For more details, see also <<build-image.examples.docker,examples>>.
 
 
 
-[[build-image-docker-registry]]
-=== Docker Registry
+[[build-image.docker-registry]]
+== Docker Registry
 If the Docker images specified by the `builder` or `runImage` properties are stored in a private Docker image registry that requires authentication, the authentication credentials can be provided using `docker.builderRegistry` properties.
 
 If the generated Docker image is to be published to a Docker image registry, the authentication credentials can be provided using `docker.publishRegistry` properties.
@@ -87,12 +85,12 @@ The following table summarizes the available properties for `docker.builderRegis
 | Identity token for the Docker image registry user. Required for token authentication.
 |===
 
-For more details, see also <<build-image-example-docker,examples>>.
+For more details, see also <<build-image.examples.docker,examples>>.
 
 
 
-[[build-image-customization]]
-=== Image Customizations
+[[build-image.customization]]
+== Image Customizations
 The plugin invokes a {buildpacks-reference}/concepts/components/builder/[builder] to orchestrate the generation of an image.
 The builder includes multiple {buildpacks-reference}/concepts/components/buildpack[buildpacks] that can inspect the application to influence the generated image.
 By default, the plugin chooses a builder image.
@@ -130,6 +128,40 @@ Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
 | Environment variables that should be passed to the builder.
 |
 
+| `buildpacks`
+|
+a|Buildpacks that the builder should use when building the image.
+Only the specified buildpacks will be used, overriding the default buildpacks included in the builder.
+Buildpack references must be in one of the following forms:
+
+* Buildpack in the builder - `[urn:cnb:builder:]<buildpack ID>[@<version>]`
+* Buildpack in a directory on the file system - `[file://]<path>`
+* Buildpack in a gzipped tar (.tgz) file on the file system - `[file://]<path>/<file name>`
+* Buildpack in an OCI image - `[docker://]<host>/<repo>[:<tag>][@<digest>]`
+| None, indicating the builder should use the buildpacks included in it.
+
+| `bindings`
+|
+a|https://docs.docker.com/storage/bind-mounts/[Volume bind mounts] that should be mounted to the builder container when building the image.
+The bindings will be passed unparsed and unvalidated to Docker when creating the builder container.
+Bindings must be in one of the following forms:
+
+* `<host source path>:<container destination path>[:<options>]`
+* `<host volume name>:<container destination path>[:<options>]`
+
+Where `<options>` can contain:
+
+* `ro` to mount the volume as read-only in the container
+* `rw` to mount the volume as readable and writable in the container
+* `volume-opt=key=value` to specify key-value pairs consisting of an option name and its value
+|
+
+| `network`
+| `--network`
+| The https://docs.docker.com/network/#network-drivers[network driver] the builder container will be configured to use.
+The value supplied will be passed unvalidated to Docker when creating the builder container.
+|
+
 | `cleanCache`
 | `--cleanCache`
 | Whether to clean the cache before building.
@@ -144,21 +176,37 @@ Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
 | `--publishImage`
 | Whether to publish the generated image to a Docker registry.
 | `false`
+
+| `tags`
+|
+| A list of one or more additional tags to apply to the generated image.
+|
+
+| `buildCache`
+|
+| A cache containing layers created by buildpacks and used by the image building process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
+| `launchCache`
+|
+| A cache containing layers created by buildpacks and used by the image launching process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
 |===
 
 NOTE: The plugin detects the target Java compatibility of the project using the JavaPlugin's `targetCompatibility` property.
 When using the default Paketo builder and buildpacks, the plugin instructs the buildpacks to install the same Java version.
-You can override this behaviour as shown in the <<build-image-example-builder-configuration,builder configuration>> examples.
+You can override this behaviour as shown in the <<build-image.examples.builder-configuration,builder configuration>> examples.
 
 
 
-[[build-image-examples]]
-=== Examples
+[[build-image.examples]]
+== Examples
 
 
 
-[[build-image-example-custom-image-builder]]
-==== Custom Image Builder and Run Image
+[[build-image.examples.custom-image-builder]]
+=== Custom Image Builder and Run Image
 If you need to customize the builder used to create the image or the run image used to launch the built image, configure the task as shown in the following example:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
@@ -184,8 +232,8 @@ The builder and run image can be specified on the command line as well, as shown
 
 
 
-[[build-image-example-builder-configuration]]
-==== Builder Configuration
+[[build-image.examples.builder-configuration]]
+=== Builder Configuration
 If the builder exposes configuration options, those can be set using the `environment` property.
 
 The following is an example of {paketo-java-reference}/#configuring-the-jvm-version[configuring the JVM version] used by the Paketo Java buildpacks at build time:
@@ -219,8 +267,8 @@ include::../gradle/packaging/boot-build-image-env-proxy.gradle.kts[tags=env]
 
 
 
-[[build-image-example-runtime-jvm-configuration]]
-==== Runtime JVM Configuration
+[[build-image.examples.runtime-jvm-configuration]]
+=== Runtime JVM Configuration
 Paketo Java buildpacks {paketo-java-reference}/#runtime-jvm-configuration[configure the JVM runtime environment] by setting the `JAVA_TOOL_OPTIONS` environment variable.
 The buildpack-provided `JAVA_TOOL_OPTIONS` value can be modified to customize JVM runtime behavior when the application image is launched in a container.
 
@@ -240,8 +288,8 @@ include::../gradle/packaging/boot-build-image-env-runtime.gradle.kts[tags=env-ru
 
 
 
-[[build-image-example-custom-image-name]]
-==== Custom Image Name
+[[build-image.examples.custom-image-name]]
+=== Custom Image Name
 By default, the image name is inferred from the `name` and the `version` of the project, something like `docker.io/library/${project.name}:${project.version}`.
 You can take control over the name by setting task properties, as shown in the following example:
 
@@ -267,8 +315,60 @@ The image name can be specified on the command line as well, as shown in this ex
 	$ gradle bootBuildImage --imageName=example.com/library/my-app:v1
 ----
 
-[[build-image-example-publish]]
-==== Image Publishing
+
+
+[[build-image.examples.buildpacks]]
+=== Buildpacks
+By default, the builder will use buildpacks included in the builder image and apply them in a pre-defined order.
+An alternative set of buildpacks can be provided to apply buildpacks that are not included in the builder, or to change the order of included buildpacks.
+When one or more buildpacks are provided, only the specified buildpacks will be applied.
+
+The following example instructs the builder to use a custom buildpack packaged in a `.tgz` file, followed by a buildpack included in the builder.
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-buildpacks.gradle[tags=buildpacks]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-buildpacks.gradle.kts[tags=buildpacks]
+----
+
+Buildpacks can be specified in any of the forms shown below.
+
+A buildpack located in a CNB Builder (version may be omitted if there is only one buildpack in the builder matching the `buildpack-id`):
+
+* `urn:cnb:builder:buildpack-id`
+* `urn:cnb:builder:buildpack-id@0.0.1`
+* `buildpack-id`
+* `buildpack-id@0.0.1`
+
+A path to a directory containing buildpack content (not supported on Windows):
+
+* `\file:///path/to/buildpack/`
+* `/path/to/buildpack/`
+
+A path to a gzipped tar file containing buildpack content:
+
+* `\file:///path/to/buildpack.tgz`
+* `/path/to/buildpack.tgz`
+
+An OCI image containing a https://buildpacks.io/docs/buildpack-author-guide/package-a-buildpack/[packaged buildpack]:
+
+* `docker://example/buildpack`
+* `docker:///example/buildpack:latest`
+* `docker:///example/buildpack@sha256:45b23dee08...`
+* `example/buildpack`
+* `example/buildpack:latest`
+* `example/buildpack@sha256:45b23dee08...`
+
+
+
+[[build-image.examples.publish]]
+=== Image Publishing
 The generated image can be published to a Docker registry by enabling a `publish` option and configuring authentication for the registry using `docker.publishRegistry` properties.
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
@@ -290,9 +390,38 @@ The publish option can be specified on the command line as well, as shown in thi
 	$ gradle bootBuildImage --imageName=docker.example.com/library/my-app:v1 --publishImage
 ----
 
-[[build-image-example-docker]]
-==== Docker Configuration
-If you need the plugin to communicate with the Docker daemon using a remote connection instead of the default local connection, the connection details can be provided using `docker` properties as shown in the following example:
+[[build-image.examples.caches]]
+=== Builder Cache Configuration
+
+The CNB builder caches layers that are used when building and launching an image.
+By default, these caches are stored as named volumes in the Docker daemon with names that are derived from the full name of the target image.
+If the image name changes frequently, for example when the project version is used as a tag in the image name, then the caches can be invalidated frequently.
+
+The cache volumes can be configured to use alternative names to give more control over cache lifecycle as shown in the following example:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-caches.gradle[tags=caches]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-caches.gradle.kts[tags=caches]
+----
+
+[[build-image.examples.docker]]
+=== Docker Configuration
+
+[[build-image.examples.docker.minikube]]
+==== Docker Configuration for minikube
+
+The plugin can communicate with the https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[Docker daemon provided by minikube] instead of the default local connection.
+
+On Linux and macOS, environment variables can be set using the command `eval $(minikube docker-env)` after minikube has been started.
+
+The plugin can also be configured to use the minikube daemon by providing connection details similar to those shown in the following example:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -306,7 +435,29 @@ include::../gradle/packaging/boot-build-image-docker-host.gradle[tags=docker-hos
 include::../gradle/packaging/boot-build-image-docker-host.gradle.kts[tags=docker-host]
 ----
 
-If the builder or run image are stored in a private Docker registry that supports user authentication, authentication details can be provided using `docker.buiderRegistry` properties as shown in the following example:
+[[build-image.examples.docker.podman]]
+==== Docker Configuration for podman
+
+The plugin can communicate with a https://podman.io/[podman container engine].
+
+The plugin can be configured to use podman local connection by providing connection details similar to those shown in the following example:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle[tags=docker-host]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle.kts[tags=docker-host]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker Configuration for Authentication
+
+If the builder or run image are stored in a private Docker registry that supports user authentication, authentication details can be provided using `docker.builderRegistry` properties as shown in the following example:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
