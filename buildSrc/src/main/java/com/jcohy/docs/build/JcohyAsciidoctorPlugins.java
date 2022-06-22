@@ -57,10 +57,17 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
         Map<String, Object> attributes = ProjectVersion.getAttributesMap();
+        attributes.put("spring-boot-xsd-version",getVersion());
         Map<String, Object> docsUrlMaps = ProjectVersion.getDocsUrlMaps();
         addAsciidoctorTaskAttributes(project,attributes);
         asciidoctorTask.attributes(attributes);
         asciidoctorTask.attributes(docsUrlMaps);
+    }
+
+    // 获取 spring-boot-xsd-version
+    private String getVersion() {
+        String[] versionEl = ProjectVersion.SPRING_BOOT.getVersion().split("\\.");
+        return versionEl[0] + "." + versionEl[1];
     }
 
     private void addAsciidoctorTaskAttributes(Project project,Map<String, Object> attributes) {

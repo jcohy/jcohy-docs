@@ -27,7 +27,7 @@ public enum ProjectVersion {
     SPRING_WEBSERVICES("spring-webservices","spring-webservices-version","3.1.3","https://docs.spring.io/spring-ws/docs/3.1.3/reference/html/"),
     SPRING_KAFKA("spring-kafka","spring-kafka-version","2.8.5","https://docs.spring.io/spring-kafka/docs/2.8.5/reference/html/"),
     SPRING_BOOT("spring-boot","spring-boot-version","2.7.0",""),
-    SPRING_BOOT_ACTUATOR_AUTOCONFIGURE("spring-boot-actuator-autoconfigure","spring-boot-version","2.6.7",""),
+    SPRING_BOOT_ACTUATOR_AUTOCONFIGURE("spring-boot-actuator-autoconfigure","spring-boot-actuator-autoconfigure-version",ProjectVersion.SPRING_BOOT.getVersion(),""),
     SPRING_DATA_COMMONS("spring-data-commons","spring-data-commons-version","2.6.4",""),
     SPRING_DATA_JDBC("spring-data-jdbc","spring-data-jdbc-version","2.3.4",""),
     SPRING_DATA_MONGODB("spring-data-mongodb","spring-data-mongodb-version","3.3.4","https://docs.spring.io/spring-data/mongodb/docs/3.3.4/reference/html/"),
@@ -41,8 +41,8 @@ public enum ProjectVersion {
     SPRING_DATA_COUCHBASE("spring-data-couchbase","spring-data-couchbase-version","4.3.4","https://docs.spring.io/spring-data/couchbase/docs/4.1.8/reference/html/"),
     SPRING_AMQP("spring-amqp","spring-amqp-version","2.4.4","https://docs.spring.io/spring-amqp/docs/2.4.4/reference/html/"),
     SPRING_BATCH("spring-batch","spring-batch-version","4.3.5","https://docs.spring.io/spring-batch/docs/4.3.x/reference/html/"),
-    SPRING_GRADLE_PLUGINS("spring-gradle-plugins","spring-boot-version","2.6.7",""),
-    SPRING_MAVEN_PLUGINS("spring-maven-plugins","spring-boot-version","2.6.7",""),
+    SPRING_GRADLE_PLUGINS("spring-gradle-plugins","spring-gradle-plugins-version",ProjectVersion.SPRING_BOOT.getVersion(),""),
+    SPRING_MAVEN_PLUGINS("spring-maven-plugins","spring-maven-plugins-version",ProjectVersion.SPRING_BOOT.getVersion(),""),
     SPRING_CLOUD("spring-cloud","spring-cloud-version","2021.0.2","")
     ;
     private final String name;

@@ -1,39 +1,24 @@
 [[build-image]]
-== 打包 OCI 镜像
-该插件可以使用 https://buildpacks.io[Cloud Native Buildpacks] (CNB) 从可执行 jar 文件创建 https://github.com/opencontainers/image-spec[OCI image].可以使用 `build-image` 目标来构建镜像.
+= 打包 OCI 镜像
+该插件可以使用 https://buildpacks.io[Cloud Native Buildpacks] (CNB) 从可执行 jar 或 war 文件创建 https://github.com/opencontainers/image-spec[OCI image].可以使用 `build-image` 目标来构建镜像.
 
 NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更多详细信息,请参见 {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification].
 
-NOTE: `build-image` 任务不支持 <<repackage, 打包成 war>>.
-
 最简单的入门方法是在项目上调用 `mvn spring-boot:build-image`. 每当调用 `package` 阶段时,都可以自动创建镜像,如以下示例所示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<goals>
-							<goal>build-image</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-		</plugins>
-	</build>
+include::../maven/packaging-oci-image/pom.xml[tags=packaging-oci-image]
 ----
 
-TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不必先执行 `repackage` 目标,因为必要时会自动创建可执行存档. 当构建镜像重新打包应用程序时,它将应用与重新打包目标相同的设置,即可以使用 exclude 选项之一排除依赖,并且默认情况下会自动排除 Devtools (您可以使用 `excludeDevtools`  属性进行控制) .
+TIP: 尽管 buildpack 是从  <<packaging,executable archive>> 运行的,但不必先执行 `repackage` 目标,因为必要时会自动创建可执行存档. 当构建镜像重新打包应用程序时,它将应用与重新打包目标相同的设置,即可以使用 exclude 选项之一排除依赖,并且默认情况下会自动排除 Devtools (您可以使用 `excludeDevtools`  属性进行控制) .
 
-[[build-image-docker-daemon]]
-=== Docker Daemon
+[[build-image.docker-daemon]]
+== Docker Daemon
+
 `build-image` 任务需要访问 Docker 守护程序. 默认情况下,它将通过本地连接与 Docker 守护程序通信. 无需配置即可在所有支持的平台上使用 https://docs.docker.com/install/[Docker Engine].
 
-可以设置环境变量以将 `build-image` 任务配置为使用 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护程序] . 下表显示了环境变量及其值:
+可以设置环境变量来配置 `build-image` 目标以使用替代的本地或远程连接 . 下表显示了环境变量及其值:
 
 |===
 | Environment variable | Description
@@ -48,8 +33,6 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 | Path to certificate and key files for HTTPS (required if `DOCKER_TLS_VERIFY=1`, ignored otherwise)
 |===
 
-在 Linux 和 macOS 上,启动 minikube 之后,可以使用命令 `eval $(minikube docker-env)` 设置这些环境变量.
-
 也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
 
 |===
@@ -63,12 +46,15 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 
 | `certPath`
 | HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+
+| `bindHostToBuilder`
+| When `true`, the value of the `host` property will be provided to the container that is created for the CNB builder (optional)
 |===
 
-更多信息, 请查看 <<build-image-example-docker,examples>>.
+更多信息, 请查看 <<build-image.examples.docker,examples>>.
 
-[[build-image-docker-registry]]
-=== Docker Registry
+[[build-image.docker-registry]]
+== Docker Registry
 如果由 `builder` 或 `runImage` 参数指定的 Docker 镜像存储在需要身份验证的私有 Docker image registry  中, 可以使用  `docker.builderRegistry` 参数提供身份验证凭据.
 
 如果生成的 Docker 镜像要发布到  Docker image registry 中, 可以使用 `docker.publishRegistry`  参数提供身份验证凭据.
@@ -96,92 +82,126 @@ TIP: 尽管 buildpack 是从  <<repackage,executable archive>> 运行的,但不�
 | Identity token for the Docker image registry user. Required for token authentication.
 |===
 
-更多信息, 请查看 <<build-image-example-docker,examples>>.
+更多信息, 请查看 <<build-image.examples.docker,examples>>.
 
-[[build-image-customization]]
-=== Image Customizations
+[[build-image.customization]]
+== Image Customizations
 
 该插件调用一个 {buildpacks-reference}/concepts/components/builder/[builder] 来协助镜像的生成. 该构建器包括多个  {buildpacks-reference}/concepts/components/buildpack[buildpacks],可以检查应用程序以影响生成的镜像. 默认情况下,插件选择一个生成镜像. 生成的镜像名称是从项目属性推导出的.
 
 `image` 属性可用于配置构建器应如何在项目上运行.下表总结了可用的属性及其默认值:
 
+[cols="1,4,1"]
 |===
-| Parameter | Description | User property | Default value
+| Parameter / (User Property)| Description | Default value
 
-| `builder`
+| `builder` +
+(`spring-boot.build-image.builder`)
 | Name of the Builder image to use.
-| `spring-boot.build-image.builder`
 | `paketobuildpacks/builder:base`
 
-| `runImage`
+| `runImage` +
+(`spring-boot.build-image.runImage`)
 | Name of the run image to use.
-| `spring-boot.build-image.runImage`
 | No default value, indicating the run image specified in Builder metadata should be used.
 
-| `name`
+| `name` +
+(`spring-boot.build-image.imageName`)
 | {spring-boot-api}/buildpack/platform/docker/type/ImageReference.html#of-java.lang.String-[Image name] for the generated image.
-| `spring-boot.build-image.imageName`
-| `docker.io/library/${project.artifactId}:${project.version}`
+| `docker.io/library/` +
+`${project.artifactId}:${project.version}`
 
-| `pullPolicy`
+| `pullPolicy` +
+(`spring-boot.build-image.pullPolicy`)
 | {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] used to determine when to pull the builder and run images from the registry.
 Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
-| `spring-boot.build-image.pullPolicy`
 | `ALWAYS`
 
 | `env`
 | Environment variables that should be passed to the builder.
 |
+
+| `buildpacks`
+a|Buildpacks that the builder should use when building the image.
+Only the specified buildpacks will be used, overriding the default buildpacks included in the builder.
+Buildpack references must be in one of the following forms:
+
+* Buildpack in the builder - `[urn:cnb:builder:]<buildpack ID>[@<version>]`
+* Buildpack in a directory on the file system - `[file://]<path>`
+* Buildpack in a gzipped tar (.tgz) file on the file system - `[file://]<path>/<file name>`
+* Buildpack in an OCI image - `[docker://]<host>/<repo>[:<tag>][@<digest>]`
+| None, indicating the builder should use the buildpacks included in it.
+
+| `bindings`
+a|https://docs.docker.com/storage/bind-mounts/[Volume bind mounts] that should be mounted to the builder container when building the image.
+The bindings will be passed unparsed and unvalidated to Docker when creating the builder container.
+Bindings must be in one of the following forms:
+
+* `<host source path>:<container destination path>[:<options>]`
+* `<host volume name>:<container destination path>[:<options>]`
+
+Where `<options>` can contain:
+
+* `ro` to mount the volume as read-only in the container
+* `rw` to mount the volume as readable and writable in the container
+* `volume-opt=key=value` to specify key-value pairs consisting of an option name and its value
 |
 
-| `cleanCache`
+| `network` +
+(`spring-boot.build-image.network`)
+| The https://docs.docker.com/network/#network-drivers[network driver] the builder container will be configured to use.
+The value supplied will be passed unvalidated to Docker when creating the builder container.
+|
+
+| `cleanCache` +
+(`spring-boot.build-image.cleanCache`)
 | Whether to clean the cache before building.
-| `spring-boot.build-image.cleanCache`
 | `false`
 
 | `verboseLogging`
 | Enables verbose logging of builder operations.
-|
 | `false`
 
-| `publish`
+| `publish` +
+(`spring-boot.build-image.publish`)
 | Whether to publish the generated image to a Docker registry.
-| `spring-boot.build-image.publish`
 | `false`
+
+| `tags`
+| One or more additional tags to apply to the generated image.
+|
+
+| `caches`
+| Cache volume names that should be used by the builder instead of generating random names.
+|
+
+| `buildCache`
+| A cache containing layers created by buildpacks and used by the image building process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
+| `launchCache`
+| A cache containing layers created by buildpacks and used by the image launching process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
 |===
 
-NOTE: 该插件使用编译器的插件配置或 `maven.compiler.target` 属性检测项目的目标 Java 兼容性. 当使用默认的 Paketo 构建器和 buildpacks 时,插件会指示 buildpacks 安装相同的 Java 版本. 您可以覆盖此行为,如 <<build-image-example-builder-configuration,builder configuration>>  示例中所示.
+NOTE: 该插件使用编译器的插件配置或 `maven.compiler.target` 属性检测项目的目标 Java 兼容性. 当使用默认的 Paketo 构建器和 buildpacks 时,插件会指示 buildpacks 安装相同的 Java 版本. 您可以覆盖此行为,如 <<build-image.examples.builder-configuration,builder configuration>>  示例中所示.
 
-有关更多详细信息,另请参见 <<build-image-examples,examples>>.
+有关更多详细信息,另请参见 <<build-image.examples,examples>>.
 
 include::goals/build-image.adoc[leveloffset=+1]
 
 
-[[build-image-examples]]
-=== 示例
+[[build-image.examples]]
+== 示例
 
-[[build-image-example-custom-image-builder]]
-==== Custom Image Builder
+[[build-image.examples.custom-image-builder]]
+=== Custom Image Builder
 如果需要自定义用于创建镜像的 Builder 或用于启动生成的镜像的运行镜像,请使用如下配置插件:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<builder>mine/java-cnb-builder</builder>
-							<runImage>mine/java-cnb-run</runImage>
-						</image>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/custom-image-builder-pom.xml[tags=custom-image-builder]
 ----
 
 此配置将使用名称为 `mine/java-cnb-builder` 的构建器镜像的最新版本(`latest` tag),以及名为 `mine/java-cnb-run`  的运行镜像的最新版本(`latest` tag).
@@ -194,63 +214,28 @@ include::goals/build-image.adoc[leveloffset=+1]
 ----
 
 
-
-[[build-image-example-builder-configuration]]
-==== 构建器配置
+[[build-image.examples.builder-configuration]]
+=== 构建器配置
 如果构建器使用环境变量暴露配置选项,则可以使用 `env` 属性进行设置.
 
 以下是配置在构建时由 Paketo Java buildpack {paketo-java-reference}/#configuring-the-jvm-version[configuring the JVM version]  的示例:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<env>
-								<BP_JVM_VERSION>8.*</BP_JVM_VERSION>
-							</env>
-						</image>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/build-image-example-builder-configuration-pom.xml[tags=build-image-example-builder-configuration]
 ----
 
 以类似的方式,Paketo Java buildpacks 支持 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时行为]. 请参阅 {paketo-java-reference}[Paketo 文档] 以获取 Paketo Java buildpacks 支持的其他配置选项.
 
 如果构建器在其运行的 Docker 守护程序与构建打包下载 artifacts 的网络位置之间存在网络代理,则需要将构建器配置为使用代理. 使用 Paketo 构建器时,可以通过设置 `HTTPS_PROXY` and/or `HTTP_PROXY` 环境变量来实现,如以下示例所示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<env>
-								<HTTP_PROXY>http://proxy.example.com</HTTP_PROXY>
-								<HTTPS_PROXY>https://proxy.example.com</HTTPS_PROXY>
-							</env>
-						</image>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/paketo-pom.xml[tags=paketo]
 ----
 
-
-[[build-image-example-runtime-jvm-configuration]]
-==== Runtime JVM Configuration
+[[build-image.examples.runtime-jvm-configuration]]
+=== Runtime JVM Configuration
 
 Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时环境].
 
@@ -258,49 +243,18 @@ Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-
 
 可以如 {paketo-reference}/buildpacks/configuration/#environment-variables[Paketo documentation] 中所述在镜像中配置并应用于每个部署的环境变量修改,  并在以下示例中显示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<env>
-								<BPE_DELIM_JAVA_TOOL_OPTIONS xml:space="preserve"> </BPE_DELIM_JAVA_TOOL_OPTIONS>
-								<BPE_APPEND_JAVA_TOOL_OPTIONS>-XX:+HeapDumpOnOutOfMemoryError</BPE_APPEND_JAVA_TOOL_OPTIONS>
-							</env>
-						</image>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/runtime-jvm-configuration-pom.xml[tags=runtime-jvm-configuration]
 ----
 
-[[build-image-example-custom-image-name]]
-==== 自定义镜像名称
+[[build-image.examples.custom-image-name]]
+=== 自定义镜像名称
 默认情况下,镜像名称是根据 `artifactId` 和项目版本来推断的,例如 `docker.io/library/${project.artifactId}:${project.version}`.您可以控制名称,如以下示例所示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<name>example.com/library/${project.artifactId}</name>
-						</image>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/custom-image-name-pom.xml[tags=custom-image-name]
 ----
 
 NOTE: 此配置未显式提供标签,因此使用最新的.也可以使用 `${project.version}`,构建中可用的任何属性或硬编码版本来指定标签.
@@ -313,36 +267,56 @@ NOTE: 此配置未显式提供标签,因此使用最新的.也可以使用 `${pr
 	$ mvn spring-boot:build-image -Dspring-boot.build-image.imageName=example.com/library/my-app:v1
 ----
 
-[[build-image-example-publish]]
-==== Image Publishing
+[[build-image.examples.buildpacks]]
+=== Buildpacks
+By default, the builder will use buildpacks included in the builder image and apply them in a pre-defined order.
+An alternative set of buildpacks can be provided to apply buildpacks that are not included in the builder, or to change the order of included buildpacks.
+When one or more buildpacks are provided, only the specified buildpacks will be applied.
+
+The following example instructs the builder to use a custom buildpack packaged in a `.tgz` file, followed by a buildpack included in the builder.
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/packaging-oci-image/buildpacks-pom.xml[tags=buildpacks]
+----
+
+Buildpacks can be specified in any of the forms shown below.
+
+A buildpack located in a CNB Builder (version may be omitted if there is only one buildpack in the builder matching the `buildpack-id`):
+
+* `urn:cnb:builder:buildpack-id`
+* `urn:cnb:builder:buildpack-id@0.0.1`
+* `buildpack-id`
+* `buildpack-id@0.0.1`
+
+A path to a directory containing buildpack content (not supported on Windows):
+
+* `\file:///path/to/buildpack/`
+* `/path/to/buildpack/`
+
+A path to a gzipped tar file containing buildpack content:
+
+* `\file:///path/to/buildpack.tgz`
+* `/path/to/buildpack.tgz`
+
+An OCI image containing a https://buildpacks.io/docs/buildpack-author-guide/package-a-buildpack/[packaged buildpack]:
+
+* `docker://example/buildpack`
+* `docker:///example/buildpack:latest`
+* `docker:///example/buildpack@sha256:45b23dee08...`
+* `example/buildpack`
+* `example/buildpack:latest`
+* `example/buildpack@sha256:45b23dee08...`
+
+
+
+[[build-image.examples.publish]]
+=== Image Publishing
 生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项并使用  `docker.publishRegistry` 配置 registry 的身份验证.
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<image>
-							<name>docker.example.com/library/${project.artifactId}</name>
-							<publish>true</publish>
-						</image>
-						<docker>
-							<publishRegistry>
-								<username>user</username>
-								<password>secret</password>
-								<url>https://docker.example.com/v1/</url>
-								<email>user@example.com</email>
-							</publishRegistry>
-						</docker>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/docker-pom.xml[tags=docker]
 ----
 
 也可以在命令行上指定  `publish` 选项, 如下例所示:
@@ -352,78 +326,62 @@ NOTE: 此配置未显式提供标签,因此使用最新的.也可以使用 `${pr
 	$ mvn spring-boot:build-image -Dspring-boot.build-image.imageName=docker.example.com/library/my-app:v1 -Dspring-boot.build-image.publish=true
 ----
 
+[[build-image.examples.caches]]
+=== Builder Cache Configuration
 
+The CNB builder caches layers that are used when building and launching an image.
+By default, these caches are stored as named volumes in the Docker daemon with names that are derived from the full name of the target image.
+If the image name changes frequently, for example when the project version is used as a tag in the image name, then the caches can be invalidated frequently.
 
-[[build-image-example-docker]]
-==== Docker 配置
-如果你需要插件使用远程连接而不是默认的本地连接来与 Docker 守护进程通信, 可以使用  `docker`  属性提供连接细节, 如下所示:
+The cache volumes can be configured to use alternative names to give more control over cache lifecycle as shown in the following example:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<docker>
-							<host>tcp://192.168.99.100:2376</host>
-							<tlsVerify>true</tlsVerify>
-							<certPath>/home/user/.minikube/certs</certPath>
-						</docker>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/caches-pom.xml[tags=caches]
 ----
+
+[[build-image.examples.docker]]
+=== Docker 配置
+
+[[build-image.examples.docker.minikube]]
+==== Docker Configuration for minikube
+
+The plugin can communicate with the https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[Docker daemon provided by minikube] instead of the default local connection.
+
+On Linux and macOS, environment variables can be set using the command `eval $(minikube docker-env)` after minikube has been started.
+
+The plugin can also be configured to use the minikube daemon by providing connection details similar to those shown in the following example:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/packaging-oci-image/docker-minikube-pom.xml[tags=docker-minikube]
+----
+
+[[build-image.examples.docker.podman]]
+==== Docker Configuration for podman
+
+The plugin can communicate with a https://podman.io/[podman container engine].
+
+The plugin can be configured to use podman local connection by providing connection details similar to those shown in the following example:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/packaging-oci-image/docker-podman-pom.xml[tags=docker-podman]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker Configuration for Authentication
 
 如果构建器或运行镜像存储在支持用户身份验证的私有 Docker registry 中, 则可以使用 `docker.builderRegistry` 参数提供身份验证细节. 如下所示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<docker>
-							<builderRegistry>
-								<username>user</username>
-								<password>secret</password>
-								<url>https://docker.example.com/v1/</url>
-								<email>user@example.com</email>
-							</builderRegistry>
-						</docker>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/docker-registry-authentication-pom.xml[tags=docker-registry-authentication]
 ----
 
 如果构建器或运行映像存储在支持令牌身份验证的私有 Docker registry  中, 则可以使用  `docker.builderRegistry` 参数提供令牌值. 如下所示:
 
-[source,xml,indent=0,subs="verbatim,attributes"]
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-	<project>
-		<build>
-			<plugins>
-				<plugin>
-					<groupId>org.springframework.boot</groupId>
-					<artifactId>spring-boot-maven-plugin</artifactId>
-					<configuration>
-						<docker>
-							<builderRegistry>
-								<token>9cbaf023786cd7...</token>
-							</builderRegistry>
-						</docker>
-					</configuration>
-				</plugin>
-			</plugins>
-		</build>
-	</project>
+include::../maven/packaging-oci-image/docker-token-authentication-pom.xml[tags=docker-token-authentication]
 ----
