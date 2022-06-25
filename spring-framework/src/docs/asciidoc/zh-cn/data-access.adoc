@@ -542,9 +542,9 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 	public final class Boot {
 
 		public static void main(final String[] args) throws Exception {
-			ApplicationContext ctx = new ClassPathXmlApplicationContext("context.xml", Boot.class);
-			FooService fooService = (FooService) ctx.getBean("fooService");
-			fooService.insertFoo (new Foo());
+			ApplicationContext ctx = new ClassPathXmlApplicationContext("context.xml");
+			FooService fooService = ctx.getBean(FooService.class);
+			fooService.insertFoo(new Foo());
 		}
 	}
 ----
@@ -704,13 +704,57 @@ NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类
 [[transaction-declarative-rolling-back]]
 ==== 回滚声明式事务
 
-上一节概述了如何在应用程序中以声明方式指定类(通常是服务层类) 的事务设置的基础知识.  本节介绍如何以简单的声明方式控制事务回滚.
+上一节概述了如何在应用程序中以声明方式指定类(通常是服务层类) 的事务设置的基础知识.  本节介绍如何在 XML 中以简单的声明方式控制事务回滚，有关使用 `@Transactional` 注解以声明方式控制回滚语义的详细信息，请参阅 <<transaction-declarative-attransactional-settings>>.
 
 在 Spring Framework 的事务基础结构中指明事务的工作被回滚的推荐方法是在当前事务上下文中执行的代码中抛出 `Exception` Spring Framework 的事务基础结构代码捕获任何未处理的 `Exception`,因为它冒泡调用堆栈并确定是否将事务标记为回滚.
 
 在其默认配置中,Spring Framework 的事务基础结构代码仅在运行时和未经检查的异常情况下标记事务回滚.  也就是说,抛出的异常是 `RuntimeException` 的实例或子类. (默认情况下,`Error` 实例也会导致回滚) . 默认配置中,事务方法中抛出的已检查异常不会导致事务回滚.
 
-您可以准确配置哪些 `Exception` 类型标记用于回滚的事务,包括已检查的异常.  以 下XML 代码段演示了如何为已检查的特定于应用程序的 `Exception` 类型配置回滚:
+您可以准确配置哪些 `Exception` 类型标记用于回滚的事务,通过指定回滚规则包括已检查的异常.
+
+.Rollback rules
+[[transaction-declarative-rollback-rules]]
+[NOTE]
+====
+Rollback rules determine if a transaction should be rolled back when a given exception is
+thrown, and the rules are based on patterns. A pattern can be a fully qualified class
+name or a substring of a fully qualified class name for an exception type (which must be
+a subclass of `Throwable`), with no wildcard support at present. For example, a value of
+`"javax.servlet.ServletException"` or `"ServletException"` will match
+`javax.servlet.ServletException` and its subclasses.
+
+Rollback rules may be configured in XML via the `rollback-for` and `no-rollback-for`
+attributes, which allow patterns to be specified as strings. When using
+<<transaction-declarative-attransactional-settings,`@Transactional`>>, rollback rules may
+be configured via the `rollbackFor`/`noRollbackFor` and
+`rollbackForClassName`/`noRollbackForClassName` attributes, which allow patterns to be
+specified as `Class` references or strings, respectively. When an exception type is
+specified as a class reference its fully qualified name will be used as the pattern.
+Consequently, `@Transactional(rollbackFor = example.CustomException.class)` is equivalent
+to `@Transactional(rollbackForClassName = "example.CustomException")`.
+
+[WARNING]
+=====
+You must carefully consider how specific the pattern is and whether to include package
+information (which isn't mandatory). For example, `"Exception"` will match nearly
+anything and will probably hide other rules. `"java.lang.Exception"` would be correct if
+`"Exception"` were meant to define a rule for all checked exceptions. With more unique
+exception names such as `"BaseBusinessException"` there is likely no need to use the
+fully qualified class name for the exception pattern.
+
+Furthermore, rollback rules may result in unintentional matches for similarly named
+exceptions and nested classes. This is due to the fact that a thrown exception is
+considered to be a match for a given rollback rule if the name of thrown exception
+contains the exception pattern configured for the rollback rule. For example, given a
+rule configured to match on `com.example.CustomException`, that rule would match against
+an exception named `com.example.CustomExceptionV2` (an exception in the same package as
+`CustomException` but with an additional suffix) or an exception named
+`com.example.CustomException$AnotherException` (an exception declared as a nested class
+in `CustomException`).
+=====
+====
+
+以下 XML 片段演示了如何通过 `rollback-for` 属性提供 _exception pattern_ 来为已检查的、特定于应用程序的 `Exception` 类型配置回滚：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -722,7 +766,7 @@ NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类
 	</tx:advice>
 ----
 
-如果您不希望在抛出异常时回滚事务,则还可以指定 "无回滚规则". 以下示例告诉 Spring Framework 的事务基础结构即使 面对未处理的 `InstrumentNotFoundException` 也要提交事务:
+如果您不希望在抛出异常时回滚事务,则还可以指定 'no rollback' 规则. 以下示例告诉 Spring Framework 的事务基础结构即使 面对未处理的 `InstrumentNotFoundException` 也要提交事务:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -952,19 +996,23 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 	@Transactional
 	public class DefaultFooService implements FooService {
 
-		Foo getFoo(String fooName) {
+		@Override
+		public Foo getFoo(String fooName) {
 			// ...
 		}
 
-		Foo getFoo(String fooName, String barName) {
+		@Override
+		public Foo getFoo(String fooName, String barName) {
 			// ...
 		}
 
-		void insertFoo(Foo foo) {
+		@Override
+		public void insertFoo(Foo foo) {
 			// ...
 		}
 
-		void updateFoo(Foo foo) {
+		@Override
+		public void updateFoo(Foo foo) {
 			// ...
 		}
 	}
@@ -994,7 +1042,7 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 	}
 ----
 
-如上所述在类级别使用,注解指示声明类(及其子类) 的所有方法的默认值.  或者,每个方法都可以单独注解.  请注意,类级别注解不适用于类层次结构中的父类; 在这种情况下,需要在本地重新声明方法才能参与子类级别的注解.
+如上所述在类级别使用,注解指示声明类(及其子类) 的所有方法的默认值.  或者,每个方法都可以单独注解.，请参阅 <<transaction-declarative-annotations-method-visibility>> 获取有关 Spring 事务方法更多的信息。 请注意,类级别注解不适用于类层次结构中的父类; 在这种情况下,需要在本地重新声明方法才能参与子类级别的注解.
 
 当如上所述的 POJO 类在 Spring 上下文中定义为 bean 时,可以通过 `@Configuration` 类中的 `@EnableTransactionManagement` 注解使 bean 实例进行事务处理.  有关完整详细信息,请参阅 {api-spring-framework}/transaction/annotation/EnableTransactionManagement.html[javadoc].
 
@@ -1020,7 +1068,8 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 		<bean id="fooService" class="x.y.service.DefaultFooService"/>
 
 		<!-- enable the configuration of transactional behavior based on annotations -->
-		<tx:annotation-driven transaction-manager="txManager"/><!-- a TransactionManager is still required --> <1>
+		<!-- a TransactionManager is still required -->
+		<tx:annotation-driven transaction-manager="txManager"/> <1>
 
 		<bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
 			<!-- (this dependency is defined somewhere else) -->
@@ -1044,19 +1093,23 @@ TIP: 如果要连接的 `TransactionManager` 的 bean 名称具有名称 `transa
 	@Transactional
 	public class DefaultFooService implements FooService {
 
-		Publisher<Foo> getFoo(String fooName) {
+		@Override
+		public Publisher<Foo> getFoo(String fooName) {
 			// ...
 		}
 
-		Mono<Foo> getFoo(String fooName, String barName) {
+		@Override
+		public Mono<Foo> getFoo(String fooName, String barName) {
 			// ...
 		}
 
-		Mono<Void> insertFoo(Foo foo) {
+		@Override
+		public Mono<Void> insertFoo(Foo foo) {
 			// ...
 		}
 
-		Mono<Void> updateFoo(Foo foo) {
+		@Override
+		public Mono<Void> updateFoo(Foo foo) {
 			// ...
 		}
 	}
@@ -1088,12 +1141,36 @@ TIP: 如果要连接的 `TransactionManager` 的 bean 名称具有名称 `transa
 
 请注意,对于返回的  `Publisher`,在响应流取消信号方面有一些特殊注意事项. 有关更多详细信息,请参见 <<tx-prog-operator-cancel>> 部分. 有关更多详细信息,请 "使用 TransactionOperator"
 
+[[transaction-declarative-annotations-method-visibility]]
 .方法可见性与 `@Transactional`
-****
-使用代理时,只应将 `@Transactional` 注解应用于具有公共可见性的方法.  如果使用 `@Transactional` 注解对 protected,private 或 package-visible 方法进行注解, 则不会引发错误,但带注解的方法不会显示已配置的事务设置. 如果需要对非公共方法使用注解,请考虑使用切面(稍后介绍) .
-****
+[NOTE]
+====
+当您在 Spring 的标准配置中使用事务代理时，您应该仅将 `@Transactional` 注解应用于具有 `public` 可见性的方法。 如果您使用 `@Transactional` 注解 `protected`、`private` 或 package-visible 方法进行注解, 则不会引发错误,但带注解的方法不会显示已配置的事务设置. 如果需要对非公共方法使用注解,请考虑使用基于类的代理的提示或考虑使用 AspectJ 编译时或加载时编织（稍后描述）。
 
-您可以将 `@Transactional` 注解应用于接口定义、接口上的方法、类定义或类上的公共方法.  但是,仅仅存在 `@Transactional` 注解不足以激活事务行为.  `@Transactional` 注解仅用于元数据, 某些运行时基础结构使用可使用 `@Transactional`-aware注解,
+当在 `@Configuration` 类中使用 `@EnableTransactionManagement` 时，也可以通过注册自定义 `transactionAttributeSource` bean 来使基于类的代理的 `protected` 或包可见方法具有事务性，如下例所示。
+但是请注意，基于接口的代理中的事务方法必须始终是 `public` 并在代理接口中定义。
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	/**
+	 * Register a custom AnnotationTransactionAttributeSource with the
+	 * publicMethodsOnly flag set to false to enable support for
+	 * protected and package-private @Transactional methods in
+	 * class-based proxies.
+	 *
+	 * @see ProxyTransactionManagementConfiguration#transactionAttributeSource()
+	 */
+	@Bean
+	TransactionAttributeSource transactionAttributeSource() {
+		return new AnnotationTransactionAttributeSource(false);
+	}
+----
+
+_Spring TestContext Framework_ 默认支持非私有的 `@Transactional` 测试方法。 参见测试中的<<testing.adoc#testcontext-tx,Transaction Management>>
+章举例。
+====
+
+您可以将 `@Transactional` 注解应用于接口定义、接口上的方法、类定义或类上的方法.  但是,仅仅存在 `@Transactional` 注解不足以激活事务行为.  `@Transactional` 注解仅用于元数据, 某些运行时基础结构使用可使用 `@Transactional`-aware注解,
 并且可以使用元数据来配置具有事 务行为的 Bean. 在前面的示例中,`<tx:annotation-driven/>` 元素会切换事务行为.
 
 TIP: Spring 团队建议仅在具体类(以及具体类的方法) 上使用 `@Transactional` 注解,而不是在接口上.  你当然可以在接口(以及接口方法) 上使用 `@Transactional` 注解,但是只有你在使用基于接口的代理时才会工作.
@@ -1133,7 +1210,7 @@ AspectJ 织入需要类路径中的 `spring-aspects.jar` 以及启用加载时�
 
 NOTE: 处理 `@Transactional` 注解的默认通知模式是 `proxy`,它允许仅通过代理拦截调用.  这种方式不能拦截同一类中的本地方法调用. 对于更高级别的拦截模式,请考虑结合编译时或加载时织入切换到 `aspectj` 模式.
 
-NOTE: `proxy-target-class` 属性控制着使用 `@Transactional` 注解注解的类创建的事务代理的类型.  如果 `proxy-target-class` 的值为 `true`,创建基于类的代理.  如果 `proxy-target-class` 的值为 `false` 或者此属性别省略,则创建基于标准JDK接口的代理.  (有关不同代理类型的讨论,请参阅 <<core.adoc#aop-proxying>> ) .
+NOTE: `proxy-target-class` 属性控制着使用 `@Transactional` 注解注解的类创建的事务代理的类型.  如果 `proxy-target-class` 的值为 `true`,创建基于类的代理.  如果 `proxy-target-class` 的值为 `false` 或者此属性别省略,则创建基于标准JDK接口的代理.  (有关不同代理类型的讨论,请参阅 <<core.adoc#aop-proxying, Proxying Mechanisms>> ) .
 
 NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义它们的同一应用程序上下文的bean上查找 `@Transactional`.  这意味着,如果你将注解驱动的配置放在 `DispatcherServlet` 的 `WebApplicationContext` 中, 它只会在你的控制器而不是服务器中检查有 `@Transactional` 注解的 beans. 有关更多信息,请参阅<<web.adoc#mvc-servlet, MVC>>.
 
@@ -1182,7 +1259,7 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 * 隔离级别是 `ISOLATION_DEFAULT.`
 * 事务可读写.
 * 事务超时默认为基础事务系统的默认超时,如果不支持超时,则默认为 none.
-* 任何 `RuntimeException` 都触发回滚,任何受检查 `Exception` 都不触发回滚.
+* 任何 `RuntimeException` 或 `Error` 都触发回滚,任何受检查 `Exception` 都不触发回滚.
 
 你可以修改这些默认值. 下表概述了 `@Transactional` 注解的各种属性:
 
@@ -1195,6 +1272,14 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `String`
 | 可选限定符,指定要使用的事务管理器.
 
+| `transactionManager`
+| `String`
+| Alias for `value`.
+
+| `label`
+| Array of `String` labels to add an expressive description to the transaction.
+| Labels 可以由事务管理器评估,  并将特定于实现的行为与实际事务相关联.
+
 | <<tx-propagation,propagation>>
 | `enum`: `Propagation`
 | 可选的传播设置.
@@ -1206,6 +1291,10 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `timeout`
 | `int` (in seconds of granularity)
 | 可选的事务超时. 只有当传播值为 `REQUIRED` 或 `REQUIRES_NEW` 时可用.
+
+| `timeoutString`
+| `String` (in seconds of granularity)
+| Alternative for specifying the `timeout` in seconds as a `String` value -- for example, as a placeholder.
 
 | `readOnly`
 | `boolean`
@@ -1226,11 +1315,9 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `noRollbackForClassName`
 | Array of `String` class names, which must be derived from `Throwable.`
 | 必定不会导致回滚的可选异常类数组.
-
-| `label`
-| Array of `String` labels to add an expressive description to the transaction.
-| Labels 可以由事务管理器评估,  并将特定于实现的行为与实际事务相关联.
 |===
+
+TIP: 请参阅 <<transaction-declarative-rollback-rules, Rollback rules>>，了解有关可能的无意匹配的回滚规则语义、模式和警告的更多详细信息。
 
 目前,你无法明确的控制事务的名称, 'name' 意味着在事务监视器(如果可适用,例如WebLogic的事务监视器) 和输出日志中的事物名称, 对于声明式事务,事务名称始终是完全限定的类名+ `.`+事务通知类的方法名.  例如,如果 `BusinessService` 类的方法 `handlePayment(..)`  开始一个事务,
 那么事务的名称将是:  `com.example.BusinessService.handlePayment`.
@@ -2903,7 +2990,7 @@ NOTE: 默认情况下,`SQLErrorCodesFactory` 用于定义 `Error` 代码和自�
 			if (sqlEx.errorCode == -12345) {
 					return DeadlockLoserDataAccessException(task, sqlEx)
 				}
-				return null;
+				return null
 		}
 	}
 ----
@@ -3330,26 +3417,20 @@ NOTE: 除非必须调用已经存在的代码并传递标准 JDBC `DataSource` �
 ----
 	public class JdbcActorDao implements ActorDao {
 
-		private JdbcTemplate jdbcTemplate;
+		private SimpleJdbcCall funcGetActorName;
 
 		public void setDataSource(DataSource dataSource) {
-			this.jdbcTemplate = new JdbcTemplate(dataSource);
+			JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+			jdbcTemplate.setResultsMapCaseInsensitive(true);
+			this.funcGetActorName = new SimpleJdbcCall(jdbcTemplate)
+					.withFunctionName("get_actor_name");
 		}
 
-		public int[] batchUpdate(final List<Actor> actors) {
-			return this.jdbcTemplate.batchUpdate(
-					"update t_actor set first_name = ?, last_name = ? where id = ?",
-					new BatchPreparedStatementSetter() {
-						public void setValues(PreparedStatement ps, int i) throws SQLException {
-							Actor actor = actors.get(i);
-							ps.setString(1, actor.getFirstName());
-							ps.setString(2, actor.getLastName());
-							ps.setLong(3, actor.getId().longValue());
-						}
-						public int getBatchSize() {
-							return actors.size();
-						}
-					});
+		public String getActorName(Long id) {
+			SqlParameterSource in = new MapSqlParameterSource()
+					.addValue("in_id", id);
+			String name = funcGetActorName.executeFunction(String.class, in);
+			return name;
 		}
 
 		// ... additional methods
@@ -4766,8 +4847,7 @@ SQL 标准允许基于包含列表变量值的表达式来选择行.  一个典�
 
 NOTE: 传递许多值时要小心. JDBC 标准不保证您可以为 `in` 列表表达式使用 100 个以上的值.  各种数据库超过此数量,但它们通常对允许的值有多少硬性限制. 例如,Oracle 的限制为 1000.
 
-除了值列表中的原始值之外,您还可以创建对象数组的 `java.util.List`. 此列表可以支持为 `in` 子句定义的多个表达式, 例如 `select * from T_ACTOR where (id, last_name) in \((1, 'Johnson'), (2,
-'Harrop'\))`. 当然,这要求您的数据库支持此语法.
+除了值列表中的原始值之外,您还可以创建对象数组的 `java.util.List`. 此列表可以支持为 `in` 子句定义的多个表达式, 例如 `+++select * from T_ACTOR where (id, last_name) in ((1, 'Johnson'), (2,'Harrop'))+++`. 当然,这要求您的数据库支持此语法.
 
 [[jdbc-complex-types]]
 ==== 处理存储过程调用的复杂类型
@@ -5351,22 +5431,22 @@ SQL 查询可以通过 `Row` 对象或受影响行的数量返回值。根据你
 
 在不指定进一步映射细节的情况下，查询结果将表达为 `Map`，其键是不区分大小写的列名，值为列的值。
 
-您可以通过提供一个 `Function<Row, T>` 来控制结果映射，每个 `Row` 将调用该函数，以便它可以返回任意值(singular 值、集合和 Map 以及对象)。
+您可以通过提供一个 `Function<Row, T>` 来控制结果映射，每个 `Row` 将调用该函数，以便它可以返回任意值( singular 值、集合和 Map 以及对象)。
 
-下面的例子提取 id 列:
+下面的例子提取 `name` 列:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
 	Flux<String> names = client.sql("SELECT name FROM person")
-	        .map(row -> row.get("id", String.class))
+	        .map(row -> row.get("name", String.class))
 	        .all();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val names = client.sql("SELECT name FROM person")
-	        .map{ row: Row -> row.get("id", String.class) }
+	        .map{ row: Row -> row.get("name", String.class) }
 	        .flow()
 ----
 
@@ -5607,7 +5687,7 @@ NOTE: R2DBC 本身不支持类似于 collection 的值。尽管如此，展开�
 无论您选择使用(或不使用)上述的几种方式，在每次希望运行 `SQL` 时都很少需要创建 `DatabaseClient` 类的新实例。一旦配置好，`DatabaseClient` 实例就是线程安全的。如果您的应用程序访问多个数据库，您可能需要多个 `DatabaseClient` 实例，这需要多个 `ConnectionFactory`，以及随后的多个不同配置的 `DatabaseClient` 实例.
 
 [[r2dbc-auto-generated-keys]]
-== 获取自动生成的键
+=== 获取自动生成的键
 
 在具有自增或标识符的表中插入数据时，`INSERT` 语句可能会自动为其生成键。想要对生成的列名进行完全控制，只需注册 `StatementFilterFunction`，该函数请求所需列的生成键.
 
@@ -5768,7 +5848,9 @@ Spring 的 ORM 集成的主要目标是清晰的应用程序分层(使用任何�
 ----
 	@Repository
 	class ProductDaoImpl : ProductDao {
+
 		// class body here...
+
 	}
 ----
 
@@ -6240,7 +6322,7 @@ Spring 为各种环境提供了许多 `LoadTimeWeaver` 实现,允许 `ClassTrans
 
 有关 `LoadTimeWeave` r实现及其设置的更多信息,请参阅 AOP 章节中的<<core.adoc#aop-aj-ltw-spring, Spring 配置>> , 这些实现可以是通用的,也可以是针对各种平台(例如 Tomcat,WebLogic,GlassFish,Resin 和 JBoss) 定制的.
 
-如<<core.adoc#aop-aj-ltw-spring, Spring配置>>中所述,您可以使用 `context:load-time-weaver` XML 元素的 `@EnableLoadTimeWeaving` 注解配置上下文范围的 `LoadTimeWeaver`.  所有 JPA `LocalContainerEntityManagerFactoryBean` 实例都会自动选择这样的全局编织器.  以下示例显示了设置加载时织入器的首选方法,提供对平台(WebLogic,GlassFish,Tomcat,Resin,JBoss 或 VM 代理) 的自动检测以及将织入器自动传播到所有 `weaver-aware` bean:
+如 <<core.adoc#aop-aj-ltw-spring, Spring配置>> 中所述,您可以使用 `context:load-time-weaver` XML 元素的 `@EnableLoadTimeWeaving` 注解配置上下文范围的 `LoadTimeWeaver`.  所有 JPA `LocalContainerEntityManagerFactoryBean` 实例都会自动选择这样的全局编织器.  以下示例显示了设置加载时织入器的首选方法,提供对平台(WebLogic,GlassFish,Tomcat,Resin,JBoss 或 VM 代理) 的自动检测以及将织入器自动传播到所有 `weaver-aware` bean:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -6335,10 +6417,16 @@ NOTE:
 		}
 
 		public Collection loadProductsByCategory(String category) {
-			try (EntityManager em = this.emf.createEntityManager()) {
+			EntityManager em = this.emf.createEntityManager();
+			try {
 				Query query = em.createQuery("from Product as p where p.category = ?1");
 				query.setParameter(1, category);
 				return query.getResultList();
+			}
+			finally {
+				if (em != null) {
+					em.close();
+				}
 			}
 		}
 	}

@@ -307,6 +307,7 @@ Spring 框架提供以下 Spring 特定的注解集合,你可以在单元和集�
 		// class body...
 	}
 ----
+<1> 声明一个初始化器类
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -1297,7 +1298,7 @@ Spring的 `@Timed` 注解与 JUnit 4 的 `@Test(timeout=…)` 支持相比具有
 
 `@Repeat` 指明该测试方法需被重复执行. 注解指定该测试方法被重复的次数. 重复的范围包括该测试方法自身也包括相应的初始化和销毁方法.
 
-重复执行的范围包括测试方法本身的执行以及测试夹具的任何安装或拆除. 以下示例显示了如何使用 `@Repeat` 注解:
+重复执行的范围包括测试方法本身的执行以及测试夹具的任何安装或拆除. 当与 <<testcontext-junit4-rules, `SpringMethodRule`>> 一起使用时，范围还包括通过  `TestExecutionListener` 实现准备测试实例。 以下示例显示了如何使用 `@Repeat` 注解:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1538,6 +1539,16 @@ NOTE: 通常,  仅将 `@NestedTestConfiguration` 与 JUnit Jupiter 中的 `@Nest
 	annotation class EnabledOnMac {}
 ----
 
+[NOTE]
+====
+`@EnabledOnMac` 仅作为示例。 如果你有那个确切的用例，请使用 JUnit Jupiter 中内置的 `@EnabledOnOs(MAC)` 支持。
+====
+
+[WARNING]
+====
+从 JUnit 5.7 开始，JUnit Jupiter 也有一个名为 `@EnabledIf` 的条件注解。 因此，如果您希望使用 Spring 的 `@EnabledIf` 支持，请确保从正确的包中导入注释类型。
+====
+
 [[integration-testing-annotations-junit-jupiter-disabledif]]
 ===== `@DisabledIf`
 
@@ -1577,6 +1588,16 @@ NOTE: 通常,  仅将 `@NestedTestConfiguration` 与 JUnit Jupiter 中的 `@Nest
 	)
 	annotation class DisabledOnMac {}
 ----
+
+[NOTE]
+====
+`@EnabledOnMac` 仅作为示例。 如果你有那个确切的用例，请使用 JUnit Jupiter 中内置的 `@EnabledOnOs(MAC)` 支持。
+====
+
+[WARNING]
+====
+从 JUnit 5.7 开始，JUnit Jupiter 也有一个名为 `@EnabledIf` 的条件注解。 因此，如果您希望使用 Spring 的 `@EnabledIf` 支持，请确保从正确的包中导入注释类型。
+====
 
 [[integration-testing-annotations-meta]]
 ==== Meta-Annotation Support for Testing
@@ -2037,7 +2058,7 @@ Spring 提供的 `AbstractTestExecutionListener` 和所有默认的 `TestExecuti
 			// Invoke method in OrderService that publishes an event
 			orderService.submitOrder(new Order(/* ... */));
 			// Verify that an OrderSubmitted event was published
-			int numEvents = events.stream(OrderSubmitted.class).count(); // <3>
+			long numEvents = events.stream(OrderSubmitted.class).count(); // <3>
 			assertThat(numEvents).isEqualTo(1);
 		}
 	}
@@ -2091,9 +2112,18 @@ Spring Framework 5.2 中引入的 `EventPublishingTestExecutionListener` 提供�
 * `AfterTestMethodEvent`
 * `AfterTestClassEvent`
 
-NOTE: 仅当 `ApplicationContext` 已加载时才发布这些事件.
-
 这些事件可能由于各种原因而被消耗,例如重置模拟 bean 或跟踪测试执行.  使用测试执行事件而不是实现自定义 `TestExecutionListener` 的一个优点是,测试执行事件可以被测试 `ApplicationContext` 中注册的任何 Spring bean 所消耗,并且此类 bean 可以直接受益于依赖注入和 `ApplicationContext` 的其他功能.  相反,`TestExecutionListener` 不是 `ApplicationContext` 中的 bean.
+
+[NOTE]
+====
+`EventPublishingTestExecutionListener` 默认注册； 但是，它仅在 `ApplicationContext` _已经加载_ 时发布事件。 这可以防止 `ApplicationContext` 被不必要或过早地加载。
+
+因此，在 `ApplicationContext` 被另一个 `TestExecutionListener` 加载之前，不会发布 `BeforeTestClassEvent`。 例如，在注册了默认的 `TestExecutionListener` 实现集后，将不会为使用特定测试 `ApplicationContext` 的第一个测试类发布 `BeforeTestClassEvent`，但会为任何后续测试类发布 `BeforeTestClassEvent` 使用相同测试 `ApplicationContext` 的相同测试套件，因为在后续测试类运行时已经加载了上下文（只要上下文没有通过 `@DirtiesContext` 或 max-size 从 `ContextCache` 中删除 驱逐政策）。
+
+如果您希望确保始终为每个测试类发布 `BeforeTestClassEvent`，则需要在 `beforeTestClass` 回调中注册一个加载 `ApplicationContext` 的 `TestExecutionListener`，并且必须在`EventPublishingTestExecutionListener`   注册之前注册 `TestExecutionListener` 。
+
+同样，如果在给定测试类中的最后一个测试方法之后使用 `@DirtiesContext` 从上下文缓存中删除 `ApplicationContext`，则不会为该测试类发布 `AfterTestClassEvent`。
+====
 
 为了监听测试执行事件,Spring bean 可以选择实现 `org.springframework.context.ApplicationListener` 接口.  另外,可以使用 `@EventListener` 注解监听器方法,并将监听器方法配置为监听上面列出的特定事件类型之一 (请参阅<<core.adoc#context-functionality-events-annotation, 基于注解的事件监听器>>) .  由于这种方法的流行,Spring 提供了以下专用的 `@EventListener` 注解,以简化测试执行事件监听器的注册.  这些注解驻留在 `org.springframework.test.context.event.annotation` 包中.
 
@@ -4467,8 +4497,7 @@ TIP: 任何 before 方法 (例如以 JUnit Jupiter 的 `@BeforeEach` 注解的�
 ----
 
 [[testcontext-tx-false-positives]]
-.测试ORM代码时避免误报
-
+.测试 ORM 代码时避免误报
 [NOTE]
 =====
 当您测试操纵 Hibernate 会话或 JPA 持久性上下文状态的应用程序代码时,请确保在运行该代码的测试方法中刷新基础工作单元.  未能刷新基础工作单元可能会产生误报: 您的测试通过了,但是相同的代码在实际的生产环境中引发异常.  请注意,这适用于任何维护内存中工作单元的 ORM 框架.  在下面的基于 Hibernate 的示例测试用例中,一种方法演示了误报,另一种方法正确显示了刷新会话的结果:
@@ -4581,6 +4610,72 @@ TIP: 任何 before 方法 (例如以 JUnit Jupiter 的 `@BeforeEach` 注解的�
 
 	// ...
 ----
+=====
+
+[[testcontext-tx-orm-lifecycle-callbacks]]
+.Testing ORM entity lifecycle callbacks
+[NOTE]
+=====
+类似于在测试 ORM 代码时避免 <<testcontext-tx-false-positives, false positives>> 的注释，如果您的应用程序使用实体生命周期回调（也称为实体侦听器），请确保刷新底层单元在运行该代码的测试方法中工作。未能 _flush_ 或 _clear_ 底层工作单元可能会导致某些生命周期回调未被调用。
+
+例如，当使用 JPA 时，不会调用 `@PostPersist`、`@PreUpdate` 和 `@PostUpdate` 回调，除非在保存或更新实体后调用 `entityManager.flush()`。类似地，如果实体已经附加到当前工作单元（与当前持久性上下文相关联），则尝试重新加载实体不会导致 `@PostLoad` 回调，除非之前调用了 `entityManager.clear()` 尝试重新加载实体。
+
+以下示例显示如何刷新 `EntityManager` 以确保在持久化实体时调用 `@PostPersist` 回调。已为示例中使用的 `Person` 实体注册了具有 `@PostPersist` 回调方法的实体侦听器。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ...
+
+	@Autowired
+	JpaPersonRepository repo;
+
+	@PersistenceContext
+	EntityManager entityManager;
+
+	@Transactional
+	@Test
+	void savePerson() {
+		// EntityManager#persist(...) results in @PrePersist but not @PostPersist
+		repo.save(new Person("Jane"));
+
+		// Manual flush is required for @PostPersist callback to be invoked
+		entityManager.flush();
+
+		// Test code that relies on the @PostPersist callback
+		// having been invoked...
+	}
+
+	// ...
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ...
+
+	@Autowired
+	lateinit var repo: JpaPersonRepository
+
+	@PersistenceContext
+	lateinit var entityManager: EntityManager
+
+	@Transactional
+	@Test
+	fun savePerson() {
+		// EntityManager#persist(...) results in @PrePersist but not @PostPersist
+		repo.save(Person("Jane"))
+
+		// Manual flush is required for @PostPersist callback to be invoked
+		entityManager.flush()
+
+		// Test code that relies on the @PostPersist callback
+		// having been invoked...
+	}
+
+	// ...
+----
+
+见 https://github.com/spring-projects/spring-framework/blob/5.3.x/spring-test/src/test/java/org/springframework/test/context/junit/jupiter/orm/JpaEntityListenerTests.java Spring Framework 测试套件中的 [JpaEntityListenerTests] 用于使用所有 JPA 生命周期回调的工作示例。
 =====
 
 
@@ -5734,7 +5829,7 @@ MockMvc 可以通过以下两种方式之一进行设置.  一种是直接指向
 [[spring-mvc-test-server-defining-expectations]]
 ===== 定义期望
 
-您可以通过在执行请求后追加一个或多个  `.andExpect(..)`  调用来定义期望,如以下示例所示:
+您可以通过在执行请求后追加一个或多个  `.andExpect(..)`  调用来定义期望,如以下示例所示，如果一个失败，则不会执行其他的:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -5752,6 +5847,19 @@ MockMvc 可以通过以下两种方式之一进行设置.  一种是直接指向
 	mockMvc.get("/accounts/1").andExpect {
 		status().isOk()
 	}
+----
+
+您可以通过在执行后附加 `andExpectAll(..)` 来定义多个期望请求，如下例所示。 与 `andExpect(..)` 相比，
+`andExpectAll(..)` 保证所有提供的期望都将被断言，并且所有故障都将被跟踪和报告。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcRequestBuilders.* and MockMvcResultMatchers.*
+
+	mockMvc.perform(get("/accounts/1")).andExpectAll(
+		status().isOk(),
+		content().contentType("application/json;charset=UTF-8"));
 ----
 
 `MockMvcResultMatchers.*`  提供了许多期望,其中一些期望与更详细的期望进一步嵌套.
@@ -6019,7 +6127,7 @@ MockMVc 基于 `spring-test` 模块的 Servlet API 模拟实现而构建,并且�
 [[spring-mvc-test-server-resources]]
 ===== 进一步的例子
 
-测试框架包括 https://github.com/spring-projects/spring-framework/tree/master/spring-test/src/test/java/org/springframework/test/web/servlet/samples[许多示例测试],旨在展示如何使用 MockMvc 或通过 https://github.com/spring-projects/spring-framework/tree/master/spring-test/src/test/java/org/springframework/test/web/servlet/samples/client[WebTestClient] 使用 MockMvc .  您可以浏览这些示例以获取进一步的想法.
+测试框架包括 {spring-framework-main-code}/spring-test/src/test/java/org/springframework/test/web/servlet/samples[许多示例测试],旨在展示如何使用 MockMvc 或通过 {spring-framework-main-code}/spring-test/src/test/java/org/springframework/test/web/servlet/samples/client[WebTestClient] 使用 MockMvc .  您可以浏览这些示例以获取进一步的想法.
 
 [[spring-mvc-test-server-htmlunit]]
 ==== HtmlUnit 集成
@@ -7046,7 +7154,7 @@ Assist -> Favorites 下的 Eclipse 首选项中,将 `MockRestRequestMatchers.{as
 [[spring-mvc-test-client-resources]]
 ==== 客户端 REST 测试的更多示例
 
-Spring MVC Test 自己的测试包括客户端 REST 测试的 https://github.com/spring-projects/spring-framework/tree/master/spring-test/src/test/java/org/springframework/test/web/client/samples[示例测试] .
+Spring MVC Test 自己的测试包括客户端 REST 测试的 {spring-framework-main-code}/spring-test/src/test/java/org/springframework/test/web/client/samples[示例测试] .
 
 [[testing-resources]]
 == 更多资源

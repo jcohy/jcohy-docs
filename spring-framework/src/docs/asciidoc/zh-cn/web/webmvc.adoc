@@ -1,6 +1,6 @@
 [[mvc]]
 = Spring Web MVC
-:doc-spring-security: {doc-root}/spring-security/site/docs/current/reference
+:doc-spring-security: {doc-root}/spring-security/reference
 
 Spring Web MVC 是构建在 Servlet API 上的原始 Web 框架,从一开始就包含在 Spring Framework 中.  正式名称  "`Spring Web MVC,`" 来自其源模块({spring-framework-main-code}/spring-webmvc[`spring-webmvc`])的名称,但它通常被称为 "`Spring MVC`"..
 
@@ -60,6 +60,10 @@ Spring MVC 和许多其他 Web 框架一样,围绕前端控制器模式设计,�
 ----
 
 NOTE: 	除了直接使用 ServletContext API 之外,您还可以扩展 `AbstractAnnotationConfigDispatcherServletInitializer` 并覆盖特定方法(请参阅 <<mvc-servlet-context-hierarchy,上下文层次结构>>下的示例) .
+
+NOTE: 注意：对于编程用例，`GenericWebApplicationContext` 可以替代 `AnnotationConfigWebApplicationContext`。 见
+{api-spring-framework}/web/context/support/GenericWebApplicationContext.html[`GenericWebApplicationContext`]
+javadoc 了解详细信息。
 
 以下 `web.xml` 配置示例注册并初始化 `DispatcherServlet`:
 
@@ -234,7 +238,7 @@ TIP: 	如果不需要应用程序上下文层次结构,则应用程序可以仅�
 === Web MVC 配置
 [.small]#<<web-reactive.adoc#webflux-framework-config, WebFlux>>#
 
-对于每种类型的 <<mvc-servlet-special-bean-types,特殊 bean>>, `DispatcherServlet` 首先会检查 `WebApplicationContext`. 如果没有匹配的 bean 类型,则会退回检查 https://github.com/spring-projects/spring-framework/blob/master/spring-webmvc/src/main/resources/org/springframework/web/servlet/DispatcherServlet.properties[`DispatcherServlet.properties`].
+对于每种类型的 <<mvc-servlet-special-bean-types,特殊 bean>>, `DispatcherServlet` 首先会检查 `WebApplicationContext`. 如果没有匹配的 bean 类型,则会退回检查  {spring-framework-main-code}/spring-webmvc/src/main/resources/org/springframework/web/servlet/DispatcherServlet.properties[`DispatcherServlet.properties`].
 
 在大多数情况下,<<mvc-config>>是最佳起点.  它以 Java 或 XML 声明所需的 bean,并提供更高级别的配置回调 API 来自定义它.
 
@@ -422,8 +426,7 @@ NOTE: Spring Boot 依赖于 MVC Java 配置来配置 Spring MVC 并提供许多�
 
 在 `WebApplicationContext` 中声明的 `HandlerExceptionResolver` 用于解决请求处理过程中引发的异常. 这些异常解析程序允许使用自定义的逻辑来解决,有关详细信息,请参阅<<mvc-exceptionhandlers,Exceptions>>  .
 
-Spring 的 `DispatcherServlet` 也允许处理器返回 Servlet API 规范中定义的最后修改时间戳(`last-modification-date`) 值. 确定请求最后修改时间的方式是直截了当的:  `DispatcherServlet` 会先查找合适的处理映射来找到请求对应的处理器,然后检测它是否实现了 `LastModified` 接口.
-如果是的话,则调用接口的 `long getLastModified(request)` 方法,并将返回的值传回给客户端.
+对于 HTTP 缓存支持，可以使用 `WebRequest` 的 `checkNotModified` 方法，以及注解控制器的更多选项，如 <<mvc-caching-etag-lastmodified,控制器的 HTTP 缓存>>.
 
 您可以自定义通过 `DispatcherServlet` 的配置. 可以在 `web.xml` 文件中,声明元素 Servlet 的上添加 Servlet 的初始化参数(`init-param` 元素) .  下表列出了支持的参数:
 
@@ -450,7 +453,19 @@ Spring 的 `DispatcherServlet` 也允许处理器返回 Servlet API 规范中定
   请注意,如果配置了 默认 servlet 处理 ,则始终将未解析的请求转发到<<mvc-default-servlet-handler,默认servlet>>,并且永远不会引发404.
 |===
 
+[[mvc-handlermapping-path]]
+=== 路径匹配
 
+Servlet API 将完整的请求路径公开为  `requestURI` ，并进一步将其细分为 `contextPath`, `servletPath`, and `pathInfo`，其值根据 Servlet 的映射方式而有所不同。 根据这些输入，Spring MVC 需要确定查找路径用于处理程序映射，它是 `DispatcherServlet` 本身映射中的路径，不包括 `contextPath` 和任何 `servletMapping` 前缀（如果存在）。
+
+`servletPath` 和 `pathInfo` 被解码，这使得它们无法直接与完整的 `requestURI` 进行比较导出 `lookupPath`，因此有必要对 `requestURI` 进行解码。 然而，这引入了它自己的问题，因为 path 可能包含编码的保留字符，例如 `"/"` 或 `";"`，这些字符在解码后又会改变路径的结构，这也可能导致安全问题。 此外，Servlet 容器可能会在不同程度上规范化 `servletPath`，这使得更不可能执行与 `requestURI` 的比较 `startsWith`。
+
+这就是为什么最好避免依赖基于前缀的 `servletPath` 映射类型附带的 `servletPath`。 如果 `DispatcherServlet` 被映射为带有 `"/"` 的默认 Servlet 或者没有带有 `"/*"` 的前缀并且 Servlet 容器是 4.0+，那么 Spring MVC 能够检测到 Servlet 映射类型并避免完全使用 `servletPath` 和 `pathInfo`。 在 3.1 Servlet 容器上，假设相同的 Servlet 映射类型，可以通过在 MVC 配置中通过 <<mvc-config-path-matching>> 提供具有 `alwaysUseFullPath=true` 的 `UrlPathHelper` 来实现等效。
+
+幸运的是，默认的 Servlet 映射 `"/"` 是一个不错的选择。 但是，仍然存在一个问题，即需要对 `requestURI` 进行解码，以便与控制器映射进行比较。 这也是不可取的，因为可能会解码改变路径结构的保留字符。 如果这些字符不是预期的，那么您可以拒绝它们（如 Spring Security HTTP 防火墙），或者您可以使用 `urlDecode=false` 配置 `UrlPathHelper`，但控制器映射需要与编码路径匹配，这可能并不总是有效 出色地。 此外，有时 `DispatcherServlet` 需要与另一个 Servlet 共享 URL 空间，并且可能需要通过前缀进行映射。
+
+通过从 `PathMatcher` 切换到 5.3 或更高版本中可用的已解析 `PathPattern` 可以更全面地解决上述问题，请参阅 <<mvc-ann-requestmapping-pattern-comparison>>。 与需要解码查找路径或编码控制器映射的 `AntPathMatcher` 不同，解析的 `PathPattern`
+匹配名为  `RequestPath` 的路径的解析表示，一次一个路径段。 这允许单独解码和清理路径段值，而不会有改变路径结构的风险。 解析后的 `PathPattern` 也支持使用 `servletPath` 前缀映射，只要前缀保持简单并且没有任何需要编码的字符即可。
 
 [[mvc-handlermapping-interceptor]]
 === 拦截器
@@ -819,6 +834,15 @@ Spring 还提供了一个 `ThemeChangeInterceptor`,它允许通过简单的请�
 
 要使用 Apache Commons `FileUpload`,您可以配置名为 `multipartResolver` 的 `CommonsMultipartResolver` 类型的 bean.  您还需要添加 `commons-fileupload` 依赖.
 
+此解析器变体委托给应用程序中的本地库，提供跨 Servlet 容器的最大可移植性。 作为替代方案，考虑通过容器自己的解析器进行标准 Servlet 多部分解析，如下所述。
+
+[NOTE]
+====
+Commons FileUpload 传统上仅适用于 POST 请求，但接受任何 `multipart/` 内容类型。 见
+{api-spring-framework}/web/multipart/commons/CommonsMultipartResolver.html[`CommonsMultipartResolver`]
+javadoc 了解详细信息和配置选项。
+====
+
 [[mvc-multipart-resolver-standard]]
 ==== Servlet 3.0
 
@@ -862,6 +886,13 @@ Spring 还提供了一个 `ThemeChangeInterceptor`,它允许通过简单的请�
 ----
 
 一旦您配置好 Servlet 3.0,您就可以添加名为 `multipartResolver` 的 `StandardServletMultipartResolver` 类型的 bean.
+
+[NOTE]
+====
+此解析器变体按原样使用您的 Servlet 容器的多部分解析器，可能会将应用程序暴露给容器实现差异。 默认情况下，它将尝试使用任何 HTTP 方法解析任何 `multipart/` 内容类型，但这可能不受所有 Servlet 容器的支持。 见
+{api-spring-framework}/web/multipart/support/StandardServletMultipartResolver.html[`StandardServletMultipartResolver`]
+javadoc 了解详细信息和配置选项。
+====
 
 [[mvc-logging]]
 === 日志
@@ -1243,7 +1274,7 @@ URI 变量会自动转换为适当的类型,或者引发 `TypeMismatchException`
 	}
 ----
 
-URI 路径模式还可以嵌入 `${…}`,在启动时通过 `PropertyPlaceHolderConfigurer` 解析本地、系统、环境和其他属性源时解析的占位符. 例如,这种模式可以使用基于某些外部配置对基 URL 进行参数化
+URI 路径模式还可以嵌入 `${…}`,在启动时通过 `PropertySourcesPlaceholderConfigurer` 解析本地、系统、环境和其他属性源时解析的占位符. 例如,这种模式可以使用基于某些外部配置对基 URL 进行参数化
 
 
 [[mvc-ann-requestmapping-pattern-comparison]]
@@ -1521,6 +1552,12 @@ JDK 8  `java.util.Optional` 作为方法参数来支持的,它与具有 `require
 
 | `java.security.Principal`
 | 当前经过身份验证的用户 - 如果已知,可能是特定的 `Principal` 实现类.
+
+请注意，不会立即解析此参数，如果它被注解了以允许自定义解析器解析它
+在通过 `HttpServletRequest#getUserPrincipal` 恢复默认 resolution 之前。
+例如，Spring Security `Authentication` 实现了 `Principal` 并且将通过这样的方式注入
+`HttpServletRequest#getUserPrincipal`，除非它也用 `@AuthenticationPrincipal` 注解，在这种情况下它
+由自定义 Spring Security 解析器通过 `Authentication#getPrincipal` 解析。
 
 | `HttpMethod`
 | 请求的 HTTP 方法.
@@ -1972,27 +2009,29 @@ JSESSIONID=415A4AC178C59DACE0B2C9CA727CDD84
 .Java
 ----
 	@PostMapping("/owners/{ownerId}/pets/{petId}/edit")
-	public String processSubmit(@ModelAttribute Pet pet) { } <1>
+	public String processSubmit(@ModelAttribute Pet pet) {
+		// method logic...
+	}
 ----
-<1> 绑定一个 `Pet` 的实例.
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 @PostMapping("/owners/{ownerId}/pets/{petId}/edit")
-fun processSubmit(@ModelAttribute pet: Pet): String { } // <1>
+fun processSubmit(@ModelAttribute pet: Pet): String {
+	// method logic...
+}
 ----
-<1> 绑定一个 `Pet` 的实例.
 
-上面的 `Pet` 实例解析如下:
+上面的 `Pet` 实例来源于以下方式之一：:
 
-* 它可能来自已经添加的<<mvc-ann-modelattrib-methods,Model>>.
-* 它可能因为<<mvc-ann-sessionattributes,@SessionAttributes>>注解的使用已经存在在 model 中.
-* 它可能是由 URI 模板变量和转换中取得的(下面会详细讲解) .
-* 它可能是调用了自身的默认构造器被实例化出来的.
+* 可能来自由 <<mvc-ann-modelattrib-methods,@ModelAttribute 方法>> 添加的模型中检索
+* 如果出现模型属性，则从 HTTP 会话中检索类级别的 <<mvc-ann-sessionattributes>> 注解
+* 通过 `Converter` 获得，其中模型属性名称与请求值的名称匹配，例如路径变量或请求参数（下面会详细讲解）。
+* 它可能是调用了自身的默认构造器被实例化出来的
 * 他可能从调用具有与 Servlet 请求参数匹配的参数的 `"primary constructor"`.  参数名称通过 JavaBeans `@ConstructorProperties` 或字节码中的运行时保留参数名称确定.
 
-虽然通常使用<<mvc-ann-modelattrib-methods,Model>> 来使用属性填充模型,但另一种替代方法是依赖于 `Converter<String, T>` 和 URI 路径变量.  在以下示例中, model 属性名称 `account` 匹配 URI 路径变量 `account`,并通过将 String 字符串传递到已注册的 `Converter<String, Account>` 转换器来加载 `Account` :
+虽然通常使用<<mvc-ann-modelattrib-methods,Model>> 来使用属性填充模型,但另一种替代方法是依赖于 `Converter<String, T>` 和 URI 路径变量.  这适用于模型属性名称与请求值的名称（例如路径变量或请求参数）匹配，并且存在从 `String` 到模型属性类型的 `Converter` 。  在以下示例中, model 属性名称 `account` 匹配 URI 路径变量 `account`,并通过将 String 字符串传递到已注册的 `Converter<String, Account>` 转换器来加载 `Account` :
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -2139,7 +2178,7 @@ fun processSubmit(@ModelAttribute pet: Pet): String { } // <1>
 ----
 	@Controller
 	@SessionAttributes("pet") // <1>
-	public class EditPetForm {
+	class EditPetForm {
 		// ...
 	}
 ----
@@ -2161,9 +2200,8 @@ fun processSubmit(@ModelAttribute pet: Pet): String { } // <1>
 			if (errors.hasErrors) {
 				// ...
 			}
-				status.setComplete(); // <2>
-				// ...
-			}
+			status.setComplete(); // <2>
+			// ...
 		}
 	}
 ----
@@ -2919,6 +2957,12 @@ NOTE: 如果未明确指定名称,框架将根据属性的类型给予一个默�
 ----
 <1> 添加一个自定义 formatter ( 本例中为 `DateFormatter`).
 
+[[mvc-ann-initbinder-model-design]]
+==== Model Design
+[.small]#<<web-reactive.adoc#webflux-ann-initbinder-model-design, WebFlux>>#
+
+include::web-data-binding-model-design.adoc[]
+
 [[mvc-ann-exceptionhandler]]
 === 异常
 [.small]#<<web-reactive.adoc#webflux-ann-controller-exceptions, WebFlux>>#
@@ -3123,14 +3167,16 @@ REST 服务的一个常见要求是在响应正文中包含错误详细信息.  
 === Controller Advice
 [.small]#<<web-reactive.adoc#webflux-ann-controller-advice, WebFlux>>#
 
-通常,在 `@Controller` 类上声明 `@ExceptionHandler`, `@InitBinder`, 和 `@ModelAttribute` 注解.  如果您希望此类方法更全局地应用(跨控制器) ,则可以在标有 `@ControllerAdvice` 或 `@RestControllerAdvice` 的类中声明它们.
+`@ExceptionHandler`, `@InitBinder`, 和 `@ModelAttribute` 注解仅适用于 `@Controller` 类或类层次结构上声明 .相反，如果它们在 `@ControllerAdvice` 或 `@RestControllerAdvice` 类中声明，则它们适用于任何控制器。 此外，从 5.3 开始，`@ControllerAdvice` 中的 `@ExceptionHandler` 方法可用于处理来自任何 `@Controller` 或任何其他处理程序的异常。
 
-`@ControllerAdvice` `@Component` 注解,这意味着可以通过组件扫描将这些类注册为 Spring bean.  `@RestControllerAdvice` 也是一个用 `@ControllerAdvice` 和 `@ResponseBody` 标记的元注解,这实际上意味着 `@ExceptionHandler` 方法通过消息转换(与视图解析或模板渲染相对) 呈现给响应主体.
+`@ControllerAdvice` 使用 `@Component` 元注解,这意味着可以通过 <<core.adoc#beans-java-instantiating-container-scan,
+组件扫描>> 将这些类注册为 Spring bean.  `@RestControllerAdvice` 也是一个用 `@ControllerAdvice` 和 `@ResponseBody` 标记的元注解,这实际上意味着 `@ExceptionHandler` 方法将通过响应正文消息转换而不是通过 HTML 视图呈现其返回值.
 
-在启动时, `@RequestMapping` 和 `@ExceptionHandler` 方法的基础结构类检测 `@ControllerAdvice` 类型的 Spring bean,然后在运行时应用它们的方法.
+在启动时，`RequestMappingHandlerMapping` 和 `ExceptionHandlerExceptionResolver` 检测控制器通知 bean 并在运行时应用它们。 来自 `@ControllerAdvice` 的全局`@ExceptionHandler` 方法在 _after_ 来自`@Controller` 的本地方法之后应用。相比之下，全局 `@ModelAttribute` 和 `@InitBinder` 方法在 _before_ 本地方法之前应用。
+
 全局 `@ExceptionHandler` 方法(来自 `@ControllerAdvice`) 在本地方法之后(来自 `@Controller`) 应用.  相比之下,全局 `@ModelAttribute` 和 `@InitBinder` 方法在本地方法之前应用.
 
-默认情况下,`@ControllerAdvice` 方法适用于每个请求(即所有控制器) ,但您可以通过使用注解上的属性将其缩小到控制器的子集,如以下示例所示:
+默认情况下,`@ControllerAdvice` 可以通过使用注解上的属性将其缩小到控制器的子集,如以下示例所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -3185,24 +3231,22 @@ include::web-uris.adoc[leveloffset=+2]
 ----
 	HttpServletRequest request = ...
 
-	// Re-uses host, scheme, port, path and query string...
+	// Re-uses scheme, host, port, path, and query string...
 
-	ServletUriComponentsBuilder ucb = ServletUriComponentsBuilder.fromRequest(request)
-			.replaceQueryParam("accountId", "{id}").build()
-			.expand("123")
-			.encode();
+	URI uri = ServletUriComponentsBuilder.fromRequest(request)
+			.replaceQueryParam("accountId", "{id}")
+			.build("123");
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val request: HttpServletRequest = ...
 
-	// Re-uses host, scheme, port, path and query string...
+	// Re-uses scheme, host, port, path, and query string...
 
-	val ucb = ServletUriComponentsBuilder.fromRequest(request)
-			.replaceQueryParam("accountId", "{id}").build()
-			.expand("123")
-			.encode()
+	val uri = ServletUriComponentsBuilder.fromRequest(request)
+			.replaceQueryParam("accountId", "{id}")
+			.build("123")
 ----
 
 您可以创建相对于上下文路径的 URI,如以下示例所示:
@@ -3210,18 +3254,26 @@ include::web-uris.adoc[leveloffset=+2]
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	// Re-uses host, port and context path...
+	HttpServletRequest request = ...
 
-	ServletUriComponentsBuilder ucb = ServletUriComponentsBuilder.fromContextPath(request)
-			.path("/accounts").build()
+	// Re-uses scheme, host, port, and context path...
+
+	URI uri = ServletUriComponentsBuilder.fromContextPath(request)
+			.path("/accounts")
+			.build()
+			.toUri();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	// Re-uses host, port and context path...
+	val request: HttpServletRequest = ...
 
-	val ucb = ServletUriComponentsBuilder.fromContextPath(request)
-			.path("/accounts").build()
+	// Re-uses scheme, host, port, and context path...
+
+	val uri = ServletUriComponentsBuilder.fromContextPath(request)
+			.path("/accounts")
+			.build()
+			.toUri()
 ----
 
 您可以创建相对于 Servlet 的 URI(例如 `/main/{asterisk}`) ,如以下示例所示:
@@ -3229,18 +3281,26 @@ include::web-uris.adoc[leveloffset=+2]
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	// Re-uses host, port, context path, and Servlet prefix...
+	HttpServletRequest request = ...
 
-	ServletUriComponentsBuilder ucb = ServletUriComponentsBuilder.fromServletMapping(request)
-			.path("/accounts").build()
+	// Re-uses scheme, host, port, context path, and Servlet mapping prefix...
+
+	URI uri = ServletUriComponentsBuilder.fromServletMapping(request)
+			.path("/accounts")
+			.build()
+			.toUri();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	// Re-uses host, port, context path, and Servlet prefix...
+	val request: HttpServletRequest = ...
 
-	val ucb = ServletUriComponentsBuilder.fromServletMapping(request)
-			.path("/accounts").build()
+	// Re-uses scheme, host, port, context path, and Servlet mapping prefix...
+
+	val uri = ServletUriComponentsBuilder.fromServletMapping(request)
+			.path("/accounts")
+			.build()
+			.toUri()
 ----
 
 NOTE: 从 5.1 开始,`ServletUriComponentsBuilder` 会忽略来自 `Forwarded` 和 `X-Forwarded-*` 头部的信息,这些头部信息指定了客户端发起的地址.  考虑使用<<filters-forwarded-headers, `ForwardedHeaderFilter`>>来提取和使用或丢弃此类请求头.
@@ -3712,10 +3772,10 @@ include::webmvc-cors.adoc[leveloffset=+1]
 
 https://projects.spring.io/spring-security/[Spring Security]项目为保护 Web 应用程序免受恶意攻击提供支持.  请参阅 Spring Security 参考文档,包括:
 
-* {doc-spring-security}/html5/#mvc[Spring MVC Security]
-* {doc-spring-security}/html5/#test-mockmvc[Spring MVC Test Support]
-* {doc-spring-security}/html5/#csrf[CSRF protection]
-* {doc-spring-security}/html5/#headers[Security Response Headers]
+* {doc-spring-security}/servlet/integrations/mvc.html[Spring MVC Security]
+* {doc-spring-security}/servlet/test/mockmvc/setup.html[Spring MVC Test Support]
+* {doc-spring-security}/features/exploits/csrf.html#csrf-protection[CSRF protection]
+* {doc-spring-security}/features/exploits/headers.html[Security Response Headers]
 
 https://hdiv.org/[HDIV] 是另一个与 Spring MVC 集成的 Web 安全框架.
 
@@ -4205,11 +4265,11 @@ TIP: 如果需要在某处注入 `LocalValidatorFactoryBean`,请创建一个 bea
 === 内容类型
 [.small]#<<web-reactive.adoc#webflux-config-content-negotiation, WebFlux>>#
 
-您可以配置 Spring MVC 如何根据请求确定所请求的媒体类型(例如,`Accept` 头,URL路径扩展,查询参数等) .
+您可以配置 Spring MVC 如何根据请求确定所请求的媒体类型(例如,`Accept` 头,URL 路径扩展,查询参数等) .
 
-默认情况下,首先检查 URL 路径扩展 - 将 `json`, `xml`, `rss`, 和 `atom` 注册为已知扩展(取决于类路径依赖性) .  第二个检查 `Accept` 头.
+默认情况下,只检查  `Accept` 头.
 
-将这些默认值更改为只接受 `Accept` 头,并且如果必须使用基于内容类型解析,请考虑路径扩展上的查询参数策略.  有关更多详细信息,请参阅 <<mvc-ann-requestmapping-suffix-pattern-match,后缀匹配>> 和 <<mvc-ann-requestmapping-rfd,后缀匹配以及RFD>>.
+如果必须使用基于内容类型解析,请考虑路径扩展上的查询参数策略.  有关更多详细信息,请参阅 <<mvc-ann-requestmapping-suffix-pattern-match,后缀匹配>> 和 <<mvc-ann-requestmapping-rfd,后缀匹配以及RFD>>.
 
 在 Java 配置中,您可以自定义请求的内容类型解析,如以下示例所示:
 
@@ -4616,6 +4676,8 @@ MVC 命名空间提供专用的元素.  以下示例适用于 FreeMarker:
 请注意,当同时使用 `EncodedResourceResolver`(例如,用于提供gzipped或brotli编码的资源) 和 `VersionedResourceResolver` 时,必须按此顺序注册它们.  这可确保始终基于未编码的文件可靠地计算基于内容的版本.
 
 https://www.webjars.org/documentation[WebJars] 也支持使用 `WebJarsResourceResolver` 和自动注册,当 `org.webjars:webjars-locator` 存在于类路径中时. 解析器可以重写 URL 来包含 jar 的版本,也可以与传入的 URL 匹配,而不需要版本 .  例如, `/jquery/jquery.min.js` 到 `/jquery/1.2.0/jquery.min.js`.
+
+TIP: 基于 ResourceHandlerRegistry 的 Java 配置为细粒度控制提供了更多选项，例如 最后修改的行为和优化的资源解析。
 
 [[mvc-default-servlet-handler]]
 === 默认 Servlet

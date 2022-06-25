@@ -471,7 +471,7 @@ SockJS 客户端通过使用 Microsoft 的 https://blogs.msdn.com/b/ieinternals/
 
 Spring Security 3.2+ 版本为每个响应提供 `X-Frame-Options` 的设置. 默认情况下,Spring Security Java 配置将其设置为 `DENY`.  在 3.2 中,Spring Security XML 命名空间默认情况下不设置该头,但可以配置为执行此操作.  将来,它可以默认设置它.
 
-有关如何配置 `X-Frame-Options` 头设置的详细信息,请参阅 Spring Security 文档的 {doc-spring-security}/htmlsingle/#headers[默认的安全头].  您还可以查看 https://jira.spring.io/browse/SEC-2501[SEC-2501]的其他背景信息.
+有关如何配置 `X-Frame-Options` 头设置的详细信息,请参阅 Spring Security 文档的 {doc-spring-security}/features/exploits/headers.html#headers-default[默认的安全头].  您还可以查看 https://github.com/spring-projects/spring-security/issues/2718[gh-2718] 的其他背景信息.
 ====
 
 如果您的应用程序添加了 `X-Frame-Options` 响应头 (其实应该这样做) ,并且是依赖 iframe-based 传输的,则需要将 header 设置为 `SAMEORIGIN` 或 `ALLOW-FROM <origin>`.  随着 Spring SockJS 的支持也需要知道 SockJS 客户端的位置,因为它是从 iframe 加载的. 默认情况下,iframe 被设置为从 CDN 位置下载 SockJS 客户端. 最好将此选项配置为来自应用程序相同的 URL 源.
@@ -860,7 +860,7 @@ image::{image-resource}/message-flow-broker-relay.png[]
 	@Controller
 	public class GreetingController {
 
-		@MessageMapping("/greeting") {
+		@MessageMapping("/greeting")
 		public String handle(String greeting) {
 			return "[" + getTimestamp() + ": " + greeting;
 		}
@@ -1035,7 +1035,8 @@ image::{image-resource}/message-flow-broker-relay.png[]
 
 NOTE: 	应用程序还可以使用点分隔 (而不是斜线分隔) 目标.  请查阅<<websocket-stomp-destination-separator,点作为分隔符>>.
 
-如果配置了任务调度程序,则简单代理支持 https://stomp.github.io/stomp-specification-1.2.html#Heart-beating[STOMP 心跳].  为此,您可以声明自己的调度程序或使用内部自动声明和使用的调度程序.  以下示例显示如何声明自己的调度程序:
+如果配置了任务调度程序,则简单代理支持 https://stomp.github.io/stomp-specification-1.2.html#Heart-beating[STOMP 心跳].  要配置调度程序，您可以声明自己的 `TaskScheduler` bean 并通过 `MessageBrokerRegistry` 进行设置。 或者，您可以使用内置 `WebSocket` 配置中自动声明的那个，但是，您需要 `@Lazy` 来避免
+内置 WebSocket 配置和您的 `WebSocketMessageBrokerConfigurer` 之间的循环。 例如：
 
 [source,java,indent=0,subs="verbatim,quotes"]
 ----
@@ -1046,13 +1047,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 	private TaskScheduler messageBrokerTaskScheduler;
 
 	@Autowired
-	public void setMessageBrokerTaskScheduler(TaskScheduler taskScheduler) {
+	public void setMessageBrokerTaskScheduler(@Lazy TaskScheduler taskScheduler) {
 		this.messageBrokerTaskScheduler = taskScheduler;
 	}
 
 	@Override
 	public void configureMessageBroker(MessageBrokerRegistry registry) {
-
 		registry.enableSimpleBroker("/queue/", "/topic/")
 				.setHeartbeatValue(new long[] {10000, 20000})
 				.setTaskScheduler(this.messageBrokerTaskScheduler);
@@ -1245,9 +1245,7 @@ WebSocket 每一次 STOMP 的消息传递会话都是从 HTTP 请求开始的,�
 
 简而言之,典型的 Web 应用程序除了已经为安全性做的事情之外,不需要做任何事情. 用户在 HTTP 请求级别进行身份验证,通过基于 cookie 的 HTTP 会话维护的安全上下文,然后与为该用户创建的 WebSocket 或 SockJS 会话关联,并通过应用程序在每个消息流中标记用户的头信息.
 
-请注意,STOMP 协议在 CONNECT 帧上有 `login` 和 `passcode` 头. 这些都是最初的设计并且仍然现在有些还是需要的,例如为了能在 TCP 中传输 STOMP. 然而,对于 WebSocket 上的 STOMP 在默认情况下,Spring 会忽略 STOMP 协议级别的授权头,并假定用户已经在 HTTP 传输级别进行了身份验证,并希望 WebSocket 或 SockJS 会话包含经过身份验证的用户.
-
-NOTE: 	Spring Security 提供 https://docs.spring.io/spring-security/site/docs/current/reference/htmlsingle/#websocket[WebSocket子协议授权],该授权使用 `ChannelInterceptor` 根据其中的用户头来授权消息.  此外,Spring Session 提供了 https://docs.spring.io/spring-session/docs/current/reference/html5/#websocket[WebSocket 集成],可确保在 WebSocket 会话仍处于 active 状态时用户 HTTP 会话不会过期.
+请注意,STOMP 协议在 CONNECT 帧上有 `login` 和 `passcode` 头. 这些都是最初的设计并且仍然现在有些还是需要的. 然而,对于 WebSocket 上的 STOMP 在默认情况下,Spring 会忽略 STOMP 协议级别的授权头,并假定用户已经在 HTTP 传输级别进行了身份验证,并希望 WebSocket 或 SockJS 会话包含经过身份验证的用户.
 
 [[websocket-stomp-authentication-token-based]]
 === 基于 token 的验证
@@ -1293,11 +1291,17 @@ NOTE: 上述限制适用于基于浏览器的客户端,并且不适用于支持�
 
 还要注意,在使用 Spring Security 对消息的授权时,目前需要确保在 Spring 安全之前做好了身份验证的 `ChannelInterceptor` 配置,最好通过在自己的 `WebSocketMessageBrokerConfigurer` 实现中声明自定义拦截器来实现,该实现使用 `@Order(Ordered.HIGHEST_PRECEDENCE + 99)` 进行标记.
 
+[[websocket-stomp-authorization]]
+=== Authorization
+
+Spring Security 提供 https://docs.spring.io/spring-security/site/docs/current/reference/htmlsingle/#websocket[WebSocket 子协议授权],该授权使用 `ChannelInterceptor` 根据其中的用户头来授权消息.  此外,Spring Session 提供了 https://docs.spring.io/spring-session/docs/current/reference/html5/#websocket[WebSocket 集成],可确保在 WebSocket 会话仍处于 active 状态时用户 HTTP 会话不会过期.
 
 [[websocket-stomp-user-destination]]
 === 用户的目的地
 
 应用程序可以发送针对特定用户的消息,Spring 的 STOMP 支持可识别以 `/user/` 为前缀的目标.  例如,客户端可能订阅 `/user/queue/position-updates` 目的地.  此目标由 `UserDestinationMessageHandler` 处理,并转换为用户会话唯一的目标 (例如 `/queue/position-updates-user123`) .  这为订阅通用命名的目的地提供了方便,同时确保与订阅同一目的地的其他用户没有冲突,以便每个用户都能接收到唯一的库存位置更新.
+
+TIP: 使用用户目的地时，配置代理和应用程序目的地前缀很重要，如 <<websocket-stomp-enable>> 中所示，否则代理将处理仅应由 `UserDestinationMessageHandler` 处理的 "/user" 前缀消息 .
 
 在发送方,可以将消息发送到目的地,例如 `/user/{username}/queue/position-updates`,,然后由 `UserDestinationMessageHandler` 将其转换为一个或多个目的地,每个目的地对应于与用户相关联的每个会话.  这允许应用程序中的任何组件发送针对特定用户的消息,而不必知道比其名称和通用目的地更重要的内容. 也可以通过注解和消息传递模板来支持这一点.
 
