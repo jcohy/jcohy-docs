@@ -11,10 +11,7 @@ import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.PluginContainer;
-import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.Sync;
-
-import org.springframework.util.StringUtils;
 
 /**
  * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
@@ -75,7 +72,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         attributes.put("sources-root", project.getProjectDir() + "/src");
         attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
         attributes.put("spring-api-doc", "https://docs.spring.io/" + project.getName());
-        attributes.put("doc-root","https://docs.jcohy.com/");
+        attributes.put("doc-root","https://docs.jcohy.com");
         attributes.put("spring-docs-prefix","https://docs.spring.io/spring-framework/docs/");
         attributes.put("gh-samples-url","https://github.com/spring-projects/spring-security/master/");
     }
