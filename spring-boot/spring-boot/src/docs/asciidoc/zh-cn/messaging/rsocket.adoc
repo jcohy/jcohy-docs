@@ -1,0 +1,63 @@
+[[messaging.rsocket]]
+== RSocket
+https://rsocket.io[RSocket] 是用于字节流传输的二进制协议.  它通过通过单个连接传递的异步消息来启用对称交互模型.
+
+Spring 框架的 `spring-messaging` 模块在客户端和服务器端都支持 RSocket 请求者和响应者.  有关更多详细信息,请参见 Spring Framework 参考中的 {spring-framework-docs}/web-reactive.html#rsocket-spring[RSocket 部分],其中包括 RSocket 协议的概述.
+
+[[messaging.rsocket.strategies-auto-configuration]]
+=== RSocket 自动配置策略
+Spring Boot自动配置一个 `RSocketStrategies` bean,该 bean 提供了编码和解码 RSocket 有效负载所需的所有基础结构.  默认情况下,自动配置将尝试 (按顺序) 配置以下内容:
+
+. Jackson的  https://cbor.io/[CBOR] 编解码器
+. Jackson的 JSON  编解码器
+
+`spring-boot-starter-rsocket` 启动器提供了两个依赖.  查阅 <<features#features.json.jackson,Jackson 支持>>部分,以了解有关定制可能性的更多信息.
+
+开发人员可以通过创建实现 `RSocketStrategiesCustomizer` 接口的bean来自定义 `RSocketStrategies` 组件.  请注意,它们的 `@Order` 很重要,因为它确定编解码器的顺序.
+
+[[messaging.rsocket.server-auto-configuration]]
+=== RSocket 服务器自动配置
+Spring Boot 提供了 RSocket 服务器自动配置.  所需的依赖由 `spring-boot-starter-rsocket` 提供.
+
+Spring Boot 允许从 WebFlux 服务器通过 WebSocket 暴露 RSocket,或支持独立的 RSocket 服务器.  这取决于应用程序的类型及其配置.
+
+对于 WebFlux 应用程序 (即 `WebApplicationType.REACTIVE` 类型) ,仅当以下属性匹配时,RSocket 服务器才会插入 Web 服务器:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  rsocket:
+	    server:
+	      mapping-path: "/rsocket"
+	      transport: "websocket"
+----
+
+WARNING: 由于 RSocket 本身是使用该库构建的,因此只有 Reactor Netty 支持将 RSocket 插入 Web 服务器.
+
+另外,RSocket TCP 或 Websocket 服务器也可以作为独立的嵌入式服务器启动.  除了依赖性要求之外,唯一需要的配置是为该服务器定义端口:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  rsocket:
+	    server:
+	      port: 9898
+----
+
+[[messaging.rsocket.messaging]]
+=== Spring Messaging RSocket 支持
+Spring Boot 将为 RSocket 自动配置 Spring Messaging 基础结构.
+
+这意味着 Spring Boot 将创建一个 `RSocketMessageHandler` bean,该 bean 将处理对您的应用程序的 RSocket 请求.
+
+[[messaging.rsocket.requester]]
+=== 使用 RSocketRequester 调用 RSocket 服务
+在服务器和客户端之间建立 `RSocket` 通道后,任何一方都可以向另一方发送或接收请求.
+
+作为服务器,您可以在 RSocket `@Controller` 的任何处理程序方法上注入 `RSocketRequester` 实例.  作为客户端,您需要首先配置和建立 RSocket 连接.  在这种情况下,Spring Boot 会使用预期的编解码器自动配置 `RSocketRequester.Builder` 并应用任何 `RSocketConnectorConfigurer` bean.
+
+`RSocketRequester.Builder` 实例是一个原型 bean,这意味着每个注入点将为您提供一个新实例.  这样做是有目的的,因为此构建器是有状态的,因此您不应使用同一实例创建具有不同设置的请求者.
+
+以下代码显示了一个典型示例:
+
+include::code:MyService[]

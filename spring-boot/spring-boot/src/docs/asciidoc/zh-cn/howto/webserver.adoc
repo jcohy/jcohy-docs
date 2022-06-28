@@ -1,0 +1,443 @@
+[[howto.webserver]]
+== 嵌入式 Web 服务器
+每个 Spring Boot Web 应用程序都包含一个嵌入式 Web 服务器. 此功能导致许多方法问题,包括如何更改嵌入式服务器以及如何配置嵌入式服务器. 本节回答这些问题.
+
+[[howto.webserver.use-another]]
+=== 使用其他 Web 服务器
+许多 Spring Boot starter 都包含默认的嵌入式容器.
+
+* 对于 servlet 技术栈应用程序,通过 `spring-boot-starter-web` 包括来包括 Tomcat `spring-boot-starter-tomcat`,但是您可以使用 `spring-boot-starter-jetty` 或 `spring-boot-starter-undertow` 代替.
+* 对于 reactive 技术栈的应用,`spring-boot-starter-webflux` 包括响应式堆栈的 Netty 通过包括 `spring-boot-starter-reactor-netty`,但你可以使用 `spring-boot-starter-tomcat`,`spring-boot-starter-jetty` 或 `spring-boot-starter-undertow` 代替.
+
+切换到其他 HTTP 服务器时,您需要将默认依赖替换为所需的依赖. Spring Boot 为 HTTP 服务器提供了单独的 starter,以帮助简化此过程.
+
+以下 Maven 示例显示了如何排除 Tomcat 并包括 Spring MVC 的 Jetty:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<properties>
+		<servlet-api.version>3.1.0</servlet-api.version>
+	</properties>
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-web</artifactId>
+		<exclusions>
+			<!-- Exclude the Tomcat dependency -->
+			<exclusion>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-starter-tomcat</artifactId>
+			</exclusion>
+		</exclusions>
+	</dependency>
+	<!-- Use Jetty instead -->
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-jetty</artifactId>
+	</dependency>
+----
+
+NOTE: Servlet API 的版本已被覆盖,因为与 Tomcat 9 和 Undertow 2 不同,Jetty 9.4 不支持 Servlet 4.0.
+
+如果您希望使用支持 servlet 4.0 的 Jetty 10，您可以按照以下示例进行操作：
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<properties>
+		<jetty.version>10.0.8</jetty.version>
+	</properties>
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-web</artifactId>
+		<exclusions>
+			<!-- Exclude the Tomcat dependency -->
+			<exclusion>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-starter-tomcat</artifactId>
+			</exclusion>
+		</exclusions>
+	</dependency>
+	<!-- Use Jetty instead -->
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-jetty</artifactId>
+		<exclusions>
+			<!-- Exclude the Jetty-9 specific dependencies -->
+			<exclusion>
+				<groupId>org.eclipse.jetty.websocket</groupId>
+				<artifactId>websocket-server</artifactId>
+			</exclusion>
+			<exclusion>
+				<groupId>org.eclipse.jetty.websocket</groupId>
+				<artifactId>javax-websocket-server-impl</artifactId>
+			</exclusion>
+		</exclusions>
+	</dependency>
+----
+
+NOTE: `spring-boot-starter-reactor-netty` 使用 `WebClient` 该类是必需的,因此即使您需要包括其他 HTTP 服务器,也可能需要保持对 Netty 的依赖.
+
+请注意，除了排除 Tomcat 启动器之外，还需要排除一些特定于 Jetty9 的依赖项。
+
+以下 Gradle 示例配置了必要的依赖项和 {gradle-docs}/resolution_rules.html#sec:module_replacement[module replacement] 以使用 Undertow 代替 Spring WebFlux 的 Reactor Netty：
+
+[source,gradle,indent=0,subs="verbatim"]
+----
+	dependencies {
+		implementation "org.springframework.boot:spring-boot-starter-undertow"
+		implementation "org.springframework.boot:spring-boot-starter-webflux"
+		modules {
+			module("org.springframework.boot:spring-boot-starter-reactor-netty") {
+				replacedBy("org.springframework.boot:spring-boot-starter-undertow", "Use Undertow instead of Reactor Netty")
+			}
+		}
+	}
+----
+
+NOTE: `spring-boot-starter-reactor-netty` 使用 `WebClient` 该类是必需的,因此即使您需要包括其他 HTTP 服务器,也可能需要保持对 Netty 的依赖.
+
+[[howto.webserver.disable]]
+=== 禁用 Web 服务器
+如果您的类路径包含启动 Web 服务器所需的 bits,则 Spring Boot 将自动启动它. 要禁用此行为,请 `WebApplicationType` 在中配置 `application.properties`,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  main:
+	    web-application-type: "none"
+----
+
+[[howto.webserver.change-port]]
+=== 更改 HTTP 端口
+在独立应用程序中,主 HTTP 端口默认为 `8080` 但可以使用 `server.port` (例如,在 `application.properties` System 属性中或作为 System 属性) 进行设置. 由于轻松地绑定了 `Environment` 值,因此还可以使用 `SERVER_PORT` (例如,作为 OS 环境变量) .
+
+要完全关闭 HTTP 端点,但仍创建一个 `WebApplicationContext`,请使用 `server.port=-1` (这样做有时对测试很有用) .
+
+有关更多详细信息,请参阅 '`Spring Boot 特性`' 部分中的"`<<web#web.servlet.embedded-container.customizing>>`" 或 {spring-boot-autoconfigure-module-code}/web/ServerProperties.java[`ServerProperties`] 源代码.
+
+[[howto.webserver.use-random-port]]
+=== 使用随机未分配的 HTTP 端口
+要扫描可用端口 (使用 OS 本地来防止冲突) ,请使用 `server.port=0`.
+
+[[howto.webserver.discover-port]]
+=== 在运行时发现 HTTP 端口
+您可以从日志输出或 `WebServerApplicationContext` 通过其端口访问服务器正在运行的端口 `WebServer`. 最好的方法是确保它已初始化,是添加一个 `@Bean` 类型 `ApplicationListener<WebServerApplicationContext>`, 然后在发布事件时将其从事件中拉出.
+
+使用的测试 `@SpringBootTest(webEnvironment=WebEnvironment.RANDOM_PORT)` 还可以通过使用 `@LocalServerPort` 注解将实际端口注入字段中,如以下示例所示:
+
+include::code:MyWebIntegrationTests[]
+
+[NOTE]
+====
+`@LocalServerPort` 是 `@Value("${local.server.port}")` 的元注解 . 不要尝试在常规应用程序中注入端口. 如我们所见,仅在初始化容器之后才设置该值. 与测试相反,应早处理应用程序代码回调 (在值实际可用之前) .
+====
+
+[[howto.webserver.enable-response-compression]]
+=== 启用 HTTP 响应压缩
+Jetty,Tomcat 和 Undertow 支持 HTTP 响应压缩. 可以在中启用它 `application.properties`,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  compression:
+	    enabled: true
+----
+
+默认情况下,响应的长度必须至少为 2048 个字节才能执行压缩. 您可以通过设置 `server.compression.min-response-size` 属性来配置此行为.
+
+默认情况下,仅当响应的内容类型为以下之一时,它们才被压缩:
+
+* `text/html`
+* `text/xml`
+* `text/plain`
+* `text/css`
+* `text/javascript`
+* `application/javascript`
+* `application/json`
+* `application/xml`
+
+您可以通过设置 `server.compression.mime-types` 属性来配置此行为.
+
+[[howto.webserver.configure-ssl]]
+=== 配置 SSL
+可以通过设置各种 `+server.ssl.*+` 属性来声明性地配置 SSL ,通常在 `application.properties` 或中 `application.yml`. 以下示例显示了在中设置 SSL 属性 `application.properties`:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  port: 8443
+	  ssl:
+	    key-store: "classpath:keystore.jks"
+	    key-store-password: "secret"
+	    key-password: "another-secret"
+----
+
+以下示例显示了使用 PEM 编码的证书和私钥文件设置 SSL 属性：
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  port: 8443
+	  ssl:
+	    certificate: "classpath:my-cert.crt"
+	    certificate-private-key: "classpath:my-cert.key"
+	    trust-certificate: "classpath:ca-cert.crt"
+	    key-store-password: "secret"
+----
+
+有关 {spring-boot-module-code}/web/server/Ssl.java[`Ssl`]  所有受支持属性的详细信息,请参见.
+
+使用上述示例的配置意味着应用程序不再在端口 8080 上支持 HTTP 连接器. SpringBoot 不支持通过 `application.properties` 进行 HTTP 连接器和 HTTPS 连接器的配置 . 如果要同时拥有两者,则需要以编程方式配置其中之一.
+我们建议您使用 `application.properties` HTTPS 进行配置,因为 HTTP 连接器是两者中以编程方式进行配置的较容易方式.
+
+[[howto.webserver.configure-http2]]
+=== 配置 HTTP/2
+您可以使用 `server.http2.enabled` 配置属性在 Spring Boot 应用程序中启用 HTTP/2 支持. 该支持取决于所选的 Web 服务器和应用程序环境,因为并非所有 JDK8 版本都支持该协议.
+
+`h2`（HTTP/2 over TLS）和 `h2c`（HTTP/2 over TCP）都受支持。 要使用 `h2`，还必须启用 SSL。 未启用 SSL 时，将使用 `h2c`。
+`h2` 支持的细节取决于所选的 Web 服务器和应用程序环境，因为并非所有 JDK 8 版本都具有支持开箱即用的协议。
+
+[[howto.webserver.configure-http2.tomcat]]
+==== Tomcat HTTP/2
+默认情况下,Spring Boot 随 Tomcat 9.0.x 一起提供，他支持 `h2c`,当使用 JDK 9 或更高版本时,Tomcat 9.0.x 支持 `h2`. 另外,如果 `libtcnative` 库及其依赖已安装在主机操作系统上,则可以在 JDK 8 上使用 `h2` .
+
+如果没有,则必须使库目录可用于 JVM 库路径. 您可以使用 JVM 参数 (例如) 来执行此操作 `-Djava.library.path=/usr/local/opt/tomcat-native/lib`. 有关更多信息,请参见 https://tomcat.apache.org/tomcat-9.0-doc/apr.html[Tomcat 官方文档].
+
+在没有该本地支持的情况下,在 JDK 8 上启动 Tomcat 9.0.x 会记录以下错误:
+
+[indent=0,subs="verbatim"]
+----
+	ERROR 8787 --- [           main] o.a.coyote.http11.Http11NioProtocol      : The upgrade handler [org.apache.coyote.http2.Http2Protocol] for [h2] only supports upgrade via ALPN but has been configured for the ["https-jsse-nio-8443"] connector that does not support ALPN.
+----
+
+此错误不是致命错误,并且该应用程序仍以 HTTP/1.1 SSL 支持开头.
+
+[[howto.webserver.configure-http2.jetty]]
+==== Jetty HTTP/2
+要支持 HTTP/2, Jetty 需要具有 `org.eclipse.jetty.http2:http2-server` 依赖.  现在,根据您的部署,还需要选择其他依赖.
+要使用 `h2c`，不需要其他依赖项。
+要使用 `h2`，您还需要根据您的部署选择以下依赖项之一：
+
+* `org.eclipse.jetty:jetty-alpn-java-server` 用于在 JDK9+ 上运行的应用程序
+* `org.eclipse.jetty:jetty-alpn-openjdk8-server` 用于在 JDK8u252+ 上运行的应用程序
+* `org.eclipse.jetty:jetty-alpn-conscrypt-server` 不需要 JDK,使用 https://www.conscrypt.org/[Conscrypt library]
+
+[[howto.webserver.configure-http2.netty]]
+==== Reactor Netty HTTP/2
+在 `spring-boot-webflux-starter` 默认情况下,Reactor Netty 作为服务器使用. Reactor Netty 支持使用 JDK 8 或更高版本的 `h2c`, 无需配置其他依赖
+使用 JDK 9 或更高版本的 JDK 支持,可以将 Reactor Netty 配置为 `h2`. 对于 JDK 8 环境或最佳运行时性能,此服务器还支持带有本地库的 `h2`.为此,您的应用程序需要具有其他依赖.
+
+Spring Boot 管理 `io.netty:netty-tcnative-boringssl-static` "uber jar" 的版本,其中包含所有平台的本地库. 开发人员可以选择使用分类器仅导入所需的依赖 (请参阅 https://netty.io/wiki/forked-tomcat-native.html[Netty 官方文档]) .
+
+[[howto.webserver.configure-http2.undertow]]
+==== Undertow HTTP/2
+从 Undertow 1.4.0+ 开始,在 JDK8 上毫无条件的支持 `h2` 和 `h2c`.
+
+[[howto.webserver.configure]]
+=== 配置 Web 服务器
+通常,您首先应该考虑使用许多可用的配置键之一,并通过在您的 `application.properties` (或 `application.yml`,或环境等) 中添加新条目来自定义 Web 服务器. 请参阅 "`<<howto#howto.properties-and-configuration.discover-build-in-options-for-external-properties>>`".
+该 `server.{asterisk}` 命名空间在这里是非常有用的,它包括命名空间一样 `server.tomcat.{asterisk}`, `server.jetty.{asterisk}` 和其他对服务器的特定功能. 请参阅 <<application-properties#appendix.application-properties>> 的列表.
+
+前面的部分已经介绍了许多常见的用例,例如压缩,SSL 或 HTTP/2. 但是,如果您的用例不存在配置密钥,则应查看 {spring-boot-module-api}/web/server/WebServerFactoryCustomizer.html[`WebServerFactoryCustomizer`].
+您可以声明一个这样的组件,并访问与您选择的服务器相关的工厂: 您应该为所选服务器 (Tomcat,Jetty,Reactor Netty,Undertow) 和所选 Web 堆栈 (Servlet 或 Reactive) 选择对应的变体.
+
+以下示例适用于带有 `spring-boot-starter-web` (Servlet 技术栈) 的 Tomcat :
+
+include::code:MyTomcatWebServerCustomizer[]
+
+NOTE: Spring Boot 在内部使用该机制来自动配置服务器. 自动配置的 `WebServerFactoryCustomizer` Bean 的顺序为 `0`,除非有明确说明的顺序,否则它将在任何用户定义的定制器之前进行处理.
+
+一旦访问了 `WebServerFactory`,就可以经常向其添加定制程序,以配置特定的部分,例如连接器,服务器资源或服务器本身-全部使用服务器特定的 API.
+
+此外,Spring Boot 还提供:
+
+[[howto-configure-webserver-customizers]]
+[cols="1,2,2", options="header"]
+|===
+| Server | Servlet stack | Reactive stack
+
+| Tomcat
+| `TomcatServletWebServerFactory`
+| `TomcatReactiveWebServerFactory`
+
+| Jetty
+| `JettyServletWebServerFactory`
+| `JettyReactiveWebServerFactory`
+
+| Undertow
+| `UndertowServletWebServerFactory`
+| `UndertowReactiveWebServerFactory`
+
+| Reactor
+| N/A
+| `NettyReactiveWebServerFactory`
+|===
+
+最后,您还可以声明自己的 `WebServerFactory` 组件,该组件将覆盖 Spring Boot 提供的组件.这样做时,自动配置的定制程序仍会应用您定制的工厂,因此请谨慎使用该选项
+
+[[howto.webserver.add-servlet-filter-listener]]
+=== 将 Servlet, Filter, Listener 添加到应用程序
+在一个 servlet 栈的应用,即用 `spring-boot-starter-web`,有两种方法可以添加 `Servlet`,`Filter`,`ServletContextListener`,和由 Servlet API 到您的应用程序支持的其他 listeners:
+
+* <<howto#howto.webserver.add-servlet-filter-listener.spring-bean>>
+* <<howto#howto.webserver.add-servlet-filter-listener.using-scanning>>
+
+[[howto.webserver.add-servlet-filter-listener.spring-bean]]
+==== 使用 Spring Bean 添加 Servlet, Filter, 或 Listener
+要使用 Spring bean 添加 `Servlet`,`Filter` 或 Servlet `*Listener`,必须为其提供 `@Bean` 定义.  当您要注入配置或依赖时,这样做非常有用.
+但是,您必须非常小心,以免引起过多其他 bean 的急切初始化,因为必须在应用程序生命周期的早期就将它们安装在容器中.   (例如,让它们依赖于您的 `DataSource` 或 JPA 配置不是一个好主意. )
+您可以通过在第一次使用 bean 时 (而不是在初始化时) 延迟初始化 bean 来解决这些限制.
+
+对于过滤器和 Servlet,还可以通过添加 `FilterRegistrationBean` 或 `ServletRegistrationBean` 来代替基础组件或在基础组件之外添加映射和 `init` 参数.
+
+[NOTE]
+====
+如果在过滤器注册上未指定 `dispatcherType`,则使用 `REQUEST`.  这符合 Servlet 规范的默认调度程序类型.
+====
+
+像其他任何 Spring bean 一样,您可以定义 Servlet 过滤器 bean 的顺序.  请确保检查  "`<<web#web.servlet.embedded-container.servlets-filters-listeners.beans>>`"  部分.
+
+[[howto.webserver.add-servlet-filter-listener.spring-bean.disable]]
+===== 禁用 Servlet 或 Filter 的注册
+<<howto#howto.webserver.add-servlet-filter-listener.spring-bean,如前所述>>,任何 `Servlet` 或 `Filter` Bean 都会自动向 Servlet 容器注册.  要禁用特定 `Filter` 或 `Servlet` Bean 的注册,请为其创建注册 Bean 并将其标记为已禁用,如以下示例所示:
+
+include::code:MyFilterConfiguration[]
+
+[[howto.webserver.add-servlet-filter-listener.using-scanning]]
+==== 使用类路径扫描添加 Servlets, Filters, 和 Listeners
+通过使用 `@ServletComponentScan` 注解 `@Configuration` 类并指定包含要注册的组件的软件包,可以将 `@WebServlet`, `@WebFilter`, 和 `@WebListener` 注解的类自动注册到嵌入式 Servlet 容器中.  默认情况下,`@ServletComponentScan` 从带注解的类的包中进行扫描.
+
+[[howto.webserver.configure-access-logs]]
+=== 配置访问日志
+可以通过它们各自的命名空间为 Tomcat,Undertow 和 Jetty 配置访问日志.
+
+例如,以下设置使用 {tomcat-docs}/config/valve.html#Access_Logging[自定义模式] 记录对 Tomcat 的访问.
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  tomcat:
+	    basedir: "my-tomcat"
+	    accesslog:
+	      enabled: true
+	      pattern: "%t %a %r %s (%D ms)"
+----
+
+NOTE: 日志的默认位置是相对于 Tomcat 基本目录的日志目录.  默认情况下,`logs` 目录是一个临时目录,因此您可能需要修复 Tomcat 的基本目录或为日志使用绝对路径.  在前面的示例中,相对于应用程序的工作目录,日志位于 `my-tomcat/logs` 中.
+
+可以用类似的方式配置 Undertow 的访问日志,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  undertow:
+	    accesslog:
+	      enabled: true
+	      pattern: "%t %a %r %s (%D ms)"
+----
+
+日志存储在相对于应用程序工作目录的 `logs` 目录中.  您可以通过设置 `server.undertow.accesslog.dir` 属性来自定义此位置.
+
+最后,Jetty 的访问日志也可以配置如下:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  jetty:
+	    accesslog:
+	      enabled: true
+	      filename: "/var/log/jetty-access.log"
+----
+
+默认情况下,日志被重定向到 `System.err`.  有关更多详细信息,请参见 Jetty 文档.
+
+[[howto.webserver.use-behind-a-proxy-server]]
+=== 在前端代理服务器后面运行
+如果您的应用程序在代理,负载均衡器之后或在云中运行,则请求信息 (例如主机,端口,协议...) 可能会随之变化.
+例如,您的应用程序可能正在 `10.10.10.10:8080` 上运行,但是 HTTP 客户端应该只能看到 `example.org`.
+
+https://tools.ietf.org/html/rfc7239[RFC7239 "Forwarded Headers"] 定义了 `Forwarded` HTTP 请求头; 代理可以使用此请求头提供有关原始请求的信息.
+您可以将应用程序配置为读取这些请求头,并在创建链接将其发送到 HTTP 302 响应,JSON 文档或 HTML 页面中的客户端时自动使用该信息.
+还有一些非标准的请求头,例如 `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto`, `X-Forwarded-Ssl`, 和 `X-Forwarded-Prefix`..
+
+如果代理添加了常用的 `X-Forwarded-For` 和 `X-Forwarded-Proto` 请求头,则将 `server.forward-headers-strategy` 设置为 `NATIVE` 以支持这些请求头.
+使用此选项,Web 服务器本身就需要支持此功能. 您可以查看他们的特定文档以了解特定行为.
+
+如果这还不够,Spring 框架会提供一个 {spring-framework-docs}/web.html#filters-forwarded-headers[ForwardedHeaderFilter].
+您可以通过将 `server.forward-headers-strategy` 设置为 `FRAMEWORK` 来将其注册为 Servlet 过滤器.
+
+TIP: 如果您正在使用 Tomcat 并在代理处终止 SSL,则应将 `server.tomcat.redirect-context-root` 设置为 `false`. 这允许在执行任何重定向之前遵守 `X-Forwarded-Proto` 头.
+
+NOTE: 如果您的应用程序在 Cloud Foundry 或 Heroku 中运行,则 `server.forward-headers-strategy` 属性默认为 `NATIVE`. 在所有其他情况下,它默认为 `NONE`.
+
+[[howto.webserver.use-behind-a-proxy-server.tomcat]]
+==== 自定义 Tomcat 的代理配置
+如果使用 Tomcat,则可以另外配置用于携带  "`forwarded`"  信息的 header 名称,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  tomcat:
+	    remoteip:
+	      remote-ip-header: "x-your-remote-ip-header"
+	      protocol-header: "x-your-protocol-header"
+----
+
+Tomcat 还配置有一个默认正则表达式,该正则表达式与要信任的内部代理匹配. 有关其默认值，请参见附录中的 <<application-properties.adoc#application-properties.server.server.tomcat.remoteip.internal-proxies,server.tomcat.remoteip.internal-proxies>>.  您可以通过在 `application.properties` 中添加一个 entry 来自定义配置,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	server:
+	  tomcat:
+	    remoteip:
+	      internal-proxies: "192\\.168\\.\\d{1,3}\\.\\d{1,3}"
+----
+
+NOTE: 您可以通过将 `internal-proxies`  设置为空来信任所有代理 (但在生产环境中不要这样做) .
+
+您可以通过关闭自动功能来完全控制 Tomcat 的 `RemoteIpValve` 的配置 (为此,请设置 `server.forward-headers-strategy=NONE`) ,然后在 `WebServerFactoryCustomizer` bean 中添加新的 Valve 实例.
+
+[[howto.webserver.enable-multiple-connectors-in-tomcat]]
+=== 使用 Tomcat 启用多个连接器
+您可以将 `org.apache.catalina.connector.Connector` 添加到 `TomcatServletWebServerFactory`,这可以允许多个连接器,包括 HTTP 和 HTTPS 连接器,如以下示例所示:
+
+include::code:MyTomcatConfiguration[]
+
+[[howto.webserver.use-tomcat-legacycookieprocessor]]
+=== 使用 Tomcat 的 LegacyCookieProcessor
+默认情况下,Spring Boot 使用的嵌入式 Tomcat 不支持 Cookie 格式的 "Version 0",因此您可能会看到以下错误:
+
+[indent=0]
+----
+	java.lang.IllegalArgumentException: An invalid character [32] was present in the Cookie value
+----
+
+如果有可能,您应该考虑将代码更新为仅存储符合以后 Cookie 规范的值.  但是,如果无法更改 cookie 的编写方式,则可以将 Tomcat 配置为使用 `LegacyCookieProcessor`.
+要切换到 `LegacyCookieProcessor`,请使用添加了 `TomcatContextCustomizer` 的 `WebServerFactoryCustomizer` bean,如以下示例所示:
+
+include::code:MyLegacyCookieProcessorConfiguration[]
+
+[[howto.webserver.enable-tomcat-mbean-registry]]
+=== 启用 Tomcat 的 MBean 注册表
+默认情况下,嵌入式 Tomcat 的 MBean 注册表是禁用的.  这样可以最大程度地减少 Tomcat 的内存占用.  例如,如果要使用 Tomcat 的 MBean,以便可以通过 Micrometer 暴露它们,则必须使用 `server.tomcat.mbeanregistry.enabled` 属性,如以下示例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
+----
+
+[[howto.webserver.enable-multiple-listeners-in-undertow]]
+=== 使用 Undertow 启用多个监听器
+将 `UndertowBuilderCustomizer` 添加到 `UndertowServletWebServerFactory` 并将监听器添加到 `Builder`,如以下示例所示:
+
+include::code:MyUndertowConfiguration[]
+
+[[howto.webserver.create-websocket-endpoints-using-serverendpoint]]
+=== 使用 @ServerEndpoint 创建 WebSocket 端点
+如果要在使用嵌入式容器的 Spring Boot 应用程序中使用 `@ServerEndpoint`,则必须声明一个 `ServerEndpointExporter` `@Bean`,如以下示例所示:
+
+include::code:MyWebSocketConfiguration[]
+
+前面示例中显示的 Bean 将所有 `@ServerEndpoint` 注解的 Bean 注册到基础 WebSocket 容器.  当部署到独立的 servlet 容器时,此角色由 servlet 容器初始化程序执行,并且不需要 `ServerEndpointExporter` Bean.

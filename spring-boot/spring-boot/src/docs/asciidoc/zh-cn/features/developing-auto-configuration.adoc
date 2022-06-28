@@ -1,0 +1,245 @@
+[[features.developing-auto-configuration]]
+== 创建自己的自动配置
+如果您在公司负责开发公共类库,或者如果您在开发一个开源或商业库,您可能希望开发自己的自动配置. 自动配置类可以捆绑在外部 jar 中,他仍然可以被 Spring Boot 获取.
+
+自动配置可以与提供自动配置代码的 starter 以及您将使用的类库库相关联. 我们首先介绍构建自己的自动配置需要了解的内容,然后我们将继续介绍创建 <<features#features.developing-auto-configuration.custom-starter,自定义 starter 所需的步骤>>.
+
+TIP: 这里有一个 https://github.com/snicoll-demos/spring-boot-master-auto-configuratio[演示项目] 展示了如何逐步创建 starter.
+
+[[features.developing-auto-configuration.understanding-auto-configured-beans]]
+=== 理解自动配置的 Beans
+在内部,自动配置是通过 `@AutoConfiguration` 注解实现的。这个注解本身是用 `@Configuration` 元注解的，使自动配置成为标准的 `@Configuration` 类。
+`@Conditional` 注解用于约束何时应用自动配置。 通常，自动配置类使用 `@ConditionalOnClass` 和 `@ConditionalOnMissingBean` 注解。
+这可确保仅在找到相关类时以及未声明您自己的 `@Configuration` 时才应用自动配置.
+
+您可以浏览  {spring-boot-autoconfigure-module-code}[`spring-boot-autoconfigure`] 的源代码,以查看 Spring 提供的 `@Configuration`  类 (请参阅   {spring-boot-code}/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports[`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`] 文件) .
+
+[[features.developing-auto-configuration.locating-auto-configuration-candidates]]
+=== 找到候选的自动配置
+
+Spring Boot 会检查已发布 jar 中是否存在 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 文件. 该文件应列出 `EnableAutoConfiguration` key 下的配置类,如下所示:
+
+[indent=0]
+----
+    com.mycorp.libx.autoconfigure.LibXAutoConfiguration
+    com.mycorp.libx.autoconfigure.LibXWebAutoConfiguration
+----
+
+TIP: 您可以在此文件中通过 `#` 注释。
+
+NOTE: 必须以这种方式加载自动配置. 确保它们在特定的包空间中定义,并且它们不能是组件扫描的目标. 此外,自动配置类不应启用组件扫描以查找其他组件. 应该使用特定的 `@Imports` 来代替.
+
+如果需要按特定顺序应用配置,则可以使用 {spring-boot-autoconfigure-module-code}/AutoConfigureAfter.java[`@AutoConfigureAfter`] 或 {spring-boot-autoconfigure-module-code}/AutoConfigureBefore.java[`@AutoConfigureBefore`]  注解. 例如,如果您提供特定于 Web 的配置,则可能需要在 `WebMvcAutoConfiguration` 之后应用您的类.
+
+TIP: 如果您使用 {spring-boot-autoconfigure-module-code}/AutoConfiguration.java[`@AutoConfiguration`] 注解，可以使用 `before`、`beforeName`、`after` 和 `afterName` 属性别名而不是专用的注解。
+
+如果您想排序某些不应该彼此直接了解的自动配置,您也可以使用 `@AutoConfigureOrder`. 该注解与常规 `@Order` 注解有相同的语义,但它为自动配置类提供了专用顺序.
+
+与标准的 `@Configuration` 类一样,自动配置类的应用顺序仅会影响其 bean 的定义顺序.随后创建这些 bean 的顺序不受影响,并由每个 bean 的依赖关系和任何 `@DependsOn` 关系确定.
+
+[[features.developing-auto-configuration.condition-annotations]]
+=== 条件注解
+您几乎总希望在自动配置类中包含一个或多个 `@Conditional` 注解. `@ConditionalOnMissingBean` 是一个常用的注解,其允许开发人员在对您的默认值不满意用于覆盖自动配置.
+
+Spring Boot 包含许多 `@Conditional` 注解,您可以通过注解 `@Configuration` 类或单独的 `@Bean` 方法在您自己的代码中复用它们. 这些注解包括:
+
+* <<features#features.developing-auto-configuration.condition-annotations.class-conditions>>
+* <<features#features.developing-auto-configuration.condition-annotations.bean-conditions>>
+* <<features#features.developing-auto-configuration.condition-annotations.property-conditions>>
+* <<features#features.developing-auto-configuration.condition-annotations.resource-conditions>>
+* <<features#features.developing-auto-configuration.condition-annotations.web-application-conditions>>
+* <<features#features.developing-auto-configuration.condition-annotations.spel-conditions>>
+
+[[features.developing-auto-configuration.condition-annotations.class-conditions]]
+==== 类条件
+`@ConditionalOnClass` 和 `@ConditionalOnMissingClass` 注解允许根据特定类的是否存在来包含 `@Configuration` 类. 由于使用 https://asm.ow2.io/[ASM] 解析注解元数据,您可以使用 `value` 属性来引用真实类,即使该类实际上可能不会出现在正在运行的应用程序的 `classpath` 中.
+如果您希望使用  `String` 值来指定类名,也可以使用 `name` 属性.
+
+此机制不会以相同的方式应用于返回类型是条件的目标的 `@Bean` 方法: 在方法上的条件应用之前,JVM 将加载类和可能处理的方法引用,如果找不到类,将发生失败.
+
+要处理这种情况,可以使用单独的 `@Configuration` 类来隔离条件,如下所示:
+
+include::code:MyAutoConfiguration[]
+
+
+TIP: 如果使用 `@ConditionalOnClass` 或 `@ConditionalOnMissingClass` 作为元注解的一部分来组成自己的组合注解,则必须使用 `name` 来引用类,在这种情况将不作处理.
+
+[[features.developing-auto-configuration.condition-annotations.bean-conditions]]
+==== Bean 条件
+`@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 注解允许根据特定 bean 是否存在来包含 bean. 您可以使用 `value` 属性按类型或使用 `name` 来指定 bean. `search` 属性允许您限制在搜索 bean 时应考虑的 `ApplicationContext` 层次结构.
+
+放置在 `@Bean` 方法上时,目标类型默认为方法的返回类型,如下所示:
+
+include::code:MyAutoConfiguration[]
+
+在前面的示例中,如果 `ApplicationContext` 中不包含 `SomeService` 类型的 bean,则将创建 `someService` bean.
+
+TIP: 您需要非常小心地添加 bean 定义的顺序,因为这些条件是根据到目前为止已处理的内容进行计算的. 因此,我们建议在自动配置类上仅使用 `@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 注解 (因为这些注解保证在添加所有用户定义的 bean 定义后加载) .
+
+NOTE:  `@ConditionalOnBean` 和 `@ConditionalOnMissingBean` 不会阻止创建 `@Configuration` 类. 在类级别使用这些条件并使用注解标记每个包含 `@Bean` 方法的唯一区别是,如果条件不匹配,前者会阻止将 `@Configuration` 类注册为 bean.
+
+TIP: 声明 `@Bean` 方法时,请在该方法的返回类型中提供尽可能多的类型信息.例如,如果您的 bean 的具体类实现一个接口,则 bean 方法的返回类型应该是具体的类而不是接口.
+使用 bean 条件时,在 `@Bean` 方法中提供尽可能多的类型信息尤为重要,因为它们的评估只能依靠方法签名中可用的类型信息.
+
+[[features.developing-auto-configuration.condition-annotations.property-conditions]]
+==== 属性条件
+`@ConditionalOnProperty` 注解允许基于 Spring Environment 属性包含配置. 使用 `prefix` 和 `name` 属性指定需要检查的属性. 默认情况下,匹配存在且不等于 `false` 的所有属性. 您还可以使用 `havingValue` 和 `matchIfMissing` 属性创建更高级的检查.
+
+[[features.developing-auto-configuration.condition-annotations.resource-conditions]]
+==== 资源条件
+`@ConditionalOnResource` 注解仅允许在存在特定资源时包含配置. 可以使用常用的 Spring 约定来指定资源,如下所示: `file:/home/user/test.dat`.
+
+[[features.developing-auto-configuration.condition-annotations.web-application-conditions]]
+==== Web 应用程序条件
+`@ConditionalOnWebApplication` 和 `@ConditionalOnNotWebApplication` 注解在应用程序为 Web 应用程序的情况下是否包含配置.
+基于 servlet 的 Web 应用程序是使用 Spring `WebApplicationContext` 定义 `session` 作用域或具有 `ConfigurableWebEnvironment` 的任何应用程序。
+响应式 Web 应用程序是使用 `ReactiveWebApplicationContext` 或具有 `ConfigurableReactiveWebEnvironment`
+
+通过 `@ConditionalOnWarDeployment` 注解,可以根据应用程序是否是已部署到容器的传统 WAR 应用程序进行配置.对于嵌入式服务器运行的应用程序,此条件将不匹配.
+
+[[features.developing-auto-configuration.condition-annotations.spel-conditions]]
+==== SpEL 表达式条件
+`@ConditionalOnExpression` 注解允许根据 {spring-framework-docs}/core.html#expressions[SpEL 表达式] 的结果包含配置.
+
+NOTE: 在表达式中引用 bean 将导致该 bean 在上下文刷新处理中很早就被初始化。
+这样做的结果是，bean 将不适合进行后处理（例如配置属性绑定），并且其状态可能不完整。
+
+[[features.developing-auto-configuration.testing]]
+=== 测试自动配置
+自动配置可能受许多因素的影响: 用户配置 (`@Bean` 定义和 `Environment` 自定义) 、条件评估 (存在特定的类库) 等. 具体而言,每个测试都应该创建一个定义良好的 `ApplicationContext`,它表示这些自定义的组合. `ApplicationContextRunner` 提供了一个好的实现方法.
+
+`ApplicationContextRunner` 通常被定义为测试类的一个字段,用于收集基本的通用配置. 以下示例确保始终调用 `MyServiceAutoConfiguration`:
+
+include::code:MyServiceAutoConfigurationTests[tag=runner]
+
+TIP: 如果必须定义多个自动配置,则无需按照与运行应用程序时完全相同的顺序调用它们的声明.
+
+每个测试都可以使用 runner 来表示特定的用例. 例如,下面的示例调用用户配置 (`UserConfiguration`) 并检查自动配置是否正确退回. 调用 `run` 提供了一个可以与 `AssertJ` 一起使用的回调上下文.
+
+include::code:MyServiceAutoConfigurationTests[tag=test-user-config]
+
+也可以轻松自定义 `Environment`,如下所示:
+
+include::code:MyServiceAutoConfigurationTests[tag=test-env]
+
+runner 还可用于展示 `ConditionEvaluationReport`. 报告可以在 `INFO` 或 `DEBUG` 级别下打印. 以下示例展示如何使用 `ConditionEvaluationReportLoggingListener` 在自动配置测试中打印报表.
+
+include::code:MyConditionEvaluationReportingTests[]
+
+[[features.developing-auto-configuration.testing.simulating-a-web-context]]
+==== 模拟一个 Web 上下文
+如果需要测试一个仅在 Servlet 或响应式 Web 应用程序上下文中运行的自动配置,请分别使用 `WebApplicationContextRunner` 或 `ReactiveWebApplicationContextRunner`.
+
+[[features.developing-auto-configuration.testing.overriding-classpath]]
+==== 覆盖 Classpath
+还可以测试在运行时不存在特定类和/或包时发生的情况.  Spring Boot 附带了一个可以由跑步者轻松使用的 `FilteredClassLoader`.  在以下示例中,我们声明如果 `MyService` 不存在,则会正确禁用自动配置:
+
+include::code:../MyServiceAutoConfigurationTests[tag=test-classloader]
+
+[[features.developing-auto-configuration.custom-starter]]
+=== 创建自己的 Starter
+一个典型的 Spring Boot 启动器包含用于自动配置和使用的基础技术结构的代码,我们称其为 "acme". 为了使其易于扩展,可以将命名空间中的许多配置项暴露给环境.最后,提供了一个  "starter"  依赖,以帮助用户尽可能轻松地入门.
+
+具体而言,自定义启动器可以包含以下内容:
+
+* `autoconfigure` 模块,为 "acme" 包含自动配置代码.
+* `starter`  模块,它为 "acme" 提供对 `autoconfigure` 模块依赖以及类库和常用的其他依赖. 简而言之,添加 starter 应该提供该库开始使用所需的一切依赖.
+
+完全没有必要将这两个模块分开.如果 "acme" 具有多种功能,选项或可选功能,则最好将自动配置分开,这样您可以清楚地表示某些功能是可选的.此外,您还可以制作一个启动器,以提供有关可选的依赖.
+同时,其他人只能依靠 `autoconfigure` 模块来制作自己的具有不同选项的启动器.
+
+如果自动配置相对简单并且不具有可选功能,则将两个模块合并在启动器中绝对是一种选择.
+
+[[features.developing-auto-configuration.custom-starter.naming]]
+==== 命名
+您应该确保为您的 starter 提供一个合适的命名空间. 即使您使用其他 Maven groupId,也不要使用 `spring-boot` 作为模块名称的开头. 我们可能会为您以后自动配置的内容提供官方支持.
+
+根据经验,您应该在 starter 后命名一个组合模块. 例如,假设您正在为 acme 创建一个 starter,并且您将自动配置模块命名为 `acme-spring-boot`,将 starter 命名为 `acme-spring-boot-starter`. 如果您只有一个组合这两者的模块,请将其命名为 `acme-spring-boot-starter`.
+
+[[features.developing-auto-configuration.custom-starter.configuration-keys]]
+==== 配置 keys
+此外,如果您的 starter 提供配置 key,请为它们使用唯一的命名空间. 尤其是,不要将您的 key 包含在 Spring Boot 使用的命名空间中 (例如 `server`、`management`、`spring` 等) . 如果您使用了相同的命名空间,我们将来可能会以破坏您的模块的方式来修改这些命名空间. 根据经验,所有 key 都必须拥有自己的命名空间 (例如 `acme`) .
+
+通过为每个属性添加字段 javadoc 来确保记录了配置 keys,如以下示例所示:
+
+include::code:AcmeProperties[]
+
+NOTE: 您仅应将简单文本与 `@ConfigurationProperties` 字段 Javadoc 一起使用,因为在将它们添加到 JSON 之前不会对其进行处理.
+
+这是我们内部遵循的一些规则,以确保描述一致:
+
+* 请勿以 "The"  或 "A" 头描述.
+* 对于布尔类型,请从 "Whether" 或 "Enable" 开始描述.
+* 对于基于集合的类型,请以 "以逗号分隔的列表" 开始描述
+* 使用 `java.time.Duration` 而不是 `long`,如果它不等于毫秒,请说明默认单位,例如 "如果未指定持续时间后缀,则将使用秒".
+* 除非必须在运行时确定默认值,否则请不要在描述中提供默认值.
+
+确保 <<configuration-metadata#appendix.configuration-metadata.annotation-processor,触发元数据生成>> ,以便为您的 key 提供 IDE 帮助. .  您可能需要查看生成的元数据 (`META-INF/spring-configuration-metadata.json`)  ,以确保您的 key 记录是否正确.  在兼容的 IDE 中使用自己的 starter  也是验证元数据质量的好主意.
+
+[[features.developing-auto-configuration.custom-starter.autoconfigure-module]]
+==== `autoconfigure` 模块
+`autoconfigure` 模块包含类库开始使用所需的所有内容. 它还可以包含配置 key 定义 (例如 `@ConfigurationProperties`) 和任何可用于进一步自定义组件初始化方式的回调接口.
+
+TIP: 您应该将类库的依赖标记为可选,以便您可以更轻松地在项目中包含 `autoconfigure` 模块. 如果以这种方式执行,则不提供类库,默认情况下,Spring Boot 将会退出.
+
+Spring Boot 使用注解处理器来收集元数据文件  (`META-INF/spring-autoconfigure-metadata.properties`) 中自动配置的条件. 如果该文件存在,则用于快速过滤不匹配的自动配置,缩短启动时间. 建议在包含自动配置的模块中添加以下依赖:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-autoconfigure-processor</artifactId>
+		<optional>true</optional>
+	</dependency>
+----
+
+如果您直接在应用程序中定义了自动配置,请确保配置 `spring-boot-maven-plugin`,以防止 `repackage` 目标将依赖添加到 fat jar 中:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<project>
+		<build>
+			<plugins>
+				<plugin>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-maven-plugin</artifactId>
+					<configuration>
+						<excludes>
+							<exclude>
+								<groupId>org.springframework.boot</groupId>
+								<artifactId>spring-boot-autoconfigure-processor</artifactId>
+							</exclude>
+						</excludes>
+					</configuration>
+				</plugin>
+			</plugins>
+		</build>
+	</project>
+----
+
+使用 Gradle 4.5 及更早版本时,应在 `compileOnly` 配置中声明依赖,如下所示:
+
+[source,gradle,indent=0,subs="verbatim"]
+----
+	dependencies {
+		compileOnly "org.springframework.boot:spring-boot-autoconfigure-processor"
+	}
+----
+
+使用 Gradle 4.6 或者更高的版本,应在  `annotationProcessor` 配置中声明依赖,如下所示:
+
+[source,gradle,indent=0,subs="verbatim"]
+----
+	dependencies {
+		annotationProcessor "org.springframework.boot:spring-boot-autoconfigure-processor"
+	}
+----
+
+[[features.developing-auto-configuration.custom-starter.starter-module]]
+==== Starter 模块
+
+starter 真的是一个空 jar. 它的唯一目的是为使用类库提供必要的依赖. 您可以将其视为使用类库的一切基础.
+
+不要对添加 starter 的项目抱有假设想法. 如果您自动配置的库经常需要其他 starter,请一并声明它们. 如果可选依赖的数量很多,则提供一组适当的默认依赖可能很难,因为您本应该避免包含对常用库的使用不必要的依赖. 换而言之,您不应该包含可选的依赖.
+
+NOTE: 无论哪种方式,您的 starter 必须直接或间接引用 Spring Boot 的 core starter (`spring-boot-starter`)  (如果您的 starter 依赖于另一个 starter ,则无需添加它) . 如果只使用自定义 starter 创建项目,则 Spring Boot 的核心功能将通过 core starter 来实现.

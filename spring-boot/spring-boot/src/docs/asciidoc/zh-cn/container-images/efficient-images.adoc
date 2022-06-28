@@ -1,0 +1,58 @@
+[[container-images.efficient-images]]
+== 高效的容器镜像
+可以很容易地将 Spring Boot 的 fat jar 打包为 docker 镜像. 但是,像在 docker 镜像中一样,复制和运行 fat jar 还有很多弊端. 在不打包的情况下运行 fat jar 时,总会有一定的开销,在容器化环境中,这很明显. 另一个问题是,将应用程序的代码及其所有依赖放在 Docker 镜像 的一层中是次优的. 由于重新编译代码的频率可能比升级所用 Spring Boot 的版本的频率高,因此最好将代码分开一些. 如果将 jar 文件放在应用程序类之前的层中,则 Docker 通常只需要更改最底层即可从其缓存中获取其他文件.
+
+[[container-images.efficient-images.unpacking]]
+=== 解压 fat jar
+您可以使用可执行 jar 在容器中运行，但以不同的方式去解压和运行它通常也是一个优势。
+某些 PaaS 实现也可能会选择在运行前解压缩。 例如，Cloud Foundry 就是这样运作的。 解压的一种方法是启动适当的启动器，如下所示：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ jar -xf myapp.jar
+	$ java org.springframework.boot.loader.JarLauncher
+----
+
+这实际上在启动时（取决于 jar 的大小）比从未分解的存档中运行要快一些。 在运行时，您不应期望有任何差异。
+
+一旦你解压了 jar 文件，你还可以通过使用它的 "natural" 主方法而不是 `JarLauncher` 运行应用程序来获得额外的启动时间。 例如：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ jar -xf myapp.jar
+	$ java -cp BOOT-INF/classes:BOOT-INF/lib/* com.example.MyApplication
+----
+
+NOTE: 在应用程序的 main 方法上使用 `JarLauncher` 具有可预测的类路径顺序的额外好处.jar 包含一个 `classpath.idx` 文件，`JarLauncher` 在构建类路径时使用该文件。
+
+[[container-images.efficient-images.layering]]
+=== 分层 Docker 镜像
+为了使创建的 Docker 镜像更加容易,Spring Boot 支持在 jar 中添加一个层索引文件. 它提供了层的列表以及应包含在其中的 jar 的各个部分. 索引中的层列表是根据应将层添加到  Docker/OCI 镜像的顺序来排序的. 现成的,支持以下层:
+
+* `dependencies` (用于常规发布的依赖关系)
+* `spring-boot-loader` (适用于 `org/springframework/boot/loader` 下的所有内容)
+* `snapshot-dependencies` (用于快照依赖关系)
+* `application` (用于应用程序类和资源)
+
+下面显示了 `layers.idx` 文件的示例:
+
+[source,yaml,indent=0,subs="verbatim"]
+----
+	- "dependencies":
+	  - BOOT-INF/lib/library1.jar
+	  - BOOT-INF/lib/library2.jar
+	- "spring-boot-loader":
+	  - org/springframework/boot/loader/JarLauncher.class
+	  - org/springframework/boot/loader/jar/JarEntry.class
+	- "snapshot-dependencies":
+	  - BOOT-INF/lib/library3-SNAPSHOT.jar
+	- "application":
+	  - META-INF/MANIFEST.MF
+	  - BOOT-INF/classes/a/b/C.class
+----
+
+此分层旨在根据应用程序构建之间更改的可能性来分离代码. 库代码不太可能在内部版本之间进行更改,因此将其放置在自己的层中,以允许工具重新使用缓存中的层. 应用程序代码更可能在内部版本之间进行更改,因此将其隔离在单独的层中.
+
+Spring Boot 还支持在 `layers.idx` 的帮助下对 war 文件进行分层。
+
+对于 Maven,请参阅 {spring-boot-maven-plugin-docs}#repackage-layers[packaging layered jars section] ,以获取有关在 jar 中添加层索引的更多详细信息. 对于 Gradle,请参阅 Gradle 插件文档的 {spring-boot-gradle-plugin-docs}#packaging-layered-archives[packaging layered jars section].

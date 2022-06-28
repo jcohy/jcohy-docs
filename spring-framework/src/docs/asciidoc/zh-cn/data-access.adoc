@@ -199,7 +199,9 @@ NOTE: 如果您使用 JTA,那么无论您使用何种数据访问技术,无论�
 
 如以下示例所示,您还可以轻松使用 Hibernate 本地事务.  在这种情况下,您需要定义一个 Hibernate `LocalSessionFactoryBean`,您的应用程序 代码可以使用它来获取 Hibernate `Session` 实例.
 
-NOTE: 如果 `DataSource`(由任何非JTA事务管理器使用) 通过 JNDI 查找并由 Java EE 容器管理,则它应该是非事务性的,因为 Spring Framework (而不是Java EE容器) 管理事务.
+`DataSource` bean 定义和前面的本地 JDBC 示例一样， 因此，在以下示例中未显示。
+
+NOTE: 如果 `DataSource`(由任何非 JTA 事务管理器使用) 通过 JNDI 查找并由 Java EE 容器管理,则它应该是非事务性的,因为 Spring Framework (而不是Java EE容器) 管理事务.
 
 在这种情况下,`txManager`  bean 是 `HibernateTransactionManager` 类型.  与 `DataSourceTransactionManager` 需要对 `DataSource` 的引用一样, `HibernateTransactionManager` 需要应用 `SessionFactory` 的引用.  以下示例声明了 `SessionFactory` 和 `txManager` bean:
 
@@ -542,9 +544,9 @@ NOTE: 在前面的示例中,假设您的所有服务接口都在 `x.y.service` �
 	public final class Boot {
 
 		public static void main(final String[] args) throws Exception {
-			ApplicationContext ctx = new ClassPathXmlApplicationContext("context.xml", Boot.class);
-			FooService fooService = (FooService) ctx.getBean("fooService");
-			fooService.insertFoo (new Foo());
+			ApplicationContext ctx = new ClassPathXmlApplicationContext("context.xml");
+			FooService fooService = ctx.getBean(FooService.class);
+			fooService.insertFoo(new Foo());
 		}
 	}
 ----
@@ -704,13 +706,57 @@ NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类
 [[transaction-declarative-rolling-back]]
 ==== 回滚声明式事务
 
-上一节概述了如何在应用程序中以声明方式指定类(通常是服务层类) 的事务设置的基础知识.  本节介绍如何以简单的声明方式控制事务回滚.
+上一节概述了如何在应用程序中以声明方式指定类(通常是服务层类) 的事务设置的基础知识.  本节介绍如何在 XML 中以简单的声明方式控制事务回滚，有关使用 `@Transactional` 注解以声明方式控制回滚语义的详细信息，请参阅 <<transaction-declarative-attransactional-settings>>.
 
 在 Spring Framework 的事务基础结构中指明事务的工作被回滚的推荐方法是在当前事务上下文中执行的代码中抛出 `Exception` Spring Framework 的事务基础结构代码捕获任何未处理的 `Exception`,因为它冒泡调用堆栈并确定是否将事务标记为回滚.
 
 在其默认配置中,Spring Framework 的事务基础结构代码仅在运行时和未经检查的异常情况下标记事务回滚.  也就是说,抛出的异常是 `RuntimeException` 的实例或子类. (默认情况下,`Error` 实例也会导致回滚) . 默认配置中,事务方法中抛出的已检查异常不会导致事务回滚.
 
-您可以准确配置哪些 `Exception` 类型标记用于回滚的事务,包括已检查的异常.  以 下XML 代码段演示了如何为已检查的特定于应用程序的 `Exception` 类型配置回滚:
+您可以准确配置哪些 `Exception` 类型标记用于回滚的事务,通过指定回滚规则包括已检查的异常.
+
+.Rollback rules
+[[transaction-declarative-rollback-rules]]
+[NOTE]
+====
+Rollback rules determine if a transaction should be rolled back when a given exception is
+thrown, and the rules are based on patterns. A pattern can be a fully qualified class
+name or a substring of a fully qualified class name for an exception type (which must be
+a subclass of `Throwable`), with no wildcard support at present. For example, a value of
+`"javax.servlet.ServletException"` or `"ServletException"` will match
+`javax.servlet.ServletException` and its subclasses.
+
+Rollback rules may be configured in XML via the `rollback-for` and `no-rollback-for`
+attributes, which allow patterns to be specified as strings. When using
+<<transaction-declarative-attransactional-settings,`@Transactional`>>, rollback rules may
+be configured via the `rollbackFor`/`noRollbackFor` and
+`rollbackForClassName`/`noRollbackForClassName` attributes, which allow patterns to be
+specified as `Class` references or strings, respectively. When an exception type is
+specified as a class reference its fully qualified name will be used as the pattern.
+Consequently, `@Transactional(rollbackFor = example.CustomException.class)` is equivalent
+to `@Transactional(rollbackForClassName = "example.CustomException")`.
+
+[WARNING]
+=====
+You must carefully consider how specific the pattern is and whether to include package
+information (which isn't mandatory). For example, `"Exception"` will match nearly
+anything and will probably hide other rules. `"java.lang.Exception"` would be correct if
+`"Exception"` were meant to define a rule for all checked exceptions. With more unique
+exception names such as `"BaseBusinessException"` there is likely no need to use the
+fully qualified class name for the exception pattern.
+
+Furthermore, rollback rules may result in unintentional matches for similarly named
+exceptions and nested classes. This is due to the fact that a thrown exception is
+considered to be a match for a given rollback rule if the name of thrown exception
+contains the exception pattern configured for the rollback rule. For example, given a
+rule configured to match on `com.example.CustomException`, that rule would match against
+an exception named `com.example.CustomExceptionV2` (an exception in the same package as
+`CustomException` but with an additional suffix) or an exception named
+`com.example.CustomException$AnotherException` (an exception declared as a nested class
+in `CustomException`).
+=====
+====
+
+以下 XML 片段演示了如何通过 `rollback-for` 属性提供 _exception pattern_ 来为已检查的、特定于应用程序的 `Exception` 类型配置回滚：
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -722,7 +768,7 @@ NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类
 	</tx:advice>
 ----
 
-如果您不希望在抛出异常时回滚事务,则还可以指定 "无回滚规则". 以下示例告诉 Spring Framework 的事务基础结构即使 面对未处理的 `InstrumentNotFoundException` 也要提交事务:
+如果您不希望在抛出异常时回滚事务,则还可以指定 'no rollback' 规则. 以下示例告诉 Spring Framework 的事务基础结构即使 面对未处理的 `InstrumentNotFoundException` 也要提交事务:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -890,7 +936,7 @@ NOTE: Spring Framework 使用 `ReactiveAdapterRegistry` 来确定方法返回类
 * 隔离级别是 `DEFAULT.`
 * 事务可读写
 * 事务超时默认为底层事务的默认超时,若事务不支持超时,怎默认值为 none.
-* 任何 `RuntimeException` 都会触发回滚,任何未检查 Exception 都不会触发回滚.
+* 任何 `RuntimeException` 都会触发回滚,任何未检查 `Exception` 都不会触发回滚.
 
 你可以修改这些默认的设置. 下表总结了嵌套在 `<tx:advice/>` 和 `<tx:attributes/>` 标记内的 `<tx:method/>` 标记的各种属性:
 
@@ -952,19 +998,23 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 	@Transactional
 	public class DefaultFooService implements FooService {
 
-		Foo getFoo(String fooName) {
+		@Override
+		public Foo getFoo(String fooName) {
 			// ...
 		}
 
-		Foo getFoo(String fooName, String barName) {
+		@Override
+		public Foo getFoo(String fooName, String barName) {
 			// ...
 		}
 
-		void insertFoo(Foo foo) {
+		@Override
+		public void insertFoo(Foo foo) {
 			// ...
 		}
 
-		void updateFoo(Foo foo) {
+		@Override
+		public void updateFoo(Foo foo) {
 			// ...
 		}
 	}
@@ -994,7 +1044,7 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 	}
 ----
 
-如上所述在类级别使用,注解指示声明类(及其子类) 的所有方法的默认值.  或者,每个方法都可以单独注解.  请注意,类级别注解不适用于类层次结构中的父类; 在这种情况下,需要在本地重新声明方法才能参与子类级别的注解.
+如上所述在类级别使用,注解指示声明类(及其子类) 的所有方法的默认值.  或者,每个方法都可以单独注解.，请参阅 <<transaction-declarative-annotations-method-visibility>> 获取有关 Spring 事务方法更多的信息。 请注意,类级别注解不适用于类层次结构中的父类; 在这种情况下,需要在本地重新声明方法才能参与子类级别的注解.
 
 当如上所述的 POJO 类在 Spring 上下文中定义为 bean 时,可以通过 `@Configuration` 类中的 `@EnableTransactionManagement` 注解使 bean 实例进行事务处理.  有关完整详细信息,请参阅 {api-spring-framework}/transaction/annotation/EnableTransactionManagement.html[javadoc].
 
@@ -1020,7 +1070,8 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 		<bean id="fooService" class="x.y.service.DefaultFooService"/>
 
 		<!-- enable the configuration of transactional behavior based on annotations -->
-		<tx:annotation-driven transaction-manager="txManager"/><!-- a TransactionManager is still required --> <1>
+		<!-- a TransactionManager is still required -->
+		<tx:annotation-driven transaction-manager="txManager"/> <1>
 
 		<bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
 			<!-- (this dependency is defined somewhere else) -->
@@ -1035,7 +1086,7 @@ NOTE: 标准的 `javax.transaction.Transactional` 注解也支持 Spring 使用�
 
 TIP: 如果要连接的 `TransactionManager` 的 bean 名称具有名称 `transactionManager`,则可以省略 `<tx:annotation-driven/>` 标记中的 `transaction-manager` 属性.  如果要依赖注入的 `TransactionManager` bean具有任何其他名称,则必须使用 `transaction-manager` 属性,如上例所示.
 
-相对于命令式,响应式事务方法使用响应式返回类型,如下所示:
+相对于响应式,响应式事务方法使用响应式返回类型,如下所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1044,19 +1095,23 @@ TIP: 如果要连接的 `TransactionManager` 的 bean 名称具有名称 `transa
 	@Transactional
 	public class DefaultFooService implements FooService {
 
-		Publisher<Foo> getFoo(String fooName) {
+		@Override
+		public Publisher<Foo> getFoo(String fooName) {
 			// ...
 		}
 
-		Mono<Foo> getFoo(String fooName, String barName) {
+		@Override
+		public Mono<Foo> getFoo(String fooName, String barName) {
 			// ...
 		}
 
-		Mono<Void> insertFoo(Foo foo) {
+		@Override
+		public Mono<Void> insertFoo(Foo foo) {
 			// ...
 		}
 
-		Mono<Void> updateFoo(Foo foo) {
+		@Override
+		public Mono<Void> updateFoo(Foo foo) {
 			// ...
 		}
 	}
@@ -1088,12 +1143,36 @@ TIP: 如果要连接的 `TransactionManager` 的 bean 名称具有名称 `transa
 
 请注意,对于返回的  `Publisher`,在响应流取消信号方面有一些特殊注意事项. 有关更多详细信息,请参见 <<tx-prog-operator-cancel>> 部分. 有关更多详细信息,请 "使用 TransactionOperator"
 
+[[transaction-declarative-annotations-method-visibility]]
 .方法可见性与 `@Transactional`
-****
-使用代理时,只应将 `@Transactional` 注解应用于具有公共可见性的方法.  如果使用 `@Transactional` 注解对 protected,private 或 package-visible 方法进行注解, 则不会引发错误,但带注解的方法不会显示已配置的事务设置. 如果需要对非公共方法使用注解,请考虑使用切面(稍后介绍) .
-****
+[NOTE]
+====
+当您在 Spring 的标准配置中使用事务代理时，您应该仅将 `@Transactional` 注解应用于具有 `public` 可见性的方法。 如果您使用 `@Transactional` 注解 `protected`、`private` 或 package-visible 方法进行注解, 则不会引发错误,但带注解的方法不会显示已配置的事务设置. 如果需要对非公共方法使用注解,请考虑使用基于类的代理的提示或考虑使用 AspectJ 编译时或加载时编织（稍后描述）。
 
-您可以将 `@Transactional` 注解应用于接口定义、接口上的方法、类定义或类上的公共方法.  但是,仅仅存在 `@Transactional` 注解不足以激活事务行为.  `@Transactional` 注解仅用于元数据, 某些运行时基础结构使用可使用 `@Transactional`-aware注解,
+当在 `@Configuration` 类中使用 `@EnableTransactionManagement` 时，也可以通过注册自定义 `transactionAttributeSource` bean 来使基于类的代理的 `protected` 或包可见方法具有事务性，如下例所示。
+但是请注意，基于接口的代理中的事务方法必须始终是 `public` 并在代理接口中定义。
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	/**
+	 * Register a custom AnnotationTransactionAttributeSource with the
+	 * publicMethodsOnly flag set to false to enable support for
+	 * protected and package-private @Transactional methods in
+	 * class-based proxies.
+	 *
+	 * @see ProxyTransactionManagementConfiguration#transactionAttributeSource()
+	 */
+	@Bean
+	TransactionAttributeSource transactionAttributeSource() {
+		return new AnnotationTransactionAttributeSource(false);
+	}
+----
+
+_Spring TestContext Framework_ 默认支持非私有的 `@Transactional` 测试方法。 参见测试中的<<testing.adoc#testcontext-tx,Transaction Management>>
+章举例。
+====
+
+您可以将 `@Transactional` 注解应用于接口定义、接口上的方法、类定义或类上的方法.  但是,仅仅存在 `@Transactional` 注解不足以激活事务行为.  `@Transactional` 注解仅用于元数据, 某些运行时基础结构使用可使用 `@Transactional`-aware注解,
 并且可以使用元数据来配置具有事 务行为的 Bean. 在前面的示例中,`<tx:annotation-driven/>` 元素会切换事务行为.
 
 TIP: Spring 团队建议仅在具体类(以及具体类的方法) 上使用 `@Transactional` 注解,而不是在接口上.  你当然可以在接口(以及接口方法) 上使用 `@Transactional` 注解,但是只有你在使用基于接口的代理时才会工作.
@@ -1128,14 +1207,17 @@ AspectJ 织入需要类路径中的 `spring-aspects.jar` 以及启用加载时�
 | `order`
 | `order`
 | `Ordered.LOWEST_PRECEDENCE`
-| 定义使用 `@Transactional` 注解注解的bean的事务通知的顺序. (关于 <<core.adoc#aop-ataspectj-advice-ordering, AOP 通知排序>>的相关规则的更多信息,请参考通知排序)  没有指定排序,意味着 AOP 子系统来决定通知的排序.
+| 定义使用 `@Transactional` 注解注解的 bean 的事务通知的顺序. (关于 <<core.adoc#aop-ataspectj-advice-ordering, AOP 通知排序>>的相关规则的更多信息,请参考通知排序)  没有指定排序,意味着 AOP 子系统来决定通知的排序.
 |===
 
 NOTE: 处理 `@Transactional` 注解的默认通知模式是 `proxy`,它允许仅通过代理拦截调用.  这种方式不能拦截同一类中的本地方法调用. 对于更高级别的拦截模式,请考虑结合编译时或加载时织入切换到 `aspectj` 模式.
 
-NOTE: `proxy-target-class` 属性控制着使用 `@Transactional` 注解注解的类创建的事务代理的类型.  如果 `proxy-target-class` 的值为 `true`,创建基于类的代理.  如果 `proxy-target-class` 的值为 `false` 或者此属性别省略,则创建基于标准JDK接口的代理.  (有关不同代理类型的讨论,请参阅 <<core.adoc#aop-proxying>> ) .
+NOTE: `proxy-target-class` 属性控制着使用 `@Transactional` 注解注解的类创建的事务代理的类型.  如果 `proxy-target-class` 的值为 `true`,创建基于类的代理.  如果 `proxy-target-class` 的值为 `false` 或者此属性别省略,则创建基于标准JDK接口的代理.  (有关不同代理类型的讨论,请参阅 <<core.adoc#aop-proxying, Proxying Mechanisms>> ) .
 
 NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义它们的同一应用程序上下文的bean上查找 `@Transactional`.  这意味着,如果你将注解驱动的配置放在 `DispatcherServlet` 的 `WebApplicationContext` 中, 它只会在你的控制器而不是服务器中检查有 `@Transactional` 注解的 beans. 有关更多信息,请参阅<<web.adoc#mvc-servlet, MVC>>.
+
+在评估事务方法设置时，precedence 最多的位置优先。 在下面的例子中，`DefaultFooService` 使用 @Transactional 在类上标注为 只读属性，但同一类中的 `updateFoo(Foo)` 方法上的 `@Transactional` 注解
+优先于在类级别定义的事务设置。
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -1182,7 +1264,7 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 * 隔离级别是 `ISOLATION_DEFAULT.`
 * 事务可读写.
 * 事务超时默认为基础事务系统的默认超时,如果不支持超时,则默认为 none.
-* 任何 `RuntimeException` 都触发回滚,任何受检查 `Exception` 都不触发回滚.
+* 任何 `RuntimeException` 或 `Error` 都触发回滚,任何受检查 `Exception` 都不触发回滚.
 
 你可以修改这些默认值. 下表概述了 `@Transactional` 注解的各种属性:
 
@@ -1195,6 +1277,14 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `String`
 | 可选限定符,指定要使用的事务管理器.
 
+| `transactionManager`
+| `String`
+| Alias for `value`.
+
+| `label`
+| Array of `String` labels to add an expressive description to the transaction.
+| Labels 可以由事务管理器评估,  并将特定于实现的行为与实际事务相关联.
+
 | <<tx-propagation,propagation>>
 | `enum`: `Propagation`
 | 可选的传播设置.
@@ -1206,6 +1296,10 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `timeout`
 | `int` (in seconds of granularity)
 | 可选的事务超时. 只有当传播值为 `REQUIRED` 或 `REQUIRES_NEW` 时可用.
+
+| `timeoutString`
+| `String` (in seconds of granularity)
+| Alternative for specifying the `timeout` in seconds as a `String` value -- for example, as a placeholder.
 
 | `readOnly`
 | `boolean`
@@ -1226,11 +1320,9 @@ NOTE: `@EnableTransactionManagement` 和 `<tx:annotation-driven/>` 仅在定义�
 | `noRollbackForClassName`
 | Array of `String` class names, which must be derived from `Throwable.`
 | 必定不会导致回滚的可选异常类数组.
-
-| `label`
-| Array of `String` labels to add an expressive description to the transaction.
-| Labels 可以由事务管理器评估,  并将特定于实现的行为与实际事务相关联.
 |===
+
+TIP: 请参阅 <<transaction-declarative-rollback-rules, Rollback rules>>，了解有关可能的无意匹配的回滚规则语义、模式和警告的更多详细信息。
 
 目前,你无法明确的控制事务的名称, 'name' 意味着在事务监视器(如果可适用,例如WebLogic的事务监视器) 和输出日志中的事物名称, 对于声明式事务,事务名称始终是完全限定的类名+ `.`+事务通知类的方法名.  例如,如果 `BusinessService` 类的方法 `handlePayment(..)`  开始一个事务,
 那么事务的名称将是:  `com.example.BusinessService.handlePayment`.
@@ -1606,10 +1698,10 @@ NOTE: 本章不涉及详细解释 AOP(除非它适用于事务) .  有关 AOP �
 
 您还可以通过 AspectJ 切面在 Spring 容器外部使用 Spring Framework 的 `@Transactional` 注解支持.  为此,首先使用 `@Transactional` 注解注解您的类(以及可选的类的方法) ,
 然后使用 `spring-aspects.jar` 文件中定义的 `org.springframework.transaction.aspectj.AnnotationTransactionAspect` 链接(织入) 您的应用程序.
-您还必须使用事务管理器配置切面. 您可以使用 Spring Framework 的 IoC 容器来处理依赖注入的切面.  配置事务管理方面的最简单方法是使用 `<tx:annotation-driven/>` 元素并将 `mode` 属性指定为 `aspectj`,如 使用 <<transaction-declarative-annotations,@Transactional>> 中所述.
+您还必须使用事务管理器配置切面. 您可以使用 Spring Framework 的 IoC 容器来处理依赖注入的切面.  配置事务管理方面的最简单方法是使用 `<tx:annotation-driven/>` 元素并将 `mode` 属性指定为 `aspectj`,如 使用 <<transaction-declarative-annotations>> 中所述.
 因为我们专注于在 Spring 容器之外运行的应用程序,所以我们将向您展示如何以编程方式执行此操作.
 
-NOTE: 在继续之前,你可能希望分别阅读 使用<<transaction-declarative-annotations,@Transactional>> 和 <<core.adoc#aop, AOP >> .
+NOTE: 在继续之前,你可能希望分别阅读 使用 <<transaction-declarative-annotations>> 和 <<core.adoc#aop, AOP >> .
 
 以下示例显示如何创建事务管理器并配置 `AnnotationTransactionAspect` 以使用它:
 
@@ -1648,7 +1740,7 @@ Spring Framework 提供了两种编程式事务管理,通过使用:
 * `TransactionTemplate` 或 `TransactionalOperator`.
 * 直接使用 `TransactionManager`.
 
-Spring 团队建议使用命令式 `TransactionTemplate` 进行事务管理.对于响应式则推荐使用 `TransactionalOperator`,   第二种方法类似于使用 JTA UserTransaction API,尽管异常处理不那么麻烦.
+Spring 团队建议使用命令式 `TransactionTemplate` 进行事务管理.对于响应式则推荐使用 `TransactionalOperator`,   第二种方法类似于使用 JTA `UserTransaction` API,尽管异常处理不那么麻烦.
 
 [[tx-prog-template]]
 ==== 使用 `TransactionTemplate`
@@ -2313,29 +2405,29 @@ Spring Framework 负责处理所有可能使 JDBC 成为繁琐 API 的低级细�
 Spring Framework 的 JDBC 抽象框架由四个不同的包组成:
 
 * `core`: `org.springframework.jdbc.core` 包中包含 `JdbcTemplate` 类及其各种回调接口,以及各种相关类.  名为 `org.springframework.jdbc.core.simple` 的子包包含 `SimpleJdbcInsert` 和 `SimpleJdbcCall` 类.
-另一个名为 `org.springframework.jdbc.core.namedparam` 的子包包含 `NamedParameterJdbcTemplate` 类和相关的支持类.  请参阅<<jdbc-core,使用 JDBC 核心类控制基本 JDBC 处理和错误处理>>,  <<jdbc-advanced-jdbc,JDBC 批处理操作>>以及<<jdbc-simple-jdbc,使用 SimpleJdbc 类简化 JDBC 操作>>.
+另一个名为 `org.springframework.jdbc.core.namedparam` 的子包包含 `NamedParameterJdbcTemplate` 类和相关的支持类.  请参阅<<jdbc-core>>,  <<jdbc-advanced-jdbc>>以及<<jdbc-simple-jdbc>>.
 
 * `datasource`: `org.springframework.jdbc.datasource` 包中包含一个用于轻松访问 `DataSource` 的实用程序类 和各种简单的 `DataSource` 实现,可用于在 Java EE 容器外测试和运行未修改的 JDBC 代码.
-名为 `org.springfamework.jdbc.datasource.embedded` 的子包提供了使用 Java 数据库引擎(如HSQL,H2和Derby) 创建嵌入式数据库的支持.  请参阅<<jdbc-connections,控制数据库连接>>和<<jdbc-embedded-database-support,嵌入式数据库支持>>.
+名为 `org.springfamework.jdbc.datasource.embedded` 的子包提供了使用 Java 数据库引擎(如HSQL,H2和Derby) 创建嵌入式数据库的支持.  请参阅<<jdbc-connections,控制数据库连接>>和<<jdbc-embedded-database-support>>.
 
-* `object`: `org.springframework.jdbc.object` 包中包含将 RDBMS 查询,更新和存储过程表示为线程安全,可重用对象的类.  请参阅将<<jdbc-object,JDBC操作建模为Java对象>>.
+* `object`: `org.springframework.jdbc.object` 包中包含将 RDBMS 查询,更新和存储过程表示为线程安全,可重用对象的类.  请参阅将<<jdbc-object>>.
 这种方法由 JDO 建模,尽管查询返回的对象自然与数据库断开连接.  这种更高级别的 JDBC 抽象取决于 `org.springframework.jdbc.core` 包中的低级抽象.
 
 * `support`: `org.springframework.jdbc.support` 包提供 `SQLException` 转换功能和一些实用程序类.  JDBC 处理期间抛出的异常将转换为 `org.springframework.dao` 包中定义的异常.  这意味着使用 Spring JDBC 抽象层的代码不需要实现 JDBC 或 RDBMS 特定的错误处理.
-所有已转换的异常都是未被检测的,这使您可以选择捕获可恢复的异常,同时将其他异常传播给调用方.  请参阅使用 <<jdbc-SQLExceptionTranslator, `SQLExceptionTranslator`>>.
+所有已转换的异常都是未被检测的,这使您可以选择捕获可恢复的异常,同时将其他异常传播给调用方.  请参阅使用 <<jdbc-SQLExceptionTranslator>>.
 
 [[jdbc-core]]
 === 使用 JDBC 核心类控制基本 JDBC 处理和错误处理
 
 本节介绍如何使用 JDBC 核心类来控制基本的 JDBC 处理,包括错误处理. 它包括以下主题:
 
-* <<jdbc-JdbcTemplate,使用 `JdbcTemplate`>>
-* <<jdbc-NamedParameterJdbcTemplate, 使用 `NamedParameterJdbcTemplate`>>
-* <<jdbc-SQLExceptionTranslator,使用 `SQLExceptionTranslator`>>
-* <<jdbc-statements-executing,执行语句>>
-* <<jdbc-statements-querying,执行查询>>
-* <<jdbc-updates,更新数据库>>
-* <<jdbc-auto-generated-keys,检索自动生成的密钥>>
+* <<jdbc-JdbcTemplate>>
+* <<jdbc-NamedParameterJdbcTemplate>>
+* <<jdbc-SQLExceptionTranslator>>
+* <<jdbc-statements-executing>>
+* <<jdbc-statements-querying>>
+* <<jdbc-updates>>
+* <<jdbc-auto-generated-keys>>
 
 
 [[jdbc-JdbcTemplate]]
@@ -2346,7 +2438,7 @@ Spring Framework 的 JDBC 抽象框架由四个不同的包组成:
 * 执行 SQL 查询
 * 更新语句和存储过程调用
 * 对 `ResultSet` 实例执行迭代并提取返回的参数值.
-* 捕获 JDBC 异常并将它们转换为 `org.springframework.dao` 包中定义的通用的、信息量更大的异常层次结构.  (请参阅<<dao-exceptions,一致的异常层次结构>>. )
+* 捕获 JDBC 异常并将它们转换为 `org.springframework.dao` 包中定义的通用的、信息量更大的异常层次结构.  (请参阅<<dao-exceptions>>. )
 
 当您为代码使用 `JdbcTemplate` 时,您只需要实现回调接口,为它们提供明确定义的合同.  给定 `JdbcTemplate` 类提供的 `Connection`,`PreparedStatementCreator` 回调接口创建一个预准备语句,提供 SQL 和任何必要的参数.  `CallableStatementCreator` 接口也是如此,它创建了可调用语句.  `RowCallbackHandler` 接口从 `ResultSet` 的每一行中提取值.
 
@@ -2667,7 +2759,7 @@ NOTE: 应始终将 `DataSource` 配置为 Spring IoC 容器中的 bean.  在第�
 	}
 ----
 <1> 使用 `@Repository` 注解类
-<2> 使用 `@Autowired` 注解 `DataSource` 的setter方法
+<2> 使用 `@Autowired` 注解 `DataSource` 的 setter 方法
 <3> 使用 `DataSource` 创建一个新的 `JdbcTemplate`.
 
 
@@ -2860,7 +2952,7 @@ NOTE: 应始终将 `DataSource` 配置为 Spring IoC 容器中的 bean.  在第�
 
 
 
-有关在应用程序上下文中使用 `NamedParameterJdbcTemplate` 类的指导,另请参阅 <<jdbc-JdbcTemplate-idioms,JdbcTemplate最佳实践>>.
+有关在应用程序上下文中使用 `NamedParameterJdbcTemplate` 类的指导,另请参阅 <<jdbc-JdbcTemplate-idioms>>.
 
 [[jdbc-SQLExceptionTranslator]]
 ==== 使用 `SQLExceptionTranslator`
@@ -2903,7 +2995,7 @@ NOTE: 默认情况下,`SQLErrorCodesFactory` 用于定义 `Error` 代码和自�
 			if (sqlEx.errorCode == -12345) {
 					return DeadlockLoserDataAccessException(task, sqlEx)
 				}
-				return null;
+				return null
 		}
 	}
 ----
@@ -3072,7 +3164,7 @@ class RunAQuery(dataSource: DataSource) {
 
 返回的列表将类似于以下内容:
 
-[literal,subs="verbatim,quotes"]
+[subs="verbatim,quotes"]
 ----
 [{name=Bob, id=1}, {name=Mary, id=2}]
 ----
@@ -3163,14 +3255,14 @@ class RunAQuery(dataSource: DataSource) {
 
 本节包括:
 
-* <<jdbc-datasource,使用 DataSource>>
-* <<jdbc-DataSourceUtils,使用 DataSourceUtils>>
-* <<jdbc-SmartDataSource,实现 SmartDataSource>>
-* <<jdbc-AbstractDataSource,继承 AbstractDataSource>>
-* <<jdbc-SingleConnectionDataSource,使用 SingleConnectionDataSource>>
-* <<jdbc-DriverManagerDataSource,使用 DriverManagerDataSource>>
-* <<jdbc-TransactionAwareDataSourceProxy,使用 TransactionAwareDataSourceProxy>>
-* <<jdbc-DataSourceTransactionManager,使用 DataSourceTransactionManager>>
+* <<jdbc-datasource>>
+* <<jdbc-DataSourceUtils>>
+* <<jdbc-SmartDataSource>>
+* <<jdbc-AbstractDataSource>>
+* <<jdbc-SingleConnectionDataSource>>
+* <<jdbc-DriverManagerDataSource>>
+* <<jdbc-TransactionAwareDataSourceProxy>>
+* <<jdbc-DataSourceTransactionManager>>
 
 
 [[jdbc-datasource]]
@@ -3183,8 +3275,7 @@ Spring 通过 `DataSource` 获取与数据库的连接.  `DataSource` 是 JDBC �
 
 NOTE: 您应该仅将 `DriverManagerDataSource` 和 `SimpleDriverDataSource` 类用于测试目的,因为它不提供连接池,并且在发出多个连接请求时性能很差.
 
-以下部分使用 Spring 的 `DriverManagerDataSource` 实现.
-稍后将介绍其他 `DataSource`.
+以下部分使用 Spring 的 `DriverManagerDataSource` 实现.  稍后将介绍其他 `DataSource`.
 
 配置 `DriverManagerDataSource`:
 
@@ -3330,26 +3421,20 @@ NOTE: 除非必须调用已经存在的代码并传递标准 JDBC `DataSource` �
 ----
 	public class JdbcActorDao implements ActorDao {
 
-		private JdbcTemplate jdbcTemplate;
+		private SimpleJdbcCall funcGetActorName;
 
 		public void setDataSource(DataSource dataSource) {
-			this.jdbcTemplate = new JdbcTemplate(dataSource);
+			JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+			jdbcTemplate.setResultsMapCaseInsensitive(true);
+			this.funcGetActorName = new SimpleJdbcCall(jdbcTemplate)
+					.withFunctionName("get_actor_name");
 		}
 
-		public int[] batchUpdate(final List<Actor> actors) {
-			return this.jdbcTemplate.batchUpdate(
-					"update t_actor set first_name = ?, last_name = ? where id = ?",
-					new BatchPreparedStatementSetter() {
-						public void setValues(PreparedStatement ps, int i) throws SQLException {
-							Actor actor = actors.get(i);
-							ps.setString(1, actor.getFirstName());
-							ps.setString(2, actor.getLastName());
-							ps.setLong(3, actor.getId().longValue());
-						}
-						public int getBatchSize() {
-							return actors.size();
-						}
-					});
+		public String getActorName(Long id) {
+			SqlParameterSource in = new MapSqlParameterSource()
+					.addValue("in_id", id);
+			String name = funcGetActorName.executeFunction(String.class, in);
+			return name;
 		}
 
 		// ... additional methods
@@ -3808,7 +3893,7 @@ API 会有所不同,具体取决于您是否使用命名参数.  对于命名参
 ==== 使用 `SimpleJdbcCall` 调用存储过程
 
 `SimpleJdbcCall` 类使用数据库中的元数据来查找 `in` 和 `out` 参数的名称,这样您就不必显式声明它们.  如果您愿意这样做,或者如果您有没有自动映射到 Java 类的参数(例如 `ARRAY` 或 `STRUCT`) ,则可以声明参数.
-第一个示例显示了一个简单的存储过程,该过程仅从 MySQL 数据库返回 `VARCHAR` 和 `DATE` 格式的标量值.  示例存储过程读取指定的 `actor` 条目,并以 `out` 参数的形式返回 `first_name`、`last_name` 和 `birth_date` 列.  以下清单显示了第一个示例:
+第一个示例显示了一个简单的存储过程,该过程仅从 MySQL 数据库返回 `VARCHAR` 和 `DATE` 格式的标量值.  示例存储过程读取指定的 `actor` entry,并以 `out` 参数的形式返回 `first_name`、`last_name` 和 `birth_date` 列.  以下清单显示了第一个示例:
 
 [source,sql,indent=0,subs="verbatim,quotes"]
 ----
@@ -3979,7 +4064,7 @@ NOTE: 	如果您使用的数据库不是 Spring 支持的数据库,则必须使�
 [[jdbc-params]]
 ==== 如何定义 `SqlParameters`
 
-要为 `SimpleJdbc` 类以及 RDBMS 操作类定义参数(在将<<jdbc-object,JDBC 操作建模为 Java 对象>>中) ,您可以使用 `SqlParameter` 或其某一子类.  为此,通常在构造函数中指定参数名称和 SQL 类型.  SQL 类型是使用 `java.sql.Types` 常量指定的. 在本章前面,我们看到了类似于以下内容的声明:
+要为 `SimpleJdbc` 类以及 RDBMS 操作类定义参数(在将<<jdbc-object>>中) ,您可以使用 `SqlParameter` 或其某一子类.  为此,通常在构造函数中指定参数名称和 SQL 类型.  SQL 类型是使用 `java.sql.Types` 常量指定的. 在本章前面,我们看到了类似于以下内容的声明:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -3994,7 +4079,7 @@ NOTE: 	如果您使用的数据库不是 Spring 支持的数据库,则必须使�
 	SqlOutParameter("out_first_name", Types.VARCHAR),
 ----
 
-`SqlParameter` 的第一行声明了一个 IN 参数.  您可以通过使用 `SqlQuery` 及其子类(在 <<jdbc-SqlQuery,了解 SqlQuery>>中介绍) 为存储过程调用和查询使用 IN 参数.
+`SqlParameter` 的第一行声明了一个 IN 参数.  您可以通过使用 `SqlQuery` 及其子类(在 <<jdbc-SqlQuery>> 中介绍) 为存储过程调用和查询使用 IN 参数.
 
 第二行(使用 `SqlOutParameter`) 声明要在存储过程调用中使用的 out 参数.  `InOut` 参数还有一个 `SqlInOutParameter`(为过程提供 IN 值并且还返回值的参数) .
 
@@ -4336,7 +4421,7 @@ NOTE: 	只有声明为 `SqlParameter` 和 `SqlInOutParameter` 的参数才可用
 
 使用 `java.sql.Types` 常量指定 SQL 类型.
 
-第一行(使用 `SqlParameter`) 声明一个 IN 参数.  您可以将IN参数用于存储过程调用和使用 `SqlQuery` 及其子类的查询(在 <<jdbc-SqlQuery,了解 SqlQuery>>中介绍) .
+第一行(使用 `SqlParameter`) 声明一个 IN 参数.  您可以将IN参数用于存储过程调用和使用 `SqlQuery` 及其子类的查询(在 <<jdbc-SqlQuery>> 中介绍) .
 
 第二行(使用 `SqlOutParameter`) 声明要在存储过程调用中使用的 `out` 参数.  `InOut` 参数还有一个 `SqlInOutParameter`(为存储过程提供一个 `in` 值和返回值的参数) .
 
@@ -4766,8 +4851,7 @@ SQL 标准允许基于包含列表变量值的表达式来选择行.  一个典�
 
 NOTE: 传递许多值时要小心. JDBC 标准不保证您可以为 `in` 列表表达式使用 100 个以上的值.  各种数据库超过此数量,但它们通常对允许的值有多少硬性限制. 例如,Oracle 的限制为 1000.
 
-除了值列表中的原始值之外,您还可以创建对象数组的 `java.util.List`. 此列表可以支持为 `in` 子句定义的多个表达式, 例如 `select * from T_ACTOR where (id, last_name) in \((1, 'Johnson'), (2,
-'Harrop'\))`. 当然,这要求您的数据库支持此语法.
+除了值列表中的原始值之外,您还可以创建对象数组的 `java.util.List`. 此列表可以支持为 `in` 子句定义的多个表达式, 例如 `+++select * from T_ACTOR where (id, last_name) in ((1, 'Johnson'), (2,'Harrop'))+++`. 当然,这要求您的数据库支持此语法.
 
 [[jdbc-complex-types]]
 ==== 处理存储过程调用的复杂类型
@@ -5000,9 +5084,9 @@ https://www.h2database.com[H2], 和 https://db.apache.org/derby[Derby] 的支持
 
 本节介绍如何选择 Spring 支持的三个嵌入式数据库中的某一个. 它包括以下主题:
 
-* <<jdbc-embedded-database-using-HSQL,使用 HSQL>>
-* <<jdbc-embedded-database-using-H2,使用 H2>>
-* <<jdbc-embedded-database-using-Derby,使用 Derby>>
+* <<jdbc-embedded-database-using-HSQL>>
+* <<jdbc-embedded-database-using-H2>>
+* <<jdbc-embedded-database-using-Derby>>
 
 [[jdbc-embedded-database-using-HSQL]]
 ===== 使用HSQL
@@ -5023,7 +5107,7 @@ Spring 支持 Apache Derby 10.5 及更高版本. 要启用 Derby,请将 `embedde
 ==== 使用嵌入式数据库测试数据访问逻辑
 
 嵌入式数据库提供了一种轻量级的方法来测试数据访. 下一个示例是使用嵌入式数据库的数据访问集成测试模板.  当嵌入式数据库不需要跨测试类重用时,使用这样的模板可以用于一次性. 但是,如果您希望创建在测试套件中共享的嵌入式数据库,
-请考虑使用 <<testing.adoc#testcontext-framework, Spring TestContext Framework>>并将嵌入式数据库配置为 Spring `ApplicationContext` 中的 bean, 在使用 Spring <<jdbc-embedded-database-xml, XML创建嵌入式数据库>> 和 <<jdbc-embedded-database-java,编程方式创建嵌入式数据库>>.  以下清单显示了测试模板:
+请考虑使用 <<testing.adoc#testcontext-framework, Spring TestContext Framework>>并将嵌入式数据库配置为 Spring `ApplicationContext` 中的 bean, 在使用 Spring <<jdbc-embedded-database-xml>> 和 <<jdbc-embedded-database-java>>.  以下清单显示了测试模板:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -5232,7 +5316,7 @@ Spring Framework 的 R2DBC 抽象框架由两个不同的包组成：
 * `Result` 实例遍历
 * 捕获 R2DBC 异常并将它们转换为在 `org.springframework.dao` 包中定义的通用的、具有更多信息的异常层次结构。(请参见 <<dao-exceptions>>。)
 
-`DatabaseClient` 有一个使用响应式类型的流式 API 进行声明性组合.
+client 有一个使用响应式类型的流式 API 进行声明性组合.
 
 当您在代码中使用 `DatabaseClient` 时，您只需要实现 `java.util.function` 接口，并按照约定为它们提供一个明确的定义。给 `DatabaseClient` 类提供的 `Connection`, `Function` 回调将创建一个 `Publisher`。对于提取 `Row` 结果的映射函数也是如此。
 
@@ -5351,22 +5435,22 @@ SQL 查询可以通过 `Row` 对象或受影响行的数量返回值。根据你
 
 在不指定进一步映射细节的情况下，查询结果将表达为 `Map`，其键是不区分大小写的列名，值为列的值。
 
-您可以通过提供一个 `Function<Row, T>` 来控制结果映射，每个 `Row` 将调用该函数，以便它可以返回任意值(singular 值、集合和 Map 以及对象)。
+您可以通过提供一个 `Function<Row, T>` 来控制结果映射，每个 `Row` 将调用该函数，以便它可以返回任意值( singular 值、集合和 Map 以及对象)。
 
-下面的例子提取 id 列:
+下面的例子提取 `name` 列:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
 	Flux<String> names = client.sql("SELECT name FROM person")
-	        .map(row -> row.get("id", String.class))
+	        .map(row -> row.get("name", String.class))
 	        .all();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val names = client.sql("SELECT name FROM person")
-	        .map{ row: Row -> row.get("id", String.class) }
+	        .map{ row: Row -> row.get("name", String.class) }
 	        .flow()
 ----
 
@@ -5607,7 +5691,7 @@ NOTE: R2DBC 本身不支持类似于 collection 的值。尽管如此，展开�
 无论您选择使用(或不使用)上述的几种方式，在每次希望运行 `SQL` 时都很少需要创建 `DatabaseClient` 类的新实例。一旦配置好，`DatabaseClient` 实例就是线程安全的。如果您的应用程序访问多个数据库，您可能需要多个 `DatabaseClient` 实例，这需要多个 `ConnectionFactory`，以及随后的多个不同配置的 `DatabaseClient` 实例.
 
 [[r2dbc-auto-generated-keys]]
-== 获取自动生成的键
+=== 获取自动生成的键
 
 在具有自增或标识符的表中插入数据时，`INSERT` 语句可能会自动为其生成键。想要对生成的列名进行完全控制，只需注册 `StatementFilterFunction`，该函数请求所需列的生成键.
 
@@ -5733,7 +5817,7 @@ Data with JPA] 上的入门使用 JPA 访问数据指南提供了很好的介绍
 [[orm-general]]
 === 通用 ORM 集成注意事项
 
-本节重点介绍适用于所有 ORM 技术的注意事项.  <<orm-hibernate,Hibernate>> 部分提供了更多详细信息,并在具体上下文中显示了这些功能和配置.
+本节重点介绍适用于所有 ORM 技术的注意事项.  <<orm-hibernate>> 部分提供了更多详细信息,并在具体上下文中显示了这些功能和配置.
 
 Spring 的 ORM 集成的主要目标是清晰的应用程序分层(使用任何数据访问和事务技术) 以及应用程序对象的松散耦合 - 不再需要对数据访问或事务策略的业务服务依赖性、不再需要硬编码的资源查找、更难以替换的单例、没有更多的定制服务注册表.  它的目标是使用一种简单而一致的方法来连接应用程序对象,使它们保持可重用性并尽可能避免容器依赖.  所有独立的数据访问功能都可以在它们自己的方法中使用,但与 Spring 的应用程序上下文概念有很好地集成, 提供基于 XML 的配置和不需要 Spring 感知的普通 JavaBean 实例的交叉引用.  在典型的 Spring 应用程序中,许多重要的对象是 JavaBeans: 数据访问模板、数据访问对象、事务管理器、 使用数据访问对象和事务管理器的业务 services、Web 视图解析器、使用业务 services 的 Web 控制器等等.
 
@@ -5744,7 +5828,7 @@ Spring 的 ORM 集成的主要目标是清晰的应用程序分层(使用任何�
 
 基础结构提供适当的资源处理以及将特定 API 异常适当转换为未经检查的基础异常层次结构.  Spring 引入了 DAO 异常层次结构,适用于任何数据访问策略.  对于直接 JDBC,<<jdbc-JdbcTemplate, 上一节>>中提到的 `JdbcTemplate` 类提供了连接处理 和 `SQLException` 到 `DataAccessException` 层次结构的正确转换, 包括将特定于数据库的 SQL 错误代码转换为有意义的异常类.  对于 ORM 技术,请参阅<<orm-exception-translation, 下一节>>,了解如何获得相同的异常转换优势.
 
-在事务管理方面,`JdbcTemplate` 类通过各自的 Spring 事务管理器挂钩 Spring 事务支持并支持 JTA 和 JDBC 事务.  对于支持的 ORM 技术,Spring 通过 Hibernate 和 JPA 事务管理器以及 JTA 支持提供 Hibernate 和 JPA 支持.  有关事务支持的详细信息,请参阅<<transaction,事务管理一章>> .
+在事务管理方面,`JdbcTemplate` 类通过各自的 Spring 事务管理器挂钩 Spring 事务支持并支持 JTA 和 JDBC 事务.  对于支持的 ORM 技术,Spring 通过 Hibernate 和 JPA 事务管理器以及 JTA 支持提供 Hibernate 和 JPA 支持.  有关事务支持的详细信息,请参阅 <<transaction>> .
 
 [[orm-exception-translation]]
 ==== 转换异常
@@ -5768,7 +5852,9 @@ Spring 的 ORM 集成的主要目标是清晰的应用程序分层(使用任何�
 ----
 	@Repository
 	class ProductDaoImpl : ProductDao {
+
 		// class body here...
+
 	}
 ----
 
@@ -5798,7 +5884,7 @@ NOTE: 从 Spring Framework 5.3 开始,Spring 需要 Hibernate ORM 5.2+ 用于 Sp
 [[orm-session-factory-setup]]
 ==== 在 Spring 容器中设置 `SessionFactory`
 
-为避免将应用程序对象绑定到硬编码资源查找,您可以将资源(例如 JDBC `DataSource` 或 Hibernate `SessionFactory`) 定义为 Spring 容器中的 bean.  需要访问资源的应用程序对象通过 bean 引用接收对此类预定义实例的引用,如<<orm-hibernate-straight, 下一节>>中的 DAO定 义所示.
+为避免将应用程序对象绑定到硬编码资源查找,您可以将资源(例如 JDBC `DataSource` 或 Hibernate `SessionFactory`) 定义为 Spring 容器中的 bean.  需要访问资源的应用程序对象通过 bean 引用接收对此类预定义实例的引用,如 <<orm-hibernate-straight, 下一节>>中的 DAO定 义所示.
 
 以下摘自 XML 应用程序上下文定义显示了如何在其上设置 JDBC `DataSource` 和 Hibernate `SessionFactory`:
 
@@ -6144,9 +6230,9 @@ Spring JPA 在 `org.springframework.orm.jpa` 包下提供,以类似于与 Hibern
 
 Spring JPA 支持提供了三种设置 JPA `EntityManagerFactory` 的方法,该方法由应用程序用于获取实体管理器.
 
-* <<orm-jpa-setup-lemfb,使用 `LocalEntityManagerFactoryBean`>>
-* <<orm-jpa-setup-jndi,从 JNDI 获取 `EntityManagerFactory`>>
-* <<orm-jpa-setup-lcemfb,使用 `LocalContainerEntityManagerFactoryBean`>>
+* <<orm-jpa-setup-lemfb>>
+* <<orm-jpa-setup-jndi>>
+* <<orm-jpa-setup-lcemfb>>
 
 [[orm-jpa-setup-lemfb]]
 ===== 使用 `LocalEntityManagerFactoryBean`
@@ -6192,7 +6278,7 @@ Spring JPA 支持提供了三种设置 JPA `EntityManagerFactory` 的方法,该�
 
 您可以在基于 Spring 的应用程序环境中将此选项用于完整的 JPA 功能.  这包括 Web 容器,如 Tomcat、独立应用程序以及具有复杂持久性要求的集成测试.
 
-NOTE: 如果你想专门配置一个 Hibernate 设置,一个直接的选择是设置一个本地 Hibernate `LocalSessionFactoryBean` 而不是一个普通的 JPA `LocalContainerEntityManagerFactoryBean`, 让它与 JPA 访问代码以及本地 Hibernate 访问代码交互.  有关详细信息,请参阅<<orm-jpa-hibernate,本地 JPAHibernate 设置>>.
+NOTE: 如果你想专门配置一个 Hibernate 设置,一个直接的选择是设置一个本地 Hibernate `LocalSessionFactoryBean` 而不是一个普通的 JPA `LocalContainerEntityManagerFactoryBean`, 让它与 JPA 访问代码以及本地 Hibernate 访问代码交互.  有关详细信息,请参阅 <<orm-jpa-hibernate,本地 JPAHibernate 设置>>.
 
 `LocalContainerEntityManagerFactoryBean` 完全控制 `EntityManagerFactory` 配置,适用于需要细粒度自定义的环境.  `LocalContainerEntityManagerFactoryBean` 基于 `persistence.xml` 文件, 提供的 `dataSourceLookup` 策略和指定的 `loadTimeWeaver` 创建 `PersistenceUnitInfo` 实例.
 因此,可以使用 JNDI 之外的自定义数据源并控制织入过程.  以下示例显示了 `LocalContainerEntityManagerFactoryBean` 的典型 bean 定义:
@@ -6238,9 +6324,9 @@ NOTE: `<exclude-unlisted-classes/>` 快捷方式表示不应扫描带注解的�
 
 Spring 为各种环境提供了许多 `LoadTimeWeaver` 实现,允许 `ClassTransformer` 实例仅应用于每个类加载器而不是每个 VM.
 
-有关 `LoadTimeWeave` r实现及其设置的更多信息,请参阅 AOP 章节中的<<core.adoc#aop-aj-ltw-spring, Spring 配置>> , 这些实现可以是通用的,也可以是针对各种平台(例如 Tomcat,WebLogic,GlassFish,Resin 和 JBoss) 定制的.
+有关 `LoadTimeWeave` r实现及其设置的更多信息,请参阅 AOP 章节中的 <<core.adoc#aop-aj-ltw-spring, Spring 配置>> , 这些实现可以是通用的,也可以是针对各种平台(例如 Tomcat,WebLogic,GlassFish,Resin 和 JBoss) 定制的.
 
-如<<core.adoc#aop-aj-ltw-spring, Spring配置>>中所述,您可以使用 `context:load-time-weaver` XML 元素的 `@EnableLoadTimeWeaving` 注解配置上下文范围的 `LoadTimeWeaver`.  所有 JPA `LocalContainerEntityManagerFactoryBean` 实例都会自动选择这样的全局编织器.  以下示例显示了设置加载时织入器的首选方法,提供对平台(WebLogic,GlassFish,Tomcat,Resin,JBoss 或 VM 代理) 的自动检测以及将织入器自动传播到所有 `weaver-aware` bean:
+如 <<core.adoc#aop-aj-ltw-spring, Spring配置>> 中所述,您可以使用 `context:load-time-weaver` XML 元素的 `@EnableLoadTimeWeaving` 注解配置上下文范围的 `LoadTimeWeaver`.  所有 JPA `LocalContainerEntityManagerFactoryBean` 实例都会自动选择这样的全局编织器.  以下示例显示了设置加载时织入器的首选方法,提供对平台(WebLogic,GlassFish,Tomcat,Resin,JBoss 或 VM 代理) 的自动检测以及将织入器自动传播到所有 `weaver-aware` bean:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -6317,8 +6403,7 @@ Spring 为各种环境提供了许多 `LoadTimeWeaver` 实现,允许 `ClassTrans
 [[orm-jpa-dao]]
 ==== 基于 JPA 实现 DAO: `EntityManagerFactory` 和 `EntityManager`
 
-NOTE:
-虽然 `EntityManagerFactory` 实例是线程安全的,但 `EntityManager` 实例不是安全的.  注入的 JPA `EntityManager` 的行为类似于从应用程序服务器的 JNDI 环境获取的 `EntityManager`,正如 JPA 规范所定义.  它将所有的调用委托给当前事务式的 `EntityManager`(如果有) . 否则,它会回退到每个操作新创建的 `EntityManager`,实际上使其使用线程安全.
+NOTE: 虽然 `EntityManagerFactory` 实例是线程安全的,但 `EntityManager` 实例不是安全的.  注入的 JPA `EntityManager` 的行为类似于从应用程序服务器的 JNDI 环境获取的 `EntityManager`,正如 JPA 规范所定义.  它将所有的调用委托给当前事务式的 `EntityManager`(如果有) . 否则,它会回退到每个操作新创建的 `EntityManager`,实际上使其使用线程安全.
 
 通过使用注入的 `EntityManagerFactory` 或 `EntityManager`,可以在没有任何 Spring 依赖性的情况下针对普通 JPA 编写代码.  如果启用了 `PersistenceAnnotationBeanPostProcessor`,Spring 可以在字段和方法级别理解 `@PersistenceUnit` 和 `@PersistenceContext` 注解.  以下示例显示了使用 `@PersistenceUnit` 注解的普通JPA DAO实现:
 
@@ -6335,10 +6420,16 @@ NOTE:
 		}
 
 		public Collection loadProductsByCategory(String category) {
-			try (EntityManager em = this.emf.createEntityManager()) {
+			EntityManager em = this.emf.createEntityManager();
+			try {
 				Query query = em.createQuery("from Product as p where p.category = ?1");
 				query.setParameter(1, category);
 				return query.getResultList();
+			}
+			finally {
+				if (em != null) {
+					em.close();
+				}
 			}
 		}
 	}
@@ -6447,16 +6538,16 @@ NOTE:
 [[orm-jpa-tx]]
 ==== Spring 驱动的 JPA 事务
 
-NOTE: 我们强烈建议您阅读<<transaction-declarative,声名式事务管理>>(如果您还没有这样做) ,以获得有关 Spring 声明式事务支持的更详细的介绍. ,
+NOTE: 我们强烈建议您阅读 <<transaction-declarative>> (如果您还没有这样做) ,以获得有关 Spring 声明式事务支持的更详细的介绍. ,
 
 JPA 的推荐策略是通过 JPA 的本地事务支持进行本地事务.  Spring 的 `JpaTransactionManager` 针对任何常规 JDBC 连接池(无 XA 要求) 提供了许多本地 JDBC 事务(例如特定于事务的隔离级别和资源级只读优化) 的功能.
 
 Spring JPA 还允许配置的 `JpaTransactionManager` 将 JPA 事务暴露给访问相同 `DataSource` 的 JDBC 访问代码, 前提是已注册的 `JpaDialect` 支持检索基础 JDBC `Connection`.  Spring 为 `EclipseLink` 和 Hibernate JPA 实现提供了方言.
-有关 `JpaDialect` 机制的详细信息,请参阅<<orm-jpa-dialect, 下一节>>.
+有关 `JpaDialect` 机制的详细信息,请参阅 <<orm-jpa-dialect, 下一节>>.
 
 NOTE:
 作为一种直接替代方案,Spring 的本地 `HibernateTransactionManager` 能够与 JPA 访问代码交互,适应多种特定的 Hibernate 细节并提供 JDBC 交互.  这与 `LocalSessionFactoryBean` 设置结合使用特别有意义.
-有关详细信息,请参阅<<orm-jpa-hibernate, JPA 交互的本地 Hibernate 设置>> .
+有关详细信息,请参阅 <<orm-jpa-hibernate, JPA 交互的本地 Hibernate 设置>> .
 
 [[orm-jpa-dialect]]
 ==== 了解 `JpaDialect` 和 `JpaVendorAdapter`
@@ -6483,7 +6574,7 @@ TIP: 	作为一个更广泛的提供者适配工具,主要用于 Spring 的全�
 * 需要为 JTA 配置 JPA `EntityManagerFactory` 设置. 这是特定于提供者的, 通常通过在 `LocalContainerEntityManagerFactoryBean` 上指定为 `jpaProperties` 的特殊属性.  在 Hibernate 的情况下,这些属性甚至是特定于版本的. 有关详细信息,请参阅 Hibernate 文档.
 * Spring 的 `HibernateJpaVendorAdapter` 强制执行某些面向 Spring 的默认设置,例如连接释放模式 on-close, 它与 Hibernate 在 Hibernate 5.0 中的默认设置相匹配,但在 5.1+ 中则不再匹配.
 对于 JTA 设置,确保声明您的持久性单元事务类型为 "JTA".  或者,将 Hibernate 5.2 的 `hibernate.connection.handling_mode` 属性 设置为 `DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT` 以恢复 Hibernate 自己的默认值.
-有关 WebLogic 的相关说明,请参阅 <<orm-hibernate-invalid-jdbc-access-error,Hibernate 的虚假应用程序服务器警告>> .
+有关 WebLogic 的相关说明,请参阅 <<orm-hibernate-invalid-jdbc-access-error>> .
 * 或者,考虑从应用程序服务器本身获取 `EntityManagerFactory`(即,通过 JNDI 查找而不是本地声明的 `LocalContainerEntityManagerFactoryBean`) .  服务器提供的 `EntityManagerFactory` 可能需要在服务器配置中使用特殊的定义(使部署不那么可移植) ,而是由服务器的 JTA 环境设置.
 
 [[orm-jpa-hibernate]]
@@ -6499,7 +6590,7 @@ Hibernate `SessionFactory` 现在在本地实现 JPA 的 `EntityManagerFactory` 
 [NOTE]
 ====
 
-`LocalSessionFactoryBean` 和 `LocalSessionFactoryBuilder` 支持后台引导, 就像 JPA `LocalContainerEntityManagerFactoryBean` 一样. 有关简介,请参阅<<orm-jpa-setup-background, 后台引导>>.
+`LocalSessionFactoryBean` 和 `LocalSessionFactoryBuilder` 支持后台引导, 就像 JPA `LocalContainerEntityManagerFactoryBean` 一样. 有关简介,请参阅 <<orm-jpa-setup-background, 后台引导>>.
 
 在 `LocalSessionFactoryBean 上`,可以通过 `bootstrapExecutor` 属性获得.  在编程式的 `LocalSessionFactoryBuilder` 上,重载的 `buildSessionFactory` 方法采用 bootstrap executor 参数来获得后台引导.
 ====
@@ -6516,9 +6607,9 @@ Hibernate `SessionFactory` 现在在本地实现 JPA 的 `EntityManagerFactory` 
 
 使用 Spring 满足 O/X 映射需求的一些好处是:
 
-* <<oxm-ease-of-configuration,易于配置>>
-* <<oxm-consistent-interfaces,一致的接口>>
-* <<oxm-consistent-exception-hierarchy,一致的异常层次>>
+* <<oxm-ease-of-configuration>>
+* <<oxm-consistent-interfaces>>
+* <<oxm-consistent-exception-hierarchy>>
 
 
 [[oxm-ease-of-configuration]]
@@ -6540,7 +6631,7 @@ Spring 提供从底层 O-X 映射工具的异常到其自己的异常层次结�
 [[oxm-marshaller-unmarshaller]]
 === `Marshaller` 和 `Unmarshaller`
 
-如<<oxm-introduction, 简介>>中所述,编组器将对象序列化为  XML,而解组器将 XML 流反序列化为对象. 本节介绍用于此目的的两个 Spring 接口.
+如 <<oxm-introduction, 简介>> 中所述,编组器将对象序列化为  XML,而解组器将 XML 流反序列化为对象. 本节介绍用于此目的的两个 Spring 接口.
 
 [[oxm-marshaller]]
 ==== 了解 `Marshaller`
@@ -6864,10 +6955,7 @@ JiBX 框架提供了类似于 Hibernate 为 ORM 提供的解决方案: 绑定的
 [[oxm-jibx-marshaller]]
 ==== 使用 `JibxMarshaller`
 
-`JibxMarshaller` 类同时实现了 `Marshaller` 和 `Unmarshaller`.
-接口.  要进行操作,需要编组的班级名称,您可以
-使用 `targetClass` 属性设置.  (可选) 您可以通过设置
-`bindingName` 属性.  在下面的示例中,我们绑定 `Flights` 类:
+`JibxMarshaller` 类同时实现了 `Marshaller` 和 `Unmarshaller` 接口.  要进行操作,需要编组的班级名称,您可以使用 `targetClass` 属性设置.  (可选) 您可以通过设置 `bindingName` 属性.  在下面的示例中,我们绑定 `Flights` 类:
 
 [source,xml,indent=0,subs="verbatim,quotes"]
 ----
@@ -6882,7 +6970,7 @@ JiBX 框架提供了类似于 Hibernate 为 ORM 提供的解决方案: 绑定的
 `JibxMarshaller` 配置为单个类. 如果要编组多个类,则必须使用不同的 `targetClass` 属性值配置多个 `JibxMarshaller` 实例.
 
 [[oxm-jibx-xsd]]
-===== XML配置命名空间
+===== XML 配置命名空间
 
 `jibx-marshaller` 标签配置 `org.springframework.oxm.jibx.JibxMarshaller`,如下例所示:
 
