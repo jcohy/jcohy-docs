@@ -1,6 +1,5 @@
 package com.jcohy.docs.build;
 
-import java.io.File;
 import java.util.Map;
 
 import com.jcohy.convention.conventions.ConventionsPlugin;
@@ -31,11 +30,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         plugins.apply(ConventionsPlugin.class);
         plugins.apply(DeployedPlugin.class);
         project.setVersion(ProjectVersion.getVersionFromName(project.getName()));
-        plugins.withType(AsciidoctorJPlugin.class,(asciidoctorPlugin) -> {
-            project.getTasks().withType(AbstractAsciidoctorTask.class, (asciidoctorTask) -> {
-                configureAsciidoctorTask(project, asciidoctorTask);
-            });
-        });
+        plugins.withType(AsciidoctorJPlugin.class, (asciidoctorPlugin) -> project.getTasks().withType(AbstractAsciidoctorTask.class, (asciidoctorTask) -> configureAsciidoctorTask(project, asciidoctorTask)));
     }
 
     private void configureAsciidoctorTask(Project project, AbstractAsciidoctorTask asciidoctorTask) {
@@ -44,12 +39,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
         project.getTasks()
-                .withType(Sync.class, (sync -> {
-                    sync.from("src/main/resources",(spec) -> {
-                        spec.into("main/resources");
-                    });
-                }));
-        File syncedSource = new File(project.getBuildDir(), "docs/src/" + asciidoctorTask.getName());
+                .withType(Sync.class, (sync -> sync.from("src/main/resources", (spec) -> spec.into("main/resources"))));
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
