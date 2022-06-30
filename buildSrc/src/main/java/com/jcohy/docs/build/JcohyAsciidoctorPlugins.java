@@ -1,7 +1,9 @@
 package com.jcohy.docs.build;
 
+import java.util.List;
 import java.util.Map;
 
+import com.google.common.collect.Lists;
 import com.jcohy.convention.conventions.ConventionsPlugin;
 import com.jcohy.convention.deployed.DeployedPlugin;
 import org.asciidoctor.gradle.jvm.AbstractAsciidoctorTask;
@@ -23,6 +25,8 @@ import org.gradle.api.tasks.Sync;
  */
 public class JcohyAsciidoctorPlugins implements Plugin<Project> {
 
+    private List<String> singlePage = Lists.newArrayList("spring-boot","spring-framework","spring-security");
+
     @Override
     public void apply(Project project) {
         PluginContainer plugins = project.getPlugins();
@@ -35,7 +39,12 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
 
     private void configureAsciidoctorTask(Project project, AbstractAsciidoctorTask asciidoctorTask) {
         asciidoctorTask.languages("zh-cn");
-        asciidoctorTask.sources("index.adoc");
+        if(singlePage.contains(project.getName()) && !asciidoctorTask.getName().equals("asciidoctorMultipage")) {
+            asciidoctorTask.sources("*.singleadoc");
+        } else {
+            asciidoctorTask.sources("index.adoc");
+        }
+        asciidoctorTask.setLogDocuments(true);
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
         project.getTasks()
