@@ -37,6 +37,7 @@ public enum ProjectVersion {
     SPRING_RESTDOCS("spring-restdocs","spring-restdocs-version","2.0.6.RELEASE",""),
     SPRING_RETRY("spring-retry","spring-retry-version","1.3.3",""),
     SPRING_SECURITY("spring-security","spring-security-version","5.7.2",""),
+    SPRING_GRAPHQL("spring-graphql","spring-graphql-version","1.0.0",""),
     SPRING_WS("spring-ws","spring-ws-version","3.1.3","https://docs.spring.io/spring-ws/docs/3.1.3/reference/html/"),
 
     SPRING_DATA_CASSANDRA("spring-data-cassandra","spring-data-cassandra-version","3.4.1",""),
@@ -45,9 +46,9 @@ public enum ProjectVersion {
     SPRING_DATA_ELASTICSEARCH("spring-data-elasticsearch","spring-data-elasticsearch-version","4.4.1",""),
     SPRING_DATA_JDBC("spring-data-jdbc","spring-data-jdbc-version","2.4.1",""),
     SPRING_DATA_JPA("spring-data-jpa","spring-data-jpa-version","2.7.1",""),
+    SPRING_DATA_ENVERS("spring-data-envers","spring-data-envers-version","2.7.1",""),
     SPRING_DATA_MONGODB("spring-data-mongodb","spring-data-mongodb-version","3.4.1","https://docs.spring.io/spring-data/mongodb/docs/3.4.1/reference/html/"),
     SPRING_DATA_NEO4J("spring-data-neo4j","spring-data-neo4j-version","6.3.1","https://docs.spring.io/spring-data/neo4j/docs/6.3.1/reference/html/"),
-
     SPRING_DATA_R2DBC("spring-data-r2dbc","spring-data-r2dbc-version","1.5.1",""),
     SPRING_DATA_REDIS("spring-data-redis","spring-data-redis-version","2.7.1",""),
     SPRING_DATA_REST("spring-data-rest","spring-data-rest-version","3.7.1",""),
