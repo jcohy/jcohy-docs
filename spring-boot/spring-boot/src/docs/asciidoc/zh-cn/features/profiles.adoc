@@ -1,0 +1,100 @@
+[[features.profiles]]
+== Profiles
+Spring Profile 提供了一种能够将应用程序的部分配置隔离，并使其仅在特定环境中可用的方法. 可以使用 `@Profile` 来注解任何 `@Component` 或 `@Configuration` 或 `@ConfigurationProperties` 以指定何时加载它,如下所示:
+
+include::code:ProductionConfiguration[]
+
+NOTE: 如果 `@ConfigurationProperties` Bean 是通过 `@EnableConfigurationProperties` 而非自动扫描注册的,则需要在 `@EnableConfigurationProperties` 注解的 `@Configuration` 类上指定 `@Profile` 注解. 在扫描 `@ConfigurationProperties` 的情况下,可以在 `@ConfigurationProperties` 类本身上指定 `@Profile`.
+
+您可以使用 `spring.profiles.active` `Environment` 属性指定哪些配置文件处于激活状态. 您可以使用本章前面介绍的任何方法指定属性. 例如,您可以将其包含在 `application.properties` 中,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  profiles:
+	    active: "dev,hsqldb"
+----
+
+您还可以在命令行上使用以下开关指定它: `--spring.profiles.active=dev,hsqldb`.
+
+如果没有配置文件处于活动状态，则启用默认配置文件。 默认配置文件的名称是 `default`，可以使用 `spring.profiles.default` `Environment` 属性对其进行调整，如下例所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  profiles:
+	    default: "none"
+----
+
+`spring.profiles.active` 和 `spring.profiles.default` 只能在非配置文件特定的文档中使用。
+这意味着它们不能在 <<features#features.external-config.files.profile-specific,profile specific files>> 或 <<features#features.external-config.files.activation-properties,documents activated>> 中包含 `spring.config.activate.on-profile`。
+
+例如,第二个文档配置无效:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	# this document is valid
+	spring:
+	  profiles:
+	    active: "prod"
+	---
+	# this document is invalid
+	spring:
+	  config:
+	    activate:
+	      on-profile: "prod"
+	  profiles:
+	    active: "metrics"
+----
+
+[[features.profiles.adding-active-profiles]]
+=== 添加激活 Profile
+`spring.profiles.active` 属性遵循与其他属性相同的排序规则: 应用优先级最高的 `PropertySource`. 这意味着您可以在 `application.properties` 中指定激活配置文件,然后使用命令行切换替换它们.
+
+有时,将特定 profile 的属性添加到激活配置文件而不是替换它们,这种方式也是很有用的.`spring.profiles.include` 属性可用于在 `spring.profiles.active` 属性激活的配置文件之上添加激活的配置文件。
+
+`SpringApplication` 入口还有一个 Java API,用于设置其他 profile，请参阅 {spring-boot-module-api}/SpringApplication.html[SpringApplication] 的 `setAdditionalProfiles()` 方法.
+
+例如，当运行具有以下属性的应用程序时，即使使用 --spring.profiles.active 运行，也会激活 common 和 local 配置文件：
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  profiles:
+	    include:
+	      - "common"
+	      - "local"
+----
+
+WARNING: 与 `spring.profiles.active` 一样, `spring.profiles.include` 只能在非配置文件特定的文档中使用.
+这意味着它们不能在 <<features#features.external-config.files.profile-specific,profile specific files>> 或 <<features#features.external-config.files.activation-properties,documents activated>> 包含 `spring.config.activate.on-profile`.
+
+如果给定的 Profile 是激活的，还可以使用 Profile 组(将在 <<features#features.profiles.groups,下一节中>> 进行描述)添加激活的配置文件:
+
+[[features.profiles.groups]]
+=== Profile 组
+有时，您在应用程序中定义和使用的 Profile 粒度太细，使用起来很麻烦. 例如，您可以使用 `proddb` 和 `prodmq` Profile 独立地启用数据库和消息传递特性.
+
+为了帮助实现这一点，Spring Boot 允许您定义 Profile 组.  Profile 组允许您为相关的 Profile 组定义逻辑名称.
+
+例如，我们可以创建一个由 `proddb` 和 `prodmq` 配置文件组成的 `production` 组.
+
+[source,yaml,indent=0,subs="verbatim",configblocks]
+----
+	spring:
+	  profiles:
+	    group:
+	      production:
+	      - "proddb"
+	      - "prodmq"
+----
+
+我们的应用程序现在可以使用 `--spring.profiles.active=production`  启动. 一次性激活 `production`, `proddb` 和 `prodmq` 配置文件.
+
+[[features.profiles.programmatically-setting-profiles]]
+=== 以编程方式设置 Profiles
+您可以在应用程序运行之前通过调用 `SpringApplication.setAdditionalProfiles(…)` 以编程方式设置 active 配置文件.  也可以使用 Spring 的 `ConfigurableEnvironment` 接口激活 profile.
+
+[[features.profiles.profile-specific-configuration-files]]
+=== 特定 Profile 的配置文件
+特定 profile 的 `application.properties` (或 `application.yml`) 和通过 `@ConfigurationProperties` 引用的文件被当做文件并加载. 有关详细信息,请参见   "<<features#features.external-config.files.profile-specific>>".

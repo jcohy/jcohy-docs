@@ -1,0 +1,165 @@
+[[howto.spring-mvc]]
+== Spring MVC
+Spring Boot 有许多启动器,其中包括 Spring MVC.  请注意,一些入门者包括对 Spring MVC 的依赖,而不是直接包含它.  本部分回答有关 Spring MVC 和 Spring Boot 的常见问题.
+
+[[howto.spring-mvc.write-json-rest-service]]
+=== 编写 JSON REST 服务
+只要 Jackson2 在类路径上, Spring Boot 应用程序中的任何 Spring `@RestController` 默认情况下都应呈现 JSON 响应,如以下示例所示:
+
+include::code:MyController[]
+
+只要 Jackson 2 可以对 `MyThing` 进行序列化 (对于普通的 POJO 或 Groovy 对象为 true) ,则 `http://localhost:8080/thing` 默认情况下将以 JSON 表示.  请注意,在浏览器中,有时可能会看到 XML 响应,因为浏览器倾向于发送更喜欢 XML 的接受请求头.
+
+[[howto.spring-mvc.write-xml-rest-service]]
+=== 编写 XML REST 服务
+如果类路径上具有 Jackson XML 扩展名 (`jackson-dataformat-xml`) ,则可以使用它来呈现 XML 响应.  我们用于 JSON 的先前示例可以正常工作.  要使用 Jackson XML 渲染器,请将以下依赖添加到您的项目中:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<dependency>
+		<groupId>com.fasterxml.jackson.dataformat</groupId>
+		<artifactId>jackson-dataformat-xml</artifactId>
+	</dependency>
+----
+
+如果 Jackson 的 XML 扩展名不可用而 JAXB 可用,则可以将 XML 呈现为附加要求,将 `MyThing` 注解为 `@XmlRootElement`,如以下示例所示:
+
+include::code:MyThing[]
+
+JAXB 仅可与 Java 8 一起使用. 如果您使用的是较新的 Java 版本,请在项目中添加以下依赖:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<dependency>
+		<groupId>org.glassfish.jaxb</groupId>
+		<artifactId>jaxb-runtime</artifactId>
+	</dependency>
+----
+
+NOTE: 要使服务器呈现 XML 而不是 JSON,您可能必须发送一个  `Accept: text/xml` 请求头 (或使用浏览器) .
+
+[[howto.spring-mvc.customize-jackson-objectmapper]]
+=== 自定义 Jackson ObjectMapper
+Spring MVC (客户端和服务器端) 使用 `HttpMessageConverters` 在 HTTP 交换中协商内容转换.  如果 Jackson 在类路径中,则您已经获得了 `Jackson2ObjectMapperBuilder` 提供的默认转换器,该转换器的实例已为您自动配置.
+
+`ObjectMapper` (或用于 Jackson XML 转换器的 `XmlMapper`) 实例 (默认创建) 具有以下自定义属性:
+
+* `MapperFeature.DEFAULT_VIEW_INCLUSION` 被禁用
+* `DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES` 被禁用
+* `SerializationFeature.WRITE_DATES_AS_TIMESTAMPS` 被禁用
+
+Spring Boot 还具有一些功能,可以更轻松地自定义此行为.
+
+您可以通过使用环境来配置 `ObjectMapper` 和 `XmlMapper` 实例.  Jackson 提供了一套广泛的简单的开/关功能,可用于配置其处理的各个方面.  在六个枚举 (在 Jackson 中) 中描述了这些功能,这些枚举映射到环境中的属性:
+
+|===
+| Enum | Property | Values
+
+| `com.fasterxml.jackson.databind.DeserializationFeature`
+| `spring.jackson.deserialization.<feature_name>`
+| `true`, `false`
+
+| `com.fasterxml.jackson.core.JsonGenerator.Feature`
+| `spring.jackson.generator.<feature_name>`
+| `true`, `false`
+
+| `com.fasterxml.jackson.databind.MapperFeature`
+| `spring.jackson.mapper.<feature_name>`
+| `true`, `false`
+
+| `com.fasterxml.jackson.core.JsonParser.Feature`
+| `spring.jackson.parser.<feature_name>`
+| `true`, `false`
+
+| `com.fasterxml.jackson.databind.SerializationFeature`
+| `spring.jackson.serialization.<feature_name>`
+| `true`, `false`
+
+| `com.fasterxml.jackson.annotation.JsonInclude.Include`
+| `spring.jackson.default-property-inclusion`
+| `always`, `non_null`, `non_absent`, `non_default`, `non_empty`
+|===
+
+例如,要启用漂亮打印,请设置 `spring.jackson.serialization.indent_output = true`.  请注意,由于使用了 <<features#features.external-config.typesafe-configuration-properties.relaxed-binding, 宽松绑定>>,因此 `indent_output` 的情况不必与相应的枚举常量 (即 `INDENT_OUTPUT`) 的情况匹配.
+
+这种基于环境的配置将应用于自动配置的 `Jackson2ObjectMapperBuilder` Bean,并应用于使用该构建器创建的任何映射器,包括自动配置的 `ObjectMapper` Bean.
+
+上下文的 `Jackson2ObjectMapperBuilder` 可以由一个或多个 `Jackson2ObjectMapperBuilderCustomizer` bean 进行自定义.  可以对此类定制器 bean 进行排序 (Boot 自己的定制器的顺序为 0) ,从而可以在 Boot 定制之前和之后应用其他定制.
+
+任何类型为 `com.fasterxml.jackson.databind.Module` 的 bean 都会自动注册到自动配置的 `Jackson2ObjectMapperBuilder` 中,并应用于它创建的任何 `ObjectMapper` 实例.  当您向应用程序添加新功能时,这提供了一种用于贡献自定义模块的全局机制.
+
+如果要完全替换默认的 `ObjectMapper`,则可以定义该类型的 `@Bean` 并将其标记为 `@Primary`,或者,如果您更喜欢基于生成器的方法,则可以定义 `Jackson2ObjectMapperBuilder` `@Bean`.  请注意,无论哪种情况,这样做都会禁用 `ObjectMapper` 的所有自动配置.
+
+如果您提供任何类型为 `MappingJackson2HttpMessageConverter` 的 `@Bean`,它们将替换 MVC 配置中的默认值.  此外,还提供了 `HttpMessageConverters` 类型的便捷 bean (如果使用默认的 MVC 配置,该 bean 始终可用) .  它提供了一些有用的方法来访问默认的和用户增强的消息转换器.
+
+有关更多详细信息,请参见 "`<<howto#howto.spring-mvc.customize-responsebody-rendering>>`" 部分和 {spring-boot-autoconfigure-module-code}/web/servlet/WebMvcAutoConfiguration.java[`WebMvcAutoConfiguration`] 源代码.
+
+[[howto.spring-mvc.customize-responsebody-rendering]]
+=== 自定义 @ResponseBody 渲染
+Spring 使用 `HttpMessageConverters` 渲染 `@ResponseBody` (或 `@RestController` 的响应) .  您可以通过在 Spring Boot 上下文中添加适当类型的 bean 来贡献额外的转换器.
+如果您添加的 Bean 仍是默认情况下将包含的类型 (例如 JSON 转换的 `MappingJackson2HttpMessageConverter`) ,它将替换默认值.  提供了 `HttpMessageConverters` 类型的便捷 bean,如果使用默认的 MVC 配置,它将始终可用.
+它提供了一些有用的方法来访问默认的和用户增强的消息转换器 (例如,如果您想将它们手动注入到自定义的 `RestTemplate` 中,则可能会很有用) .
+
+与正常的 MVC 用法一样,您提供的任何 `WebMvcConfigurer` Bean 也可以通过重写 `configureMessageConverters` 方法来贡献转换器.  但是,与普通的 MVC 不同,您只能提供所需的其他转换器 (因为 Spring Boot 使用相同的机制来提供其默认值) .
+最后,如果通过提供自己的 `@EnableWebMvc` 配置选择退出 Spring Boot 默认 MVC 配置,则可以完全控制并使用 `WebMvcConfigurationSupport` 中的 `getMessageConverters` 手动执行所有操作.
+
+有关更多详细信息,请参见 {spring-boot-autoconfigure-module-code}/web/servlet/WebMvcAutoConfiguration.java[`WebMvcAutoConfiguration`] 源代码.
+
+[[howto.spring-mvc.multipart-file-uploads]]
+=== 处理分段文件上传
+Spring Boot 包含 Servlet 3 `javax.servlet.http.Part` API以支持上传文件.  默认情况下,Spring Boot 用单个请求将 Spring MVC 配置为每个文件最大大小为 1MB,最大文件数据为 `10MB`.
+您可以使用 `MultipartProperties` 类中暴露的属性覆盖这些值,存储中间数据的位置 (例如,存储到 `/tmp` 目录) 以及将数据刷新到磁盘的阈值.  例如,如果要指定文件不受限制,请将 `spring.servlet.multipart.max-file-size` 属性设置为 `-1`.
+
+当您想在 Spring MVC 控制器处理程序方法中以 `MultipartFile` 类型的 `@RequestParam` 注解参数接收多部分编码文件数据时,多部分支持会很有帮助.
+
+有关更多详细信息,请参见 {spring-boot-autoconfigure-module-code}/web/servlet/MultipartAutoConfiguration.java[`MultipartAutoConfiguration`] 源码.
+
+NOTE: 建议使用容器的内置支持进行分段上传,而不要引入其他依赖,例如 Apache Commons File Upload.
+
+[[howto.spring-mvc.switch-off-dispatcherservlet]]
+=== 关闭 Spring MVC DispatcherServlet
+默认情况下,所有内容均从应用程序 (`/`) 的根目录提供.  如果您希望映射到其他路径,则可以如下配置:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  mvc:
+	    servlet:
+	      path: "/mypath"
+----
+
+如果您有其他 Servlet,则可以为每个 `Servlet` 声明一个 `@Bean` 或 `ServletRegistrationBean` 类型,Spring Boot 会将它们透明地注册到容器中.  因为 servlet 是通过这种方式注册的,所以可以将它们映射到 `DispatcherServlet` 的子上下文,而无需调用它.
+
+自己配置 `DispatcherServlet` 是不寻常的,但是如果您确实需要这样做,则还必须提供 `DispatcherServletPath` 类型的 `@Bean`,以提供自定义 `DispatcherServlet` 的路径.
+
+[[howto.spring-mvc.switch-off-default-configuration]]
+=== 关闭默认的 MVC 配置
+完全控制 MVC 配置的最简单方法是为您自己的 `@Configuration` 提供 `@EnableWebMvc` 注解.  这样做会使您掌握所有 MVC 配置.
+
+[[howto.spring-mvc.customize-view-resolvers]]
+=== 自定义 ViewResolvers
+`ViewResolver` 是 Spring MVC 的核心组件,将 `@Controller` 中的视图名称转换为实际的 `View` 实现.  请注意,`ViewResolvers` 主要用于 UI 应用程序,而不是 REST 样式的服务 (View 不用于呈现 `@ResponseBody`) .
+有很多 `ViewResolver` 实现可供选择,Spring 本身对是否应使用哪个视图没有意见.  另一方面,Spring Boot 根据在类路径和应用程序上下文中找到的内容为您安装一个或两个.  `DispatcherServlet` 使用它在应用程序上下文中找到的所有解析器,
+依次尝试每个解析器,直到获得结果为止.  如果添加自己的解析器,则必须知道其顺序以及解析器的添加位置.
+
+`WebMvcAutoConfiguration` 将以下 `ViewResolvers` 添加到您的上下文中:
+
+* 一个名为 `defaultViewResolver` 的 `InternalResourceViewResolver`.  这一章查找可以通过使用 `DefaultServlet` 呈现的物理资源 (包括静态资源和 JSP 页面,如果使用的话) .它在视图名称中应用前缀和后缀,然后在 Servlet 上下文中查找具有该路径的物理资源 (默认值均为空,但可通过 `spring.mvc.view.prefix` 和 `spring.mvc.view.suffix` 进行外部配置访问) .  您可以通过提供相同类型的 bean 覆盖它.
+* 名为 `beanNameViewResolver` 的 `BeanNameViewResolver`.  这是视图解析器链的有用成员,可以获取与要解析的视图同名的所有 bean.  不必重写或替换它.
+* 仅当实际上存在 `View` 类型的bean时,才添加一个名为 `viewResolver` 的 `ContentNegotiatingViewResolver`.  这是一个  '`master`' 解析器,委派给所有其他解析器,并尝试查找与客户端发送的 '`Accept`' HTTP 请求头匹配的内容.
+您可能想学习有关 https://spring.io/blog/2013/06/03/content-negotiation-using-views[`ContentNegotiatingViewResolver` 的有用博客] ,以了解更多信息,并且您也可以查看源代码以获取详细信息.  您可以通过定义一个名为 `viewResolver` 的 bean 来关闭自动配置的 `ContentNegotiatingViewResolver`.
+* 如果您使用 Thymeleaf,则还有一个名为 `thymeleafViewResolver` 的 `ThymeleafViewResolver`.  它通过在视图名称前后加上前缀和后缀来查找资源.
+前缀为  `spring.thymeleaf.prefix`,后缀为 `spring.thymeleaf.suffix`.  前缀和后缀的值分别默认为 '`classpath:/templates/`' 和 '`.html`'.  您可以通过提供同名的 bean 来覆盖 `ThymeleafViewResolver`.
+* 如果您使用 FreeMarker,则还有一个名为 '`freeMarkerViewResolver`' 的 `FreeMarkerViewResolver`.  它通过在视图名称前加上前缀和后缀来在加载器路径 (已将其外部化为 `spring.freemarker.templateLoaderPath`,
+其默认值为 '`classpath:/templates/`') 中查找资源.
+前缀外部化为  `spring.freemarker.prefix`,后缀外部化为 `spring.freemarker.suffix`.  前缀和后缀的默认值分别为空和 '`.ftlh`'.  您可以通过提供同名的bean来覆盖 `FreeMarkerViewResolver`.
+* 如果您使用 Groovy 模板 (实际上,如果 `groovy-templates` 在类路径中) ,则您还将有一个名为 `groovyMarkupViewResolver` 的 `GroovyMarkupViewResolver`.
+它通过在视图名称前加上前缀和后缀 (在 `spring.groovy.template.prefix` 和 `spring.groovy.template.suffix` 中进行了扩展) 来在加载程序路径中查找资源.  前缀和后缀的默认值分别为 '`classpath:/templates/`' 和 '`.tpl`'.  您可以通过提供同名的bean来覆盖 `GroovyMarkupViewResolver`.
+* 如果您使用 Mustache,则还有一个名为 '`mustacheViewResolver`' 的 `MustacheViewResolver`.  它通过在视图名称前后加上前缀和后缀来查找资源.  前缀为 `spring.mustache.prefix`,后缀为 `spring.mustache.suffix`.  前缀和后缀的值分别默认为 '`classpath:/templates/`' 和 '`.mustache`'.  您可以通过提供同名的bean来覆盖 `MustacheViewResolver`.
+
+有关更多详细信息,请参见以下部分:
+
+* {spring-boot-autoconfigure-module-code}/web/servlet/WebMvcAutoConfiguration.java[`WebMvcAutoConfiguration`]
+* {spring-boot-autoconfigure-module-code}/thymeleaf/ThymeleafAutoConfiguration.java[`ThymeleafAutoConfiguration`]
+* {spring-boot-autoconfigure-module-code}/freemarker/FreeMarkerAutoConfiguration.java[`FreeMarkerAutoConfiguration`]
+* {spring-boot-autoconfigure-module-code}/groovy/template/GroovyTemplateAutoConfiguration.java[`GroovyTemplateAutoConfiguration`]

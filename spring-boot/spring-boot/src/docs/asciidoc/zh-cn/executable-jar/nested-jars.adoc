@@ -1,0 +1,117 @@
+[[appendix.executable-jar.nested-jars]]
+== 嵌套 JARs
+Java 没有提供任何标准的方式来装载嵌套的 jar 文件 (即,它们本身包含在jar中的jar文件) .  如果您需要分发一个自包含的应用程序,而该应用程序可以从命令行运行而无需解压缩,则可能会出现问题.
+
+为了解决这个问题,许多开发人员使用 "`shaded`" jars.  将包含所有 jar 的所有类的 shaded 的 jar 打包到一个 "`uber jar`" 中.  带 shaded 的 jar 的问题在于,很难查看应用程序中实际包含哪些库.
+如果在多个 jar 中使用相同的文件名 (但具有不同的内容) ,也可能会产生问题.  Spring Boot 采用了另一种方法,实际上允许您直接嵌套jar.
+
+[[appendix.executable-jar.nested-jars.jar-structure]]
+=== 可执行的 Jar 文件结构
+与 Spring Boot Loader 兼容的 jar 文件的结构应采用以下方式:
+
+[indent=0]
+----
+	example.jar
+	 |
+	 +-META-INF
+	 |  +-MANIFEST.MF
+	 +-org
+	 |  +-springframework
+	 |     +-boot
+	 |        +-loader
+	 |           +-<spring boot loader classes>
+	 +-BOOT-INF
+	    +-classes
+	    |  +-mycompany
+	    |     +-project
+	    |        +-YourClasses.class
+	    +-lib
+	       +-dependency1.jar
+	       +-dependency2.jar
+----
+
+应用程序类应放在嵌套的 `BOOT-INF/classes` 目录中.  依赖应放在嵌套的 `BOOT-INF/lib` 目录中.
+
+[[appendix.executable-jar.nested-jars.war-structure]]
+=== 可执行 War 文件结构
+与 Spring Boot Loader 兼容的 war 文件的结构应采用以下方式:
+
+[indent=0]
+----
+	example.war
+	 |
+	 +-META-INF
+	 |  +-MANIFEST.MF
+	 +-org
+	 |  +-springframework
+	 |     +-boot
+	 |        +-loader
+	 |           +-<spring boot loader classes>
+	 +-WEB-INF
+	    +-classes
+	    |  +-com
+	    |     +-mycompany
+	    |        +-project
+	    |           +-YourClasses.class
+	    +-lib
+	    |  +-dependency1.jar
+	    |  +-dependency2.jar
+	    +-lib-provided
+	       +-servlet-api.jar
+	       +-dependency3.jar
+----
+
+依赖应放在嵌套的 `WEB-INF/lib` 目录中.  在运行嵌入式程序时需要但在部署到传统Web容器时不需要的任何依赖都应放在 `WEB-INF/lib-provided` 的文件中.
+
+[[appendix.executable-jar.nested-jars.index-files]]
+=== 文件索引
+Spring Boot Loader-compatible 的 jar 和 war 可以在  `BOOT-INF/` 目录下附加一个索引文件,可以同时为 jar 和 war 提供一个 `classpath.idx` 文件,他提供了将 jar 加载到类路径的顺序.
+`layers.idx` 文件只能用于 jar,它允许将 jar 进行逻辑分层,以创建 Docker/OCI 镜像
+
+索引文件使用兼容 YAML 的语法,以便可以由第三方工具轻松解析. 但是,这些文件在内部没有作为 YAML 进行解析,因此必须按照以下所述的格式编写,才能使用.
+
+[[appendix.executable-jar.nested-jars.classpath-index]]
+=== Classpath Index
+可以在 `BOOT-INF/classpath.idx` 中提供类路径索引文件. 它提供了 jar 名称列表 (包括目录) ,其顺序为应将其添加到类路径中. 每行必须以破折号 (`"-&#183;"`) 开头,并且名称必须用双引号引起来.
+
+例如,给出以下 jar:
+
+[indent=0]
+----
+	example.jar
+	 |
+	 +-META-INF
+	 |  +-...
+	 +-BOOT-INF
+	    +-classes
+	    |  +...
+	    +-lib
+	       +-dependency1.jar
+	       +-dependency2.jar
+----
+
+索引文件应为:
+
+[indent=0]
+----
+	- "BOOT-INF/lib/dependency2.jar"
+	- "BOOT-INF/lib/dependency1.jar"
+----
+
+
+
+[[appendix.executable-jar.nested-jars.layer-index]]
+=== Layer Index(分层索引)
+可以在 `BOOT-INF/layers.idx` 中提供分层索引文件. 它提供了每一层的列表以及应包含在其中的 jar. 按照应将其添加到 Docker/OCI 镜像的顺序来分层. 每一层的名称以带引号的字符串编写,前缀带有短划线空格 (`"-&#183;"`) 和后缀冒号(`":"`) . 分层内容是用引号引起来的字符串的文件名或目录名,并带有空格短划线  (`"&#183;&#183;-&#183;"`). 目录名称以 `/` 结尾,而文件名则没有. 使用目录名称时,意味着该目录内的所有文件都在同一层.
+
+分层索引的典型示例是:
+
+[indent=0]
+----
+	- "dependencies":
+	  - "BOOT-INF/lib/dependency1.jar"
+	  - "BOOT-INF/lib/dependency2.jar"
+	- "application":
+	  - "BOOT-INF/classes/"
+	  - "META-INF/"
+----

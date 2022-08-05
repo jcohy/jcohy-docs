@@ -1,0 +1,133 @@
+[[howto.traditional-deployment]]
+== 传统部署
+Spring Boot 支持传统部署以及更现代的部署形式.  本节回答有关传统部署的常见问题.
+
+[[howto.traditional-deployment.war]]
+=== 创建可部署的 War 文件
+
+WARNING: 由于 Spring WebFlux 不严格依赖 Servlet API,并且默认情况下将应用程序部署在嵌入式 Reactor Netty 服务器上,因此 WebFlux 应用程序不支持 War 部署.
+
+产生可部署 war 文件的第一步是提供 `SpringBootServletInitializer` 子类并覆盖其 `configure` 方法.  这样做可以利用 Spring Framework 的 Servlet 3.0 支持,并让您在 Servlet 容器启动应用程序时对其进行配置.
+通常,您应该更新应用程序的主类以扩展 `SpringBootServletInitializer`,如以下示例所示:
+
+include::code:MyApplication[]
+
+
+下一步是更新构建配置,以使您的项目生成 war 文件而不是 jar 文件.  如果您使用 Maven 和 `spring-boot-starter-parent` (为您配置 Maven 的 war 插件) ,则只需修改 `pom.xml` 即可将包装更改为 war,如下所示:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<packaging>war</packaging>
+----
+
+如果使用 Gradle,则需要修改 `build.gradle` 以将 war 插件应用于项目,如下所示:
+
+[source,gradle,indent=0,subs="verbatim"]
+----
+	apply plugin: 'war'
+----
+
+该过程的最后一步是确保嵌入式 servlet 容器不干扰 war 文件所部署到的 servlet 容器.  为此,您需要将嵌入式 Servlet 容器依赖性标记为已提供.
+
+如果使用 Maven,则以下示例将 servlet 容器 (在本例中为 Tomcat) 标记为已提供:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<dependencies>
+		<!-- ... -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-tomcat</artifactId>
+			<scope>provided</scope>
+		</dependency>
+		<!-- ... -->
+	</dependencies>
+----
+
+如果使用 Gradle,则以下示例将 servlet 容器 (在本例中为 Tomcat) 标记为已提供:
+
+[source,gradle,indent=0,subs="verbatim"]
+----
+	dependencies {
+		// ...
+		providedRuntime 'org.springframework.boot:spring-boot-starter-tomcat'
+		// ...
+	}
+----
+
+TIP: 与 Gradle 的 `compileOnly` 配置相比,`providerRuntime` 更受欢迎.  除其他限制外,`compileOnly` 依赖不在测试类路径上,因此任何基于 Web 的集成测试都将失败.
+
+如果您使用  <<build-tool-plugins#build-tool-plugins, Spring Boot 构建工具>>,则将提供的嵌入式 servlet 容器依赖标记为提供,将生成可执行的 war 文件,其中提供的依赖打包在lib提供的目录中.  这意味着,除了可以部署到 Servlet 容器之外,还可以通过在命令行上使用 `java -jar` 运行应用程序.
+
+[[howto.traditional-deployment.convert-existing-application]]
+=== 将现有应用程序转换为 Spring Boot
+对于非 Web 应用程序,将现有的 Spring 应用程序转换为 Spring Boot 应用程序应该很容易.  为此,请丢弃创建您的 `ApplicationContext` 的代码,并将其替换为对 `SpringApplication` 或 `SpringApplicationBuilder` 的调用.
+Spring MVC Web 应用程序通常适合于首先创建可部署的 war 应用程序,然后再将其迁移到可执行的 war 或 jar.  请参阅有关将 https://spring.io/guides/gs/convert-jar-to-war/[将 jar 转换为 war 的入门指南].
+
+要通过扩展 `SpringBootServletInitializer` (例如,在名为 `Application` 的类中) 并添加Spring Boot `@SpringBootApplication` 注解来创建可部署的 war ,请使用类似于以下示例中所示的代码:
+
+include::code:MyApplication[tag=!main]
+
+请记住,无论您在源代码中放入什么内容,都仅是 Spring `ApplicationContext`.  通常,任何已经起作用的东西都应该在这里工作.  可能有些 bean 可以在以后删除,并让 Spring Boot 为它们提供自己的默认值,但是应该可以使某些东西工作,然后再执行此操作.
+
+可以将静态资源移至类路径根目录中的 `/public` (或 `/static` 或 `/resources` 或 `/META-INF/resources`) .  这同样适用于 `messages.properties` (Spring Boot会在类路径的根目录中自动检测到该消息) .
+
+在 Spring DispatcherServlet 和 Spring Security 中使用 Vanilla 不需要进一步更改.  如果您的应用程序中具有其他功能 (例如,使用其他 servlet 或过滤器) ,则可能需要通过替换 `web.xml` 中的那些元素来向 `Application` 上下文中添加一些配置,如下所示:
+
+* 类型为 `Servlet` 或 `ServletRegistrationBean` 的 `@Bean` 将该 bean 安装在容器中,就好像它是 `web.xml` 中的 `<servlet />` 和 `<servlet-mapping />` 一样.
+* 类型为 `Filter` 或 `FilterRegistrationBean` 的 `@Bean` 的行为类似 (作为 `<filter />` 和 `<filter-mapping />`) .
+* 可以通过应用程序中的 `@ImportResource` 添加 XML 文件中的 `ApplicationContext`.  或者,可以在几行中重新创建已经大量使用注解配置的简单情况作为 `@Bean` 定义.
+
+war 文件运行后,可以通过向 `Application` 中添加 `main` 方法使其变为可执行文件,如以下示例所示:
+
+include::code:MyApplication[tag=main]
+
+[NOTE]
+====
+如果您打算以 war 或可执行应用程序的形式启动应用程序,则需要使用 `SpringBootServletInitializer` 回调可用的方法和类似于以下类的 `main` 方法中的共享方法来共享构建器的自定义项:
+
+include::code:both/MyApplication[]
+====
+
+应用程序可以分为多个类别:
+
+* 没有 `web.xml` 的 Servlet 3.0+ 应用程序.
+* 带有 `web.xml` 的应用程序.
+* 具有上下文层次结构的应用程序.
+* 没有上下文层次结构的应用程序.
+
+所有这些都应该适合翻译,但是每种可能都需要稍微不同的技术.
+
+如果 Servlet 3.0+ 应用程序已经使用了 Spring Servlet 3.0+ 初始化程序支持类,那么它们可能会很容易转换.  通常,来自现有 `WebApplicationInitializer` 的所有代码都可以移入 `SpringBootServletInitializer`.
+如果您现有的应用程序具有多个 `ApplicationContext` (例如,如果使用 `AbstractDispatcherServletInitializer`) ,则您可以将所有上下文源组合到一个 `SpringApplication` 中.
+您可能会遇到的主要并发症是,如果合并无效,则需要维护上下文层次结构.  有关示例,请参见有关 <<howto#howto.application.context-hierarchy, 构建层次结构的条目>> .  通常需要分解包含特定于 Web 的功能的现有父上下文,以便所有 `ServletContextAware` 组件都位于子上下文中.
+
+还不是 Spring 应用程序的应用程序可以转换为 Spring Boot 应用程序,前面提到的指南可能会有所帮助.  但是,您可能仍然遇到问题.  在这种情况下,我们建议 https://stackoverflow.com/questions/tagged/spring-boot[使用 `spring-boot` 标签在Stack Overflow上提问].
+
+[[howto.traditional-deployment.weblogic]]
+===  将 WAR 部署到 WebLogic
+要将 Spring Boot 应用程序部署到 WebLogic,必须确保 servlet 初始化程序直接实现 `WebApplicationInitializer` (即使您从已经实现它的基类进行扩展) .
+
+WebLogic 的典型初始化程序应类似于以下示例:
+
+include::code:MyApplication[]
+
+如果使用 Logback,则还需要告诉 WebLogic 首选打包版本,而不是服务器预先安装的版本.  您可以通过添加具有以下内容的 `WEB-INF/weblogic.xml` 文件来实现:
+
+[source,xml,indent=0,subs="verbatim"]
+----
+	<?xml version="1.0" encoding="UTF-8"?>
+	<wls:weblogic-web-app
+		xmlns:wls="http://xmlns.oracle.com/weblogic/weblogic-web-app"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+			https://java.sun.com/xml/ns/javaee/ejb-jar_3_0.xsd
+			http://xmlns.oracle.com/weblogic/weblogic-web-app
+			https://xmlns.oracle.com/weblogic/weblogic-web-app/1.4/weblogic-web-app.xsd">
+		<wls:container-descriptor>
+			<wls:prefer-application-packages>
+				<wls:package-name>org.slf4j</wls:package-name>
+			</wls:prefer-application-packages>
+		</wls:container-descriptor>
+	</wls:weblogic-web-app>
+----

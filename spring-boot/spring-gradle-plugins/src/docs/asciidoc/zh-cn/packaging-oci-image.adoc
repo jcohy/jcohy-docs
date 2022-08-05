@@ -1,0 +1,458 @@
+[[build-image]]
+= 打包 OCI 镜像
+该插件可以使用 https://buildpacks.io[Cloud Native Buildpacks] (CNB) 从可执行 jar 或 war 文件创建 https://github.com/opencontainers/image-spec[OCI image].可以使用 `bootBuildImage` 任务来构建镜像.
+
+NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更多详细信息,请参见 {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification].
+
+应用 `java` 或 `war` 插件时,该任务会自动创建,并且是 {boot-build-image-javadoc}[`BootBuildImage`] 的实例.
+
+[[build-image.docker-daemon]]
+== Docker Daemon
+
+`bootBuildImage` 任务需要访问 Docker 守护程序. 默认情况下,它将通过本地连接与 Docker 守护程序通信. 无需配置即可在所有支持的平台上使用 https://docs.docker.com/install/[Docker Engine].
+
+可以设置环境变量来配置 `bootBuildImage` 任务以使用替代的本地或远程连接. 下表显示了环境变量及其值:
+
+|===
+| Environment variable | Description
+
+| DOCKER_HOST
+| URL containing the host and port for the Docker daemon - e.g. `tcp://192.168.99.100:2376`
+
+| DOCKER_TLS_VERIFY
+| Enable secure HTTPS protocol when set to `1` (optional)
+
+| DOCKER_CERT_PATH
+| Path to certificate and key files for HTTPS (required if `DOCKER_TLS_VERIFY=1`, ignored otherwise)
+|===
+
+也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
+
+|===
+| Property | Description
+
+| `host`
+| Docker daemon 主机和端口 URL  - e.g. `tcp://192.168.99.100:2376`
+
+| `tlsVerify`
+| 当设置为 `true` 时,开启 HTTPS 协议(可选)
+
+| `certPath`
+| HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+
+| `bindHostToBuilder`
+| 当 `true` 时，`host` 属性的值将提供给为 CNB 构建器创建的容器（可选）
+|===
+
+更多信息, 请查看 <<build-image.examples.docker,examples>>.
+
+[[build-image.docker-registry]]
+== Docker Registry
+如果由 `builder` 或 `runImage` 参数指定的 Docker 镜像存储在需要身份验证的私有 Docker image registry  中, 可以使用  `docker.builderRegistry` 参数提供身份验证凭据.
+
+如果生成的 Docker 镜像要发布到  Docker image registry 中, 可以使用 `docker.publishRegistry`  参数提供身份验证凭据.
+
+为用户身份验证或身份令牌验证提供了参数. 关于支持的身份验证方法的更多信息, 请参考 Docker registry 的文档.
+
+下表总结了 `docker.builderRegistry` 和 `docker.publishRegistry` 的可用参数:
+
+|===
+| Property | Description
+
+| `username`
+| Username for the Docker image registry user. Required for user authentication.
+
+| `password`
+| Password for the Docker image registry user. Required for user authentication.
+
+| `url`
+| Address of the Docker image registry. Optional for user authentication.
+
+| `email`
+| E-mail address for the Docker image registry user. Optional for user authentication.
+
+| `token`
+| Identity token for the Docker image registry user. Required for token authentication.
+|===
+
+更多信息, 请查看 <<build-image.examples.docker,examples>>.
+
+
+[[build-image.customization]]
+== 自定义镜像
+
+该插件调用一个 {buildpacks-reference}/concepts/components/builder/[builder] 来协助镜像的生成. 该构建器包括多个  {buildpacks-reference}/concepts/components/buildpack[buildpacks],可以检查应用程序以影响生成的镜像. 默认情况下,插件选择一个生成镜像. 生成的镜像名称是从项目属性推导出的.
+
+任务属性可用于配置构建器应如何在项目上运行.下表总结了可用的属性及其默认值:
+
+|===
+| Property | Command-line option | Description | Default value
+
+| `builder`
+| `--builder`
+| Name of the Builder image to use.
+| `paketobuildpacks/builder:base`
+
+| `runImage`
+| `--runImage`
+| Name of the run image to use.
+| No default value, indicating the run image specified in Builder metadata should be used.
+
+| `imageName`
+| `--imageName`
+| {spring-boot-api}/buildpack/platform/docker/type/ImageReference.html#of-java.lang.String-[Image name] for the generated image.
+| `docker.io/library/${project.name}:${project.version}`
+
+| `pullPolicy`
+| `--pullPolicy`
+| {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] used to determine when to pull the builder and run images from the registry.
+Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
+| `ALWAYS`
+
+| `environment`
+|
+| Environment variables that should be passed to the builder.
+|
+
+| `buildpacks`
+|
+a|Buildpacks that the builder should use when building the image.
+Only the specified buildpacks will be used, overriding the default buildpacks included in the builder.
+Buildpack references must be in one of the following forms:
+
+* Buildpack in the builder - `[urn:cnb:builder:]<buildpack ID>[@<version>]`
+* Buildpack in a directory on the file system - `[file://]<path>`
+* Buildpack in a gzipped tar (.tgz) file on the file system - `[file://]<path>/<file name>`
+* Buildpack in an OCI image - `[docker://]<host>/<repo>[:<tag>][@<digest>]`
+| None, indicating the builder should use the buildpacks included in it.
+
+| `bindings`
+|
+a|https://docs.docker.com/storage/bind-mounts/[Volume bind mounts] that should be mounted to the builder container when building the image.
+The bindings will be passed unparsed and unvalidated to Docker when creating the builder container.
+Bindings must be in one of the following forms:
+
+* `<host source path>:<container destination path>[:<options>]`
+* `<host volume name>:<container destination path>[:<options>]`
+
+Where `<options>` can contain:
+
+* `ro` to mount the volume as read-only in the container
+* `rw` to mount the volume as readable and writable in the container
+* `volume-opt=key=value` to specify key-value pairs consisting of an option name and its value
+|
+
+| `network`
+| `--network`
+| The https://docs.docker.com/network/#network-drivers[network driver] the builder container will be configured to use.
+The value supplied will be passed unvalidated to Docker when creating the builder container.
+|
+
+| `cleanCache`
+| `--cleanCache`
+| Whether to clean the cache before building.
+| `false`
+
+| `verboseLogging`
+|
+| Enables verbose logging of builder operations.
+| `false`
+
+| `publish`
+| `--publishImage`
+| Whether to publish the generated image to a Docker registry.
+| `false`
+
+| `tags`
+|
+| A list of one or more additional tags to apply to the generated image.
+|
+
+| `buildCache`
+|
+| A cache containing layers created by buildpacks and used by the image building process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
+| `launchCache`
+|
+| A cache containing layers created by buildpacks and used by the image launching process.
+| A named volume in the Docker daemon, with a name derived from the image name.
+
+|===
+
+NOTE: 该插件使用 JavaPlugin 的 `targetCompatibility` 属性检测目标项目的 Java 兼容性. 当使用默认的 Paketo 构建器和 buildpacks 时,插件会指示 buildpacks 安装相同的 Java 版本. 您可以覆盖此行为,如 <<build-image.examples.builder-configuration,builder configuration>> 示例中所示.
+
+[[build-image.examples]]
+== 示例
+
+[[build-image.examples.custom-image-builder]]
+=== Custom Image Builder and Run Image
+如果需要自定义用于创建镜像的构建器或用于启动生成的镜像的运行镜像,请配置任务,如以下示例所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-builder.gradle[tags=builder]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-builder.gradle.kts[tags=builder]
+----
+
+此配置将使用名称为 `mine/java-cnb-builder` 的构建器镜像和最新的标签,以及名为 `mine/java-cnb-run` 的运行镜像和最新的标签.
+
+生成器和运行镜像也可以在命令行上指定,如本示例所示:
+
+[indent=0]
+----
+$ gradle bootBuildImage --builder=mine/java-cnb-builder --runImage=mine/java-cnb-run
+----
+
+[[build-image.examples.builder-configuration]]
+=== Builder Configuration
+如果构建器公开了配置选项,则可以使用环境属性进行设置.
+
+以下是配置在构建时由 Paketo Java  {paketo-java-reference}/#configuring-the-jvm-version[configuring the JVM version] 的示例:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-env.gradle[tags=env]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-env.gradle.kts[tags=env]
+----
+
+如果构建器在其运行的 Docker 守护程序与构建打包下载 artifacts 的网络位置之间存在网络代理,则需要将构建器配置为使用代理. 使用 Paketo 构建器时,可以通过设置 `HTTPS_PROXY` 和/或 `HTTP_PROXY` 环境变量来实现,如以下示例所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-env-proxy.gradle[tags=env]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-env-proxy.gradle.kts[tags=env]
+----
+
+[[build-image.examples.runtime-jvm-configuration]]
+=== Runtime JVM Configuration
+
+Paketo Java buildpacks 通过设置环境变量 `JAVA_TOOL_OPTIONS` 来 {paketo-java-reference}/#runtime-jvm-configuration[配置 JVM 运行时环境].
+
+当在容器中启动应用程序镜像时,  可以修改 buildpack 提供的 `JAVA_TOOL_OPTIONS` 值以自定义JVM运行时行为.
+
+可以如 {paketo-reference}/buildpacks/configuration/#environment-variables[Paketo documentation] 中所述在镜像中配置并应用于每个部署的环境变量修改,  并在以下示例中显示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-env-runtime.gradle[tags=env-runtime]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-env-runtime.gradle.kts[tags=env-runtime]
+----
+
+
+[[build-image.examples.custom-image-name]]
+=== 自定义镜像名称
+默认情况下,镜像名称是根据项目的  `name` 和  `version` 来推断的,例如 `docker.io/library/${project.name}:${project.version}`. 您可以通过设置任务属性来控制名称,如以下示例所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-name.gradle[tags=image-name]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-name.gradle.kts[tags=image-name]
+----
+
+请注意,此配置未提供明确的标记,因此使用了最新的标记. 也可以使用 `${project.version}`,构建中可用的任何属性或硬编码版本来指定标签.
+
+镜像名称也可以在命令行上指定,如以下示例所示:
+
+[indent=0]
+----
+$ gradle bootBuildImage --imageName=example.com/library/my-app:v1
+----
+
+[[build-image.examples.buildpacks]]
+=== Buildpacks
+默认情况下，构建器将使用构建器映像中包含的构建包，并以预定义的顺序应用它们。
+可以提供一组替代的构建包来应用构建器中未包含的构建包，或更改包含的构建包的顺序。
+当提供一个或多个 buildpacks 时，只会应用指定的 buildpacks。
+
+以下示例指示构建器使用打包在  `.tgz`  文件中的自定义构建包，然后是构建器中包含的构建包。
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-buildpacks.gradle[tags=buildpacks]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-buildpacks.gradle.kts[tags=buildpacks]
+----
+
+Buildpacks 可以以如下所示的任何形式指定。
+
+位于 CNB Builder 中的 buildpack（如果 builder 中只有一个 buildpack 匹配 `buildpack-id`，则可以省略版本）:
+
+* `urn:cnb:builder:buildpack-id`
+* `urn:cnb:builder:buildpack-id@0.0.1`
+* `buildpack-id`
+* `buildpack-id@0.0.1`
+
+包含 buildpack 内容的目录的路径（Windows 不支持）：
+
+* `\file:///path/to/buildpack/`
+* `/path/to/buildpack/`
+
+包含 buildpack 内容的 gzipped tar 文件的路径：
+
+* `\file:///path/to/buildpack.tgz`
+* `/path/to/buildpack.tgz`
+
+包含 https://buildpacks.io/docs/buildpack-author-guide/package-a-buildpack/[packaged buildpack] 的 OCI 映像：
+
+* `docker://example/buildpack`
+* `docker:///example/buildpack:latest`
+* `docker:///example/buildpack@sha256:45b23dee08...`
+* `example/buildpack`
+* `example/buildpack:latest`
+* `example/buildpack@sha256:45b23dee08...`
+
+
+[[build-image.examples.publish]]
+=== Image Publishing
+生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项并使用  `docker.publishRegistry` 配置 registry 的身份验证.
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-publish.gradle[tags=publish]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-publish.gradle.kts[tags=publish]
+----
+
+也可以在命令行上指定  `publish` 选项, 如下例所示:
+
+[indent=0]
+----
+	$ gradle bootBuildImage --imageName=docker.example.com/library/my-app:v1 --publishImage
+----
+
+[[build-image.examples.caches]]
+=== Builder 缓存配置
+
+CNB builder 缓存在构建和启动映像时使用的层。
+默认情况下，这些缓存作为命名卷存储在 Docker 守护程序中，其名称源自目标映像的全名。
+如果镜像名称经常变化，例如当项目版本被用作镜像名称中的标签时，那么缓存可能会经常失效。
+
+可以将缓存卷配置为使用替代名称，以更好地控制缓存生命周期，如以下示例所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-caches.gradle[tags=caches]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-caches.gradle.kts[tags=caches]
+----
+
+
+[[build-image.examples.docker]]
+=== Docker 配置
+
+[[build-image.examples.docker.minikube]]
+==== Docker Configuration for minikube
+
+该插件可以与 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程] 进行通信，而不是默认的本地连接。
+
+在 Linux 和 macOS 上，可以在 minikube 启动后使用命令 `eval $(minikube docker-env)` 设置环境变量。
+
+该插件还可以通过提供类似于以下示例中所示的连接详细信息来配置为使用 minikube 守护程序:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-host.gradle[tags=docker-host]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-host.gradle.kts[tags=docker-host]
+----
+
+[[build-image.examples.docker.podman]]
+==== Docker Configuration for podman
+
+该插件可以与 https://podman.io/[podman 容器引擎] 进行通信。
+
+通过提供类似于以下示例中显示的连接详细信息，可以将插件配置为使用 podman 本地连接：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle[tags=docker-host]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle.kts[tags=docker-host]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker Configuration for Authentication
+
+如果构建器或运行镜像存储在支持用户身份验证的私有 Docker registry 中, 则可以使用 `docker.builderRegistry` 参数提供身份验证细节. 如下所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle[tags=docker-auth-user]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle.kts[tags=docker-auth-user]
+----
+
+如果构建器或运行映像存储在支持令牌身份验证的私有 Docker registry  中, 则可以使用  `docker.builderRegistry` 参数提供令牌值. 如下所示:
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle[tags=docker-auth-token]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle.kts[tags=docker-auth-token]
+----

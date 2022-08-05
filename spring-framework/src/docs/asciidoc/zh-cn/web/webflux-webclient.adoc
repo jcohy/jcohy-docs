@@ -3,7 +3,12 @@
 
 WebClient 是一个执行 HTTP 请求的非阻塞,响应式的客户端.客户端具有功能性,流式 API,具有用于声明式组合的响应式类型,请参见 <<web-reactive.adoc#webflux-reactive-libraries>>. WebFlux 客户端和服务器依靠相同的非阻塞<<web-reactive.adoc#webflux-codecs, codecs>> 对请求和响应内容进行编码和解码.
 
-WebClient 在内部委托给 HTTP 客户端库. 默认情况下,它使用 https://github.com/reactor/reactor-netty[Reactor Netty],内置了对 Jetty https://github.com/jetty-project/jetty-reactive-httpclient[reactive HttpClient] 的支持,其他的则可以通过 `ClientHttpConnector` 插入.
+`WebClient` 需要一个 HTTP 客户端库来执行请求。 有内置支持以下内容：
+
+* https://github.com/reactor/reactor-netty[Reactor Netty]
+* https://github.com/jetty-project/jetty-reactive-httpclient[Jetty Reactive HttpClient]
+* https://hc.apache.org/index.html[Apache HttpComponents]
+* Others can be plugged via `ClientHttpConnector`.
 
 [[webflux-client-builder]]
 == 配置
@@ -18,6 +23,7 @@ WebClient 在内部委托给 HTTP 客户端库. 默认情况下,它使用 https:
 您还可以将 `WebClient.builder()` 与其他选项一起使用:
 
 * `uriBuilderFactory`: 自定义 `UriBuilderFactory` ,用做基本 url
+* `defaultUriVariables`: 扩展 URI 模板时使用的默认值。
 * `defaultHeader`: 每个请求的请求头.
 * `defaultCookie`: 每个请求的 cookie
 * `defaultRequest`: `Consumer` 自定义请求.
@@ -25,28 +31,20 @@ WebClient 在内部委托给 HTTP 客户端库. 默认情况下,它使用 https:
 * `exchangeStrategies`: 自定义 HTTP 消息 reader/writer.
 * `clientConnector`: HTTP客户端库设置.
 
-以下示例配置<<web-reactive.adoc#webflux-codecs, HTTP codecs>>:
+例如:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
 	WebClient client = WebClient.builder()
-			.exchangeStrategies(builder -> {
-					return builder.codecs(codecConfigurer -> {
-						//...
-					});
-			})
+			.codecs(configurer -> ... )
 			.build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val webClient = WebClient.builder()
-			.exchangeStrategies { strategies ->
-				strategies.codecs {
-					//...
-				}
-			}
+			.codecs { configurer -> ... }
 			.build()
 ----
 
@@ -88,32 +86,22 @@ Spring WebFlux 配置了在编解码器中缓冲内存中数据的  <<web-reacti
 org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on max bytes to buffer
 ----
 
-您可以使用以下代码示例在所有默认编解码器上配置此限制:
+要更改默认编解码器的限制，请使用以下命令：:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
 	WebClient webClient = WebClient.builder()
-			.exchangeStrategies(builder ->
-				builder.codecs(codecs ->
-					codecs.defaultCodecs().maxInMemorySize(2 * 1024 * 1024)
-				)
-			)
+			.codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
 			.build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val webClient = WebClient.builder()
-		.exchangeStrategies { builder ->
-				builder.codecs {
-					it.defaultCodecs().maxInMemorySize(2 * 1024 * 1024)
-				}
-		}
-		.build()
+			.codecs { configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024) }
+			.build()
 ----
-
-
 
 [[webflux-client-builder-reactor]]
 === Reactor Netty
@@ -143,9 +131,9 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 [[webflux-client-builder-reactor-resources]]
 ==== Resources
 
-默认情况下,HttpClient 会参与 `Reactor.netty.http.HttpResources` 中包含的全局 Reactor Netty 资源,包括事件循环线程和连接池. 这是推荐的模式,因为固定的共享资源是事件循环并发的首选. 在这种模式下,全局资源将保持活动状态,直到进程退出.
+默认情况下,`HttpClient` 会参与 `Reactor.netty.http.HttpResources` 中包含的全局 Reactor Netty 资源,包括事件循环线程和连接池. 这是推荐的模式,因为固定的共享资源是事件循环并发的首选. 在这种模式下,全局资源将保持活动状态,直到进程退出.
 
-如果服务器为该进程计时,则通常无需显式关闭. 但是,如果服务器可以启动或停止进程内(例如,作为 WAR 部署的 Spring MVC 应用程序),则可以声明类型为 `ReactorResourceFactory` 的 Spring 托管 Bean,其中 `globalResources=true` (默认值)以确保 Reactor 关闭 Spring ApplicationContext 时,将关闭 Netty 全局资源,如以下示例所示:
+如果服务器为该进程计时,则通常无需显式关闭. 但是,如果服务器可以启动或停止进程内(例如,作为 WAR 部署的 Spring MVC 应用程序),则可以声明类型为 `ReactorResourceFactory` 的 Spring 托管 Bean,其中 `globalResources=true` (默认值)以确保 Reactor 关闭 Spring `ApplicationContext` 时,将关闭 Netty 全局资源,如以下示例所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -161,6 +149,7 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	@Bean
 	fun reactorResourceFactory() = ReactorResourceFactory()
 ----
+
 
 您也可以选择不参与全局 Reactor Netty 资源. 但是,在这种模式下,确保所有 Reactor Netty 客户端和服务器实例使用共享资源是您的重担,如以下示例所示:
 
@@ -227,8 +216,11 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	import io.netty.channel.ChannelOption;
 
 	HttpClient httpClient = HttpClient.create()
-			.tcpConfiguration(client ->
-					client.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000));
+			.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000);
+
+	WebClient webClient = WebClient.builder()
+			.clientConnector(new ReactorClientHttpConnector(httpClient))
+			.build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -236,7 +228,11 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	import io.netty.channel.ChannelOption
 
 	val httpClient = HttpClient.create()
-			.tcpConfiguration { it.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)}
+			.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000);
+
+	val webClient = WebClient.builder()
+			.clientConnector(new ReactorClientHttpConnector(httpClient))
+			.build();
 ----
 
 要配置读取和/或写入超时:
@@ -248,10 +244,12 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	import io.netty.handler.timeout.WriteTimeoutHandler;
 
 	HttpClient httpClient = HttpClient.create()
-			.tcpConfiguration(client ->
-					client.doOnConnected(conn -> conn
-							.addHandlerLast(new ReadTimeoutHandler(10))
-							.addHandlerLast(new WriteTimeoutHandler(10))));
+			.doOnConnected(conn -> conn
+					.addHandlerLast(new ReadTimeoutHandler(10))
+					.addHandlerLast(new WriteTimeoutHandler(10)));
+
+	// Create WebClient...
+
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -259,14 +257,60 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	import io.netty.handler.timeout.ReadTimeoutHandler
 	import io.netty.handler.timeout.WriteTimeoutHandler
 
-	val httpClient = HttpClient.create().tcpConfiguration {
-		it.doOnConnected { conn -> conn
-				.addHandlerLast(ReadTimeoutHandler(10))
-				.addHandlerLast(WriteTimeoutHandler(10))
-		}
-	}
+	val httpClient = HttpClient.create()
+			.doOnConnected { conn -> conn
+					.addHandlerLast(new ReadTimeoutHandler(10))
+					.addHandlerLast(new WriteTimeoutHandler(10))
+			}
+
+	// Create WebClient...
 ----
 
+为所有请求配置响应超时：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	HttpClient httpClient = HttpClient.create()
+			.responseTimeout(Duration.ofSeconds(2));
+
+	// Create WebClient...
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val httpClient = HttpClient.create()
+			.responseTimeout(Duration.ofSeconds(2));
+
+	// Create WebClient...
+----
+
+为特定请求配置响应超时：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebClient.create().get()
+			.uri("https://example.org/path")
+			.httpRequest(httpRequest -> {
+				HttpClientRequest reactorRequest = httpRequest.getNativeRequest();
+				reactorRequest.responseTimeout(Duration.ofSeconds(2));
+			})
+			.retrieve()
+			.bodyToMono(String.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	WebClient.create().get()
+			.uri("https://example.org/path")
+			.httpRequest { httpRequest: ClientHttpRequest ->
+				val reactorRequest = httpRequest.getNativeRequest<HttpClientRequest>()
+				reactorRequest.responseTimeout(Duration.ofSeconds(2))
+			}
+			.retrieve()
+			.bodyToMono(String::class.java)
+----
 
 
 [[webflux-client-builder-jetty]]
@@ -279,18 +323,20 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 ----
 	HttpClient httpClient = new HttpClient();
 	httpClient.setCookieStore(...);
-	ClientHttpConnector connector = new JettyClientHttpConnector(httpClient);
 
-	WebClient webClient = WebClient.builder().clientConnector(connector).build();
+	WebClient webClient = WebClient.builder()
+			.clientConnector(new JettyClientHttpConnector(httpClient))
+			.build();
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
 	val httpClient = HttpClient()
 	httpClient.cookieStore = ...
-	val connector = JettyClientHttpConnector(httpClient)
 
-	val webClient = WebClient.builder().clientConnector(connector).build();
+	val webClient = WebClient.builder()
+			.clientConnector(new JettyClientHttpConnector(httpClient))
+			.build();
 ----
 
 默认情况下,`HttpClient` 创建自己的资源 (`Executor`, `ByteBufferPool`, `Scheduler`),这些资源将保持活动状态,直到进程退出或调用  `stop()` 为止.
@@ -317,8 +363,8 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 		return WebClient.builder().clientConnector(connector).build(); <2>
 	}
 ----
-<1> Use the `JettyClientHttpConnector` constructor with resource factory.
-<2> Plug the connector into the `WebClient.Builder`.
+<1> 将 `JettyClientHttpConnector` 构造函数与资源工厂一起使用.
+<2> 将连接器插入 `WebClient.Builder`.
 
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
@@ -340,11 +386,58 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 <1> 将 `JettyClientHttpConnector` 构造函数与资源工厂一起使用.
 <2> 将连接器插入 `WebClient.Builder`.
 
+[[webflux-client-builder-http-components]]
+=== HttpComponents
+
+以下示例显示了如何自定义 Apache HttpComponents `HttpClient` 设置：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	HttpAsyncClientBuilder clientBuilder = HttpAsyncClients.custom();
+	clientBuilder.setDefaultRequestConfig(...);
+	CloseableHttpAsyncClient client = clientBuilder.build();
+	ClientHttpConnector connector = new HttpComponentsClientHttpConnector(client);
+
+	WebClient webClient = WebClient.builder().clientConnector(connector).build();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val client = HttpAsyncClients.custom().apply {
+		setDefaultRequestConfig(...)
+	}.build()
+	val connector = HttpComponentsClientHttpConnector(client)
+	val webClient = WebClient.builder().clientConnector(connector).build()
+----
 
 [[webflux-client-retrieve]]
 == `retrieve()`
 
 `retrieve()` 方法是获取响应正文并将其解码的最简单方法.以下示例显示了如何执行此操作:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebClient client = WebClient.create("https://example.org");
+
+	Mono<ResponseEntity<Person>> result = client.get()
+			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
+			.retrieve()
+			.toEntity(Person.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val client = WebClient.create("https://example.org")
+
+	val result = client.get()
+			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
+			.retrieve()
+			.toEntity<Person>().awaitSingle()
+----
+
+只获取 body
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -386,8 +479,7 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 			.bodyToFlow<Quote>()
 ----
 
-默认情况下,带有 4xx 或 5xx 状态代码的响应会导致 `WebClientResponseException` 或其 HTTP 状态特定的子类之一,例如 `WebClientResponseException.BadRequest`,`WebClientResponseException.NotFound` 等.
-您还可以使用 `onStatus` 方法来自定义结果异常,如以下示例所示:
+默认情况下,带有 4xx 或 5xx 状态代码的响应会导致 `WebClientResponseException` 或其 HTTP 状态特定的子类之一, 您还可以使用 `onStatus` 方法来自定义结果异常,如以下示例所示:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -410,57 +502,46 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 			.awaitBody<Person>()
 ----
 
-使用 `onStatus` 时,如果期望响应包含内容,则 `onStatus` 回调应使用它. 否则,内容将自动耗尽以确保释放资源.
-
 [[webflux-client-exchange]]
-== `exchange()`
+== Exchange
 
-与 `retrieve`  方法相比,`exchange()` 方法提供了更多的控制. 以下示例等效于 `retrieve()`,但还提供了对 `ClientResponse` 的访问:
-
-[source,java,indent=0,subs="verbatim,quotes",role="primary"]
-.Java
-----
-	Mono<Person> result = client.get()
-			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
-			.exchange()
-			.flatMap(response -> response.bodyToMono(Person.class));
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	val result = client.get()
-			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
-			.awaitExchange()
-			.awaitBody<Person>()
-----
-
-在此级别,您还可以创建完整的 `ResponseEntity`:
+`exchangeToMono()` 和 `exchangeToFlux()` 方法（或 Kotlin 中的 `awaitExchange { }` 和 `exchangeToFlow { }`）
+方法提供了更多的控制，例如以不同的方式解码响应 ，根据响应状态:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	Mono<ResponseEntity<Person>> result = client.get()
-			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
-			.exchange()
-			.flatMap(response -> response.toEntity(Person.class));
+	Mono<Person> entityMono = client.get()
+			.uri("/persons/1")
+			.accept(MediaType.APPLICATION_JSON)
+			.exchangeToMono(response -> {
+				if (response.statusCode().equals(HttpStatus.OK)) {
+					return response.bodyToMono(Person.class);
+				}
+				else {
+					// Turn to error
+					return response.createException().flatMap(Mono::error);
+				}
+			});
 ----
 [source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
 .Kotlin
 ----
-	val result = client.get()
-			.uri("/persons/{id}", id).accept(MediaType.APPLICATION_JSON)
-			.awaitExchange()
-			.toEntity<Person>()
+val entity = client.get()
+  .uri("/persons/1")
+  .accept(MediaType.APPLICATION_JSON)
+  .awaitExchange {
+		if (response.statusCode() == HttpStatus.OK) {
+			 return response.awaitBody<Person>()
+		}
+		else {
+			 throw response.createExceptionAndAwait()
+		}
+  }
 ----
 
-注意(与 `retrieve()` 不同,对于 `exchange()`,4xx 和 5xx 响应没有自动错误信号.您必须检查状态码并决定如何进行.
-
-
-[CAUTION]
-====
-与 `retrieve()` 不同的是,使用 `exchange()` 时,应用程序有责任使用任何响应内容,而与场景(成功,错误,意外数据等)无关. 否则会导致内存泄漏. `ClientResponse` 的 Javadoc 列出了所有消耗主体的可用选项.
-通常,除非您有充分的理由使用  `exchange()` 允许在确定如何或是否使用响应之前检查响应状态和 header ,否则通常首选使用 `retrieve()`.
-====
+使用上述时，返回的 `Mono` 或 `Flux` 完成后，响应正文被检查，如果没有被消费，它将被释放以防止内存和连接泄漏。
+因此，响应无法在下游进一步解码。 这取决于提供的函数来声明如何在需要时解码响应。
 
 [[webflux-client-body]]
 == Request Body
@@ -547,7 +628,6 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 ----
 
 
-
 [[webflux-client-body-form]]
 === Form Data
 
@@ -630,7 +710,9 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	val parts = builder.build()
 ----
 
-在大多数情况下,您不必为每个部分指定 `Content-Type`. 内容类型是根据选择用于对其进行序列化的 `HttpMessageWriter` 自动确定的,或者对于 `Resource` 而言,是基于文件扩展名的. 如有必要,您可以通过重载的构建器 `part` 方法之一显式提供 `MediaType` 以供每个零件使用.
+在大多数情况下,您不必为每个部分指定 `Content-Type`. 内容类型是根据选择用于对其进行序列化的 `HttpMessageWriter` 自动确定的,或者对于 `Resource` 而言,是基于文件扩展名的. 如有必要,您可以通过重载的构建器 `part` 方法之一显式提供 `MediaType` 以供每个部件使用.
+
+准备好  `MultiValueMap` 后，将其传递给 `WebClient` 的最简单方法是通过 `body` 方法，如下例所示：
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -739,7 +821,74 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 			.build()
 ----
 
-过滤器全局应用于每个请求.要更改特定请求的过滤器行为,您可以将请求属性添加到 `ClientRequest` 中,然后链中的所有过滤器都可以访问该请求属性,如以下示例所示:
+可以通过改变现有的 `WebClient` 实例来添加或删除过滤器，这不会影响新创建的 `WebClient` 实例。 例如：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	import static org.springframework.web.reactive.function.client.ExchangeFilterFunctions.basicAuthentication;
+
+	WebClient client = webClient.mutate()
+			.filters(filterList -> {
+				filterList.add(0, basicAuthentication("user", "password"));
+			})
+			.build();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val client = webClient.mutate()
+			.filters { it.add(0, basicAuthentication("user", "password")) }
+			.build()
+----
+
+`WebClient` 是围绕过滤器链的外观，后跟 `ExchangeFunction`。 它提供了一个工作流程来发出请求，与更高层对象进行编码。它有助于确保始终使用响应内容。
+当过滤器以某种方式处理响应时，必须格外小心以始终消耗，它的内容或以其他方式将其传播到下游的 `WebClient`，这将确保
+相同。 下面是一个处理 `UNAUTHORIZED` 状态代码的过滤器，但可以确保发布任何响应内容，无论是否预期：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public ExchangeFilterFunction renewTokenFilter() {
+		return (request, next) -> next.exchange(request).flatMap(response -> {
+			if (response.statusCode().value() == HttpStatus.UNAUTHORIZED.value()) {
+				return response.releaseBody()
+						.then(renewToken())
+						.flatMap(token -> {
+							ClientRequest newRequest = ClientRequest.from(request).build();
+							return next.exchange(newRequest);
+						});
+			} else {
+				return Mono.just(response);
+			}
+		});
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	fun renewTokenFilter(): ExchangeFilterFunction? {
+		return ExchangeFilterFunction { request: ClientRequest?, next: ExchangeFunction ->
+			next.exchange(request!!).flatMap { response: ClientResponse ->
+				if (response.statusCode().value() == HttpStatus.UNAUTHORIZED.value()) {
+					return@flatMap response.releaseBody()
+							.then(renewToken())
+							.flatMap { token: String? ->
+								val newRequest = ClientRequest.from(request).build()
+								next.exchange(newRequest)
+							}
+				} else {
+					return@flatMap Mono.just(response)
+				}
+			}
+		}
+	}
+----
+
+[[webflux-client-attributes]]
+== Attributes
+
+您可以向请求添加属性。 如果您想传递信息，可以通过过滤器链并影响给定请求的过滤器行为:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
@@ -762,10 +911,11 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 .Kotlin
 ----
 	val client = WebClient.builder()
-				.filter { request, _ ->
-			val usr = request.attributes()["myAttribute"];
-			// ...
-		}.build()
+			.filter { request, _ ->
+				val usr = request.attributes()["myAttribute"];
+				// ...
+			}
+			.build()
 
 		client.get().uri("https://example.org/")
 				.attribute("myAttribute", "...")
@@ -773,28 +923,36 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 				.awaitBody<Unit>()
 ----
 
-您也可以复制现有的 `WebClient`,插入新的过滤器或删除已注册的过滤器.以下示例在索引 `0` 处插入一个基本身份验证过滤器:
+注意，你可以使用 `WebClient.Builder` 全局地配置一个  `defaultRequest` 回调，允许您将属性插入到所有请求中，
+例如，哪些可以在 Spring MVC 应用程序中使用来填充请求基于 `ThreadLocal` 数据的属性。
+
+[[webflux-client-context]]
+== Context
+
+<<webflux-client-attributes>>  提供了一种简便的方式来将信息传递给过滤器链，但它们只影响当前请求。如果你想传递信息
+传播到其他嵌套的请求，例如通过  `flatMap`，或在之后执行， 例如，通过  `concatMap`，那么你将需要使用 Reactor `Context`。
+
+Reactor `Context` 需要被填充在响应式链的末端适用于所有操作。例如:
 
 [source,java,indent=0,subs="verbatim,quotes",role="primary"]
 .Java
 ----
-	import static org.springframework.web.reactive.function.client.ExchangeFilterFunctions.basicAuthentication;
-
-	WebClient client = webClient.mutate()
-			.filters(filterList -> {
-				filterList.add(0, basicAuthentication("user", "password"));
-			})
+	WebClient client = WebClient.builder()
+			.filter((request, next) ->
+					Mono.deferContextual(contextView -> {
+						String value = contextView.get("foo");
+						// ...
+					}))
 			.build();
-----
-[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
-.Kotlin
-----
-	val client = webClient.mutate()
-			.filters { it.add(0, basicAuthentication("user", "password")) }
-			.build()
-----
 
-
+	client.get().uri("https://example.org/")
+			.retrieve()
+			.bodyToMono(String.class)
+			.flatMap(body -> {
+					// perform nested request (context propagates automatically)...
+			})
+			.contextWrite(context -> context.put("foo", ...));
+----
 
 [[webflux-client-synchronous]]
 == Synchronous Use
@@ -876,5 +1034,5 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 [[webflux-client-testing]]
 == Testing
 
-若要测试使用 `WebClient` 的代码,可以使用模拟 Web 服务器,例如 https://github.com/square/okhttp#mockwebserver[OkHttp MockWebServer]. 要查看其用法示例,请查看 Spring Framework 测试套件中的 https://github.com/spring-projects/spring-framework/blob/master/spring-webflux/src/test/java/org/springframework/web/reactive/function/client/WebClientIntegrationTests.java[`WebClientIntegrationTests`] 或
+若要测试使用 `WebClient` 的代码,可以使用模拟 Web 服务器,例如 https://github.com/square/okhttp#mockwebserver[OkHttp MockWebServer]. 要查看其用法示例,请查看 Spring Framework 测试套件中的 {spring-framework-main-code}/spring-webflux/src/test/java/org/springframework/web/reactive/function/client/WebClientIntegrationTests.java[`WebClientIntegrationTests`] 或
 OkHttp 存储库中的 https://github.com/square/okhttp/tree/master/samples/static-server[`static-server`]示例.

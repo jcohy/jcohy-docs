@@ -1,0 +1,42 @@
+[[io.quartz]]
+== Quartz Scheduler
+Spring Boot 提供了几种使用  https://www.quartz-scheduler.org/[Quartz 调度器]的便捷方式,它们来自 `spring-boot-starter-quartz` "`Starter`". 如果 Quartz 可用,则 Spring Boot 将自动配置 `Scheduler` (通过 `SchedulerFactoryBean` 抽象) .
+
+自动选取以下类型的 Bean 并将其与 `Scheduler` 关联起来:
+
+* `JobDetail`: 定义一个特定的 job. 可以使用 `JobBuilder` API 构建 `JobDetail` 实例.
+* `Calendar`.
+* `Trigger`: 定义何时触发 job.
+
+默认使用内存存储方式的 `JobStore`.  但如果应用程序中有 `DataSource` bean,并且配置了 `spring.quartz.job-store-type` 属性,则可以配置基于 JDBC 的存储,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  quartz:
+	    job-store-type: "jdbc"
+----
+
+使用 JDBC 存储时,可以在启动时初始化 schema (表结构) ,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  quartz:
+	    jdbc:
+	      initialize-schema: "always"
+----
+
+WARNING: 默认将使用 Quartz 库提供的标准脚本检测并初始化数据库. 这些脚本会删除现有表,在每次重启时删除所有触发器. 可以通过设置 `spring.quartz.jdbc.schema` 属性来提供自定义脚本.
+
+要让 Quartz 使用除应用程序主 `DataSource` 之外的 `DataSource`,请声明一个 `DataSource` bean,使用 `@QuartzDataSource` 注解其 `@Bean` 方法. 这样做可确保 `SchedulerFactoryBean` 和 schema 初始化都使用 Quartz 指定的 `DataSource`.类似地,要让 Quartz 使用应用程序的主 `TransactionManager` 之外的 `TransactionManager` 来声明 `TransactionManager` bean,并用 `@QuartzTransactionManager` 注解其 `@Bean` 方法.
+
+默认情况下,配置创建的 job 不会覆盖已从持久 job 存储读取的已注册的 job. 要启用覆盖现有的 job 定义,请设置 `spring.quartz.overwrite-existing-jobs` 属性.
+
+Quartz 调取器配置可以使用 `spring.quartz` 属性和 `SchedulerFactoryBeanCustomizer` bean 进行自定义,它们允许以编程方式的 `SchedulerFactoryBean` 自定义. 可以使用 `spring.quartz.properties.*` 自定义高级 Quartz 配置属性.
+
+NOTE: 需要强调的是,`Executor` bean 与调度程序没有关联,因为 Quartz 提供了通过 `spring.quartz.properties` 配置调度器的方法. 如果需要自定义 Actuator ,请考虑实现 `SchedulerFactoryBeanCustomizer`.
+
+job 可以定义 setter 以注入数据映射属性. 也可以以类似的方式注入常规的 bean,如下所示:
+
+include::code:MySampleJob[]

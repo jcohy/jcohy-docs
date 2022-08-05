@@ -1,0 +1,204 @@
+[[io.caching]]
+== 缓存
+Spring Framework 支持以透明的方式向应用程序添加缓存. 从本质上讲,将缓存应用于方法上,根据缓存数据减少方法的执行次数. 缓存逻辑是透明的,不会对调用者造成任何干扰. 通过 `@EnableCaching` 注解启用缓存支持,Spring Boot 就会自动配置缓存设置.
+
+NOTE: 有关更多详细信息,请查看 Spring Framework 参考文档的 {spring-framework-docs}/integration.html#cache[相关部分] .
+
+简而言之,为服务添加缓存的操作就像在其方法中添加注解一样简单,如下所示:
+
+include::code:MyMathService[]
+
+此示例展示了如何在代价可能高昂的操作上使用缓存. 在调用 `computePiDecimal` 之前,缓存支持会在 `piDecimals` 缓存中查找与 `i` 参数匹配的项. 如果找到,则缓存中的内容会立即返回给调用者,并不会调用该方法. 否则,将调用该方法,并在返回值之前更新缓存.
+
+CAUTION: 您还可以使用标准 JSR-107 (JCache) 注解 (例如 `@CacheResult`) . 但是,我们强烈建议您不要将 Spring Cache 和 JCache 注解混合使用.
+
+如果您不添加任何指定的缓存库,Spring Boot 会自动配置一个使用 concurrent map 的 <<io#io.caching.provider.simple,simple provider>> . 当需要缓存时 (例如前面示例中的 `piDecimals`) ,该 simple provider 会为您创建缓存. 不推荐将 simple provider 用于生产环境,但它非常适合入门并帮助您了解这些功能.
+当您决定使用缓存提供者时,请务必阅读其文档以了解如何配置应用程序. 几乎所有提供者都要求您显式配置应用程序中使用的每个缓存. 有些提供了自定义 `spring.cache.cache-names` 属性以定义默认缓存.
+
+TIP: 还可以透明地从缓存中 {spring-framework-docs}/integration.html#cache-annotations-put[更新]或 {spring-framework-docs}/integration.html#cache-annotations-evict[删除] 数据.
+
+[[io.caching.provider]]
+=== 支持的缓存提供者
+缓存抽象不提供存储实现,其依赖于 `org.springframework.cache.Cache` 和 `org.springframework.cache.CacheManager` 接口的抽象实现.
+
+如果您未定义 `CacheManager` 类型的 bean 或名为 `cacheResolver` 的 `CacheResolver` (请参阅 {spring-framework-api}/cache/annotation/CachingConfigurer.html[`CachingConfigurer`]) ,则 Spring Boot 会尝试检测以下提供者 (按序号顺序) :
+
+. <<io#io.caching.provider.generic,Generic>>
+. <<io#io.caching.provider.jcache,JCache (JSR-107)>> (EhCache 3, Hazelcast, Infinispan, and others)
+. <<io#io.caching.provider.ehcache2,EhCache 2.x>>
+. <<io#io.caching.provider.hazelcast,Hazelcast>>
+. <<io#io.caching.provider.infinispan,Infinispan>>
+. <<io#io.caching.provider.couchbase,Couchbase>>
+. <<io#io.caching.provider.redis,Redis>>
+. <<io#io.caching.provider.caffeine,Caffeine>>
+. <<io#io.caching.provider.cache2k,Cache2k>>
+. <<io#io.caching.provider.simple,Simple>>
+
+此外，{spring-boot-for-apache-geode}[Spring Boot for Apache Geode] 提供了 {spring-boot-for-apache-geode-docs}#geode-caching-provider[使用 Apache Geode 作为自动配置缓存提供者]。
+
+TIP: 也可以通过设置 `spring.cache.type` 属性来强制指定缓存提供者. 如果您需要在某些环境 (比如测试) 中 <<io#io.caching.provider.none,完全禁用缓存>>,请使用此属性.
+
+TIP: 使用 `spring-boot-starter-cache` "`Starter`" 快速添加基本的缓存依赖. starter 引入了 `spring-context-support`. 如果手动添加依赖,则必须包含 `spring-context-support` 才能使用 JCache、EhCache 2.x 或 Caffeine 支持.
+
+如果通过 Spring Boot 自动配置 `CacheManager`,则可以通过暴露一个实现了 `CacheManagerCustomizer` 接口的 bean,在完全初始化之前进一步调整其配置. 以下示例设置了一个 flag,表示应将 `null` 值传递给底层 map:
+
+include::code:MyCacheManagerConfiguration[]
+
+NOTE: 在前面示例中,需要一个自动配置的 `ConcurrentMapCacheManager`. 如果不是这种情况 (您提供了自己的配置或自动配置了不同的缓存提供者) ,则根本不会调用 customizer. 您可以拥有多个 customizer,也可以使用 `@Order` 或 `Ordered` 来排序它们.
+
+[[io.caching.provider.generic]]
+==== Generic
+如果上下文定义了至少一个 `org.springframework.cache.Cache` bean,则使用 Generic 缓存. 将创建一个包装所有该类型 bean 的 `CacheManager`.
+
+[[io.caching.provider.jcache]]
+==== JCache (JSR-107)
+https://jcp.org/en/jsr/detail?id=107[JCache] 通过 classpath 上的 `javax.cache.spi.CachingProvider` (即 classpath 上存在符合 JSR-107 的缓存库) 来引导,`jCacheCacheManager` 由 `spring-boot-starter-cache` starter 提供. 您可以使用各种兼容库,Spring Boot 为 Ehcache 3、Hazelcast 和 Infinispan 提供依赖管理. 您还可以添加任何其他兼容库.
+
+可能存在多个提供者,在这种情况下必须明确指定提供者. 即使 JSR-107 标准没有强制规定一个定义配置文件位置的标准化方法,Spring Boot 也会尽其所能设置一个包含实现细节的缓存,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+    # Only necessary if more than one provider is present
+	spring:
+	  cache:
+	    jcache:
+	      provider: "com.example.MyCachingProvider"
+	      config: "classpath:example.xml"
+----
+
+NOTE: 当缓存库同时提供原生实现和 JSR-107 支持时,Spring Boot 更倾向 JSR-107 支持,因此当您切换到不同的 JSR-107 实现时,还可以使用相同的功能.
+
+TIP: Spring Boot 对 <<io#io.hazelcast,Hazelcast 的支持一般>>. 如果有一个 `HazelcastInstance` 可用,它也会自动复用 `CacheManager` ,除非指定了 `spring.cache.jcache.config` 属性.
+
+有两种方法可以自定义底层的 `javax.cache.cacheManager`:
+
+* 可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存. 如果定义了自定义 `javax.cache.configuration.Configuration` bean,则会使用它来自定义.
+* 使用 `CacheManager` 的引用调用 `org.springframework.boot.autoconfigure.cache.JCacheManagerCustomizer` bean 以进行完全自定义.
+
+TIP: 如果定义了一个标准的 `javax.cache.CacheManager` bean,它将自动包装进一个抽象所需的 `org.springframework.cache.CacheManager` 实现中,而不会应用自定义配置.
+
+[[io.caching.provider.ehcache2]]
+==== EhCache 2.x
+如果可以在 classpath 的根目录中找到名为 `ehcache.xml` 的文件,则使用 https://www.ehcache.org/[EhCache] 2.x. 如果找到 EhCache 2.x,则使用 `spring-boot-starter-cache` starter 提供的 `EhCacheCacheManager` 来启动缓存管理器. 还可以提供其他配置文件,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    ehcache:
+	      config: "classpath:config/another-config.xml"
+----
+
+[[io.caching.provider.hazelcast]]
+==== Hazelcast
+Spring Boot 对 <<io#io.hazelcast,Hazelcast 的支持一般>>. 如果自动配置了一个 `HazelcastInstance`,它将自动包装进 `CacheManager` 中.
+
+[[io.caching.provider.infinispan]]
+==== Infinispan
+https://infinispan.org/[Infinispan] 没有默认的配置文件位置,因此必须明确指定. 否则将使用默认配置加载.
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    infinispan:
+	      config: "infinispan.xml"
+----
+
+可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存. 如果定义了自定义 `ConfigurationBuilder` bean,则它将用于自定义缓存.
+
+NOTE: Infinispan 在 Spring Boot 中的支持仅限于内嵌模式,非常简单. 如果你想要更多选项,你应该使用官方的 Infinispan Spring Boot starter. 有关更多详细信息,请参阅 https://github.com/infinispan/infinispan-spring-boot[Infinispan 文档] .
+
+[[io.caching.provider.couchbase]]
+==== Couchbase
+如果 Spring Data Couchbase 可用并且已  <<data#data.nosql.couchbase,配置>>  Couchbase,则会自动配置 `CouchbaseCacheManager`. 通过设置 `spring.cache.cache-names` 属性可以在启动时创建其他缓存,并且可以使用 `spring.cache.couchbase.*` 属性配置缓存默认值. 以下配置创建 `cache1` 和 `cache2` 缓存,他们的有效时间为 10 分钟:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    cache-names: "cache1,cache2"
+        couchbase:
+          expiration: "10m"
+----
+
+如果需要对配置进行更多控制,请考虑注册 `CouchbaseCacheManagerBuilderCustomizer` bean.以下示例显示了一个定制器,该定制器为 `cache1` 和 `cache2` 配置到期:
+
+include::code:MyCouchbaseCacheManagerConfiguration[]
+
+[[io.caching.provider.redis]]
+==== Redis
+如果 https://redis.io/[Redis] 可用并已经配置,则应用程序会自动配置一个 `RedisCacheManager`. 通过设置 `spring.cache.cache-names` 属性可以在启动时创建其他缓存,并且可以使用 `spring.cache.redis.*` 属性配置缓存默认值. 例如,以下配置创建 `cache1` 和 `cache2` 缓存,他们的有效时间为 10 分钟:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    cache-names: "cache1,cache2"
+	    redis:
+	      time-to-live: "10m"
+----
+
+NOTE: 默认情况下,会添加一个 key 前缀,这样做是因为如果两个单独的缓存使用了相同的键,Redis 不支持重叠 key,而缓存也不能返回无效值. 如果您创建自己的 `RedisCacheManager`,我们强烈建议您启用此设置.
+
+TIP: 您可以通过添加自己的 `RedisCacheConfiguration` `@Bean` 来完全控制配置. 如果您想自定义序列化策略,这种方式可能很有用.
+
+如果您需要控制更多的配置,请考虑注册 `RedisCacheManagerBuilderCustomizer` bean.
+以下示例显示了一个自定义的配置,配置了 `cache1` 和 `cache2` 的失效时间:
+
+include::code:MyRedisCacheManagerConfiguration[]
+
+[[io.caching.provider.caffeine]]
+==== Caffeine
+https://github.com/ben-manes/caffeine[Caffeine]  是一个使用了 Java 8 重写 Guava 缓存,用于取代 Guava 支持的缓存库. 如果 Caffeine 存在,则应用程序会自动配置一个 `CaffeineCacheManager` (由 `spring-boot-starter-cache` starter 提供) .
+可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存,并且可以通过以下方式之一 (按序号顺序) 自定义缓存:
+
+. 一个由 `spring.cache.caffeine.spec` 定义的缓存规范
+. 一个已定义的 `com.github.benmanes.caffeine.cache.CaffeineSpec` bean
+. 一个已定义的 `com.github.benmanes.caffeine.cache.Caffeine` bean
+
+例如,以下配置创建 `cache1` 和 `cache2` 缓存,最大大小为 500,有效时间 为 10 分钟:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    cache-names: "cache1,cache2"
+	    caffeine:
+	      spec: "maximumSize=500,expireAfterAccess=600s"
+----
+
+如果定义了 `com.github.benmanes.caffeine.cache.CacheLoader` bean,它将自动与 `CaffeineCacheManager` 关联. 由于 `CacheLoader` 将与缓存管理器管理的所有缓存相关联,因此必须将其定义为 `CacheLoader<Object, Object>`. 自动配置会忽略所有其他泛型类型.
+
+[[io.caching.provider.cache2k]]
+==== Cache2k
+https://cache2k.org/[Cache2k] 是一个内存缓存。 如果存在 Cache2k spring 集成，则会自动配置 `SpringCache2kCacheManager`。
+
+可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存。 可以使用 `Cache2kBuilderCustomizer` bean 自定义缓存默认值。
+以下示例显示了一个自定义程序，它将缓存容量配置为 200 个，有效期为 5 分钟:
+
+include::code:MyCache2kDefaultsConfiguration[]
+
+[[io.caching.provider.simple]]
+==== Simple
+如果找不到其他提供者,则配置使用一个 `ConcurrentHashMap` 作为缓存存储的简单实现. 如果您的应用程序中没有缓存库,则该项为默认值. 默认情况下,会根据需要创建缓存,但您可以通过设置 `cache-names` 属性来限制可用缓存的列表. 例如,如果只需要 `cache1` 和 `cache2` 缓存,请按如下设置 `cache-names` 属性:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    cache-names: "cache1,cache2"
+----
+
+如果这样做了,并且您的应用程序使用了未列出的缓存,则运行时在它需要缓存时会触发失败,但在启动时则不会. 这类似于真实缓存提供者在使用未声明的缓存时触发的行为方式.
+
+[[io.caching.provider.none]]
+==== None
+当配置中存在 `@EnableCaching` 时,也需要合适的缓存配置. 如果需要在某些环境中完全禁用缓存,请将缓存类型强制设置为 `none` 以使用 no-op 实现,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  cache:
+	    type: "none"
+----

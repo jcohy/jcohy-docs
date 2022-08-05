@@ -1,0 +1,147 @@
+[[messaging.jms]]
+== JMS
+`javax.jms.ConnectionFactory` 接口提供了一种创建 `javax.jms.Connection` 的标准方法,可与 JMS broker (代理) 进行交互. 虽然 Spring 需要一个 `ConnectionFactory` 来与 JMS 一同工作,但是您通常不需要自己直接使用它,而是可以依赖更高级别的消息传递抽象.  (有关详细信息,请参阅 {spring-framework-docs}/integration.html#jms[Spring Framework 参考文档的相关部分].) Spring Boot 还会自动配置发送和接收消息所需的基础设施.
+
+[[messaging.jms.activemq]]
+=== ActiveMQ Support
+当 https://activemq.apache.org/[ActiveMQ]  在 classpath 上可用时,Spring Boot 也可以配置一个 `ConnectionFactory`. 如果 broker 存在,则会自动启动并配置一个内嵌式 broker (前提是未通过配置指定 broder URL) .
+
+NOTE: 如果使用 `spring-boot-starter-activemq`,则提供了连接到 ActiveMQ 实例必须依赖或内嵌一个 ActiveMQ 实例,以及与 JMS 集成的 Spring 基础设施.
+
+ActiveMQ 配置由 `+spring.activemq.*+` 中的外部配置属性控制.
+
+默认情况下，ActiveMQ 自动配置为使用 https://activemq.apache.org/vm-transport-reference.html[VM transport]，它启动嵌入在同一 JVM 实例中的代理。
+
+您可以通过配置 `spring.activemq.in-memory` 属性来禁用嵌入式代理，如下例所示：
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  activemq:
+	    in-memory: false
+----
+
+如果您配置 broker URL，嵌入式 broker 也将被禁用，如以下示例所示:
+
+[source,yaml,indent=0,configprops,configblocks]
+----
+	spring:
+	  activemq:
+	    broker-url: "tcp://192.168.1.210:9876"
+	    user: "admin"
+	    password: "secret"
+----
+
+如果您想完全控制嵌入式代理，请参阅 https://activemq.apache.org/how-do-i-embed-a-broker-inside-a-connection.html[ActiveMQ 文档] 了解更多信息 .
+
+默认情况下,`CachingConnectionFactory` 将原生的 `ConnectionFactory` 使用可由  `+spring.jms.*+` 中的外部配置属性控制的合理设置包装起来:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  jms:
+	    cache:
+	      session-cache-size: 5
+----
+
+如果您更愿意使用原生池,则可以通过向 `org.messaginghub:pooled-jms` 添加一个依赖并相应地配置 `JmsPoolConnectionFactory` 来实现,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  activemq:
+	    pool:
+	      enabled: true
+	      max-connections: 50
+----
+
+TIP: 有关更多支持的选项,请参阅 {spring-boot-autoconfigure-module-code}/jms/activemq/ActiveMQProperties.java[`ActiveMQProperties`]. 您还可以注册多个实现了 `ActiveMQConnectionFactoryCustomizer` 的的 bean,以进行更高级的自定义.
+
+默认情况下,ActiveMQ 会创建一个 destination (目标)  (如果它尚不存在) ,以便根据提供的名称解析 destination.
+
+[[messaging.jms.artemis]]
+=== ActiveMQ Artemis 支持
+Spring Boot 可以在检测到 https://activemq.apache.org/components/artemis/[Artemis] 在 classpath 上可用时自动配置一个 `ConnectionFactory`. 如果存在 broker,则会自动启动并配置一个内嵌 broker (除非已明确设置 mode 属性) .
+支持的 mode 为 `embedded` (明确表示需要一个内嵌 broker,如果 broker 在 classpath 上不可用则发生错误) 和 `native` (使用 `netty` 传输协议连接到 broker) . 配置后者后,Spring Boot 会使用默认设置配置一个 `ConnectionFactory`,该 `ConnectionFactory` 连接到在本地计算机上运行的 broker.
+
+NOTE: 如果使用了 `spring-boot-starter-artemis`,则会提供连接到现有的 Artemis 实例的必须依赖,以及与 JMS 集成的Spring 基础设施. 将 `org.apache.activemq:artemis-jms-server` 添加到您的应用程序可让您使用内嵌模式.
+
+ActiveMQ Artemis 配置由 `+spring.artemis.*+` 中的外部配置属性控制. 例如,您可以在 `application.properties` 中声明以下部分:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  artemis:
+	    mode: native
+	    broker-url: "tcp://192.168.1.210:9876"
+	    user: "admin"
+	    password: "secret"
+----
+
+内嵌 broker 时,您可以选择是否要启用持久化并列出应该可用的 destination. 可以将这些指定为以逗号分隔的列表,以使用默认选项创建它们,也可以定义类型为 `org.apache.activemq.artemis.jms.server.config.JMSQueueConfiguration` 或 `org.apache.activemq.artemis.jms.server.config.TopicConfiguration` 的 bean,分别用于高级队列和 topic (主题) 配置.
+
+默认情况下,`CachingConnectionFactory` 将原生的 `ConnectionFactory` 使用可由 `+spring.jms.*+` 中的外部配置属性控制的合理设置包装起来:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  jms:
+	    cache:
+	      session-cache-size: 5
+----
+
+如果您更愿意使用原生池,则可以通过向 `org.messaginghub:pooled-jms` 添加一个依赖并相应地配置 `JmsPoolConnectionFactory` 来实现,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  artemis:
+	    pool:
+	      enabled: true
+	      max-connections: 50
+----
+
+有关更多支持的选项,请参阅  {spring-boot-autoconfigure-module-code}/jms/artemis/ArtemisProperties.java[`ArtemisProperties`] .
+
+不涉及 JNDI 查找,使用 Artemis 配置中的 `name` 属性或通过配置提供的名称来解析目标 (destination) 名称.
+
+[[messaging.jms.jndi]]
+=== 使用 JNDI ConnectionFactory
+如果您在应用程序服务器中运行应用程序,Spring Boot 会尝试使用 JNDI 找到 JMS `ConnectionFactory`. 默认情况下,将检查 `java:/JmsXA` 和 `java:/XAConnectionFactory` 这两个位置. 如果需要指定其他位置,可以使用 `spring.jms.jndi-name` 属性,如下所示:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	spring:
+	  jms:
+	    jndi-name: "java:/MyConnectionFactory"
+----
+
+[[messaging.jms.sending]]
+=== 发送消息
+Spring 的 `JmsTemplate` 是自动配置的,你可以直接将它注入到你自己的 bean 中,如下所示:
+
+include::code:MyBean[]
+
+NOTE: {spring-framework-api}/jms/core/JmsMessagingTemplate.html[`JmsMessagingTemplate`] 可以以类似的方式注入. 如果定义了 `DestinationResolver` 或 `MessageConverter` bean,它将自动关联到自动配置的 `JmsTemplate`.
+
+[[messaging.jms.receiving]]
+=== 接收消息
+当存在 JMS 基础设施时,可以使用 `@JmsListener` 对任何 bean 进行注解以创建监听器 (listener) 端点. 如果未定义 `JmsListenerContainerFactory`,则会自动配置一个默认的 (factory) . 如果定义了 `DestinationResolver` ，`MessageConverter` 或  `javax.jms.ExceptionListener` bean,它将自动关联到默认的 factory.
+
+默认情况下,默认 factory 是具有事务特性的. 如果您在存在有 `JtaTransactionManager` 的基础设施中运行,则默认情况下它与监听器容器相关联. 如果不是,则 `sessionTransacted` flag 将为启用 (enabled) . 在后一种情况下,您可以通过在监听器方法 (或其委托) 上添加 `@Transactional`,将本地数据存储事务与传入消息的处理相关联. 这确保了在本地事务完成后传入消息能被告知. 这还包括了发送已在同一 JMS 会话上执行的响应消息.
+
+以下组件在 `someQueue` destination 上创建一个监听器端点:
+
+include::code:MyBean[]
+
+TIP: 有关更多详细信息,请参阅  {spring-framework-api}/jms/annotation/EnableJms.html[`@EnableJms`] 的 Javadoc.
+
+如果需要创建更多 `JmsListenerContainerFactory` 实例或覆盖默认值,Spring Boot 会提供一个 `DefaultJmsListenerContainerFactoryConfigurer`,您可以使用它来初始化 `DefaultJmsListenerContainerFactory`,其设置与自动配置的 factory 设置相同.
+
+例如,以下示例暴露了另一个使用特定 `MessageConverter` 的 factory:
+
+include::code:custom/MyJmsConfiguration[]
+
+然后,您可以在任何 `@JmsListener` 注解的方法中使用该 factory,如下所示:
+
+include::code:custom/MyBean[]

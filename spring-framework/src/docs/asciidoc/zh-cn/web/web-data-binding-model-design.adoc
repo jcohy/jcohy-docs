@@ -1,0 +1,79 @@
+In the context of web applications, _data binding_ involves the binding of HTTP request
+parameters (that is, form data or query parameters) to properties in a model object and
+its nested objects.
+
+Only `public` properties following the
+https://www.oracle.com/java/technologies/javase/javabeans-spec.html[JavaBeans naming conventions]
+are exposed for data binding — for example, `public String getFirstName()` and
+`public void setFirstName(String)` methods for a `firstName` property.
+
+在 web 应用的上下文中，_data binding_  涉及到 HTTP 请求参数（即表单数据或查询参数）到模型对象中的属性，以及
+它的嵌套对象。
+
+只有 `public` 属性遵循 https://www.oracle.com/java/technologies/javase/javabeans-spec.html[JavaBeans 命名约定] 并暴露为数据绑定参数 ——例如，`public String getFirstName()` 和 `firstName` 属性的 `public void setFirstName(String)` 方法。
+
+TIP: 模型对象及其嵌套对象有时也称为 _command object_、_form-backing object_ 或 _POJO_（普通旧 Java 对象）。
+
+默认情况下，Spring 允许绑定到 model object 中的所有公共属性。这意味着您需要仔细考虑 model 具有哪些公共属性，因为
+客户端可以针对任何公共属性路径，包括一些您不期望的路径。
+
+例如，给定一个 HTTP 表单数据端点，恶意客户端可以为模型对象中存在的属性，但是在 web 应用的上下文中，_数据绑定_ 涉及到 HTTP 请求参数绑定
+（即表单数据或查询参数）到模型对象中的属性，以及它的嵌套对象。
+
+推荐的方法是使用仅暴露的 _dedicated model object_（专用模型对象） 与表单提交相关的属性。例如，在用于更改的表格上 用户的电子邮件地址，模型对象应声明一组最少的属性，例如 如下面的 `ChangeEmailForm`。
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	public class ChangeEmailForm {
+
+		private String oldEmailAddress;
+		private String newEmailAddress;
+
+		public void setOldEmailAddress(String oldEmailAddress) {
+			this.oldEmailAddress = oldEmailAddress;
+		}
+
+		public String getOldEmailAddress() {
+			return this.oldEmailAddress;
+		}
+
+		public void setNewEmailAddress(String newEmailAddress) {
+			this.newEmailAddress = newEmailAddress;
+		}
+
+		public String getNewEmailAddress() {
+			return this.newEmailAddress;
+		}
+
+	}
+----
+
+如果您不能或不想为每个数据使用 _专用模型对象_ 绑定用例，您 **must** 限制数据绑定允许的属性。 理想情况下，您可以通过注册 _allowed field patterns_ 通过 `WebDataBinder` 上的 `setAllowedFields()` 方法。
+
+例如，要在您的应用程序中注册允许的字段模式，您可以实现一个 `@Controller` 或 `@ControllerAdvice` 组件中的 `@InitBinder` 方法，如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	@Controller
+	public class ChangeEmailController {
+
+		@InitBinder
+		void initBinder(WebDataBinder binder) {
+			binder.setAllowedFields("oldEmailAddress", "newEmailAddress");
+		}
+
+		// @RequestMapping methods, etc.
+
+	}
+----
+
+除了注册允许的模式，还可以注册 _disallowed field patterns_ 通过 `DataBinder` 及其子类中的 `setDisallowedFields()` 方法。 但是请注意，"allow list" 比 "deny list" 更安全。 最后，`setAllowedFields()` 应该优于 `setDisallowedFields()`。
+
+请注意，与允许的字段模式匹配是区分大小写的； 而，匹配 针对不允许的字段模式不区分大小写。 此外，一个匹配的字段不允许的模式将不会被接受，即使它也恰好匹配 允许列表。
+
+[WARNING]
+====
+正确配置允许和不允许的字段模式非常重要直接暴露您的 domain 模型以进行数据绑定时。 否则，它的安全隐患大。
+
+此外，强烈建议您**不**使用您域中的类型 JPA 或 Hibernate 实体等模型作为数据绑定场景中的模型对象。
+====

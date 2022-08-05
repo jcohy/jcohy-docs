@@ -1,0 +1,144 @@
+[[run]]
+= 使用 Maven 运行你的应用程序
+该插件包括一个 run 目标,可用于从命令行启动您的应用程序,如以下示例所示:
+
+[indent=0]
+----
+	$ mvn spring-boot:run
+----
+
+可以使用 `arguments` 参数指定应用程序参数,有关更多详细信息,请参见 <<run.examples.using-application-arguments,使用应用程序参数>>.
+
+默认情况下,应用程序是在 forked 进程中执行的,并且在命令行上设置属性不会影响应用程序. 如果需要指定一些 JVM 参数 (即用于调试目的) ,则可以使用 `jvmArguments` 参数,有关更多详细信息,请参见 <<run.examples.debug,调试应用程序>>. 还明确支持 <<run.examples.system-properties,系统属性>> 和 <<run.examples.environment-variables,环境变量>>.
+
+由于启用配置文件非常普遍,因此有一个专用的 `profiles` 属性,它提供了  `-Dspring-boot.run.jvmArguments="-Dspring.profiles.active=dev"` 的快捷方式,请参阅 <<run.examples.specify-active-profiles,指定激活 profiles>>.
+
+尽管不建议这样做（已弃用）,但是可以通过禁用 fork 属性直接从 Maven JVM 执行应用程序. 这样做意味着将忽略 `jvmArguments`,`systemPropertyVariables`,`environmentVariables` 和 `agent` 选项.
+
+Spring Boot `devtools` 是一个模块,用于改善在使用 Spring Boot 应用程序时的开发时间体验. 要启用它,只需将以下依赖添加到您的项目中:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/devtools-pom.xml[tags=devtools]
+----
+
+当 `devtools` 运行时,它会在重新编译应用程序时检测到更改并自动刷新它. 这不仅适用于资源,而且适用于代码. 它还提供了 `LiveReload` 服务器,以便它可以在发生任何变化时自动触发浏览器刷新.
+
+还可以将 Devtools 配置为仅在静态资源发生更改时刷新浏览器 (并忽略代码中的任何更改) . 只需在项目中包括以下属性:
+
+[source,properties,indent=0]
+----
+	spring.devtools.remote.restart.enabled=false
+----
+
+在 `devtools` 之前,该插件默认情况下支持资源的热刷新,现在已禁用它,以支持上述解决方案.您可以随时通过配置项目来还原它:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/hot-refresh-pom.xml[tags=hot-refresh]
+----
+
+启用 `addResources` 时,在运行应用程序时,所有 `src/main/resources` 目录都将添加到应用程序类路径中,并且将删除在 `target/classes` 中发现的所有重复项. 这样可以热刷新资源,这在开发 Web 应用程序时非常有用. 例如,您可以处理 HTML,CSS 或 JavaScript 文件,并且无需重新编译应用程序即可立即查看更改. 这也是允许您的前端开发人员进行工作而无需下载和安装 Java IDE 的一种有用方法.
+
+NOTE: 使用此功能的缺点是在构建时无法进行资源过滤.
+
+为了与 `repackage` 目标保持一致,`run` 目标以如下方式构建类路径: 将插件配置中排除的任何依赖也从类路径中排除. 有关更多详细信息,请参见<<packaging.examples.exclude-dependency,the dedicated example>>.
+
+有时在运行应用程序时包括测试依赖很有用. 例如,如果要在使用存根类的测试模式下运行应用程序. 如果您希望这样做,可以将 `useTestClasspath` 参数设置为 `true`.
+
+NOTE: 这仅在运行应用程序时适用: `repackage` 目标不会将测试依赖添加到生成的 JAR/WAR 中.
+
+include::goals/run.adoc[leveloffset=+1]
+
+[[run.examples]]
+== 示例
+
+[[run.examples.debug]]
+=== 调试应用程序
+默认情况下,`run` 目标在 forkd 进程中运行您的应用程序. 如果需要调试,则应添加必要的 JVM 参数以启用远程调试. 以下配置将挂起该进程,直到调试器在端口 5005 上加入为止:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/debug-pom.xml[tags=debug]
+----
+
+这些参数也可以在命令行上指定,请确保将其正确包装,即:
+
+[indent=0]
+----
+	$ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5005"
+----
+
+[[run.examples.system-properties]]
+=== 使用系统属性
+可以使用 `systemPropertyVariables` 属性指定系统属性.以下示例将 `property1` 设置为 `test` 并将 `property2` 设置为 `42`:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/system-properties-pom.xml[tags=system-properties]
+----
+
+如果该值为空或未定义 (例如 `<my-property/`>) ,则将系统属性设置为空的字符串. 因为 Maven 对 pom 中指定的值进行了 trim,因此无法通过此机制指定需要以空格开头或结尾的 System 属性: 考虑改用 `jvmArguments`.
+
+任何 String 类型的 Maven 变量都可以作为系统属性传递. 任何传递其他 Maven 变量类型 (例如 `List` 或 `URL` 变量) 的尝试都将导致变量表达式按字面值传递 (未评估) .
+
+`jvmArguments` 参数优先于上述机制定义的系统属性. 在以下示例中,`property1` 的值被覆盖:
+
+[indent=0]
+----
+	$ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Dproperty1=overridden"
+----
+
+[[run.examples.environment-variables]]
+=== 使用环境变量
+可以使用 `environmentVariables` 属性指定环境变量.以下示例设置了 'ENV1', 'ENV2', 'ENV3', 'ENV4' env变量:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/environment-variables-pom.xml[tags=environment-variables]
+----
+
+如果该值为空或未定义 (例如 `<MY_ENV/`>) ,`则将` env 变量设置为空的字符串. 因为 Maven 对 pom 中指定的值进行了 trim,因此无法指定需要以空格开头或结尾的 `env` 变量.
+
+任何 String 类型的 Maven 变量都可以作为系统属性传递. 任何传递其他 Maven 变量类型 (例如 `List` 或 `URL` 变量) 的尝试都将导致变量表达式按字面值传递 (未评估) .
+
+用这种方法定义的环境变量优先于现有值.
+
+[[run.examples.using-application-arguments]]
+=== 使用应用程序参数
+可以使用 `arguments` 属性指定应用程序参数.下面的示例设置两个参数: `property1` 和 `property2=42`:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/application-arguments-pom.xml[tags=application-arguments]
+----
+
+在命令行上,参数用空格分隔,与 `jvmArguments` 相同.如果参数包含空格,请使用引号.在以下示例中,有两个参数可用: `property1` 和 `property2=Hello World`:
+
+[indent=0]
+----
+	$ mvn spring-boot:run -Dspring-boot.run.arguments="property1 'property2=Hello World'"
+----
+
+
+
+[[run.examples.specify-active-profiles]]
+=== 指定激活的 Profiles
+可以使用 `profiles` 参数指定.
+
+下面的配置启用了 `local` 和 `dev` 配置文件:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/running/active-profiles-pom.xml[tags=active-profiles]
+----
+
+也可以在命令行上指定要启用的配置文件,请确保用逗号分隔它们,如以下示例所示:
+
+[indent=0]
+----
+	$ mvn spring-boot:run -Dspring-boot.run.profiles=local,dev
+----
+
+
+

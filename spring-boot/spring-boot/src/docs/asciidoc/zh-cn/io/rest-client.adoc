@@ -1,0 +1,65 @@
+[[io.rest-client]]
+== 调用 REST Services
+如果您的应用程序需要调用远程 REST 服务,这可以使用 Spring Framework 的 RestTemplate 或 `WebClient` 类.
+
+[[io.rest-client.resttemplate]]
+=== RestTemplate
+如果您的应用程序需要调用远程 REST 服务,这可以使用 Spring Framework 的 RestTemplate 类. 由于 {spring-framework-api}/web/client/RestTemplate.html[`RestTemplate`]  实例在使用之前通常需要进行自定义,因此 Spring Boot 不提供任何自动配置的 `RestTemplate` bean. 但是,
+它会自动配置 `RestTemplateBuilder`,可在需要时创建 `RestTemplate` 实例. 自动配置的 `RestTemplateBuilder` 确保将合适的 `HttpMessageConverters` 应用于 `RestTemplate` 实例.
+
+以下代码展示了一个典型示例:
+
+include::code:MyService[]
+
+TIP: `RestTemplateBuilder` 包含许多可用于快速配置 `RestTemplate` 的方法. 例如,要添加 BASIC auth 支持,可以使用 `builder.basicAuthentication("user", "password").build()`.
+
+
+[[io.rest-client.resttemplate.customization]]
+==== 自定义 RestTemplate
+`RestTemplate` 自定义有三种主要方法,具体取决于您希望自定义的程度.
+
+要想自定义的作用域尽可能地窄,请注入自动配置的 `RestTemplateBuilder`,然后根据需要调用其方法. 每个方法调用都返回一个新的 `RestTemplateBuilder` 实例,因此自定义只会影响当前构建器.
+
+要在应用程序作用域内添加自定义配置,请使用 `RestTemplateCustomizer` bean. 所有这些 bean 都会自动注册到自动配置的 `RestTemplateBuilder`,并应用于使用它构建的所有模板.
+
+以下示例展示了一个 customizer,它为除 `192.168.0.5` 之外的所有主机配置代理:
+
+include::code:MyRestTemplateCustomizer[]
+
+最后，您还可以创建自己的 `RestTemplateBuilder` bean。为了防止关闭 `RestTemplateBuilder` 的自动配置，并防止任何 `RestTemplateCustomizer` bean 被使用，请确保使用 `RestTemplateBuilderConfigurer` 配置您的自定义实例。下面的示例公开了一个 `RestTemplateBuilder`, Spring Boot 将自动配置它，但也指定了自定义连接和读取超时:
+
+include::code:MyRestTemplateBuilderConfiguration[]
+
+最极端 (也很少使用) 的选择是创建自己的 `RestTemplateBuilder` bean. 这样做会关闭 `RestTemplateBuilder` 的自动配置,并阻止使用任何 `RestTemplateCustomizer` bean.
+
+[[io.rest-client.webclient]]
+=== WebClient
+如果在 classpath 上存在 Spring WebFlux,则还可以选择使用 `WebClient` 来调用远程 REST 服务. 与 `RestTemplate` 相比,该客户端更具函数式风格并且完全响应式. 您可以在 {spring-framework-docs}/web-reactive.html#webflux-client[Spring Framework 文档的相关部分]中了解有关 `WebClient` 的更多信息.
+
+Spring Boot 为您创建并预配置了一个 `WebClient.Builder`. 强烈建议将其注入您的组件中并使用它来创建 `WebClient` 实例. Spring Boot 配置该构建器以共享 HTTP 资源,以与服务器相同的方式反射编解码器设置 (请参阅 <<web#web.reactive.webflux.httpcodecs,WebFlux HTTP 编解码器自动配置>>) 等.
+
+以下代码是一个典型示例:
+
+include::code:MyService[]
+
+[[io.rest-client.webclient.runtime]]
+==== WebClient 运行时
+Spring Boot 将自动检测用于驱动 `WebClient` 的 `ClientHttpConnector`,具体取决于应用程序 classpath 上可用的类库. 目前支持 Reactor Netty 和 Jetty RS 客户端.
+
+默认情况下 `spring-boot-starter-webflux` starter 依赖于 `io.projectreactor.netty:reactor-netty`,它包含了服务器和客户端的实现. 如果您选择将 Jetty 用作响应式服务器,则应添加 Jetty Reactive HTTP 客户端库依赖 `org.eclipse.jetty:jetty-reactive-httpclient`. 服务器和客户端使用相同的技术具有一定优势,因为它会自动在客户端和服务器之间共享 HTTP 资源.
+
+开发人员可以通过提供自定义的 `ReactorResourceFactory` 或 `JettyResourceFactory` bean 来覆盖 Jetty 和 Reactor Netty 的资源配置 —— 这将同时应用于客户端和服务器.
+
+如果您只希望覆盖客户端选项,则可以定义自己的 `ClientHttpConnector` bean 并完全控制客户端配置.
+
+您可以在 Spring Framework 参考文档中了解有关 {spring-framework-docs}/web-reactive.html#webflux-client-builder[`WebClient` 配置选项的更多信息].
+
+[[io.rest-client.webclient.customization]]
+==== 自定义 WebClient
+`WebClient` 自定义有三种主要方法,具体取决于您希望自定义的程度.
+
+要想自定义的作用域尽可能地窄,请注入自动配置的 `WebClient.Builder`,然后根据需要调用其方法. `WebClient.Builder` 实例是有状态的: 构建器上的任何更改都会影响到之后所有使用它创建的客户端. 如果要使用相同的构建器创建多个客户端,可以考虑使用 `WebClient.Builder other = builder.clone()`; 的方式克隆构建器.
+
+要在应用程序作用域内对所有 `WebClient.Builder` 实例添加自定义,可以声明 `WebClientCustomizer` bean 并在注入点局部更改 `WebClient.Builder`.
+
+最后,您可以回退到原始 API 并使用 WebClient.create(). 在这种情况下,不会应用自动配置或 `WebClientCustomizer`.
