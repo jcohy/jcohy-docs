@@ -12,13 +12,22 @@ Methods in your controller are mapped to HTTP by using `@RequestMapping` annotat
 
 The following code shows a typical `@RestController` that serves JSON data:
 
-include::code:MyRestController[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/MyRestController.java[]
+----
 
 "`WebMvc.fn`", the functional variant, separates the routing configuration from the actual handling of the requests, as shown in the following example:
 
-include::code:MyRoutingConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/MyRoutingConfiguration.java[]
+----
 
-include::code:MyUserHandler[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/MyUserHandler.java[]
+----
 
 Spring MVC is part of the core Spring Framework, and detailed information is available in the  {spring-framework-docs}/web.html#mvc[reference documentation].
 There are also several guides that cover Spring MVC available at https://spring.io/guides.
@@ -68,10 +77,41 @@ By default, strings are encoded in `UTF-8`.
 
 If you need to add or customize converters, you can use Spring Boot's `HttpMessageConverters` class, as shown in the following listing:
 
-include::code:MyHttpMessageConvertersConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/messageconverters/MyHttpMessageConvertersConfiguration.java[]
+----
 
 Any `HttpMessageConverter` bean that is present in the context is added to the list of converters.
 You can also override default converters in the same way.
+
+
+
+[[web.servlet.spring-mvc.json]]
+==== Custom JSON Serializers and Deserializers
+If you use Jackson to serialize and deserialize JSON data, you might want to write your own `JsonSerializer` and `JsonDeserializer` classes.
+Custom serializers are usually https://github.com/FasterXML/jackson-docs/wiki/JacksonHowToCustomSerializers[registered with Jackson through a module], but Spring Boot provides an alternative `@JsonComponent` annotation that makes it easier to directly register Spring Beans.
+
+You can use the `@JsonComponent` annotation directly on `JsonSerializer`, `JsonDeserializer` or `KeyDeserializer` implementations.
+You can also use it on classes that contain serializers/deserializers as inner classes, as shown in the following example:
+
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/json/MyJsonComponent.java[]
+----
+
+All `@JsonComponent` beans in the `ApplicationContext` are automatically registered with Jackson.
+Because `@JsonComponent` is meta-annotated with `@Component`, the usual component-scanning rules apply.
+
+Spring Boot also provides {spring-boot-module-code}/jackson/JsonObjectSerializer.java[`JsonObjectSerializer`] and {spring-boot-module-code}/jackson/JsonObjectDeserializer.java[`JsonObjectDeserializer`] base classes that provide useful alternatives to the standard Jackson versions when serializing objects.
+See {spring-boot-module-api}/jackson/JsonObjectSerializer.html[`JsonObjectSerializer`] and {spring-boot-module-api}/jackson/JsonObjectDeserializer.html[`JsonObjectDeserializer`] in the Javadoc for details.
+
+The example above can be rewritten to use `JsonObjectSerializer`/`JsonObjectDeserializer` as follows:
+
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/json/object/MyJsonComponent.java[]
+----
 
 
 
@@ -87,7 +127,10 @@ If you set the configprop:spring.mvc.message-codes-resolver-format[] property `P
 By default, Spring Boot serves static content from a directory called `/static` (or `/public` or `/resources` or `/META-INF/resources`) in the classpath or from the root of the `ServletContext`.
 It uses the `ResourceHttpRequestHandler` from Spring MVC so that you can modify that behavior by adding your own `WebMvcConfigurer` and overriding the `addResourceHandlers` method.
 
-In a stand-alone web application, the default servlet from the container is also enabled and acts as a fallback, serving content from the root of the `ServletContext` if Spring decides not to handle it.
+In a stand-alone web application, the default servlet from the container is not enabled.
+It can be enabled using the configprop:server.servlet.register-default-servlet[] property.
+
+The default servlet acts as a fallback, serving content from the root of the `ServletContext` if Spring decides not to handle it.
 Most of the time, this does not happen (unless you modify the default MVC configuration), because Spring can always handle requests through the `DispatcherServlet`.
 
 By default, resources are mapped on `+/**+`, but you can tune that with the configprop:spring.mvc.static-path-pattern[] property.
@@ -173,6 +216,13 @@ Spring Boot supports both static and templated welcome pages.
 It first looks for an `index.html` file in the configured static content locations.
 If one is not found, it then looks for an `index` template.
 If either is found, it is automatically used as the welcome page of the application.
+
+
+
+[[web.servlet.spring-mvc.favicon]]
+==== Custom Favicon
+As with other static resources, Spring Boot checks for a `favicon.ico` in the configured static content locations.
+If such a file is present, it is automatically used as the favicon of the application.
 
 
 
@@ -317,14 +367,20 @@ To do so, extend `BasicErrorController`, add a public method with a `@RequestMap
 
 You can also define a class annotated with `@ControllerAdvice` to customize the JSON document to return for a particular controller and/or exception type, as shown in the following example:
 
-include::code:MyControllerAdvice[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/errorhandling/MyControllerAdvice.java[]
+----
 
-In the preceding example, if `YourException` is thrown by a controller defined in the same package as `SomeController`, a JSON representation of the `CustomErrorType` POJO is used instead of the `ErrorAttributes` representation.
+In the preceding example, if `MyException` is thrown by a controller defined in the same package as `SomeController`, a JSON representation of the `MyErrorBody` POJO is used instead of the `ErrorAttributes` representation.
 
 In some cases, errors handled at the controller level are not recorded by the <<actuator#actuator.metrics.supported.spring-mvc, metrics infrastructure>>.
 Applications can ensure that such exceptions are recorded with the request metrics by setting the handled exception as a request attribute:
 
-include::code:MyController[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/errorhandling/MyController.java[]
+----
 
 
 
@@ -366,7 +422,10 @@ To map all `5xx` errors by using a FreeMarker template, your directory structure
 
 For more complex mappings, you can also add beans that implement the `ErrorViewResolver` interface, as shown in the following example:
 
-include::code:MyErrorViewResolver[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/errorhandling/errorpages/MyErrorViewResolver.java[]
+----
 
 You can also use regular Spring MVC features such as {spring-framework-docs}/web.html#mvc-exceptionhandlers[`@ExceptionHandler` methods] and {spring-framework-docs}/web.html#mvc-ann-controller-advice[`@ControllerAdvice`].
 The `ErrorController` then picks up any unhandled exceptions.
@@ -378,11 +437,17 @@ The `ErrorController` then picks up any unhandled exceptions.
 For applications that do not use Spring MVC, you can use the `ErrorPageRegistrar` interface to directly register `ErrorPages`.
 This abstraction works directly with the underlying embedded servlet container and works even if you do not have a Spring MVC `DispatcherServlet`.
 
-include::code:MyErrorPagesConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/errorhandling/errorpageswithoutspringmvc/MyErrorPagesConfiguration.java[]
+----
 
 NOTE: If you register an `ErrorPage` with a path that ends up being handled by a `Filter` (as is common with some non-Spring web frameworks, like Jersey and Wicket), then the `Filter` has to be explicitly registered as an `ERROR` dispatcher, as shown in the following example:
 
-include::code:MyFilterConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/errorhandling/errorpageswithoutspringmvc/MyFilterConfiguration.java[]
+----
 
 Note that the default `FilterRegistrationBean` does not include the `ERROR` dispatcher type.
 
@@ -411,7 +476,10 @@ As of version 4.2, Spring MVC {spring-framework-docs}/web.html#mvc-cors[supports
 Using {spring-framework-docs}/web.html#mvc-cors-controller[controller method CORS configuration] with {spring-framework-api}/web/bind/annotation/CrossOrigin.html[`@CrossOrigin`] annotations in your Spring Boot application does not require any specific configuration.
 {spring-framework-docs}/web.html#mvc-cors-global[Global CORS configuration] can be defined by registering a `WebMvcConfigurer` bean with a customized `addCorsMappings(CorsRegistry)` method, as shown in the following example:
 
-include::code:MyCorsConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/cors/MyCorsConfiguration.java[]
+----
 
 
 
@@ -424,7 +492,10 @@ Jersey has some native Spring support, so we also provide auto-configuration sup
 
 To get started with Jersey, include the `spring-boot-starter-jersey` as a dependency and then you need one `@Bean` of type `ResourceConfig` in which you register all the endpoints, as shown in the following example:
 
-include::code:MyJerseyConfig[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/jersey/MyJerseyConfig.java[]
+----
 
 WARNING: Jersey's support for scanning executable archives is rather limited.
 For example, it cannot scan for endpoints in a package found in a <<deployment#deployment.installing, fully executable jar file>> or in `WEB-INF/classes` when running an executable war file.
@@ -434,7 +505,10 @@ For more advanced customizations, you can also register an arbitrary number of b
 
 All the registered endpoints should be `@Components` with HTTP resource annotations (`@GET` and others), as shown in the following example:
 
-include::code:MyEndpoint[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/jersey/MyEndpoint.java[]
+----
 
 Since the `Endpoint` is a Spring `@Component`, its lifecycle is managed by Spring and you can use the `@Autowired` annotation to inject dependencies and use the `@Value` annotation to inject external configuration.
 By default, the Jersey servlet is registered and mapped to `/*`.
@@ -578,7 +652,10 @@ The `CookieSameSiteSupplier` is passed a `Cookie` and may return a `SameSite` va
 There are a number of convenience factory and filter methods that you can use to quickly match specific cookies.
 For example, adding the following bean will automatically apply a `SameSite` of `Lax` for all cookies with a name that matches the regular expression `myapp.*`.
 
-include::code:MySameSiteConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/embeddedcontainer/customizing/samesite/MySameSiteConfiguration.java[]
+----
 
 
 
@@ -588,12 +665,18 @@ If you need to programmatically configure your embedded servlet container, you c
 `WebServerFactoryCustomizer` provides access to the `ConfigurableServletWebServerFactory`, which includes numerous customization setter methods.
 The following example shows programmatically setting the port:
 
-include::code:MyWebServerFactoryCustomizer[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/embeddedcontainer/customizing/programmatic/MyWebServerFactoryCustomizer.java[]
+----
 
 `TomcatServletWebServerFactory`, `JettyServletWebServerFactory` and `UndertowServletWebServerFactory` are dedicated variants of `ConfigurableServletWebServerFactory` that have additional customization setter methods for Tomcat, Jetty and Undertow respectively.
 The following example shows how to customize `TomcatServletWebServerFactory` that provides access to Tomcat-specific configuration options:
 
-include::code:MyTomcatWebServerFactoryCustomizer[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/embeddedcontainer/customizing/programmatic/MyTomcatWebServerFactoryCustomizer.java[]
+----
 
 
 
