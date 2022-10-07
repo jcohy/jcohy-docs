@@ -61,6 +61,31 @@ include::code:MyHttpMessageConvertersConfiguration[]
 
 上下文中的所有 `HttpMessageConverter` bean 都将被添加到转换器列表中. 您也可以用这种方式来覆盖默认转换器.
 
+[[web.servlet.spring-mvc.json]]
+==== 自定义 JSON 序列化和反序列化器
+如果您使用 Jackson 序列化和反序列化 JSON 数据，您可能需要编写自己的 `JsonSerializer` 和 `JsonDeserializer` 类。
+自定义序列化器通常是 https://github.com/FasterXML/jackson-docs/wiki/JacksonHowToCustomSerializers[通过注册 Jackson 模块]，但 Spring Boot 提供了一个替代的 `@JsonComponent` 注解，可以更轻松地直接注册 Spring Bean .
+
+您可以直接在 `JsonSerializer`、`JsonDeserializer` 或 `KeyDeserializer` 实现上使用 `@JsonComponent` 注解。
+您还可以在包含序列化器/反序列化器作为内部类的类上使用它，如以下示例所示：
+
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/json/MyJsonComponent.java[]
+----
+
+`ApplicationContext` 中的所有 `@JsonComponent` bean 都会自动注册到 Jackson。 因为 `@JsonComponent` 是用 `@Component` 元注解，所以适用于通常的组件扫描规则。
+
+Spring Boot 还提供了 {spring-boot-module-code}/jackson/JsonObjectSerializer.java[`JsonObjectSerializer`] 和 {spring-boot-module-code}/jackson/JsonObjectDeserializer.java[`JsonObjectDeserializer`] 基类，它们提供了有用的 序列化对象时标准 Jackson 版本的替代品。
+有关详细信息，请参阅 Javadoc 中的 {spring-boot-module-api}/jackson/JsonObjectSerializer.html[`JsonObjectSerializer`] 和 {spring-boot-module-api}/jackson/JsonObjectDeserializer.html[`JsonObjectDeserializer`]。
+
+上面的示例可以重写为使用 `JsonObjectSerializer`/`JsonObjectDeserializer`，如下所示：
+
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/web/servlet/springmvc/json/object/MyJsonComponent.java[]
+----
+
 [[web.servlet.spring-mvc.message-codes]]
 ==== MessageCodesResolver
 Spring MVC 有一个从绑定错误中生成错误码的策略,用于渲染错误信息: `MessageCodesResolver`. 如果您设置了 `spring.mvc.message-codes-resolver-format` 属性值为 `PREFIX_ERROR_CODE` 或 `POSTFIX_ERROR_CODE`,
@@ -70,7 +95,9 @@ Spring Boot 将为你创建该策略 (请参阅 {spring-framework-api}/validatio
 ==== 静态内容
 默认情况下,Spring Boot 将在 classpath 或者 `ServletContext` 根目录下从名为 `/static`  (`/public`、`/resources` 或 `/META-INF/resources`) 目录中服务静态内容. 它使用了 Spring MVC 的 `ResourceHttpRequestHandler`,因此您可以通过添加自己的 `WebMvcConfigurer` 并重写 `addResourceHandlers` 方法来修改此行为.
 
-在一个独立的 (stand-alone)  web 应用程序中,来自容器的默认 servlet 也是被启用的,并充当一个回退支援, Spring 决定不处理 `ServletContext` 根目录下的静态资源,容器的默认 servlet 也将会处理. 大多情况下,这是不会发生的 (除非您修改了默认的 MVC 配置) ,因为 Spring 始终能通过 `DispatcherServlet` 来处理请求.
+在一个独立的 (stand-alone)  web 应用程序中,来自容器的默认 servlet t 未启用。 可以使用 configprop:server.servlet.register-default-servlet[] 属性启用它。
+
+默认 servlet 为备选 servlet, 如果 Spring 决定不处理它，则从 `ServletContext` 的根目录提供内容. 大多情况下,这是不会发生的 (除非您修改了默认的 MVC 配置) ,因为 Spring 始终能通过 `DispatcherServlet` 来处理请求.
 
 默认情况下,资源被映射到  `+/**+`, 但可以通过 `spring.mvc.static-path-pattern` 属性调整. 比如,将所有资源重定位到 `/resources/**`:
 
@@ -139,6 +166,10 @@ NOTE: 模板中的资源链接在运行时被重写,这得益于 `ResourceUrlEnc
 [[web.servlet.spring-mvc.welcome-page]]
 ==== 欢迎页
 Spring Boot 支持静态和模板化的欢迎页面. 它首先在配置的静态内容位置中查找 `index.html` 文件. 如果找不到,则查找 `index` 模板. 如果找到其中任何一个,它将自动用作应用程序的欢迎页面.
+
+[[web.servlet.spring-mvc.favicon]]
+==== 自定义 Favicon
+与其他静态资源一样，Spring Boot 在配置的静态内容位置检查 `favicon.ico`。 如果存在这样的文件，它会自动用作应用程序的图标。
 
 [[web.servlet.spring-mvc.content-negotiation]]
 ==== 路径匹配与内容协商
@@ -252,7 +283,7 @@ TIP: `BasicErrorController` 可以作为自定义 `ErrorController` 的基类,�
 
 include::code:MyControllerAdvice[]
 
-以上示例中,如果同包下定义的控制器 `SomeController` 抛出了 `YourException`,则将使用 `CustomErrorType` 类型的 POJO 来代替 `ErrorAttributes` 做 JSON 呈现.
+以上示例中,如果同包下定义的控制器 `SomeController` 抛出了 `MyException`,则将使用 `MyErrorBody` 类型的 POJO 来代替 `ErrorAttributes` 做 JSON 呈现.
 
 在某些情况下，控制器级别处理的错误不会被 <<actuator#actuator.metrics.supported.spring-mvc, metrics infrastructure>> 记录。
 应用程序可以通过将处理的异常设置为请求属性来确保将此类异常与请求指标一起记录:
