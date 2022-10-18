@@ -20,7 +20,6 @@ normalization {
         }
     }
 }
-
 // end::ignore-metainf-properties[]
 
 // tag::ignore-metainf-manifest[]

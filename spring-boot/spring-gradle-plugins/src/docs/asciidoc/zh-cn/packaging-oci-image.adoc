@@ -11,20 +11,22 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 
 `bootBuildImage` 任务需要访问 Docker 守护程序. 默认情况下,它将通过本地连接与 Docker 守护程序通信. 无需配置即可在所有支持的平台上使用 https://docs.docker.com/install/[Docker Engine].
 
-可以设置环境变量来配置 `bootBuildImage` 任务以使用替代的本地或远程连接. 下表显示了环境变量及其值:
+可以设置环境变量来配置 `build-image` 目标以使用 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程]。 . 下表显示了环境变量及其值:
 
 |===
-| Environment variable | Description
+| 环境变量 | 描述
 
 | DOCKER_HOST
-| URL containing the host and port for the Docker daemon - e.g. `tcp://192.168.99.100:2376`
+| Docker daemon 主机和端口 URL - e.g. `tcp://192.168.99.100:2376`
 
 | DOCKER_TLS_VERIFY
-| Enable secure HTTPS protocol when set to `1` (optional)
+| 当设置为 `true` 时,开启 HTTPS 协议(可选)
 
 | DOCKER_CERT_PATH
-| Path to certificate and key files for HTTPS (required if `DOCKER_TLS_VERIFY=1`, ignored otherwise)
+| HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
 |===
+
+在 Linux 和 macOS 上，可以在 minikube 启动后使用命令 `eval $(minikube docker-env)` 设置这些环境变量。
 
 也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
 
@@ -39,9 +41,6 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 
 | `certPath`
 | HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
-
-| `bindHostToBuilder`
-| 当 `true` 时，`host` 属性的值将提供给为 CNB 构建器创建的容器（可选）
 |===
 
 更多信息, 请查看 <<build-image.examples.docker,examples>>.
@@ -60,19 +59,19 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 | Property | Description
 
 | `username`
-| Username for the Docker image registry user. Required for user authentication.
+| Docker 镜像注册的 username. 需要用户认证。
 
 | `password`
-| Password for the Docker image registry user. Required for user authentication.
+| Docker 镜像注册的用户密码. 需要用户认证.
 
 | `url`
-| Address of the Docker image registry. Optional for user authentication.
+| Docker 镜像注册的地址。用户认证可选。
 
 | `email`
-| E-mail address for the Docker image registry user. Optional for user authentication.
+| Docker 镜像注册用户的电子邮件地址。用户认证可选。
 
 | `token`
-| Identity token for the Docker image registry user. Required for token authentication.
+| Docker 镜像注册用户的标识令牌。令牌身份验证所需。
 |===
 
 更多信息, 请查看 <<build-image.examples.docker,examples>>.
@@ -86,17 +85,17 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 任务属性可用于配置构建器应如何在项目上运行.下表总结了可用的属性及其默认值:
 
 |===
-| Property | Command-line option | Description | Default value
+| 参数 / (用户属性)| 描述 | 默认值
 
 | `builder`
 | `--builder`
-| Name of the Builder image to use.
+| 构建镜像的名称
 | `paketobuildpacks/builder:base`
 
 | `runImage`
 | `--runImage`
-| Name of the run image to use.
-| No default value, indicating the run image specified in Builder metadata should be used.
+| 运行镜像的名称
+| 没有默认值，表示应该使用 Builder 元数据中指定的运行镜像。
 
 | `imageName`
 | `--imageName`
@@ -105,20 +104,19 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 
 | `pullPolicy`
 | `--pullPolicy`
-| {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] used to determine when to pull the builder and run images from the registry.
-Acceptable values are `ALWAYS`, `NEVER`, and `IF_NOT_PRESENT`.
+| {spring-boot-api}/buildpack/platform/build/PullPolicy.html[Policy] 用于确定何时从注册中心提取 builder 并运行镜像。
+可接受的值为 `ALWAYS`, `NEVER`, 和 `IF_NOT_PRESENT`.
 | `ALWAYS`
 
 | `environment`
 |
-| Environment variables that should be passed to the builder.
+| 应该传递给 builder 的环境变量.
 |
 
 | `buildpacks`
 |
-a|Buildpacks that the builder should use when building the image.
-Only the specified buildpacks will be used, overriding the default buildpacks included in the builder.
-Buildpack references must be in one of the following forms:
+a|构建镜像时使用的 Buildpacks. 只使用指定的 buildpacks，覆盖构建器中包含的默认 buildpacks。
+Buildpack 引用必须是以下形式之一:
 
 * Buildpack in the builder - `[urn:cnb:builder:]<buildpack ID>[@<version>]`
 * Buildpack in a directory on the file system - `[file://]<path>`
@@ -128,14 +126,14 @@ Buildpack references must be in one of the following forms:
 
 | `bindings`
 |
-a|https://docs.docker.com/storage/bind-mounts/[Volume bind mounts] that should be mounted to the builder container when building the image.
-The bindings will be passed unparsed and unvalidated to Docker when creating the builder container.
-Bindings must be in one of the following forms:
+a|https://docs.docker.com/storage/bind-mounts/[绑定挂载 Volume] 它应该在构建镜像时安装到构建器容器。.
+在创建构建器容器时，绑定将未经解析和验证地传递给 Docker。
+绑定必须是以下形式之一:
 
 * `<host source path>:<container destination path>[:<options>]`
 * `<host volume name>:<container destination path>[:<options>]`
 
-Where `<options>` can contain:
+其中 `<options>` 可以包含:
 
 * `ro` to mount the volume as read-only in the container
 * `rw` to mount the volume as readable and writable in the container
@@ -340,7 +338,14 @@ Buildpacks 可以以如下所示的任何形式指定。
 
 [[build-image.examples.publish]]
 === Image Publishing
-生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项并使用  `docker.publishRegistry` 配置 registry 的身份验证.
+生成的镜像可以发布到  Docker registry , 方法是启用  `publish`  选项。
+
+如果 Docker 注册中心需要身份验证，则可以使用' `docker.publishRegistry` 配置凭据。
+如果 Docker 注册中心不需要身份验证，则 `docker.publishRegistry` 的配置可以省略。
+
+NOTE: 镜像要发布到的注册中心是由镜像名称的注册中心部分决定的(在这些例子中是 `docker.example.com`)。
+如果配置了 `docker.publishRegistry` 凭据并包含一个 `url` 参数，该值将被传递给注册中心，但不用于确定发布注册中心的位置。
+
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -386,14 +391,7 @@ include::../gradle/packaging/boot-build-image-caches.gradle.kts[tags=caches]
 [[build-image.examples.docker]]
 === Docker 配置
 
-[[build-image.examples.docker.minikube]]
-==== Docker Configuration for minikube
-
-该插件可以与 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程] 进行通信，而不是默认的本地连接。
-
-在 Linux 和 macOS 上，可以在 minikube 启动后使用命令 `eval $(minikube docker-env)` 设置环境变量。
-
-该插件还可以通过提供类似于以下示例中所示的连接详细信息来配置为使用 minikube 守护程序:
+如果你需要插件使用远程连接而不是默认的本地连接与 Docker 守护进程通信，连接细节可以使用 `docker` 参数提供，如下例所示:
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -405,54 +403,4 @@ include::../gradle/packaging/boot-build-image-docker-host.gradle[tags=docker-hos
 .Kotlin
 ----
 include::../gradle/packaging/boot-build-image-docker-host.gradle.kts[tags=docker-host]
-----
-
-[[build-image.examples.docker.podman]]
-==== Docker Configuration for podman
-
-该插件可以与 https://podman.io/[podman 容器引擎] 进行通信。
-
-通过提供类似于以下示例中显示的连接详细信息，可以将插件配置为使用 podman 本地连接：
-
-[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
-.Groovy
-----
-include::../gradle/packaging/boot-build-image-docker-host-podman.gradle[tags=docker-host]
-----
-
-[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
-.Kotlin
-----
-include::../gradle/packaging/boot-build-image-docker-host-podman.gradle.kts[tags=docker-host]
-----
-
-[[build-image.examples.docker.auth]]
-==== Docker Configuration for Authentication
-
-如果构建器或运行镜像存储在支持用户身份验证的私有 Docker registry 中, 则可以使用 `docker.builderRegistry` 参数提供身份验证细节. 如下所示:
-
-[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
-.Groovy
-----
-include::../gradle/packaging/boot-build-image-docker-auth-user.gradle[tags=docker-auth-user]
-----
-
-[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
-.Kotlin
-----
-include::../gradle/packaging/boot-build-image-docker-auth-user.gradle.kts[tags=docker-auth-user]
-----
-
-如果构建器或运行映像存储在支持令牌身份验证的私有 Docker registry  中, 则可以使用  `docker.builderRegistry` 参数提供令牌值. 如下所示:
-
-[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
-.Groovy
-----
-include::../gradle/packaging/boot-build-image-docker-auth-token.gradle[tags=docker-auth-token]
-----
-
-[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
-.Kotlin
-----
-include::../gradle/packaging/boot-build-image-docker-auth-token.gradle.kts[tags=docker-auth-token]
 ----
