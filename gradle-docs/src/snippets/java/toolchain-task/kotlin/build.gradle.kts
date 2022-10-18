@@ -1,9 +1,9 @@
 import javax.inject.Inject;
 
-open class CustomTaskUsingToolchains : DefaultTask {
+abstract class CustomTaskUsingToolchains : DefaultTask {
 
-    @get:Input
-    val launcher: Property<JavaLauncher> = project.objects.property()
+    @get:Nested
+    abstract val launcher: Property<JavaLauncher>
 
     @Inject
     constructor() {
@@ -39,6 +39,6 @@ tasks.register<CustomTaskUsingToolchains>("showDefaultToolchain")
 
 tasks.register<CustomTaskUsingToolchains>("showCustomToolchain") {
     launcher.set(javaToolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(14))
+        languageVersion.set(JavaLanguageVersion.of(15))
     })
 }

@@ -6,13 +6,13 @@ version = "1.0.2"
 group = "com.example"
 
 repositories {
-    jcenter()
+    mavenCentral()
 }
 
 // tag::toolchain[]
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(14))
+        languageVersion.set(JavaLanguageVersion.of(11))
     }
 }
 // end::toolchain[]
@@ -22,6 +22,6 @@ tasks.test {
 }
 
 dependencies {
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.6.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.7.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
 }
