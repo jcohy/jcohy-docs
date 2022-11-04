@@ -17,38 +17,39 @@
 [[java_testing]]
 = Testing in Java & JVM projects
 
-在 JVM 上的测试是一个丰富的主题。有许多不同的测试库和框架，以及许多不同类型的测试。无论它们执行的是否频繁,都需要包含在 gradle 构建之中。本章致力于解释 Gradle 如何处理不同版本之间和内部的不同需求，并重点介绍了它如何与两个最常见的测试框架: https://junit.org/[JUnit] 和 https://testng.org/[TestNG]。
+在 JVM 测试是一个丰富的主题。有许多不同的测试库和框架，以及许多不同类型的测试。无论是否频繁执行,都需要包含在 gradle 构建之中。本章致力于解释 Gradle 如何处理不同版本之间和内部的不同需求，并重点介绍了它如何与两个最常见的测试框架: https://junit.org/[JUnit] 和 https://testng.org/[TestNG]。
 
 本章介绍了:
 
- * Ways to control how the tests are run (<<#sec:test_execution,Test execution>>)
- * How to select specific tests to run (<<#test_filtering,Test filtering>>)
- * What test reports are generated and how to influence the process (<<#test_reporting,Test reporting>>)
- * How Gradle finds tests to run (<<#sec:test_detection,Test detection>>)
- * How to make use of the major frameworks' mechanisms for grouping tests together (<<#test_grouping,Test grouping>>)
+ * 如何控制测试执行的方法 (<<#sec:test_execution,Test execution>>)
+ * 如何运行特定的测试 (<<#test_filtering,Test filtering>>)
+ * 生成那些测试报告以及如何处理这一过程 (<<#test_reporting,Test reporting>>)
+ * Gradle 如何查找要运行的测试 (<<#sec:test_detection,Test detection>>)
+ * 如何利用核心框架将测试分组 (<<#test_grouping,Test grouping>>)
 
-But first, we look at the basics of JVM testing in Gradle.
+首先，我们需要了解 Gradle 中有关 JVM 测试的一些基础.
 
 [[sec:java_testing_basics]]
-== The basics
+== 基础知识
 
-All JVM testing revolves around a single task type: link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test]. This runs a collection of test cases using any supported test library — JUnit, JUnit Platform or TestNG — and collates the results. You can then turn those results into a report via an instance of the link:{groovyDslPath}/org.gradle.api.tasks.testing.TestReport.html[TestReport] task type.
+所有的 JVM 测试都围绕一个 link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] 任务类型。这会运行所有受支持的测试库（JUnit, JUnit Platform or TestNG）集合的测试用例，并汇总结果。然后，您可以通过  link:{groovyDslPath}/org.gradle.api.tasks.testing.TestReport.html[TestReport]
+任务的实例将这些结果转换为报告。
 
-In order to operate, the `Test` task type requires just two pieces of information:
+为了便于操作,  `Test` 任务类型只需要两条信息:
 
- * Where to find the compiled test classes (property: link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:testClassesDirs[Test.getTestClassesDirs()])
- * The execution classpath, which should include the classes under test as well as the test library that you're using (property: link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:classpath[Test.getClasspath()])
+ * 在哪里可以找到已编译的测试类 (property: link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:testClassesDirs[Test.getTestClassesDirs()])
+ * 执行类路径，其中应包括测式类以及您正在使用的测试库 (property: link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:classpath[Test.getClasspath()])
 
-When you're using a JVM language plugin — such as the <<java_plugin.adoc#java_plugin,Java Plugin>> — you will automatically get the following:
+当您使用 JVM 语言插件（例如 Java 插件）时，您将自动获得以下内容：:
 
- * A dedicated `test` source set for unit tests
- * A `test` task of type `Test` that runs those unit tests
+ * 单元测试的 `test` 源码位置
+ * 一个类型为  `Test` ，名为 `test` 的任务，使用此任务运行这些单元测试
 
-The JVM language plugins use the source set to configure the task with the appropriate execution classpath and the directory containing the compiled test classes. In addition, they attach the `test` task to the `check` <<more_about_tasks.adoc#sec:lifecycle_tasks,lifecycle task>>.
+JVM 语言插件使用源代码集来配置执行类路径和包含已编译测试类的目录的任务。此外，它们还将  `test`  任务附加到  `check` <<more_about_tasks.adoc#sec:lifecycle_tasks,lifecycle task>>。
 
-It's also worth bearing in mind that the `test` source set automatically creates <<java_plugin.adoc#java_source_set_configurations,corresponding dependency configurations>> — of which the most useful are `testImplementation` and `testRuntimeOnly` — that the plugins tie into the `test` task's classpath.
+值得注意的是，`test`  源代码集会自动创建 <<java_plugin.adoc#java_source_set_configurations,相应的依赖配置>> ——其中最有用的是 `testImplementation` 和 `testRuntimeOnly` — 插件与  `test` 任务的类路径相关联。
 
-All you need to do in most cases is configure the appropriate compilation and runtime dependencies and add any necessary configuration to the `test` task. The following example shows a simple setup that uses JUnit 4.x and changes the maximum heap size for the tests' JVM to 1 gigabyte:
+在大多数情况下，您需要做的就是配置编译和运行时依赖，并向  `test`  任务添加任何必要的配置。以下示例显示了使用 JUnit 4.x 并将测试的 JVM 的最大堆大小更改为 1 GB 的简单设置：
 
 .A basic configuration for the 'test' task
 ====
@@ -56,68 +57,67 @@ include::{snippets-dir}/java/basic/groovy/build.gradle[tags=java-basic-test-conf
 include::{snippets-dir}/java/basic/kotlin/build.gradle.kts[tags=java-basic-test-config]
 ====
 
-The link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] task has many generic configuration options as well as several framework-specific ones that you can find described in link:{javadocPath}/org/gradle/api/tasks/testing/junit/JUnitOptions.html[JUnitOptions], link:{javadocPath}/org/gradle/api/tasks/testing/junitplatform/JUnitPlatformOptions.html[JUnitPlatformOptions] and link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html[TestNGOptions]. We cover a significant number of them in the rest of the chapter.
+link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] 有许多通用配置和几个特定框架的配置，您可以在 link:{javadocPath}/org/gradle/api/tasks/testing/junit/JUnitOptions.html[JUnitOptions], link:{javadocPath}/org/gradle/api/tasks/testing/junitplatform/JUnitPlatformOptions.html[JUnitPlatformOptions] 和 link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html[TestNGOptions] 中找到描述. 我们在本章的其余部分再介绍.
 
-If you want to set up your own `Test` task with its own set of test classes, then the easiest approach is to create your own source set and `Test` task instance, as shown in <<#sec:configuring_java_integration_tests,Configuring integration tests>>.
+如果你想用自己的一组测试类设置自己的 `Test` 任务，那么最简单的方法是创建自己的源集和 `Test` 任务实例，如<<#sec:configuring_java_integration_tests,配置集成测试>>。
 
 [[sec:test_execution]]
-== Test execution
+== Test execution（测试执行）
 
-Gradle executes tests in a separate ('forked') JVM, isolated from the main build process. This prevents classpath pollution and excessive memory consumption for the build process. It also allows you to run the tests with different JVM arguments than the build is using.
+Gradle 的测试在一个单独 ('forked') JVM 中执行测试。 这可以防止构建过程的类路径污染和过多的内存消耗。 它还允许您使用不同于构建使用的 JVM 参数运行测试。
 
-You can control how the test process is launched via several properties on the `Test` task, including the following:
+您可以通过 `Test` 任务上的多个属性来控制测试过程的启动方式，包括以下内容：
 
 `maxParallelForks` — default: 1::
-You can run your tests in parallel by setting this property to a value greater than 1. This may make your test suites complete faster, particularly if you run them on a multi-core CPU. When using parallel test execution, make sure your tests are properly isolated from one another. Tests that interact with the filesystem are particularly prone to conflict, causing intermittent test failures.
+您可以将这个值设置的大一点来并行运行测试，这可以加快测试执行效率，特别是在多核 CPU 上运行它们。使用并行测试执行时，请确保您的测试彼此正确隔离，与系统文件交互的测试特别容易产生冲突，导致间歇性测试失败。
 +
-Your tests can distinguish between parallel test processes by using the value of the `org.gradle.test.worker` property, which is unique for each process. You can use this for anything you want, but it's particularly useful for filenames and other resource identifiers to prevent the kind of conflict we just mentioned.
+您的测试可以通过使用 `org.gradle.test.worker` 属性的值来区分并行测试进程，该属性对于每个进程都是唯一的。 您可以将它用于您想要的任何东西，它对于文件名和其他资源标识符以防止我们刚刚提到的那种冲突特别有用。
 
 `forkEvery` — default: 0 (no maximum)::
-This property specifies the maximum number of test classes that Gradle should run on a test process before its disposed of and a fresh one created. This is mainly used as a way to manage leaky tests or frameworks that have static state that can't be cleared or reset between tests.
+此属性指定 Gradle 应在测试进程上运行的测试类的最大数量，然后再处理它并创建一个新的测试进程。 这主要用作管理泄漏测试或具有无法在测试之间清除或重置的静态状态的框架的一种方式。
 +
-*Warning: a low value (other than 0) can severely hurt the performance of the tests*
+*Warning: 低值（或 0 以外的数字）会严重影响测试的性能*
 
 `ignoreFailures` — default: false::
-If this property is `true`, Gradle will continue with the project's build once the tests have completed, even if some of them have failed. Note that, by default, the `Test` task always executes every test that it detects, irrespective of this setting.
+如果此属性为 `true`，则 Gradle 将在测试完成后继续构建项目，即使其中一些测试失败。 请注意，默认情况下，`Test` 任务总是执行它检测到的每个测试，而与此设置无关。
 
 `failFast` —  (since Gradle 4.6) default: false::
-Set this to `true` if you want the build to fail and finish as soon as one of your tests fails. This can save a lot of time when you have a long-running test suite and is particularly useful when running the build on continuous integration servers. When a build fails before all tests have run, the test reports only include the results of the tests that have completed, successfully or not.
+如果您希望构建失败并在您的一个测试失败后立即完成，请将其设置为 `true`。 当您有一个长时间运行的测试套件时，这可以节省大量时间，并且在持续集成服务器上运行构建时特别有用。 当构建在所有测试运行之前失败时，测试报告仅包含已完成的测试结果，无论成功与否。
 +
-You can also enable this behavior by using the `--fail-fast` command line option.
+您还可以使用 `--fail-fast` 命令行选项启用此行为.
 
 `testLogging` — default: _not set_::
-This property represents a set of options that control which test events are logged and at what level. You can also configure other logging behavior via this property. See link:{javadocPath}/org/gradle/api/tasks/testing/logging/TestLoggingContainer.html[TestLoggingContainer] for more detail.
+此属性表示一组选项，这些选项控制记录哪些测试事件以及记录在什么级别。 您还可以通过此属性配置其他日志记录行为。 有关更多详细信息，请参见 link:{javadocPath}/org/gradle/api/tasks/testing/logging/TestLoggingContainer.html[TestLoggingContainer]
 
-See link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] for details on all the available configuration options.
+请查看 link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] 获取所有可用配置选项的详细信息。.
 [NOTE]
 ====
 
-The test process can exit unexpectedly if configured incorrectly. For instance, if the Java executable does not exist or an invalid JVM argument is provided, the test process will fail to start. Similarly, if a test makes programmatic changes to the test process, this can also cause unexpected failures.
+如果配置不正确，测试过程可能会意外退出。 例如，如果 Java 可执行文件不存在或提供了无效的 JVM 参数，则测试进程将无法启动。 同样，如果测试代码对测试过程进行了更改，这也可能导致意外失败。
 
-For example, issues may occur if a `{javaApi}/java/lang/SecurityManager.html[SecurityManager]` is modified in a test because
-Gradle's internal messaging depends on reflection and socket communication, which may be disrupted if the permissions on the security manager change. In this particular case, you should restore the original `SecurityManager` after the test so that the
-gradle test worker process can continue to function.
+例如，如果在测试中修改了  `{javaApi}/java/lang/SecurityManager.html[SecurityManager]`，则可能会出现问题，因为 Gradle 的内部消息传递依赖于反射和 socket 通信，如果安全管理器的权限发生更改，则可能会中断。
+在这种特殊情况下，您应该在测试后恢复原始的 `SecurityManager`，以便 gradle test worker 进程可以继续运行。
 
 ====
 
 
 [[test_filtering]]
-== Test filtering
+== Test filtering（测试过滤）
 
-It's a common requirement to run subsets of a test suite, such as when you're fixing a bug or developing a new test case. Gradle provides two mechanisms to do this:
+运行测试套件的子集是一个常见的要求，例如当您修复错误或开发新的测试用例时。 Gradle 提供了两种机制来做到这一点：:
 
- * Filtering (the preferred option)
- * Test inclusion/exclusion
+ * Filtering (首选)
+ * Test 包含/排除
 
-Filtering supersedes the inclusion/exclusion mechanism, but you may still come across the latter in the wild.
+过滤取代了 包含/排除 机制，但您可能仍然会在其他地方遇到后者。
 
-With Gradle's test filtering you can select tests to run based on:
+使用 Gradle 的测试过滤，您可以根据以下条件选择要运行的测试：
 
- * A fully-qualified class name or fully qualified method name, e.g. `org.gradle.SomeTest`, `org.gradle.SomeTest.someMethod`
- * A simple class name or method name if the pattern starts with an upper-case letter, e.g. `SomeTest`, `SomeTest.someMethod` (since Gradle 4.7)
- * '*' wildcard matching
+* 完全限定的类名或完全限定的方法名，例如 `org.gradle.SomeTest`，`org.gradle.SomeTest.someMethod`
+* 如果模式以大写字母开头，则为简单的类名或方法名，例如 `SomeTest`、`SomeTest.someMethod`（从 Gradle 4.7 开始）
+* '*' 通配符匹配
 
-You can enable filtering either in the build script or via the `--tests` command-line option. Here's an example of some filters that are applied every time the build runs:
+您可以在构建脚本中或通过 `--tests` 命令行选项启用过滤。 以下是每次构建运行时应用的一些过滤器的示例：
 
 .Filtering tests in the build script
 ====
@@ -125,22 +125,22 @@ include::{snippets-dir}/testing/filtering/groovy/build.gradle[tags=test-filterin
 include::{snippets-dir}/testing/filtering/kotlin/build.gradle.kts[tags=test-filtering]
 ====
 
-For more details and examples of declaring filters in the build script, please see the link:{javadocPath}/org/gradle/api/tasks/testing/TestFilter.html[TestFilter] reference.
+有关在构建脚本中声明过滤器的更多详细信息和示例，请参见 link:{javadocPath}/org/gradle/api/tasks/testing/TestFilter.html[TestFilter] 参考。
 
-The command-line option is especially useful to execute a single test method. When you use `--tests`, be aware that the inclusions declared in the build script are still honored. It is also possible to supply multiple `--tests` options, all of whose patterns will take effect. The following sections have several examples of using the command-line option.
+命令行选项对于执行单个测试方法特别有用。 当您使用 `--tests` 时，请注意构建脚本中声明的 inclusions 仍然有效。 也可以提供多个 `--tests` 选项，这样所有的模式都会生效。 以下部分有几个使用命令行选项的示例。
 
 [NOTE]
 ====
-Not all test frameworks play well with filtering. Some advanced, synthetic tests may not be fully compatible.
-However, the vast majority of tests and use cases work perfectly well with Gradle's filtering mechanism.
+并非所有测试框架都能很好地进行过滤。 一些高级的综合测试可能不完全兼容。
+但是，绝大多数测试和用例都可以与 Gradle 的过滤机制完美配合。
 ====
 
-The following two sections look at the specific cases of simple class/method names and fully-qualified names.
+以下两节介绍简单类/方法名称和完全限定名称的具体情况。
 
 [[simple_name_pattern]]
-=== Simple name pattern
+=== 简单名模式
 
-Since 4.7, Gradle has treated a pattern starting with an uppercase letter as a simple class name, or a class name + method name. For example, the following command lines run either all or exactly one of the tests in the `SomeTestClass` test case, regardless of what  package it's in:
+从 4.7 开始，Gradle 将大写字母开头的模式视为简单的类名，或者 类名 + 方法名。 例如，以下命令行运行 `SomeTestClass` 测试用例中的所有或适合的一个测试，无论它位于哪个包中：
 
 ```
 # Executes all tests in SomeTestClass
@@ -153,9 +153,9 @@ gradle test --tests SomeTestClass.*someMethod*
 ```
 
 [[full_qualified_name_pattern]]
-=== Fully-qualified name pattern
+=== 全限定名模式
 
-Prior to 4.7 or if the pattern doesn't start with an uppercase letter, Gradle treats the pattern as fully-qualified. So if you want to use the test class name irrespective of its package, you would use `--tests *.SomeTestClass`. Here are some more examples:
+在 4.7 之前，或者如果模式不是以大写字母开头，Gradle 会将模式视为完全限定的。 因此，如果您想使用测试类名称而不包括他的包，则可以使用 `--tests *.SomeTestClass` 。 以下是更多示例：
 
 ```
 # specific class
@@ -183,9 +183,10 @@ gradle test --tests '*ParameterizedTest.foo*'
 gradle test --tests '*ParameterizedTest.*[2]'
 ```
 
-Note that the wildcard '*' has no special understanding of the '.' package separator. It's purely text based. So `--tests *.SomeTestClass` will match any package, regardless of its 'depth'.
+注意通配符 '*' 对于以 '.' 作为分隔符的包没有特殊的含义。 它只是基于文本。 所以 `--tests *.SomeTestClass` 将匹配任何包，无论其包的层次如何。
 
-You can also combine filters defined at the command line with <<command_line_interface.adoc#sec:continuous_build, continuous build>> to re-execute a subset of tests immediately after every change to a production or test source file. The following executes all tests in the 'com.mypackage.foo' package or subpackages whenever a change triggers the tests to run:
+您还可以在命令行中将定义的过滤器与 <<command_line_interface.adoc#sec:continuous_build, Continuous build>> 结合起来，以便在每次更改或测试源文件后立即重新执行测试子集。 每当更改触发测试运行时，
+以下内容都会执行 'com.mypackage.foo' 包或子包中的所有测试：
 
 ```
 gradle test --continuous --tests "com.mypackage.foo.*"
@@ -194,15 +195,15 @@ gradle test --continuous --tests "com.mypackage.foo.*"
 [[test_reporting]]
 == Test reporting
 
-The `Test` task generates the following results by default:
+`Test` 任务默认生成以下结果:
 
- * An HTML test report
- * XML test results in a format compatible with the Ant JUnit report task — one that is supported by many other tools, such as CI servers
- * An efficient binary format of the results used by the `Test` task to generate the other formats
+* HTML 测试报告
+* 与 Ant JUnit 报告任务兼容的 XML 测试结果的格式 — 许多其他工具（例如 CI 服务器）支持的格式
+* `Test` 任务用于生成其他格式的结果的二进制格式
 
-In most cases, you'll work with the standard HTML report, which automatically includes the results from _all_ your `Test` tasks, even the ones you explicitly add to the build yourself. For example, if you add a `Test` task for integration tests, the report will include the results of both the unit tests and the integration tests if both tasks are run.
+在大多数情况下，您将使用标准 HTML 报告，它会自动包含您的 `Test` 任务的 _所有_ 结果，即使是您自己明确添加到构建中的那些。 例如，如果您为集成测试添加一个 `Test` 任务，如果两个任务都运行，报告将包括单元测试和集成测试的结果。
 
-Unlike with many of the testing configuration options, there are several project-level <<java_plugin.adoc#sec:java_convention_properties,convention properties that affect the test reports>>. For example, you can change the destination of the test results and reports like so:
+与许多测试配置选项不同，有几个项目级别的<<java_plugin.adoc#sec:java_convention_properties,影响测试报告的约定属性>>。 例如，您可以更改测试结果和报告的路径，如下所示：
 
 .Changing the default test report and results directories
 ====
@@ -216,9 +217,10 @@ include::{snippets-dir}/java/customDirs/kotlin/build.gradle.kts[tags=custom-repo
 include::{snippets-dir}/java/customDirs/tests/javaCustomReportDirs.out[]
 ----
 
-Follow the link to the convention properties for more details.
+请点击指向约定属性的链接以获取更多详细信息。
 
-There is also a standalone link:{groovyDslPath}/org.gradle.api.tasks.testing.TestReport.html[TestReport] task type that you can use to generate a custom HTML test report. All it requires are a value for `destinationDir` and the test results you want included in the report. Here is a sample which generates a combined report for the unit tests from all subprojects:
+还有一个独立  link:{groovyDslPath}/org.gradle.api.tasks.testing.TestReport.html[TestReport]  任务类型，可用于生成自定义 HTML 测试报告。 它所需要的只是 `destinationDir` 的值和您希望包含在报告中的测试结果。
+这是一个为所有子项目的单元测试生成组合报告的示例：
 
 .Creating a unit test report for subprojects
 ====
@@ -228,45 +230,46 @@ include::{snippets-dir}/testing/testReport/kotlin/buildSrc/src/main/kotlin/mypro
 include::{snippets-dir}/testing/testReport/kotlin/build.gradle.kts[tags=test-report]
 ====
 
-In this example, we use a convention plugin `myproject.java-conventions` to expose the test results from a project to Gradle's <<variant_model.adoc#,variant aware dependency management engine>>.
+在此示例中，我们使用约定插件  `myproject.java-conventions` 将项目的测试结果暴露给 Gradle 的 <<variant_model.adoc#,variant 感知依赖管理引擎>>。
 
-The plugin declares a consumable `binaryTestResultsElements` configuration that represents the binary test results of the `test` task.
-In the aggregation project's build file, we declare the `testReportData` configuration and depend on all of the projects that we want to aggregate the results from. Gradle will automatically select the binary test result variant from each of the subprojects instead of the project's jar file.
-Lastly, we add a `testReport` task that aggregates the test results from the `testResultsDirs` property, which contains all of the binary test results resolved from the `testReportData` configuration.
+该插件声明了一个可消耗的 `binaryTestResultsElements` 配置，该配置表示 `test` 任务的二进制测试结果。
+在聚合项目的构建文件中，我们声明了 `testReportData` 配置并依赖于我们想要聚合结果的所有项目。 Gradle 将自动从每个子项目而不是项目的 jar 文件中选择二进制测试结果变体。
+最后，我们添加一个 `testReport` 任务，它从 `testResultsDirs` 属性聚合测试结果，其中包含从 `testReportData` 配置解析的所有二进制测试结果。
 
-You should note that the `TestReport` type combines the results from multiple test tasks and needs to aggregate the results of individual test classes. This means that if a given test class is executed by multiple test tasks, then the test report will include executions of that class, but it can be hard to distinguish individual executions of that class and their output.
-
+请注意，`TestReport` 类型结合了多个测试任务的结果，需要聚合各个测试类的结果。这意味着如果一个给定的测试类由多个测试任务执行，那么测试报告将包括该类的执行，但很难区分该类的各个执行及其输出。
 
 [[sec:test_detection]]
-== Test detection
+== Test detection（测试检测）
 
-By default, Gradle will run all tests that it detects, which it does by inspecting the compiled test classes. This detection uses different criteria depending on the test framework used.
+默认情况下，Gradle 将运行它检测到的所有测试，它通过检查已编译的测试类来执行此操作。 此检测使用不同的标准，具体取决于所使用的测试框架。
 
-For _JUnit_, Gradle scans for both JUnit 3 and 4 test classes. A class is considered to be a JUnit test if it:
+对于 _JUnit_，Gradle 会扫描 JUnit 3 和 4 测试类。 如果一个类被认为是一个 JUnit 测试，它：
 
- * Ultimately inherits from `TestCase` or `GroovyTestCase`
- * Is annotated with `@RunWith`
- * Contains a method annotated with `@Test` or a super class does
+* 继承自 `TestCase` 或 `GroovyTestCase`
+* 用 `@RunWith` 注解
+* 包含一个用 `@Test` 注解的方法或一个超类
 
-For _TestNG_, Gradle scans for methods annotated with `@Test`.
+对于 _TestNG_，Gradle 会扫描带有 `@Test` 注解的方法。
 
-Note that abstract classes are not executed. In addition, be aware that Gradle scans up the inheritance tree into jar files on the test classpath. So if those JARs contain test classes, they will also be run.
+请注意，不执行抽象类。 此外，请注意 Gradle 会将继承树向上扫描到测试类路径上的 jar 文件中。 因此，如果这些 JAR 包含测试类，它们也会被运行。
 
-If you don't want to use test class detection, you can disable it by setting the `scanForTestClasses` property on link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test] to `false`. When you do that, the test task uses only the `includes` and `excludes` properties to find test classes.
+如果您不想使用测试类检测，可以通过将  link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html[Test]  上的 `scanForTestClasses` 属性设置为 `false` 来禁用它 . 当您这样做时，测试任务仅使用 `includes` 和 `excludes` 属性来查找测试类。
 
-If `scanForTestClasses` is false and no include or exclude patterns are specified, Gradle defaults to running any class that matches the patterns `+**/*Tests.class+` and `+**/*Test.class+`, excluding those that match `+**/Abstract*.class+`.
+如果 `scanForTestClasses` 为 `false` 并且没有指定包含或排除模式，Gradle 默认运行任何匹配模式 `+**/*Tests.class+` 和 `+**/*Test.class+` 的类，排除`+**/Abstract*.class+`。
 
 [NOTE]
 ====
-With http://junit.org/junit5/docs/current/user-guide[JUnit Platform], only `includes` and `excludes` are used to filter test classes — `scanForTestClasses` has no effect.
+在 http://junit.org/junit5/docs/current/user-guide[JUnit Platform] 中，只有 `includes` 和 `excludes` 用于过滤测试类 - `scanForTestClasses` 没有效果。
 ====
 
 [[test_grouping]]
-== Test grouping
+== Test grouping（测试分组）
 
-JUnit, JUnit Platform and TestNG allow sophisticated groupings of test methods.
+JUnit、JUnit Platform 和 TestNG 允许对测试方法进行复杂的分组。
 
-JUnit 4.8 introduced the concept of categories for grouping JUnit 4 tests classes and methods.footnote:[The JUnit wiki contains a detailed description on how to work with JUnit categories: https://github.com/junit-team/junit/wiki/Categories[].] link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:useJUnit(org.gradle.api.Action)[Test.useJUnit(org.gradle.api.Action)] allows you to specify the JUnit categories you want to include and exclude. For example, the following configuration includes tests in `CategoryA` and excludes those in `CategoryB` for the `test` task:
+JUnit 4.8 引入了用于对 JUnit 4 测试类和方法进行分组的类别概念。footnote:[JUnit wiki 包含有关如何使用 JUnit 类别的详细描述: https://github.com/junit-team/junit/wiki/Categories[].]
+{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:useJUnit(org.gradle.api.Action)[Test. useJUnit(org.gradle.api.Action)] 允许您指定要包含和排除的 JUnit 类别。
+例如，以下配置包括 `CategoryA` 中的测试，并排除 `CategoryB` 中的 `test` 任务：
 
 .JUnit Categories
 ====
@@ -274,7 +277,8 @@ include::{snippets-dir}/testing/junit-categories/groovy/build.gradle[tags=test-c
 include::{snippets-dir}/testing/junit-categories/kotlin/build.gradle.kts[tags=test-categories]
 ====
 
-http://junit.org/junit5/docs/current/user-guide[JUnit Platform] introduced http://junit.org/junit5/docs/current/user-guide/#writing-tests-tagging-and-filtering[tagging] to replace categories. You can specify the included/excluded tags via link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#useJUnitPlatform-org.gradle.api.Action-[Test.useJUnitPlatform(org.gradle.api.Action)], as follows:
+http://junit.org/junit5/docs/current/user-guide[JUnit Platform] 介绍 http://junit.org/junit5/docs/current/user-guide/#writing-tests-tagging-and-filtering[tagging] 替换类别。
+您可以通过链接指定 included/excluded 标签：link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#useJUnitPlatform-org.gradle.api.Action-[Test.useJUnitPlatform(org.gradle.api.Action)]，如下：
 
 .JUnit Platform Tags
 ====
@@ -282,7 +286,8 @@ include::{snippets-dir}/testing/junitplatform-tagging/groovy/build.gradle[tags=t
 include::{snippets-dir}/testing/junitplatform-tagging/kotlin/build.gradle.kts[tags=test-tags]
 ====
 
-The TestNG framework uses the concept of test groups for a similar effect.footnote:[The TestNG documentation contains more details about test groups: http://testng.org/doc/documentation-main.html#test-groups[].] You can configure which test groups to include or exclude during the test execution via the link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:useTestNG(org.gradle.api.Action)[Test.useTestNG(org.gradle.api.Action)] setting, as seen here:
+TestNG 框架使用测试组的概念来实现类似的效果。footnote:[TestNG 文档包含有关测试组的更多详细信息: http://testng.org/doc/documentation-main.html#test-groups[].] 。
+您可以通过以下配置在测试执行期间包含或排除测试组：link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:useTestNG(org.gradle.api.Action)[Test.useTestNG(org.gradle.api.Action)] ，如下所示：
 
 .Grouping TestNG tests
 ====
@@ -291,17 +296,16 @@ include::{snippets-dir}/testing/testng-groups/kotlin/build.gradle.kts[tags=test-
 ====
 
 [[using_junit5]]
-== Using JUnit 5
+== 使用 JUnit 5
 
-http://junit.org/junit5[JUnit 5] is the latest version of the well-known JUnit test framework.
-Unlike its predecessor, JUnit 5 is modularized and composed of several modules:
+http://junit.org/junit5[JUnit 5] 是著名的 JUnit 测试框架的最新版本。 与其前身不同，JUnit 5 是模块化的，由几个模块组成:
 
     JUnit 5 = JUnit Platform + JUnit Jupiter + JUnit Vintage
 
-The JUnit Platform serves as a foundation for launching testing frameworks on the JVM. JUnit Jupiter is the combination of the new http://junit.org/junit5/docs/current/user-guide/#writing-tests[programming model]
- and http://junit.org/junit5/docs/current/user-guide/#extensions[extension model] for writing tests and extensions in JUnit 5. JUnit Vintage provides a `TestEngine` for running JUnit 3 and JUnit 4 based tests on the platform.
+JUnit Platform 是在 JVM 上启动测试框架的基础。 JUnit Jupiter 是新的 http://junit.org/junit5/docs/current/user-guide/#writing-tests[编程模型] 的组合
+和 http://junit.org/junit5/docs/current/user-guide/#extensions[extension model] 用于在 JUnit 5 中编写测试和扩展。JUnit Vintage 提供了一个 `TestEngine` 用于运行基于 JUnit 3 和 JUnit 4 的测试。
 
-The following code enables JUnit Platform support in `build.gradle`:
+在 `build.gradle` 中启用 JUnit Platform 支持：
 
 .Enabling JUnit Platform to run your tests
 ====
@@ -309,17 +313,17 @@ include::{snippets-dir}/testing/junitplatform-jupiter/groovy/build.gradle[tags=e
 include::{snippets-dir}/testing/junitplatform-jupiter/kotlin/build.gradle.kts[tags=enabling-junit-platform]
 ====
 
-See link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#useJUnitPlatform--[Test.useJUnitPlatform()] for more details.
+查看 link:{javadocPath}/org/gradle/api/tasks/testing/Test.html#useJUnitPlatform--[Test.useJUnitPlatform()] 获取更多的细节.
 
 [NOTE]
 ====
-There are some known limitations of using JUnit 5 with Gradle, for example that tests in static nested classes won't be discovered. These will be fixed in future version of Gradle. If you find more, please tell us at https://github.com/gradle/gradle/issues/new
+将 JUnit 5 与 Gradle 结合使用存在一些已知限制，例如，无法发现静态嵌套类中的测试。 这些将在 Gradle 的未来版本中修复。 如果您发现更多，请在 https://github.com/gradle/gradle/issues/new 告诉我们
 ====
 
 [[compiling_and_executing_junit_jupiter_tests]]
-=== Compiling and executing JUnit Jupiter tests
+=== 编译和执行 JUnit Jupiter 测试
 
-To enable JUnit Jupiter support in Gradle, all you need to do is add the following dependencies:
+要在 Gradle 中启用 JUnit Jupiter 支持，您需要做的就是添加以下依赖
 
 .JUnit Jupiter dependencies
 ====
@@ -327,12 +331,12 @@ include::{snippets-dir}/testing/junitplatform-jupiter/groovy/build.gradle[tags=j
 include::{snippets-dir}/testing/junitplatform-jupiter/kotlin/build.gradle.kts[tags=jupiter-dependencies]
 ====
 
-You can then put your test cases into _src/test/java_ as normal and execute them with `gradle test`.
+然后，您可以像往常一样将您的测试用例放入 _src/test/java_ 目录中并使用 `gradle test` 执行它们。
 
 [[executing_legacy_tests_with_junit_vintage]]
-=== Executing legacy tests with JUnit Vintage
+=== 使用 JUnit Vintage 执行遗留测试
 
-If you want to run JUnit 3/4 tests on JUnit Platform, or even mix them with Jupiter tests, you should add extra JUnit Vintage Engine dependencies:
+如果你想在 JUnit Platform 上运行 JUnit 3/4 测试，或者将它们与 Jupiter 测试混合，你应该添加额外的 JUnit Vintage Engine 依赖：
 
 .JUnit Vintage dependencies
 ====
@@ -340,17 +344,16 @@ include::{snippets-dir}/testing/junitplatform-mix/groovy/build.gradle[tags=vinta
 include::{snippets-dir}/testing/junitplatform-mix/kotlin/build.gradle.kts[tags=vintage-dependencies]
 ====
 
-In this way, you can use `gradle test` to test JUnit 3/4 tests on JUnit Platform, without the need to rewrite them.
+这样，您可以使用 `gradle test` 在 JUnit Platform 上测试 JUnit 3/4 测试，而无需重写它们。
 
 [[filtering_test_engine]]
-=== Filtering test engine
+=== 过滤测试引擎
 
-JUnit Platform allows you to use different test engines. JUnit currently provides two `TestEngine` implementations out of the box:
-https://junit.org/junit5/docs/current/api/org.junit.jupiter.engine/module-summary.html[junit-jupiter-engine] and https://junit.org/junit5/docs/current/api/org.junit.vintage.engine/module-summary.html[junit-vintage-engine].
-You can also write and plug in your own `TestEngine` implementation as documented https://junit.org/junit5/docs/current/user-guide/#launcher-api-engines-custom[here].
+JUnit Platform 允许您使用不同的测试引擎。 JUnit 目前提供了两个开箱即用的 `TestEngine` 实现：
+https://junit.org/junit5/docs/current/api/org.junit.jupiter.engine/module-summary.html[junit-jupiter-engine] 和 https://junit.org/junit5/docs/current/api/org.junit.vintage.engine/module-summary.html[junit-vintage-engine]。
+您还可以编写并插入您自己的 `TestEngine` 实现，如 https://junit.org/junit5/docs/current/user-guide/#launcher-api-engines-custom[此处] 所述。
 
-By default, all test engines on the test runtime classpath will be used.
-To control specific test engine implementations explicitly, you can add the following setting to your build script:
+默认情况下，将使用测试运行时类路径上的所有测试引擎。 要显式控制特定的测试引擎实现，您可以将以下设置添加到构建脚本中:
 
 .Filter specific engines
 ====
@@ -359,11 +362,17 @@ include::{snippets-dir}/testing/junitplatform-engine/kotlin/build.gradle.kts[tag
 ====
 
 [[test_execution_order]]
-== Test execution order in TestNG
+== TestNG 中的测试执行顺序
 
-TestNG allows explicit control of the execution order of tests when you use a _testng.xml_ file. Without such a file — or an equivalent one configured by link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html#getSuiteXmlBuilder--[TestNGOptions.getSuiteXmlBuilder()] — you can't specify the test execution order. However, what you _can_ do is control whether all aspects of a test — including its associated `@BeforeXXX` and `@AfterXXX` methods, such as those annotated with `@Before/AfterClass` and `@Before/AfterMethod` — are executed before the next test starts. You do this by setting the link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html#getPreserveOrder--[TestNGOptions.getPreserveOrder()] property to `true`. If you set it to `false`, you may encounter scenarios in which the execution order is something like: `TestA.doBeforeClass()` -> `TestB.doBeforeClass()` -> `TestA` tests.
+当您使用 _testng.xml_ 文件时，TestNG 允许显式控制测试的执行顺序。如果没有这样的文件 - 可以通过 link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html#getSuiteXmlBuilder--[TestNGOptions.getSuiteXmlBuilder()]
+等效的配置 - 您无法指定测试执行顺序。但是，您 _可以_ 做的是控制测试的所有方面 — 包括其关联的 `@BeforeXXX` 和 `@AfterXXX` 方法，例如那些使用 `@Before/AfterClass` 和 `@Before/AfterMethod` 注解的方法。在下一次测试开始之前，
+您可以通过将 link:{javadocPath}/org/gradle/api/tasks/testing/testng/TestNGOptions.html#getPreserveOrder--[TestNGOptions.getPreserveOrder()]  属性设置为 `true`。如果将其设置为 `false`，
+您可能会遇到执行顺序类似于：`TestA.doBeforeClass()` -> `TestB.doBeforeClass()` -> `TestA` 测试的情况。
 
-While preserving the order of tests is the default behavior when directly working with _testng.xml_ files, the https://jitpack.io/com/github/cbeust/testng/master/javadoc/org/testng/TestNG.html[TestNG API] that is used by Gradle's TestNG integration executes tests in unpredictable order by default.footnote:[The TestNG documentation contains more details about test ordering when working with `testng.xml` files: http://testng.org/doc/documentation-main.html#testng-xml[].] The ability to preserve test execution order was introduced with TestNG version 5.14.5. Setting the `preserveOrder` property to `true` for an older TestNG version will cause the build to fail.
+虽然保留测试顺序是直接使用 _testng.xml_ 文件时的默认行为，但 https://jitpack.io/com/github/cbeust/testng/master/javadoc/org/testng/TestNG.html[TestNG API ] Gradle 的 TestNG 默认集成以不可预知的顺序执行测试。
+footnote:[TestNG 文档包含有关使用 `testng.xml` 文件时测试顺序的更多详细信息: http://testng.org/doc/documentation-main.html#testng-xml[].]
+
+TestNG 版本 5.14.5 引入了保留测试执行顺序的能力。 对于较旧的 TestNG 版本，将 `preserveOrder` 属性设置为 `true` 将导致构建失败。
 
 .Preserving order of TestNG tests
 ====
@@ -371,9 +380,10 @@ include::{snippets-dir}/testing/testng-preserveorder/groovy/build.gradle[tags=te
 include::{snippets-dir}/testing/testng-preserveorder/kotlin/build.gradle.kts[tags=test-config]
 ====
 
-The `groupByInstance` property controls whether tests should be grouped by instance rather than by class. The http://testng.org/doc/documentation-main.html#dependencies-with-annotations[TestNG documentation] explains the difference in more detail, but essentially, if you have a test method `A()` that depends on `B()`, grouping by instance ensures that each A-B pairing, e.g. `B(1)`-`A(1)`, is executed before the next pairing. With group by class, all `B()` methods are run and then all `A()` ones.
+`groupByInstance` 属性控制测试是否应该按实例而不是按类分组。 http://testng.org/doc/documentation-main.html#dependencies-with-annotations[TestNG 文档] 更详细地解释了差异，但本质上，如果您有一个依赖于 `B()`，按实例分组
+确保每个 A-B 配对，例如 `B(1)`-`A(1)`，在下一次配对之前执行。 使用按类分组，所有 `B()` 方法都会运行，然后是所有 `A()` 方法。
 
-Note that you typically only have more than one instance of a test if you're using a data provider to parameterize it. Also, grouping tests by instances was introduced with TestNG version 6.1. Setting the `groupByInstances` property to `true` for an older TestNG version will cause the build to fail.
+请注意，如果您使用数据提供程序对其进行参数化，则通常只有一个以上的测试实例。 此外，TestNG 6.1 版还引入了按实例分组测试。 对于较旧的 TestNG 版本，将 `groupByInstances` 属性设置为 `true` 将导致构建失败。
 
 .Grouping TestNG tests by instances
 ====
@@ -382,28 +392,27 @@ include::{snippets-dir}/testing/testng-groupbyinstances/kotlin/build.gradle.kts[
 ====
 
 [[testNgParameterizedReporting]]
-=== TestNG parameterized methods and reporting
+=== TestNG 参数化方法和报告
 
-TestNG supports http://testng.org/doc/documentation-main.html#parameters[parameterizing test methods], allowing a particular test method to be executed multiple times with different inputs. Gradle includes the parameter values in its reporting of the test method execution.
+TestNG 支持 http://testng.org/doc/documentation-main.html#parameters[参数化测试方法]，允许使用不同的输入多次执行特定的测试方法。 Gradle 在其测试方法执行的报告中包含参数值。
 
-Given a parameterized test method named `aTestMethod` that takes two parameters, it will be reported with the name `aTestMethod(toStringValueOfParam1, toStringValueOfParam2)`. This makes it easy to identify the parameter values for a particular iteration.
-
+给定一个名为 `aTestMethod` 的参数化测试方法，它接受两个参数，它将以名称 `aTestMethod(toStringValueOfParam1, toStringValueOfParam2)` 报告。 这使得标识特定迭代的参数值变得容易。
 
 [[sec:configuring_java_integration_tests]]
-== Configuring integration tests
+== 配置集成测试
 
-A common requirement for projects is to incorporate integration tests in one form or another. Their aim is to verify that the various parts of the project are working together properly. This often means that they require special execution setup and dependencies compared to unit tests.
+项目的一个常见要求是以一种或另一种形式合并集成测试。 他们的目的是验证项目的各个部分是否正常工作。 这通常意味着与单元测试相比，它们需要特殊的执行设置和依赖关系。
 
-The simplest way to add integration tests to your build is by taking these steps:
+将集成测试添加到构建中的最简单方法是执行以下步骤:
 
- 1. Create a new <<building_java_projects.adoc#sec:java_source_sets,source set>> for them
- 2. Add the dependencies you need to the appropriate configurations for that source set
- 3. Configure the compilation and runtime classpaths for that source set
- 4. Create a task to run the integration tests
+ 1. 为它们创建一个新的 <<building_java_projects.adoc#sec:java_source_sets,source set>>
+ 2. 将您需要的依赖添加到 source set 配置中
+ 3. 为 source set 配置编译和运行时类路径
+ 4. 创建一个任务来运行集成测试
 
-You may also need to perform some additional configuration depending on what form the integration tests take. We will discuss those as we go.
+根据集成测试的形式，您可能还需要执行一些额外的配置。 我们将在进行时讨论这些内容。
 
-Let's start with a practical example that implements the first three steps in a build script, centered around a new source set `intTest`:
+让我们先实现前三个步骤开始，以新的源集  `intTest` 为中心:
 
 .Setting up working integration tests
 ====
@@ -411,27 +420,28 @@ include::{snippets-dir}/java/basic/groovy/build.gradle[tags=practical-integ-test
 include::{snippets-dir}/java/basic/kotlin/build.gradle.kts[tags=practical-integ-test-source-set]
 ====
 
-This will set up a new source set called `intTest` that automatically creates:
+这将设置一个名为 `intTest` 的新源集，它会自动创建：
 
- * `intTestImplementation`, `intTestCompileOnly`, `intTestRuntimeOnly` configurations (and <<java_plugin.adoc#java_source_set_configurations, a few others>> that are less commonly needed)
- * A `compileIntTestJava` task that will compile all the source files under _src/intTest/java_
+* `intTestImplementation`、`intTestCompileOnly`、`intTestRuntimeOnly` 配置（以及不太常用的 <<java_plugin.adoc#java_source_set_configurations, 其他一些>>）
+* 一个 `compileIntTestJava` 任务，它将编译 _src/intTest/java_ 下的所有源文件
 
-The example also does the following, not all of which you may need for your specific integration tests:
+该示例还执行以下操作，但您的特定集成测试可能不需要所有这些：
 
- * Adds the production classes from the `main` source set to the compilation and runtime classpaths of the integration tests — `sourceSets.main.output` is a <<working_with_files.adoc#sec:file_collections,file collection>> of all the directories containing compiled production classes and resources
- * Makes the `intTestImplementation` configuration extend from `implementation`, which means that all the declared dependencies of the production code also become dependencies of the integration tests
- * Does the same for the `intTestRuntimeOnly` configuration
+* 将 `main` 中的类添加到集成测试的编译和运行时类路径中 — `sourceSets.main.output` 是所有目录的 <<working_with_files.adoc#sec:file_collections,file collection>>包含编译的类和资源
+* 使 `intTestImplementation` 配置从 `implementation` 扩展，这意味着代码的所有声明的依赖也成为集成测试的依赖
+* 对 `intTestRuntimeOnly` 配置做同样的事情
 
-In most cases, you want your integration tests to have access to the classes under test, which is why we ensure that those are included on the compilation and runtime classpaths in this example. But some types of test interact with the production code in a different way. For example, you may have tests that run your application as an executable and verify the output. In the case of web applications, the tests may interact with your application via HTTP. Since the tests don't need direct access to the classes under test in such cases, you don't need to add the production classes to the test classpath.
+在大多数情况下，您希望您的集成测试能够访问被测试类，这就是我们确保在本示例中将它们包含在编译和运行时类路径中的原因。但是某些类型的测试以不同的方式与生产代码交互。例如，您可能有将应用程序作为可执行文件运行并验证输出的测试。
+对于 Web 应用程序，测试可能会通过 HTTP 与您的应用程序交互。由于在这种情况下测试不需要直接访问被测试类，因此您不需要将生产类添加到测试类路径中。
 
-Another common step is to attach all the unit test dependencies to the integration tests as well — via `intTestImplementation.extendsFrom testImplementation` — but that only makes sense if the integration tests require _all_ or nearly all the same dependencies that the unit tests have.
+另一个常见的步骤是将所有单元测试依赖也附加到集成测试中 — 通过 `intTestImplementation.extendsFrom testImplementation` — 但这只有在集成测试需要 _all_ 或单元测试具有的几乎所有相同依赖时才有意义。
 
-There are a couple of other facets of the example you should take note of:
+您应该注意该示例的其他几个方面：
 
- * `+=` allows you to append paths and collections of paths to `compileClasspath` and `runtimeClasspath` instead of overwriting them
- * If you want to use the convention-based configurations, such as `intTestImplementation`, you _must_ declare the dependencies _after_ the new source set
+* `+=` 允许您将路径和路径集合附加到 `compileClasspath` 和 `runtimeClasspath` 而不是覆盖它们
+* 如果你想使用基于约定的配置，例如 `intTestImplementation`，你 _必须_ 在 new source set 之后_声明依赖
 
-Creating and configuring a source set automatically sets up the compilation stage, but it does nothing with respect to running the integration tests. So the last piece of the puzzle is a custom test task that uses the information from the new source set to configure its runtime classpath and the test classes:
+创建和配置源集会自动设置编译阶段，但它对运行集成测试没有任何作用。所以最后一块拼图是一个自定义测试任务，它使用来自新源集的信息来配置其运行时类路径和测试类：
 
 .Defining a working integration test task
 ====
@@ -439,66 +449,61 @@ include::{snippets-dir}/java/basic/groovy/build.gradle[tags=integ-test-task]
 include::{snippets-dir}/java/basic/kotlin/build.gradle.kts[tags=integ-test-task]
 ====
 
-Again, we're accessing a source set to get the relevant information, i.e. where the compiled test classes are — the `testClassesDirs` property — and what needs to be on the classpath when running them — `classpath`.
+同样，我们正在访问源集以获取相关信息，即编译的测试类在哪里 — `testClassesDirs` 属性 — 以及运行它们时需要在类路径上的内容 — `classpath`。
 
-Users commonly want to run integration tests after the unit tests, because they are often slower to run and you want the build to fail early on the unit tests rather than later on the integration tests. That's why the above example adds a `shouldRunAfter()` declaration. This is preferred over `mustRunAfter()` so that Gradle has more flexibility in executing the build in parallel.
+用户通常希望在单元测试之后运行集成测试，因为它们通常运行速度较慢，并且您希望构建在单元测试早期而不是在集成测试之后失败。 这就是为什么上面的例子添加了一个 `shouldRunAfter()` 声明。
+这比 `mustRunAfter()` 更受欢迎，因此 Gradle 在并行执行构建时具有更大的灵活性。
 
 [[sec:java_testing_modular]]
-== Testing Java Modules
+== 测试 Java 模块
 
-If you are <<java_library_plugin.adoc#,developing Java Modules>>, everything described in this chapter still applies and any of the supported test frameworks can be used.
-However, there are some things to consider depending on whether you need module information to be available, and module boundaries to be enforced, during test execution.
-In this context, the terms _whitebox testing_ (module boundaries are deactivated or relaxed) and _blackbox testing_ (module boundaries are in place) are often used.
-Whitebox testing is used/needed for unit testing and blackbox testing fits functional or integration test requirements.
+如果您是 <<java_library_plugin.adoc#,Java 模块开发者>>，本章中描述的所有内容仍然适用，并且可以使用任何受支持的测试框架。
+但是，根据在测试执行期间是否需要模块信息可用以及强制执行模块边界，有一些事情需要考虑。
+在这种情况下，经常使用术语 _白盒测试_（模块边界被停用或放松）和 _黑盒测试_（模块边界就位）。 白盒测试用于/需要用于单元测试，黑盒测试符合功能或集成测试要求。
 
-Sample: link:../samples/sample_java_modules_multi_project_with_integration_tests.html[Java Modules multi-project with integration tests]
+示例: link:../samples/sample_java_modules_multi_project_with_integration_tests.html[Java Modules multi-project with integration tests]
 
-=== Whitebox unit test execution on the classpath
+=== 在类路径上执行白盒单元测试
 
-The simplest setup to write unit tests for functions or classes in modules is to _not_ use module specifics during test execution.
-For this, you just need to write tests the same way you would write them for normal libraries.
-If you don't have a `module-info.java` file in your test source set (`src/test/java`) this source set will be considered as traditional Java library during compilation and test runtime.
-This means, all dependencies, including Jars with module information, are put on the classpath.
-The advantage is that all internal classes of your (or other) modules are then accessible directly in tests.
-This may be a totally valid setup for unit testing, where we do not care about the larger module structure, but only about testing single functions.
+为模块中的函数或类编写单元测试的最简单设置是在测试执行期间 _不_ 使用模块细节。 为此，您只需要像为普通库编写测试一样编写测试。
+如果您的测试源集 (`src/test/java`) 中没有 `module-info.java` 文件，则此源集在编译和测试运行时将被视为传统 Java 库。
+这意味着，所有依赖项，包括带有模块信息的 Jars，都放在类路径中。 优点是您（或其他）模块的所有内部类都可以在测试中直接访问。
+这可能是一个完全有效的单元测试设置，我们不关心更大的模块结构，而只关心测试单个功能。
 
 [NOTE]
 ====
-If you are using Eclipse: By default, Eclipse also runs unit tests as modules using module patching (see <<#sec:java_testing_modular_patching,below>>).
-In an imported Gradle project, unit testing a module with the Eclipse test runner might fail.
-You then need to manually adjust the classpath/module path in the test run configuration or delegate test execution to Gradle.
-This only concerns the test execution.
-Unit test compilation and development works fine in Eclipse.
+如果您使用的是 Eclipse：默认情况下，Eclipse 还使用模块修补将单元测试作为模块运行（参见 <<#sec:java_testing_modular_patching,below>>）。
+在导入的 Gradle 项目中，使用 Eclipse 测试运行程序对模块进行单元测试可能会失败。
+然后，您需要手动调整测试运行配置中的类路径/模块路径或将测试执行委托给 Gradle。
+这仅涉及测试执行。
+单元测试编译和开发在 Eclipse 中运行良好。
 ====
 
-=== Blackbox integration testing
+=== 黑盒集成测试
 
-For integration tests, you have the option to define the test set itself as additional module.
-You do this similar to how you turn your main sources into a module:
-by adding a `module-info.java` file to the corresponding source set (e.g. `integrationTests/java/module-info.java`).
+对于集成测试，您可以选择将测试集本身定义为附加模块。
+您这样做类似于将主要资源转换为模块的方式：
+通过将 `module-info.java` 文件添加到相应的源集（例如 `integrationTests/java/module-info.java`）。
 
-You can find a full example that includes blackbox integration tests link:../samples/sample_java_modules_multi_project_with_integration_tests.html[here].
+您可以找到包含黑盒集成测试的完整示例：link:../samples/sample_java_modules_multi_project_with_integration_tests.html[here].
 
 [NOTE]
 ====
-In Eclipse, compiling multiple modules in one project is https://bugs.eclipse.org/bugs/show_bug.cgi?id=520667[currently not support].
-Therefore the integration test (blackbox) setup described here only works in Eclipse if the tests are moved to a separate subproject.
+在 Eclipse 中，在一个项目中编译多个模块是 https://bugs.eclipse.org/bugs/show_bug.cgi?id=520667[目前不支持]。
+因此，此处描述的集成测试（黑盒）设置仅在将测试移至单独的子项目时才在 Eclipse 中有效。
 ====
 
 [[sec:java_testing_modular_patching]]
-=== Whitebox test execution with module patching
+=== 使用模块 patching 执行白盒测试
 
-Another approach for whitebox testing is to stay in the module world by _patching_ the tests into the module under test.
-This way, module boundaries stay in place, but the tests themselves become part of the module under test and can then access the module's internals.
+白盒测试的另一种方法是通过将测试 _patching_ 到被测模块中来留在模块世界中。 这样，模块边界保持不变，但测试本身成为被测模块的一部分，然后可以访问模块的内部。
 
-For which uses cases this is relevant and how this is best done is a topic of discussion.
-There is no general best approach at the moment.
-Thus, there is no special support for this in Gradle right now.
+对于哪些用例，这是相关的以及如何最好地完成这是一个讨论主题。 目前没有通用的最佳方法。 因此，Gradle 目前对此没有特别的支持。
 
-You can however, setup module patching for tests like this:
+但是，您可以为这样的测试设置模块补丁:
 
-* Add a `module-info.java` to your test source set that is a copy of the main `module-info.java` with additional dependencies needed for testing (e.g. `requires org.junit.jupiter.api`).
-* Configure both the `testCompileJava` and `test` tasks with arguments to patch the the main classes with the test classes as shown below.
+* 将 `module-info.java` 添加到您的测试源集中，它是主 `module-info.java` 的副本，带有测试所需的附加依赖（例如 `requires org.junit.jupiter.api`）。
+* 使用参数配置 `testCompileJava` 和 `test` 任务以使用测试类修补主类，如下所示。
 
 .Patch module for testing using command line arguments
 ====
@@ -508,20 +513,21 @@ include::{snippets-dir}/testing/patch-module/kotlin/build.gradle.kts[tags=patchA
 
 [NOTE]
 ====
-If custom arguments are used for patching, these are not picked up by Eclipse and IDEA.
-You will most likely see invalid compilation errors in the IDE.
+如果自定义参数用于修补，则 Eclipse 和 IDEA 不会选择这些参数。
+您很可能会在 IDE 中看到无效的编译错误。
 ====
 
 [[sec:skipping_java_tests]]
-== Skipping the tests
+== 跳过测试
 
-If you want to skip the tests when running a build, you have a few options. You can either do it via <<command_line_interface.adoc#sec:excluding_tasks_from_the_command_line,command line arguments>> or <<more_about_tasks.adoc#sec:skipping_tasks,in the build script>>. To do it on the command line, you can use the `-x` or `--exclude-task` option like so:
+如果您想在运行构建时跳过测试，您有几个选择。 您可以通过 <<command_line_interface.adoc#sec:excluding_tasks_from_the_command_line,命令行参数>> 或 <<more_about_tasks.adoc#sec:skipping_tasks, 在构建脚本中>> 来完成。
+要在命令行上执行此操作，您可以使用 `-x` 或 `--exclude-task` 选项，如下所示：
 
     gradle build -x test
 
-This excludes the `test` task and any other task that it _exclusively_ depends on, i.e. no other task depends on the same task. Those tasks will not be marked "SKIPPED" by Gradle, but will simply not appear in the list of tasks executed.
+这不包括 `test` 任务和它 _exclusively_ 依赖的任何其他任务，即没有其他任务依赖于同一任务。 Gradle 不会将这些任务标记为  "SKIPPED"，但不会出现在已执行任务列表中。
 
-Skipping a test via the build script can be done a few ways. One common approach is to make test execution conditional via the link:{groovyDslPath}/org.gradle.api.Task.html#org.gradle.api.Task:onlyIf(org.gradle.api.specs.Spec)[Task.onlyIf(org.gradle.api.specs.Spec)] method. The following sample skips the `test` task if the project has a property called `mySkipTests`:
+通过构建脚本跳过测试有几种方法。 一种常见的方法是通过 {groovyDslPath}/org.gradle.api.Task.html#org.gradle.api.Task:onlyIf(org.gradle.api.specs.Spec)[Task.onlyIf( org.gradle.api.specs.Spec)] 方法。 如果项目具有名为 `mySkipTests` 的属性，则以下示例将跳过 `test` 任务：
 
 .Skipping the unit tests based on a project property
 ====
@@ -529,27 +535,27 @@ include::{snippets-dir}/java/basic/groovy/build.gradle[tags=skip-tests-condition
 include::{snippets-dir}/java/basic/kotlin/build.gradle.kts[tags=skip-tests-condition]
 ====
 
-In this case, Gradle will mark the skipped tests as "SKIPPED" rather than exclude them from the build.
+在这种情况下，Gradle 会将跳过的测试标记为 "SKIPPED"，而不是将它们从构建中排除。
 
 [[sec:forcing_java_tests_to_run]]
-== Forcing tests to run
+== 强制测试运行
 
-In well-defined builds, you can rely on Gradle to only run tests if the tests themselves or the production code change. However, you may encounter situations where the tests rely on a third-party service or something else that might change but can't be modeled in the build.
+在定义明确的构建中，您可以靠 Gradle 仅在测试本身或生产代码发生更改时才运行测试。 但是，您可能会遇到测试依赖第三方服务或其他可能更改但无法在构建中建模的情况。
 
-You can force tests to run in this situation by cleaning the output of the relevant `Test` task — say `test` — and running the tests again, like so:
+您可以通过清理相关  `Test` 任务的输出（例如 `test` ）并再次运行测试来强制测试在这种情况下运行，如下所示:
 
     gradle cleanTest test
 
-`cleanTest` is based on a <<more_about_tasks.adoc#sec:task_rules,task rule>> provided by the <<base_plugin.adoc#sec:base_tasks,Base Plugin>>. You can use it for _any_ task.
+`cleanTest` 基于 <<base_plugin.adoc#sec:base_tasks,Base Plugin>> 提供的 <<more_about_tasks.adoc#sec:task_rules,task rule>>。 您可以将它用于 _any_ 任务。
 
 [[sec:debugging_java_tests]]
-== Debugging when running tests
+== 测试时调试
 
-On the few occasions that you want to debug your code while the tests are running, it can be helpful if you can attach a debugger at that point. You can either set the link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:debug[Test.getDebug()] property to `true` or use the `--debug-jvm` command line option.
+在少数情况下您想在测试运行时调试代码，如果您可以在此时附加调试器会很有帮助。 您可以将 link:{groovyDslPath}/org.gradle.api.tasks.testing.Test.html#org.gradle.api.tasks.testing.Test:debug[Test.getDebug()]  属性设置为 `true` 或使用 `--debug-jvm` 命令行选项。
 
-When debugging for tests is enabled, Gradle will start the test process suspended and listening on port 5005.
+启用测试调试后，Gradle 将启动暂停的测试进程并侦听端口 5005。
 
-You can also enable debugging in the DSL, where you can also configure other properties:
+您还可以在 DSL 中启用调试，您还可以在其中配置其他属性:
 
     test {
         debugOptions {
@@ -560,15 +566,15 @@ You can also enable debugging in the DSL, where you can also configure other pro
         }
     }
 
-With this configuration the test JVM will behave just like when passing the `--debug-jvm` argument but it will listen on port 4455.
+使用此配置，测试 JVM 的行为就像传递 `--debug-jvm`  参数时一样，但它将侦听端口 4455。
 
 [[sec:java_test_fixtures]]
-== Using test fixtures
+== 使用测试夹具
 
-=== Producing and using test fixtures within a single project
+=== 在单个项目中编写和使用测试夹具
 
-Test fixtures are commonly used to setup the code under test, or provide utilities aimed at facilitating the tests of a component.
-Java projects can enable test fixtures support by applying the `java-test-fixtures` plugin, in addition to the `java` or `java-library` plugins:
+测试夹具通常用于设置被测代码，或提供旨在促进组件测试的实用程序。
+除了 `java` 或 `java-library` 插件之外，Java 项目还可以通过应用 `java-test-fixtures` 插件来启用测试夹具支持：
 
 .Applying the Java test fixtures plugin
 ====
@@ -576,13 +582,12 @@ include::{snippets-dir}/java/fixtures/groovy/lib/build.gradle[tags=use-plugin]
 include::{snippets-dir}/java/fixtures/kotlin/lib/build.gradle.kts[tags=use-plugin]
 ====
 
-This will automatically create a `testFixtures` source set, in which you can write your test fixtures.
-Test fixtures are configured so that:
+这将自动创建一个 `testFixtures` 源集，您可以在其中编写测试夹具。 测试夹具配置为：
 
-- they can see the _main_ source set classes
-- _test_ sources can see the _test fixtures_ classes
+- 它们可以访问 _main_ 下的 classes
+- _test_ 可以访问 _test fixtures_ classes
 
-For example for this main class:
+例如，在下面这个 main class:
 
 [source,java,indent=0]
 .src/main/java/com/acme/Person.java
@@ -590,7 +595,7 @@ For example for this main class:
 include::{snippets-dir}/java/fixtures/groovy/lib/src/main/java/com/acme/Person.java[tags=sample]
 ----
 
-A test fixture can be written in `src/testFixtures/java`:
+可以在 `src/testFixtures/java` 中编写测试夹具：:
 
 [source,java,indent=0]
 .src/testFixtures/java/com/acme/Simpsons.java
@@ -598,9 +603,9 @@ A test fixture can be written in `src/testFixtures/java`:
 include::{snippets-dir}/java/fixtures/groovy/lib/src/testFixtures/java/com/acme/Simpsons.java[tags=sample]
 ----
 
-=== Declaring dependencies of test fixtures
+=== 声明测试夹具的依赖关系
 
-Similarly to the link:java_library_plugin.html[Java Library Plugin], test fixtures expose an API and an implementation configuration:
+与 link:java_library_plugin.html[Java Library Plugin] ，测试夹具暴露了一个 API 和一个 implementation 配置：
 
 .Declaring test fixture dependencies
 ====
@@ -608,14 +613,12 @@ include::{snippets-dir}/java/fixtures/groovy/lib/build.gradle[tags=test_fixtures
 include::{snippets-dir}/java/fixtures/kotlin/lib/build.gradle.kts[tags=test_fixtures_deps]
 ====
 
-It's worth noticing that if a dependency is an _implementation_ dependency of test fixtures, then _when compiling tests that depend on those test fixtures_, the implementation dependencies will _not leak_ into the compile classpath.
-This results in improved separation of concerns and better compile avoidance.
+值得注意的是，如果依赖是测试夹具的 _implementation_ 依赖项，那么 _在编译依赖于这些测试夹具的测试时_，实现依赖项将 _不会泄漏_ 到编译类路径中。
 
-=== Consuming test fixtures of another project
+=== 使用另一个项目的测试夹具
 
-Test fixtures are not limited to a single project.
-It is often the case that a dependent project tests also needs the test fixtures of the dependency.
-This can be achieved very easily using the `testFixtures` keyword:
+测试夹具不限于单个项目。 通常情况下，依赖项目的测试也需要依赖的测试夹具。
+使用 `testFixtures` 关键字可以很容易地实现这一点：
 
 .Adding a dependency on test fixtures of another project
 ====
@@ -623,12 +626,10 @@ include::{snippets-dir}/java/fixtures/groovy/build.gradle[tags=consumer_dependen
 include::{snippets-dir}/java/fixtures/kotlin/build.gradle.kts[tags=consumer_dependencies]
 ====
 
-=== Publishing test fixtures
+=== 发布测试夹具
 
-One of the advantages of using the `java-test-fixtures` plugin is that test fixtures are published.
-By convention, test fixtures will be published with an artifact having the `test-fixtures` classifier.
-For both Maven and Ivy, an artifact with that classifier is simply published alongside the regular artifacts.
-However, if you use the `maven-publish` or `ivy-publish` plugin, test fixtures are published as additional variants in {metadata-file-spec}[Gradle Module Metadata] and you can directly depend on test fixtures of external libraries in another Gradle project:
+使用 `java-test-fixtures` 插件的优点之一是可以发布测试夹具。 按照惯例，测试夹具将与具有 `test-fixtures` classifier 的构件一起发布。 对于 Maven 和 Ivy，具有该 classifier 的构件只是与常规构件一起发布。
+但是，如果您使用 `maven-publish` 或 `ivy-publish` 插件，测试夹具会在 {metadata-file-spec}[Gradle Module Metadata] 中作为附加变体发布， 您可以直接依赖外部库的测试夹具 在另一个 Gradle 项目中：
 
 .Adding a dependency on test fixtures of an external library
 ====
@@ -636,23 +637,22 @@ include::{snippets-dir}/java/fixtures/groovy/build.gradle[tags=external-test-fix
 include::{snippets-dir}/java/fixtures/kotlin/build.gradle.kts[tags=external-test-fixtures-dependency]
 ====
 
-It's worth noting that if the external project is _not_ publishing Gradle Module Metadata, then resolution will fail with an error indicating that such a variant cannot be found:
+值得注意的是，如果外部项目 _没有_ 发布 Gradle Module Metadata，那么解析会失败，错误提示找不到这样的变体：
 
 .**`gradle dependencyInsight --configuration functionalTestClasspath --dependency gson`** 的输出
 ----
 > gradle dependencyInsight --configuration functionalTestClasspath --dependency gson
 include::{snippets-dir}/java/fixtures/tests/dependencyInsight.out[]
 ----
-
-The error message mentions the missing `com.google.code.gson:gson-test-fixtures` capability, which is indeed not defined for this library.
-That's because by convention, for projects that use the `java-test-fixtures` plugin, Gradle automatically creates test fixtures variants with a capability whose name is the name of the main component, with the appendix `-test-fixtures`.
+错误消息提到了缺少的 `com.google.code.gson:gson-test-fixtures` 功能，该功能确实没有为这个库定义。
+这是因为按照惯例，对于使用 `java-test-fixtures` 插件的项目，Gradle 会自动创建测试夹具变体，其名称为主要组件的名称，并带有附录 `-test-fixtures`。
 
 [NOTE]
 ====
-If you publish your library and use test fixtures, but do not want to publish the fixtures, you can deactivate publishing of the _test fixtures variants_ as shown below.
+如果您发布您的库并使用测试夹具，但不想发布夹具，您可以停用 _测试夹具变体_ 的发布，如下所示。
 ====
 
-.Disable publishing of test fixtures variants
+.禁用测试装置夹具的发布
 ====
 include::{snippets-dir}/java/fixtures/groovy/lib/build.gradle[tags=disable-test-fixtures-publishing]
 include::{snippets-dir}/java/fixtures/kotlin/lib/build.gradle.kts[tags=disable-test-fixtures-publishing]
