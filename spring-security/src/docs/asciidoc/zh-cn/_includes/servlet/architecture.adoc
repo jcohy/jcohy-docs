@@ -1,0 +1,230 @@
+[[servlet-architecture]]
+= 架构
+:figures: {image-resource}/servlet/architecture
+
+本节讨论基于 Servlet 的应用程序中 Spring Security 的高级体系结构.
+我们在  <<servlet-authentication>>, <<servlet-authorization>>,<<servlet-exploits>> 部分中建立了这种高级理解.
+
+[[servlet-filters-review]]
+== 回顾过滤器
+
+Spring Security 对 Servlet 的支持基于 Servlet 过滤器,因此通常首先了解过滤器的作用会很有帮助.  下图显示了单个 HTTP 请求的处理程序的典型分层.
+
+.FilterChain
+[[servlet-filterchain-figure]]
+image::{figures}/filterchain.png[]
+
+客户端向应用程序发送请求,然后容器创建一个 `FilterChain`,其中包含根据请求URI的路径处理 `HttpServletRequest` 的过滤器和 Servlet.  在 Spring MVC 应用程序中,Servlet 的实例是 https://docs.spring.io/spring/docs/current/spring-framework-reference/web.html#mvc-servlet[`DispatcherServlet`] .
+一个 Servlet 最多只能处理一个 `HttpServletRequest` 和 `HttpServletResponse`.  但是,可以使用多个过滤器来:
+
+
+* 组织下游的过滤器或 Servlet 被调用.  在这种情况下,过滤器实例通常为 `HttpServletResponse`.
+* 修改下游过滤器和 Servlet 使用的 `HttpServletRequest` 或 `HttpServletResponse`
+
+过滤器的功能来自传递给它的 `FilterChain`.
+
+.`FilterChain` Usage Example
+====
+.Java
+[source,java,role="primary"]
+----
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+	// do something before the rest of the application
+    chain.doFilter(request, response); // invoke the rest of the application
+    // do something after the rest of the application
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
+    // do something before the rest of the application
+    chain.doFilter(request, response) // invoke the rest of the application
+    // do something after the rest of the application
+}
+----
+====
+
+由于过滤器仅影响下游过滤器和 Servlet,因此调用每个过滤器的顺序非常重要.
+
+
+[[servlet-delegatingfilterproxy]]
+== DelegatingFilterProxy
+
+Spring 提供了一个名为 {security-api-url}org/springframework/web/filter/DelegatingFilterProxy.html/[`DelegatingFilterProxy`]  的 Filter 实现,该实现允许在 Servlet 容器的生命周期和 Spring 的 `ApplicationContext` 之间进行桥接.
+Servlet 容器允许使用其自己的标准注册 Filters,但它不了解 Spring 定义的 Bean.  DelegatingFilterProxy 可以通过标准的Servlet 容器机制进行注册,但是可以将所有工作委托给实现 Filter 的 Spring Bean.
+
+这是 `DelegatingFilterProxy` 如何适合 <<servlet-filters-review,``Filter`` 和  `FilterChain`>> 的图片.
+
+.DelegatingFilterProxy
+[[servlet-delegatingfilterproxy-figure]]
+image::{figures}/delegatingfilterproxy.png[]
+
+`DelegatingFilterProxy` 从 `ApplicationContext` 查找 __Bean Filter~0~__ ,然后调用  __Bean Filter~0~__.  `DelegatingFilterProxy` 的伪代码可以在下面看到.
+
+.`DelegatingFilterProxy` Pseudo Code
+====
+.Java
+[source,java,role="primary",subs="+quotes,+macros"]
+----
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+	// Lazily get Filter that was registered as a Spring Bean
+	// For the example in <<servlet-delegatingfilterproxy-figure>> `delegate` is an instance of __Bean Filter~0~__
+	Filter delegate = getFilterBean(someBeanName);
+	// delegate work to the Spring Bean
+	delegate.doFilter(request, response);
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary",subs="+quotes,+macros"]
+----
+fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
+	// Lazily get Filter that was registered as a Spring Bean
+	// For the example in <<servlet-delegatingfilterproxy-figure>> `delegate` is an instance of __Bean Filter~0~__
+	val delegate: Filter = getFilterBean(someBeanName)
+	// delegate work to the Spring Bean
+	delegate.doFilter(request, response)
+}
+----
+====
+
+`DelegatingFilterProxy` 的另一个好处是,它允许延迟查找 Filter bean 实例.  这很重要,因为容器需要在容器启动之前注册 Filter实例.  但是,Spring 通常使用 `ContextLoaderListener` 来加载 Spring Bean,直到需要注册 Filter 实例之后,Spring 才会完成.
+
+[[servlet-filterchainproxy]]
+== FilterChainProxy
+
+Spring Security 的 Servlet 支持包含在 `FilterChainProxy` 中.  `FilterChainProxy` 是 Spring Security 提供的特殊过滤器,允许通过  <<servlet-securityfilterchain,`SecurityFilterChain`>> 委派许多过滤器实例.
+由于 `FilterChainProxy` 是Bean,因此通常将其包装在  <<servlet-delegatingfilterproxy,`DelegatingFilterProxy`>> 中.
+
+.FilterChainProxy
+[[servlet-filterchainproxy-figure]]
+image::{figures}/filterchainproxy.png[]
+
+
+[[servlet-securityfilterchain]]
+== SecurityFilterChain
+
+<<servlet-filterchainproxy, FilterChainProxy>> 使用 {security-api-url}org/springframework/security/web/SecurityFilterChain.html[`SecurityFilterChain`]  确定应对此请求调用哪些 Spring Security 过滤器.
+
+.SecurityFilterChain
+[[servlet-securityfilterchain-figure]]
+image::{figures}/securityfilterchain.png[]
+
+`SecurityFilterChain` 中的 <<servlet-security-filters,Security Filters>> 通常是Bean,但它们是使用 `FilterChainProxy` 而不是  <<servlet-delegatingfilterproxy,DelegatingFilterProxy>> 注册的.
+`FilterChainProxy` 具有直接向 Servlet 容器或 DelegatingFilterProxy 注册的许多优点.
+首先,它为 Spring Security 的所有 Servlet 支持提供了一个起点.  因此,如果您想对 Spring Security 的 Servlet 支持进行故障排除,那么在 `FilterChainProxy` 中添加调试点是一个很好的起点.
+
+其次,由于 `FilterChainProxy` 对于 Spring Security 的使用至关重要,因此它可以执行不被视为可选任务的任务.  例如,它清除 `SecurityContext` 以避免内存泄漏.
+它还使用 Spring Security 的  <<servlet-httpfirewall,`HttpFirewall`>>  来保护应用程序免受某些类型的攻击.
+// FIXME: Add a link to SecurityContext
+
+此外,它在确定何时应调用 `SecurityFilterChain` 时提供了更大的灵活性.  在 Servlet 容器中,仅根据 URL 调用过滤器.  但是,`FilterChainProxy` 可以利用 `RequestMatcher` 接口,根据 `HttpServletRequest` 中的任何内容确定调用.
+
+实际上,`FilterChainProxy` 可用于确定应使用哪个 `SecurityFilterChain`.  如果您的应用程序可以为不同的片提供完全独立的配置.
+
+// FIXME: Link to RequestMatcher
+
+
+.Multiple SecurityFilterChain
+[[servlet-multi-securityfilterchain-figure]]
+image::{figures}/multi-securityfilterchain.png[]
+
+在 <<servlet-multi-securityfilterchain-figure,多个 SecurityFilterChain>> 链中,`FilterChainProxy` 决定应使用哪个 `SecurityFilterChain`.  仅匹配的第一个 `SecurityFilterChain` 将被调用.
+如果请求的URL是 `/api/messages/`,则它将首先与 ``SecurityFilterChain~0~`` 的 `+/api/**+` 模式匹配,因此即使  `SecurityFilterChain~0~` 也与``SecurityFilterChain~n~`` 匹配,也会仅调用 SecurityFilterChain0.
+如果请求的URL是 `/messages/`,则在 ``SecurityFilterChain~0~`` 的 `+/api/**+` 模式下将不匹配,因此 FilterChainProxy 将继续尝试每个 `SecurityFilterChain`.  假设没有其他匹配的 `SecurityFilterChain` , `SecurityFilterChain~n~` 实例将被调用.
+// FIXME add link to pattern matching
+
+请注意, `SecurityFilterChain~0~` 配置了三个安全过滤器实例.  但是,`SecurityFilterChainn` 配置了四个安全过滤器.
+重要的是要注意,每个 `SecurityFilterChain` 可以是唯一的,并且可以独立配置.  实际上,如果应用程序希望 Spring Security 忽略某些请求,则 `SecurityFilterChain` 可能具有零个安全过滤器.
+// FIXME: add link to configuring multiple `SecurityFilterChain` instances
+
+
+[[servlet-security-filters]]
+== Security Filters
+
+安全过滤器通过  <<servlet-securityfilterchain>>  API 插入到  <<servlet-filterchainproxy,`FilterChainProxy`>> 中.  过滤器的顺序很重要.  通常无需知道 Spring Security 过滤器的顺序.  但是,有时候知道顺序是有益的
+
+以下是 Spring Security 过滤器顺序的完整列表:
+
+* ChannelProcessingFilter
+* WebAsyncManagerIntegrationFilter
+* SecurityContextPersistenceFilter
+* HeaderWriterFilter
+* CorsFilter
+* CsrfFilter
+* LogoutFilter
+* OAuth2AuthorizationRequestRedirectFilter
+* Saml2WebSsoAuthenticationRequestFilter
+* X509AuthenticationFilter
+* AbstractPreAuthenticatedProcessingFilter
+* CasAuthenticationFilter
+* OAuth2LoginAuthenticationFilter
+* Saml2WebSsoAuthenticationFilter
+* <<servlet-authentication-usernamepasswordauthenticationfilter,`UsernamePasswordAuthenticationFilter`>>
+* OpenIDAuthenticationFilter
+* DefaultLoginPageGeneratingFilter
+* DefaultLogoutPageGeneratingFilter
+* ConcurrentSessionFilter
+* <<servlet-authentication-digest,`DigestAuthenticationFilter`>>
+* BearerTokenAuthenticationFilter
+* <<servlet-authentication-basic,`BasicAuthenticationFilter`>>
+* RequestCacheAwareFilter
+* SecurityContextHolderAwareRequestFilter
+* JaasApiIntegrationFilter
+* RememberMeAuthenticationFilter
+* AnonymousAuthenticationFilter
+* OAuth2AuthorizationCodeGrantFilter
+* SessionManagementFilter
+* <<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>>
+* <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>>
+* SwitchUserFilter
+
+[[servlet-exceptiontranslationfilter]]
+== 处理 Security 异常
+:figures: {image-resource}/servlet/architecture
+:icondir: {image-resource}/icons
+
+
+{security-api-url}org/springframework/security/web/access/ExceptionTranslationFilter.html[`ExceptionTranslationFilter`]  允许将  {security-api-url}org/springframework/security/access/AccessDeniedException.html[`AccessDeniedException`]  和  {security-api-url}/org/springframework/security/core/AuthenticationException.html[`AuthenticationException`] 转换为 HTTP 响应.
+
+`ExceptionTranslationFilter` 作为安全过滤器之一插入到 <<servlet-filterchainproxy,FilterChainProxy>>  中.
+
+image::{figures}/exceptiontranslationfilter.png[]
+
+
+* image:{icondir}/number_1.png[] 首先,`ExceptionTranslationFilter` 调用 FilterChain.doFilter(request,response)  来调用应用程序的其余部分.
+* image:{icondir}/number_2.png[] 如果用户未通过身份验证或它是 `AuthenticationException`,则启动身份验证.
+** 已清除  <<servlet-authentication-securitycontextholder,SecurityContextHolder>>
+** `HttpServletRequest` 保存在 `RequestCache` 中.  用户成功进行身份验证后,将使用  {security-api-url}org/springframework/security/web/savedrequest/RequestCache.html[`RequestCache`] 重发原始请求. .
+// FIXME: add link to authentication success
+** `AuthenticationEntryPoint` 用于从客户端请求凭据.  例如,它可能重定向到登录页面或发送 `WWW-Authenticate`  header .
+// FIXME: link to AuthenticationEntryPoint
+* image:{icondir}/number_3.png[] 否则,如果它是 `AccessDeniedException`,则拒绝访问.  调用 `AccessDeniedHandler` 来处理被拒绝的访问.
+// FIXME: link to AccessDeniedHandler
+
+[NOTE]
+====
+如果应用程序未引发 `AccessDeniedException` 或 `AuthenticationException`,则 `ExceptionTranslationFilter` 不执行任何操作.
+====
+
+`ExceptionTranslationFilter` 的伪代码如下所示:
+
+.ExceptionTranslationFilter pseudocode
+[source,java]
+----
+try {
+	filterChain.doFilter(request, response); // <1>
+} catch (AccessDeniedException | AuthenticationException ex) {
+	if (!authenticated || ex instanceof AuthenticationException) {
+		startAuthentication(); // <2>
+	} else {
+		accessDenied(); // <3>
+	}
+}
+----
+<1> 您将在 <<servlet-filters-review,过滤器回顾>>,调用  `FilterChain.doFilter(request, response)` 等同于调用应用程序的其余部分.  这意味着如果应用程序的另一部分(即 <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>> 或方法安全性) 抛出 `AuthenticationException` 或 `AccessDeniedException`,则会在此处捕获并处理.
+<2> 如果用户未通过身份验证或它是 `AuthenticationException`,则启动身份验证.
+<3> 否则,访问被拒绝
+

@@ -1,0 +1,165 @@
+[[servlet-authorization-authorizationfilter]]
+= 使用 AuthorizationFilter 授权 HttpServletRequests
+:figures: servlet/authorization
+
+本节以 <<servlet-architecture, Servlet 架构和实现>> 为基础继续深入研究 <<servlet-authorization,authorization>> 在 Servlet 的应用程序中的工作方式。
+
+[NOTE]
+`AuthorizationFilter` 取代了 <<servlet-authorization-filtersecurityinterceptor, `FilterSecurityInterceptor`>>。
+为了保持向后兼容，`FilterSecurityInterceptor` 保持依然可以使用。 本节讨论 `AuthorizationFilter` 的工作原理以及如何覆盖默认配置。
+
+{security-api-url}org/springframework/security/web/access/intercept/AuthorizationFilter.html[`AuthorizationFilter`]  为 `HttpServletRequests` 提供 <<servlet-authorization,authorization>>  .
+它作为  <<servlet-security-filters>> 之一插入到 <<servlet-filterchainproxy,FilterChainProxy>> 中.
+
+您可以在声明 `SecurityFilterChain` 时覆盖默认值。 不要使用 <<servlet-authorize-requests-defaults,authorizeRequests>>，而是使用 `authorizeHttpRequests`，如下所示：:
+
+.Use authorizeHttpRequests
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws AuthenticationException {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .anyRequest().authenticated();
+        )
+        // ...
+
+    return http.build();
+}
+----
+====
+
+对 `authorizeRequests` 进行了多种改进:
+
+1. 使用简化的 `AuthorizationManager` API 代替元数据, config 属性, decision managers, 和 voters. 这大大方便了进行自定义和重用.
+2. 延迟 `Authentication` 查找. 不需要为每个请求查找身份验证，它只会在授权决策需要身份验证的请求中查找它。
+3. 支持基于 bean 的配置。
+
+当使用 `authorizeHttpRequests` 代替 `authorizeRequests` 时, {security-api-url}org/springframework/security/web/access/intercept/AuthorizationFilter.html[`AuthorizationFilter`] 通常会代替 <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>>.
+
+.Authorize HttpServletRequest
+image::{figures}/authorizationfilter.png[]
+
+* image:{icondir}/number_1.png[] 首先, `AuthorizationFilter` 会从 <<servlet-authentication-securitycontextholder, SecurityContextHolder>> 获取一个  <<servlet-authentication-authentication,Authentication>> .
+并将起包装在 `Supplier` ，为了便于后面的延迟查找.
+* image:{icondir}/number_2.png[] 第二, `AuthorizationFilter` 从  `HttpServletRequest`, `HttpServletResponse`, 和 `FilterChain` 创建一个 {security-api-url}org/springframework/security/web/FilterInvocation.html[`FilterInvocation`]
+// FIXME: link to FilterInvocation
+* image:{icondir}/number_3.png[] 接下来, 它将 `Supplier<Authentication>` 和 `FilterInvocation` 传递给 <<authz-authorization-manager,`AuthorizationManager`>>
+** image:{icondir}/number_4.png[] 如果授权被拒绝，则抛出 `AccessDeniedException` 异常.在这种情况下  <<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>> 处理 `AccessDeniedException`.
+** image:{icondir}/number_5.png[] 如果授予访问权限, `AuthorizationFilter` 继续执行 <<servlet-filters-review,FilterChain>>,该链接可允许应用程序正常处理.
+
+我们可以通过按优先顺序添加更多规则来配置 Spring Security 使其具有不同的规则。
+
+.Authorize Requests
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+	http
+		// ...
+		.authorizeHttpRequests(authorize -> authorize                                  // <1>
+			.mvcMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
+			.mvcMatchers("/admin/**").hasRole("ADMIN")                             // <3>
+			.mvcMatchers("/db/**").access((authentication, request) ->
+			    Optional.of(hasRole("ADMIN").check(authentication, request))
+			        .filter((decision) -> !decision.isGranted())
+			        .orElseGet(() -> hasRole("DBA").check(authentication, request));
+			)   // <4>
+			.anyRequest().denyAll()                                                // <5>
+		);
+
+	return http.build();
+}
+----
+====
+<1> 指定了多个授权规则。 每个规则都按照它们被声明的顺序来考虑。.
+<2> 我们指定了任何用户都可以访问的多个 URL 。 具体来说，如果 URL 以 "/resources/" 开头或等于 "/signup" 或 "/about"，则任何用户都可以访问请求。
+<3> 任何以 "/admin/"  开头的 URL 都将被限制为只有 "ROLE_ADMIN" 角色的用户。 您会注意到，由于我们正在调用 `hasRole` 方法，因此我们不需要指定 "ROLE_"  前缀。
+<4> 任何以 "/db/" 开头的 URL 都要求用户同时拥有 "ROLE_ADMIN" 和 "ROLE_DBA"。 您会注意到，由于我们使用了 `hasRole` 表达式，我们不需要指定 "ROLE_" 前缀。
+<5> 任何尚未匹配的 URL 都将被拒绝访问。 如果您不想意外忘记更新授权规则，这是一个很好的策略。
+
+您可以通过基于 bean 的方法构建自己的 <<authz-delegate-authorization-manager,RequestMatcherDelegatingAuthorizationManager>>，如下所示：
+
+.Configure RequestMatcherDelegatingAuthorizationManager
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http, AuthorizationManager<RequestAuthorizationContext> access)
+        throws AuthenticationException {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .anyRequest().access(access)
+        )
+        // ...
+
+    return http.build();
+}
+
+@Bean
+AuthorizationManager<RequestAuthorizationContext> requestMatcherAuthorizationManager(HandlerMappingIntrospector introspector) {
+    RequestMatcher permitAll =
+            new AndRequestMatcher(
+                    new MvcRequestMatcher(introspector, "/resources/**"),
+                    new MvcRequestMatcher(introspector, "/signup"),
+                    new MvcRequestMatcher(introspector, "/about"));
+    RequestMatcher admin = new MvcRequestMatcher(introspector, "/admin/**");
+    RequestMatcher db = new MvcRequestMatcher(introspector, "/db/**");
+    RequestMatcher any = AnyRequestMatcher.INSTANCE;
+    AuthorizationManager<HttpRequestServlet> manager = RequestMatcherDelegatingAuthorizationManager.builder()
+            .add(permitAll, (context) -> new AuthorizationDecision(true))
+            .add(admin, AuthorityAuthorizationManager.hasRole("ADMIN"))
+            .add(db, AuthorityAuthorizationManager.hasRole("DBA"))
+            .add(any, new AuthenticatedAuthorizationManager())
+            .build();
+    return (context) -> manager.check(context.getRequest());
+}
+----
+====
+
+您还可以为任何请求匹配器连接 <<authz-custom-authorization-manager,您自己的自定义授权管理器>>
+
+以下是将自定义授权管理器映射到  `my/authorized/endpoint` 的示例:
+
+.Custom Authorization Manager
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .mvcMatchers("/my/authorized/endpoint").access(new CustomAuthorizationManager());
+        )
+        // ...
+
+    return http.build();
+}
+----
+====
+
+或者您可以为所有请求提供它，如下所示:
+
+.Custom Authorization Manager for All Requests
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .anyRequest.access(new CustomAuthorizationManager());
+        )
+        // ...
+
+    return http.build();
+}
+----
+====

@@ -70,9 +70,6 @@
 </bean>
 ----
 
-
-
-
 [[anonymous-auth-trust-resolver]]
 === AuthenticationTrustResolver
 完善匿名身份验证讨论的是 `AuthenticationTrustResolver` 接口及其相应的 `AuthenticationTrustResolverImpl` 实现.  该接口提供了 `isAnonymous(Authentication)` 方法,该方法允许感兴趣的类将这种特殊类型的身份验证状态考虑在内.  `ExceptionTranslationFilter` 在处理 `AccessDeniedException` 时使用此接口.  如果抛出 `AccessDeniedException` 且身份验证为匿名类型,则过滤器将代替启动 `AuthenticationEntryPoint`,而不引发 403 (禁止) 响应,以便主体可以正确地进行身份验证.
@@ -80,3 +77,62 @@
 
 您经常会在上述拦截器配置中看到 `ROLE_ANONYMOUS` 属性被 `IS_AUTHENTICATED_ANONYMOUSLY` 替换,这在定义访问控制时实际上是相同的.  这是使用 `AuthenticatedVoter` 的示例,我们将在<<authz-authenticated-voter,授权章节>>中看到.  它使用 `AuthenticationTrustResolver` 来处理此特定配置属性,并将访问权限授予匿名用户.
 `AuthenticatedVoter` 方法更强大,因为它使您可以区分匿名用户,记住我的用户和经过完全认证的用户.  如果您不需要此功能,则可以坚持使用 `ROLE_ANONYMOUS`,它将由 Spring Security 的标准 `RoleVoter` 处理.
+
+[[anonymous-auth-mvc-controller]]
+== 使用 Spring MVC 获取匿名身份验证
+
+https://docs.spring.io/spring-framework/docs/current/reference/html/web.html#mvc-ann-arguments[Spring MVC 使用自己的参数解析器解析 `Principal`类型的参数]。
+
+这意味着像这样的构造:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@GetMapping("/")
+public String method(Authentication authentication) {
+	if (authentication instanceof AnonymousAuthenticationToken) {
+		return "anonymous";
+	} else {
+		return "not anonymous";
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/")
+fun method(authentication: Authentication?): String {
+    return if (authentication is AnonymousAuthenticationToken) {
+        "anonymous"
+    } else {
+        "not anonymous"
+    }
+}
+----
+====
+
+将始终返回  "not anonymous"，即使对于匿名请求也是如此。 原因是 Spring MVC 使用 `HttpServletRequest#getPrincipal` 解析参数，当请求为匿名时为 `null`。
+
+如果您想在匿名请求中获取 `Authentication`，请改用 `@CurrentSecurityContext`:
+
+.Use CurrentSecurityContext for Anonymous requests
+====
+.Java
+[source,java,role="primary"]
+----
+@GetMapping("/")
+public String method(@CurrentSecurityContext SecurityContext context) {
+	return context.getAuthentication().getName();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/")
+fun method(@CurrentSecurityContext context : SecurityContext) : String =
+		context!!.authentication!!.name
+----
+====

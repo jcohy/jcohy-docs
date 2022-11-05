@@ -5,23 +5,53 @@
 === 检测超时
 您可以配置 Spring Security 来检测无效会话 ID,并将用户重定向到适当的 URL.  这是通过 `session-management` 元素实现的:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception{
+    http
+        .sessionManagement(session -> session
+            .invalidSessionUrl("/invalidSession.htm")
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <http>
 ...
 <session-management invalid-session-url="/invalidSession.htm" />
 </http>
 ----
+====
 
 请注意,如果使用此机制来检测会话超时时,在不关闭浏览器的情况下,用户注销然后重新登录,它可能会错误地报告错误.
 这是因为在使会话无效时不会清除会话 cookie,即使用户已注销,会话 cookie 也会重新提交.  您可以在注销时显式删除 `JSESSIONID` cookie,例如通过在注销处理程序中使用以下语法:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception{
+    http
+        .logout(logout -> logout
+            .deleteCookies("JSESSIONID")
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <http>
 <logout delete-cookies="JSESSIONID" />
 </http>
 ----
+====
 
 不幸的是,不能保证它可以与每个 servlet 容器一起使用,因此您需要在您的环境中对其进行测试
 
@@ -38,9 +68,20 @@ Header always set Set-Cookie "JSESSIONID=;Path=/tutorial;Expires=Thu, 01 Jan 197
 [[ns-concurrent-sessions]]
 === 并发会话控制
 
-如果您希望限制单个用户登录到您的应用程序的能力,Spring Security 可以通过以下简单的补充来支持此功能.  首先,您需要将以下监听器添加到您的 `web.xml` 文件中,以使 Spring Security 更新有关会话生命周期事件的信息:
+如果您希望限制单个用户登录到您的应用程序的能力,Spring Security 可以通过以下简单的补充来支持此功能.  首先,您需要将以下监听器添加到您的 configuration 文件中,以使 Spring Security 更新有关会话生命周期事件的信息:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public HttpSessionEventPublisher httpSessionEventPublisher() {
+    return new HttpSessionEventPublisher();
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <listener>
 <listener-class>
@@ -48,10 +89,25 @@ Header always set Set-Cookie "JSESSIONID=;Path=/tutorial;Expires=Thu, 01 Jan 197
 </listener-class>
 </listener>
 ----
+====
 
 然后将以下行添加到您的应用程序上下文:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .sessionManagement(session -> session
+            .maximumSessions(1)
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <http>
 ...
@@ -60,18 +116,34 @@ Header always set Set-Cookie "JSESSIONID=;Path=/tutorial;Expires=Thu, 01 Jan 197
 </session-management>
 </http>
 ----
+====
 
 这将防止用户多次登录-第二次登录将使第一次登录无效.  通常,您希望避免再次登录,在这种情况下,您可以使用
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .sessionManagement(session -> session
+            .maximumSessions(1)
+            .maxSessionsPreventsLogin(true)
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <http>
-...
 <session-management>
 	<concurrency-control max-sessions="1" error-if-maximum-exceeded="true" />
 </session-management>
 </http>
 ----
+====
 
 然后,第二次登录将被拒绝.  "拒绝" 是指如果使用基于表单的登录名,则会将用户发送到 `authentication-failure-url`.
 如果第二次身份验证是通过另一个非交互机制 (例如 `remember-me`) 进行的,则 "unauthorized"  (401) 错误将发送给客户端.  相反,如果要使用错误页面,则可以将属性 `session-authentication-error-url` 添加到 `session-management` 元素中.
