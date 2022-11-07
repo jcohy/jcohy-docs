@@ -1,20 +1,6 @@
-[[servlet-saml2login]]
-== SAML 2.0 Login
-:figures: {image-resource}/servlet/saml2
-:icondir: {image-resource}/icons
-
-
-SAML 2.0 登录功能为应用程序提供了使用户能够通过使用其在 SAML 2.0 身份提供程序(Okta,ADFS 等) 上的现有帐户 https://wiki.shibboleth.net/confluence/display/CONCEPT/FlowsAndConfig[log in] 到该应用程序的功能.
-
-NOTE: SAML 2.0 登录是通过使用 https://www.oasis-open.org/committees/download.php/35389/sstc-saml-profiles-errata-2.0-wd-06-diff.pdf#page=15[SAML 2 Profiles]中指定的 *Web 浏览器 SSOProfile* 来实现的.
-
-[[servlet-saml2login-spring-security-history]]
-自 2009 年以来， 对  relying party  的支持已作为 https://github.com/spring-projects/spring-security-saml/tree/1e013b07a7772defd6a26fcfae187c9bf661ee8f#spring-saml[extension project] 存在. 在 2019 年， 开始将其移植到 https://github.com/spring-projects/spring-security[Spring Security] 中. 此过程类似于 2017 年开始对 <<oauth2,Spring Security 的 OAuth 2.0 支持的过程>>.
-
-[NOTE]
-====
-{gh-samples-url}[Spring Security repository]中提供了 {gh-samples-url}/boot/saml2login[SAML 2.0 Login] 的示例.
-====
+== SAML 2.0 Login Overview
+:figures: servlet/saml2
+:icondir: icons
 
 让我们来看看 SAML 2.0 如何在 Spring Security 内工作.  首先， 我们看到， 和 <<oauth2login, OAuth 2.0 Login>> 一样， Spring Security 将用户带到第三方进行身份验证.  它通过一系列重定向来实现这一点.
 
@@ -49,7 +35,7 @@ image:{icondir}/number_1.png[] 当浏览器提交 `<saml2:Response>` 到应用�
 此转换器另外解析了 <<servlet-saml2login-relyingpartyregistration, `RelyingPartyRegistration`>> 并将其提供给 `Saml2AuthenticationToken`.
 
 image:{icondir}/number_2.png[] 接下来, 过滤器将令牌传递给配置的 <<servlet-authentication-providermanager,`AuthenticationManager`>>.
-默认情况下, 它将使用 <<servlet-saml2login-architecture,`OpenSamlAuthenticationProvider`>>.
+默认情况下, 它将使用 <<servlet-saml2login-architecture,`OpenSAML authentication provider`>>.
 
 image:{icondir}/number_3.png[] 如果身份验证失败， 则 __失败__
 
@@ -99,6 +85,7 @@ where
 * `https://idp.example.com/issuer` 是身份提供者将发布的 SAML 响应的 `Issuer` 属性中包含的值
 * `classpath:idp.crt` 是身份提供者用于验证响应的证书在类路径上的位置， 以及
 * `https://idp.example.com/issuer/sso` 是身份提供者期望 `AuthnRequest` 的端点.
+* `adfs` 是 <<servlet-saml2login-relyingpartyregistrationid, 您选择的标识符>>
 
 就这样简单!
 
@@ -136,10 +123,15 @@ Spring Security 的 Saml 2.0 支持有几个设计目标:
 * 首先, 需要依赖操作 SAML 2.0 和 domain objects 的库.为实现这一目标, Spring Security 使用 OpenSAML.
 * 第二, 确保使用 Spring Security 的 SAML 支持不需要此库.为了达成此目的, 在 Spring Security  约定使用的任何 OpenSAML 中的类或接口都保留封装.这使得您可以将 OpenSAML 切换到其他一些库， 甚至是 OpenSAML 不受支持的版本.
 
-作为上述两个目标的结果， Spring Security 的 SAML API 相对于其他模块非常小.  相反， 像 `OpenSamlAuthenticationRequestFactory` 和 `OpenSamlAuthenticationProvider`  这样的类类暴露了自定义身份验证过程中各个步骤的 `Converter`.
+作为上述两个目标的结果， Spring Security 的 SAML API 相对于其他模块非常小.  相反， 像 `OpenSaml4AuthenticationRequestFactory` 和 `OpenSaml4AuthenticationProvider`  这样的类暴露了自定义身份验证过程中各个步骤的 `Converter`.
 
-例如， 一旦应用程序接收到 `SAMLResponse` 并委托给 `Saml2WebSsoAuthenticationFilter`， 该过滤器将委托给 `OpenSamlAuthenticationProvider`.
+例如， 一旦应用程序接收到 `SAMLResponse` 并委托给 `Saml2WebSsoAuthenticationFilter`， 该过滤器将委托给 `OpenSaml4AuthenticationProvider`.
 
+[NOTE]
+为了向后兼容，Spring Security 默认使用最新的 OpenSAML 3。
+请注意，尽管 OpenSAML 3 已达到其生命周期的尽头，并且建议更新到 OpenSAML 4.x。
+因此，Spring Security 同时支持 OpenSAML 3.x 和 4.x。
+如果您将 OpenSAML 依赖项管理到 4.x，那么 Spring Security 将选择其 OpenSAML 4.x 实现。
 
 .Authenticating an OpenSAML `Response`
 image:{figures}/opensamlauthenticationprovider.png[]
@@ -148,76 +140,124 @@ image:{figures}/opensamlauthenticationprovider.png[]
 
 image:{icondir}/number_1.png[] `Saml2WebSsoAuthenticationFilter` 构建 `Saml2AuthenticationToken` 并且调用 <<servlet-authentication-providermanager,`AuthenticationManager`>>.
 
-image:{icondir}/number_2.png[] <<servlet-authentication-providermanager,`AuthenticationManager`>> 调用 `OpenSamlAuthenticationProvider`.
+image:{icondir}/number_2.png[] <<servlet-authentication-providermanager,`AuthenticationManager`>> 调用 `OpenSAML authentication provider`.
 
 image:{icondir}/number_3.png[] authentication provider 将响应反序列化为 OpenSAML `Response` 并检查 signature.
 如果 signature 失效, 则身份验证失败.
 
-image:{icondir}/number_4.png[] 接下来, provider 验证响应的 `Issuer` 和 `Destination` 值.
-如果他们与 `RelyingPartyRegistration` 中的内容不匹配, 则身份验证失败.
-
-image:{icondir}/number_5.png[] 然后, provider 解密所有加密的 assertions.
+image:{icondir}/number_4.png[] 接下来, provider <<servlet-saml2login-opensamlauthenticationprovider-decryption,解密任何 `EncryptedAssertion` 元素>>.
 如果有一个解密失败, 则身份验证失败.
 
-image:{icondir}/number_6.png[] 之后, provider 验证每个 `Assertion` 的签名.
-如果有一个验证失败， 则身份验证失败.
-此外， 如果响应和 assertions 都没有签名 signatures, 则身份验证失败.
-需要响应或 assertions 有签名.
+image:{icondir}/number_5.png[] 接下来, provider 验证响应的 `Issuer` 和 `Destination` 值.
+如果他们与 `RelyingPartyRegistration` 中的内容不匹配, 则身份验证失败.
 
-image:{icondir}/number_7.png[] 然后, provider 验证每个 assertion 的 `ExpiresAt` 和 `NotBefore` 时间戳, `<Subject>` 和任何 `<AudienceRestriction>` 条件.
+image:{icondir}/number_6.png[] 之后, provider 验证每个 `Assertion` 的签名.如果有一个验证失败， 则身份验证失败.
+此外， 如果响应和 assertions 都没有签名 signatures, 则身份验证失败.需要响应或 assertions 有签名.
+
+image:{icondir}/number_7.png[] 然后，provider  <<servlet-saml2login-opensamlauthenticationprovider-decryption,解密任何 `EncryptedID` 或 `EncryptedAttribute` 元素>> .
+如果有一个解密失败, 则身份验证失败.
+
+image:{icondir}/number_8.png[] 然后, provider 验证每个 assertion 的 `ExpiresAt` 和 `NotBefore` 时间戳, `<Subject>` 和任何 `<AudienceRestriction>` 条件.
 如果有一个验证失败， 则身份验证失败.
 
-image:{icondir}/number_8.png[] 在此之后, provider 将第一个 assertion 的 `AttributeStatement` 映射为 `Map<String, List<Object>>`.
+image:{icondir}/number_9.png[] 在此之后, provider 将第一个 assertion 的 `AttributeStatement` 映射为 `Map<String, List<Object>>`.
 他还授予 `ROLE_USER` 权限.
 
-image:{icondir}/number_9.png[] 最后, provider 从第一个 assertion 中获取  `NameID`, 属性的 `Map` , 和 `GrantedAuthority` 并构造一个  `Saml2AuthenticatedPrincipal`.
+image:{icondir}/number_10.png[] 最后, provider 从第一个 assertion 中获取  `NameID`, 属性的 `Map` , 和 `GrantedAuthority` 并构造一个  `Saml2AuthenticatedPrincipal`.
 然后, 将 principal 和 authorities 放入 `Saml2Authentication`.
 
 生成的 `Authentication#getPrincipal` 是 Spring Security `Saml2AuthenticatedPrincipal` 对象, `Authentication#getName` 映射到第一个 assertion 的 `NameID` 元素.
+`Saml2AuthenticatedPrincipal#getRelyingPartyRegistrationId` 拥有和 <<servlet-saml2login-relyingpartyregistrationid,`RelyingPartyRegistration`>> 相关联的标识符.
 
 [[servlet-saml2login-opensaml-customization]]
 ==== 自定义 OpenSAML 配置
 
 任何同时使用 Spring Security 和 OpenSAML 的类都应该在类的开头静态初始化 `OpenSamlInitializationService`， 如下所示:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 static {
 	OpenSamlInitializationService.initialize();
 }
 ----
 
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+companion object {
+    init {
+        OpenSamlInitializationService.initialize()
+    }
+}
+----
+====
+
 这代替了 OpenSAML 的 `InitializationService#initialize`.
 
 有时， 自定义 OpenSAML 如何构建， marshalls 和 unmarshalls SAML 对象可能是有价值的.  在这种情况下， 您可以拒绝调用 `OpenSamlInitializationService#requireInitialize(Consumer)`， 使您可以访问 OpenSAML 的 `XMLObjectProviderFactory`.
 
-例如， 如果您始终想要始终强制 asserting party  才能重新认证用户， 您可以注册自己的 `AuthnRequestMarshaller`， 如下所示:
+例如，当发送一个未签名的 AuthNRequest 时，您可能想要强制重新认证。
+在这种情况下，您可以注册自己的 `AuthnRequestMarshaller`，如下所示：
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 static {
-	OpenSamlInitializationService.requireInitialize(factory -> {
-		AuthnRequestMarshaller marshaller = new AuthnRequestMarshaller() {
-			@Override
+    OpenSamlInitializationService.requireInitialize(factory -> {
+        AuthnRequestMarshaller marshaller = new AuthnRequestMarshaller() {
+            @Override
             public Element marshall(XMLObject object, Element element) throws MarshallingException {
-				configureAuthnRequest((AuthnRequest) object);
-				return super.marshall(object, element);
+                configureAuthnRequest((AuthnRequest) object);
+                return super.marshall(object, element);
             }
 
             public Element marshall(XMLObject object, Document document) throws MarshallingException {
-				configureAuthnRequest((AuthnRequest) object);
-				return super.marshall(object, document);
+                configureAuthnRequest((AuthnRequest) object);
+                return super.marshall(object, document);
             }
 
             private void configureAuthnRequest(AuthnRequest authnRequest) {
-				authnRequest.setForceAuthN(true);
+                authnRequest.setForceAuthn(true);
             }
-		}
+        }
 
-	    factory.getMarshallerFactory().registerMarshaller(AuthnRequest.DEFAULT_ELEMENT_NAME, marshaller);
-	});
+        factory.getMarshallerFactory().registerMarshaller(AuthnRequest.DEFAULT_ELEMENT_NAME, marshaller);
+    });
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+companion object {
+    init {
+        OpenSamlInitializationService.requireInitialize {
+            val marshaller = object : AuthnRequestMarshaller() {
+                override fun marshall(xmlObject: XMLObject, element: Element): Element {
+                    configureAuthnRequest(xmlObject as AuthnRequest)
+                    return super.marshall(xmlObject, element)
+                }
+
+                override fun marshall(xmlObject: XMLObject, document: Document): Element {
+                    configureAuthnRequest(xmlObject as AuthnRequest)
+                    return super.marshall(xmlObject, document)
+                }
+
+                private fun configureAuthnRequest(authnRequest: AuthnRequest) {
+                    authnRequest.isForceAuthn = true
+                }
+            }
+            it.marshallerFactory.registerMarshaller(AuthnRequest.DEFAULT_ELEMENT_NAME, marshaller)
+        }
+    }
+}
+----
+====
+
 
 每个应用程序实例只能调用一次 `requireInitialize` 方法.
 
@@ -235,7 +275,7 @@ Spring Boot 有两 个 `@Bean` 为 relying party 生成.
 ----
 protected void configure(HttpSecurity http) {
     http
-        .authorizeRequests(authorize -> authorize
+        .authorizeHttpRequests(authorize -> authorize
             .anyRequest().authenticated()
         )
         .saml2Login(withDefaults());
@@ -269,7 +309,7 @@ fun configure(http: HttpSecurity) {
 public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests(authorize -> authorize
+            .authorizeHttpRequests(authorize -> authorize
                 .mvcMatchers("/messages/**").hasAuthority("ROLE_USER")
                 .anyRequest().authenticated()
             )
@@ -307,27 +347,49 @@ class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
 
 .Relying Party Registration Repository
 ====
-[source,java]
+.Java
+[source,java,role="primary"]
 ----
 @Value("${metadata.location}")
 String assertingPartyMetadataLocation;
 
 @Bean
 public RelyingPartyRegistrationRepository relyingPartyRegistrations() {
-	RelyingPartyRegistration registration = RelyingPartyRegistrations
+    RelyingPartyRegistration registration = RelyingPartyRegistrations
             .fromMetadataLocation(assertingPartyMetadataLocation)
             .registrationId("example")
             .build();
     return new InMemoryRelyingPartyRegistrationRepository(registration);
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Value("\${metadata.location}")
+var assertingPartyMetadataLocation: String? = null
+
+@Bean
+open fun relyingPartyRegistrations(): RelyingPartyRegistrationRepository? {
+    val registration = RelyingPartyRegistrations
+        .fromMetadataLocation(assertingPartyMetadataLocation)
+        .registrationId("example")
+        .build()
+    return InMemoryRelyingPartyRegistrationRepository(registration)
+}
+----
 ====
+
+[[servlet-saml2login-relyingpartyregistrationid]]
+[NOTE]
+`registrationId` 是您选择用于区分注册的任意值。
 
 或者， 您可以手动提供每个细节,如下:
 
 .Relying Party Registration Repository Manual Configuration
 ====
-[source,java]
+.Java
+[source,java,role="primary"]
 ----
 @Value("${verification.key}")
 File verificationKey;
@@ -348,6 +410,34 @@ public RelyingPartyRegistrationRepository relyingPartyRegistrations() throws Exc
     return new InMemoryRelyingPartyRegistrationRepository(registration);
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Value("\${verification.key}")
+var verificationKey: File? = null
+
+@Bean
+open fun relyingPartyRegistrations(): RelyingPartyRegistrationRepository {
+    val certificate: X509Certificate? = X509Support.decodeCertificate(verificationKey!!)
+    val credential: Saml2X509Credential = Saml2X509Credential.verification(certificate)
+    val registration = RelyingPartyRegistration
+        .withRegistrationId("example")
+        .assertingPartyDetails { party: AssertingPartyDetails.Builder ->
+            party
+                .entityId("https://idp.example.com/issuer")
+                .singleSignOnServiceLocation("https://idp.example.com/SSO.saml2")
+                .wantAuthnRequestsSigned(false)
+                .verificationX509Credentials { c: MutableCollection<Saml2X509Credential?> ->
+                    c.add(
+                        credential
+                    )
+                }
+        }
+        .build()
+    return InMemoryRelyingPartyRegistrationRepository(registration)
+}
+----
 ====
 
 [NOTE]
@@ -366,7 +456,7 @@ public RelyingPartyRegistrationRepository relyingPartyRegistrations() throws Exc
 public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
     protected void configure(HttpSecurity http) {
         http
-            .authorizeRequests(authorize -> authorize
+            .authorizeHttpRequests(authorize -> authorize
                 .mvcMatchers("/messages/**").hasAuthority("ROLE_USER")
                 .anyRequest().authenticated()
             )
@@ -580,25 +670,27 @@ spring:
 
 第三， 在 Java 中， 您可以创建自定义配置方法， 如下所示:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 private RelyingPartyRegistration.Builder
         addRelyingPartyDetails(RelyingPartyRegistration.Builder builder) {
 
-	Saml2X509Credential signingCredential = ...
-	builder.signingX509Credentials(c -> c.addAll(signingCredential));
-	// ... other relying party configurations
+    Saml2X509Credential signingCredential = ...
+    builder.signingX509Credentials(c -> c.addAll(signingCredential));
+    // ... other relying party configurations
 }
 
 @Bean
 public RelyingPartyRegistrationRepository relyingPartyRegistrations() {
     RelyingPartyRegistration okta = addRelyingPartyDetails(
-            RelyingPartyRegistration
+            RelyingPartyRegistrations
                 .fromMetadataLocation(oktaMetadataUrl)
                 .registrationId("okta")).build();
 
     RelyingPartyRegistration azure = addRelyingPartyDetails(
-            RelyingPartyRegistration
+            RelyingPartyRegistrations
                 .fromMetadataLocation(oktaMetadataUrl)
                 .registrationId("azure")).build();
 
@@ -606,360 +698,32 @@ public RelyingPartyRegistrationRepository relyingPartyRegistrations() {
 }
 ----
 
-[[servlet-saml2login-sp-initiated-factory]]
-=== 生成 `<saml2:AuthnRequest>`
-
-如前所述， Spring Security 的 SAML 2.0 支持生成一个  `<saml2:AuthnRequest>`  来开始与 asserting party 的身份验证.
-
-Spring Security 通过在过滤器链中注册 `Saml2WebSsoAuthenticationRequestFilter` 来实现这一点. 这个过滤器默认响应端点  `+/saml2/authenticate/{registrationId}+`.
-
-例如， 如果你部署到 `https://rp.example.com`， 你给你的 registration `okta` ID， 你可以链接到:
-
-`https://rp.example.org/saml2/authenticate/ping`
-
-结果将是一个重定向， 其中包含一个包含有符号、压缩和编码 `<saml2:AuthnRequest>` 的 `SAMLRequest` 参数.
-
-[[servlet-saml2login-sp-initiated-factory-signing]]
-==== 改变 `<saml2:AuthnRequest>` 的发送方式
-
-默认情况下， Spring Security 对每个 `<saml2:AuthnRequest>` 进行签名， 并将其作为 GET 发送到 asserting party .
-
-许多 asserting party 不需要 signed `<saml2:AuthnRequest>`. 这可以通过  `RelyingPartyRegistrations` 自动配置， 也可以手动提供， 如下所示:
-
-.Not Requiring Signed AuthnRequests
-====
-.Boot
-[source,yaml,role="primary"]
+.Kotlin
+[source,kotlin,role="secondary"]
 ----
-spring:
-  security:
-    saml2:
-      relyingparty:
-        okta:
-          identityprovider:
-            entity-id: ...
-            singlesignon.sign-request: false
-----
-
-.Java
-[source,java,role="secondary"]
-----
-RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistration.withRegistrationId("okta")
-        // ...
-        .assertingPartyDetails(party -> party
-            // ...
-            .wantAuthnRequestsSigned(false)
-        );
-----
-====
-
-否则， 你需要为 `RelyingPartyRegistration#signingX509Credentials` 指定一个私钥， 这样 Spring Security 就可以在发送之前对  `<saml2:AuthnRequest>` 进行签名.
-
-[[servlet-saml2login-sp-initiated-factory-binding]]
-一些 asserting party 要求 POSTed `<saml2:AuthnRequest>` . 这可以通过 `RelyingPartyRegistrations` 自动配置， 也可以手动提供， 如下所示:
-
-[source,java]
-----
-RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistration.withRegistrationId("okta")
-        // ...
-        .assertingPartyDetails(party -> party
-            // ...
-            .singleSignOnServiceBinding(Saml2MessageType.POST)
-        );
-----
-
-[[servlet-saml2login-sp-initiated-factory-custom-authnrequest]]
-==== 自定义 OpenSAML 的 `AuthnRequest` 实例
-
-调整 `AuthnRequest` 的原因有很多. 例如， 您可能希望将 `ForceAuthN` 设置为 `true`, Spring Security 默认设置为 `false`.
-
-如果你不需要来自 `HttpServletRequest` 的信息来做决定， 那么最简单的方法就是用 <<servlet-saml2login-opensaml-customization,OpenSAML 注册一个自定义的 `AuthnRequestMarshaller`>>.这将使您能够在 `AuthnRequest` 实例被序列化之前对其进行后处理.
-
-但是， 如果你确实需要从请求中获取一些东西， 那么你可以创建一个自定义 `Saml2AuthenticationRequestContext` 实现， 然后使用 `Converter<Saml2AuthenticationRequestContext, AuthnRequest>` 来自己构建一个 `AuthnRequest`， 如下所示:
-
-[source,java]
-----
-@Component
-public class AuthnRequestConverter implements
-        Converter<MySaml2AuthenticationRequestContext, AuthnRequest> {
-
-	private final AuthnRequestBuilder authnRequestBuilder;
-	private final IssuerBuilder issuerBuilder;
-
-	// ... constructor
-
-	public AuthnRequest convert(Saml2AuthenticationRequestContext context) {
-		MySaml2AuthenticationRequestContext myContext = (MySaml2AuthenticationRequestContext) context;
-		Issuer issuer = issuerBuilder.buildObject();
-		issuer.setValue(myContext.getIssuer());
-
-		AuthnRequest authnRequest = authnRequestBuilder.buildObject();
-		authnRequest.setIssuer(iss);
-        authnRequest.setDestination(myContext.getDestination());
-		authnRequest.setAssertionConsumerServiceURL(myContext.getAssertionConsumerServiceUrl());
-
-		// ... additional settings
-
-		authRequest.setForceAuthn(myContext.getForceAuthn());
-		return authnRequest;
-	}
-}
-----
-
-然后， 你可以构造自己的 `Saml2AuthenticationRequestContextResolver` 和 `Saml2AuthenticationRequestFactory`， 并以 `@Bean` 的形式发布它们:
-
-[source,java]
-----
-@Bean
-Saml2AuthenticationRequestContextResolver authenticationRequestContextResolver() {
-	Saml2AuthenticationRequestContextResolver resolver =
-            new DefaultSaml2AuthenticationRequestContextResolver();
-	return request -> {
-        Saml2AuthenticationRequestContext context = resolver.resolve(request);
-        return new MySaml2AuthenticationRequestContext(context, request.getParameter("force") != null);
-	};
+private fun addRelyingPartyDetails(builder: RelyingPartyRegistration.Builder): RelyingPartyRegistration.Builder {
+    val signingCredential: Saml2X509Credential = ...
+    builder.signingX509Credentials { c: MutableCollection<Saml2X509Credential?> ->
+        c.add(
+            signingCredential
+        )
+    }
+    // ... other relying party configurations
 }
 
 @Bean
-Saml2AuthenticationRequestFactory authenticationRequestFactory(
-		AuthnRequestConverter authnRequestConverter) {
-
-	OpenSamlAuthenticationRequestFactory authenticationRequestFactory =
-            new OpenSamlAuthenticationRequestFactory();
-	authenticationRequestFactory.setAuthenticationRequestContextConverter(authnRequestConverter);
-	return authenticationRequestFactory;
+open fun relyingPartyRegistrations(): RelyingPartyRegistrationRepository? {
+    val okta = addRelyingPartyDetails(
+        RelyingPartyRegistrations
+            .fromMetadataLocation(oktaMetadataUrl)
+            .registrationId("okta")
+    ).build()
+    val azure = addRelyingPartyDetails(
+        RelyingPartyRegistrations
+            .fromMetadataLocation(oktaMetadataUrl)
+            .registrationId("azure")
+    ).build()
+    return InMemoryRelyingPartyRegistrationRepository(okta, azure)
 }
 ----
-
-[[servlet-saml2login-authenticate-responses]]
-=== Authenticating `<saml2:Response>`
-
-为了验证 SAML 2.0 响应， Spring Security 默认使用 <<servlet-saml2login-architecture,`OpenSamlAuthenticationProvider`>>.
-
-你可以通过多种方式来配置它， 包括:
-
-1. 将时钟偏斜设置为时间戳验证
-2. 将响应映射到一个 `GrantedAuthority` 实例列表
-3. 自定义验证 assertions 的策略
-
-要配置这些， 您将在 DSL 中使用 `saml2Login#authenticationManager` 方法.
-
-[[servlet-saml2login-opensamlauthenticationprovider-clockskew]]
-==== 设置 Clock Skew
-
-asserting 和 relying parties  具有不完全同步的系统时间并不罕见.  因此， 您可以使用一些时差配置 `OpenSamlAuthenticationProvider` 的默认断言验证器:
-
-[source,java]
-----
-@EnableWebSecurity
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-        OpenSamlAuthenticationProvider authenticationProvider = new OpenSamlAuthenticationProvider();
-        authenticationProvider.setAssertionValidator(OpenSamlAuthenticationProvider
-                .createDefaultAssertionValidator(assertionToken -> {
-        			Map<String, Object> params = new HashMap<>();
-        			params.put(CLOCK_SKEW, Duration.ofMinutes(10).toMillis());
-        			// ... other validation parameters
-        			return new ValidationContext(params);
-        		})
-        );
-
-        http
-            .authorizeRequests(authz -> authz
-                .anyRequest().authenticated()
-            )
-            .saml2Login(saml2 -> saml2
-                .authenticationManager(new ProviderManager(authenticationProvider))
-            );
-    }
-}
-----
-
-[[servlet-saml2login-opensamlauthenticationprovider-userdetailsservice]]
-==== 与  `UserDetailsService` 关联
-
-或者， 您可能希望包含来自遗留 `UserDetailsService` 的用户详细信息. 在这种情况下， 响应身份验证转换器可以派上用场， 如下所示:
-
-[source,java]
-----
-@EnableWebSecurity
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
-    @Autowired
-    UserDetailsService userDetailsService;
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-        OpenSamlAuthenticationProvider authenticationProvider = new OpenSamlAuthenticationProvider();
-        authenticationProvider.setResponseAuthenticationConverter(responseToken -> {
-        	Saml2Authentication authentication = OpenSamlAuthenticationProvider
-                    .createDefaultResponseAuthenticationConverter() <1>
-                    .convert(responseToken);
-        	Assertion assertion = responseToken.getResponse().getAssertions().get(0);
-            String username = assertion.getSubject().getNameID().getValue();
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(username); <2>
-            return MySaml2Authentication(userDetails, authentication); <3>
-        });
-
-        http
-            .authorizeRequests(authz -> authz
-                .anyRequest().authenticated()
-            )
-            .saml2Login(saml2 -> saml2
-                .authenticationManager(new ProviderManager(authenticationProvider))
-            );
-    }
-}
-----
-<1> 首先， 调用默认转换器， 它从响应中提取属性和权限
-<2> 其次， 使用相关信息调用 <<servlet-authentication-userdetailsservice, `UserDetailsService`>>
-<3> 第三， 返回一个包含用户详细信息的自定义身份验证
-
-[NOTE]
-它不需要调用 `OpenSamlAuthenticationProvider` 的默认身份验证转换器. 它返回一个 `Saml2AuthenticatedPrincipal`， 其中包含从 `AttributeStatement` 提取的属性以及单个 `ROLE_USER` 权限
-
-[[servlet-saml2login-opensamlauthenticationprovider-additionalvalidation]]
-==== 执行额外验证
-
-`OpenSamlAuthenticationProvider` 对 SAML 2.0 assertion 执行最小验证. 在验证签名后， 它将:
-
-1. 验证 `<AudienceRestriction>` 和 `<DelegationRestriction>` 条件
-2. 验证 `<SubjectConfirmation>` , 期望任何 IP 地址信息
-
-要执行额外的验证， 您可以配置自己的断言验证器， 它委托给默认的 `OpenSamlAuthenticationProvider`， 然后执行自己的断言验证器.
-
-[[servlet-saml2login-opensamlauthenticationprovider-onetimeuse]]
-例如， 你可以使用 OpenSAML 的 `OneTimeUseConditionValidator` 来验证 `<OneTimeUse>` 条件， 就像这样:
-
-[source,java]
-----
-OpenSamlAuthenticationProvider provider = new OpenSamlAuthenticationProvider();
-OneTimeUseConditionValidator validator = ...;
-provider.setAssertionValidator(assertionToken -> {
-    Saml2ResponseValidatorResult result = OpenSamlAuthenticationProvider
-            .createDefaultAssertionValidator()
-            .convert(assertionToken);
-    Assertion assertion = assertionToken.getAssertion();
-    OneTimeUse oneTimeUse = assertion.getConditions().getOneTimeUse();
-    ValidationContext context = new ValidationContext();
-    try {
-    	if (validator.validate(oneTimeUse, assertion, context) == ValidationResult.VALID) {
-    		return result;
-    	}
-    } catch (Exception e) {
-    	return result.concat(new Saml2Error(INVALID_ASSERTION, e.getMessage()));
-    }
-    return result.contact(new Saml2Error(INVALID_ASSERTION, context.getValidationFailureMessage()));
-});
-----
-
-[NOTE]
-虽然推荐使用， 但不需要调用 `OpenSamlAuthenticationProvider` 的默认断言验证器. 如果你不需要它来检查 `<AudienceRestriction>` 或 `<SubjectConfirmation>`， 因为你自己在做这些， 你就会跳过它.
-
-[[servlet-saml2login-authenticationmanager-custom]]
-==== 使用自定义 Authentication Manager
-
-[[servlet-saml2login-opensamlauthenticationprovider-authenticationmanager]]
-当然， AuthenticationManager DSL 方法也可以用于执行完全自定义的 SAML 2.0 身份验证.  此身份验证管理器应期望包含 SAML 2.0 响应 XML 数据的 `SAML2AuthenticationToken` 对象.
-
-[source,java]
-----
-@EnableWebSecurity
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-        AuthenticationManager authenticationManager = new MySaml2AuthenticationManager(...);
-        http
-            .authorizeRequests(authorize -> authorize
-                .anyRequest().authenticated()
-            )
-            .saml2Login(saml2 -> saml2
-                .authenticationManager(authenticationManager)
-            )
-        ;
-    }
-}
-----
-
-[[servlet-saml2login-authenticatedprincipal]]
-=== 使用 `Saml2AuthenticatedPrincipal`
-
-在为给定 asserting party 正确配置了 relying party 之后， 它就可以接受 assertion 了. 一旦 relying party 验证了 assertion， 结果就是带有 `Saml2AuthenticatedPrincipal` 的 `Saml2Authentication`.
-
-这意味着您可以访问控制器中的主体 principal:
-
-[source,java]
-----
-@Controller
-public class MainController {
-	@GetMapping("/")
-	public String index(@AuthenticationPrincipal Saml2AuthenticatedPrincipal principal, Model model) {
-		String email = principal.getFirstAttribute("email");
-		model.setAttribute("email", email);
-		return "index";
-	}
-}
-----
-
-[TIP]
-因为 SAML 2.0 规范允许每个属性有多个值， 所以您可以调用 `getAttribute` 来获取属性列表， 也可以调用 `getFirstAttribute` 来获取列表中的第一个属性. 当您知道只有一个值时， `getFirstAttribute` 非常方便.
-
-[[servlet-saml2login-metadata]]
-=== 生成 `<saml2:SPSSODescriptor>` 元数据
-
-您可以通过将 `Saml2MetadataFilter` 添加到过滤器链来发布元数据端点， 如下所示:
-
-[source,java]
-----
-Converter<HttpServletRequest, RelyingPartyRegistration> relyingPartyRegistrationResolver =
-        new DefaultRelyingPartyRegistrationResolver(this.relyingPartyRegistrationRepository);
-Saml2MetadataFilter filter = new Saml2MetadataFilter(
-		relyingPartyRegistrationResolver,
-        new OpenSamlMetadataResolver());
-
-http
-    // ...
-    .saml2Login(withDefaults())
-    .addFilterBefore(new Saml2MetadataFilter(r), Saml2WebSsoAuthenticationFilter.class);
-----
-
-您可以使用此元数据端点向 asserting party 注册 relying party . 这通常与找到正确的表单字段来提供元数据端点一样简单.
-
-默认情况下， 元数据端点是 `+/saml2/service-provider-metadata/{registrationId}+`. 你可以通过调用过滤器上的 `setRequestMatcher` 方法来改变这一点:
-
-[source,java]
-----
-filter.setRequestMatcher(new AntPathRequestMatcher("/saml2/metadata/{registrationId}", "GET"));
-----
-
-确保 `registrationId` 提示位于路径的末尾.
-
-或者， 如果你已经在构造函数中注册了一个自定义 relying party 注册解析器， 那么你可以指定一个不带 `registrationId` 提示的路径， 如下所示:
-
-[source,java]
-----
-filter.setRequestMatcher(new AntPathRequestMatcher("/saml2/metadata", "GET"));
-----
-
-[[servlet-saml2login-logout]]
-=== 执行单次注销
-
-Spring Security 还不支持单次登出.
-
-一般来说， 你可以通过创建和注册一个自定义的 `LogoutSuccessHandler` 和 `RequestMatcher` 来实现这一点:
-
-[source,java]
-----
-http
-    // ...
-    .logout(logout -> logout
-        .logoutSuccessHandler(myCustomSuccessHandler())
-        .logoutRequestMatcher(myRequestMatcher())
-    )
-----
-
-成功处理程序将向 asserting party 发送注销请求.
-
-请求匹配器将检测来自 asserting party 的注销请求.
+====

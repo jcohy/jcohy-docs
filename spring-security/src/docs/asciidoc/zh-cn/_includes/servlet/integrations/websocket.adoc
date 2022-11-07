@@ -3,9 +3,7 @@
 
 Spring Security 4 增加了对确保 Spring https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html[Spring's WebSocket support]的支持. 本节介绍如何使用 Spring Security 的 WebSocket 支持.
 
-NOTE: 您可以在  https://github.com/spring-projects/spring-session/tree/master/spring-session-samples/spring-session-sample-boot-websocket. 中找到 WebSocket 安全性的完整工作示例.
-
-.直接JSR 356支持
+.直接 JSR 356 支持
 ****
 Spring Security 不提供直接的 JSR-356 支持,因为这样做几乎没有价值.  这是因为格式是未知的,因此 Spring https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-intro-sub-protocol[几乎无法保护未知格式].  另外,JSR-356 没有提供拦截消息的方法,因此安全性将具有相当大的侵入性.
 ****
@@ -15,7 +13,9 @@ Spring Security 不提供直接的 JSR-356 支持,因为这样做几乎没有价
 
 Spring Security 4.0 通过 Spring Messaging 抽象引入了对 WebSocket 的授权支持.  要使用 Java 配置来配置授权,只需扩展 `AbstractSecurityWebSocketMessageBrokerConfigurer` 并配置 `MessageSecurityMetadataSourceRegistry`.  例如:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 public class WebSocketSecurityConfig
@@ -27,6 +27,18 @@ public class WebSocketSecurityConfig
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() { // <1> <2>
+    override fun configureInbound(messages: MessageSecurityMetadataSourceRegistry) {
+        messages.simpDestMatchers("/user/**").authenticated() // <3>
+    }
+}
+----
+====
 
 这将确保:
 
@@ -63,7 +75,9 @@ WebSockets 重用建立 `WebSocket` 连接时在 HTTP 请求中找到的相同�
 
 Spring Security 4.0 通过 Spring Messaging 抽象引入了对 WebSocket 的授权支持.  要使用 Java 配置来配置授权,只需扩展 `AbstractSecurityWebSocketMessageBrokerConfigurer` 并配置 `MessageSecurityMetadataSourceRegistry`.  例如:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBrokerConfigurer {
@@ -81,6 +95,24 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() {
+    override fun configureInbound(messages: MessageSecurityMetadataSourceRegistry) {
+        messages
+            .nullDestMatcher().authenticated() // <1>
+            .simpSubscribeDestMatchers("/user/queue/errors").permitAll() // <2>
+            .simpDestMatchers("/app/**").hasRole("USER") // <3>
+            .simpSubscribeDestMatchers("/user/**", "/topic/friends/*").hasRole("USER") // <4>
+            .simpTypeMatchers(MESSAGE, SUBSCRIBE).denyAll() // <5>
+            .anyMessage().denyAll() // <6>
+    }
+}
+----
+====
 
 这将确保:
 
@@ -145,7 +177,7 @@ Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保
 通常,应用程序通常拒绝发送到以 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp[代理前缀](即 "/topic/" 或 "/queue/") 开头的目标的任何 MESSAGE.
 
 [[websocket-authorization-notes-destinations]]
-===== 目的地上的WebSocket授权
+===== 目的地上的 WebSocket 授权
 
 了解目的地如何转变也很重要.
 
@@ -203,7 +235,9 @@ var token = "${_csrf.token}";
 
 如果使用的是静态 HTML,则可以在 REST 端点上暴露 `CsrfToken`. 例如,以下内容将在 URL /csrf 上暴露 `CsrfToken`
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RestController
 public class CsrfController {
@@ -214,6 +248,19 @@ public class CsrfController {
     }
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RestController
+class CsrfController {
+    @RequestMapping("/csrf")
+    fun csrf(token: CsrfToken): CsrfToken {
+        return token
+    }
+}
+----
+====
 
 JavaScript 可以对端点进行 REST 调用,并使用响应填充 `headerName` 和令牌.
 
@@ -232,12 +279,14 @@ stompClient.connect(headers, function(frame) {
 ----
 
 [[websocket-sameorigin-disable]]
-==== 在WebSockets中禁用CSRF
+==== 在 WebSockets 中禁用 CSRF
 
 如果您想允许其他域访问您的站点,则可以禁用 Spring Security 的保护.
 例如,在 Java 配置中,您可以使用以下代码:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBrokerConfigurer {
@@ -251,9 +300,23 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() {
+
+    // ...
+
+    override fun sameOriginDisabled(): Boolean {
+        return true
+    }
+}
+----
+====
 
 [[websocket-sockjs]]
-=== 使用SockJS
+=== 使用 SockJS
 
 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-fallback[SockJS] 提供后备传输以支持较旧的浏览器. 使用后备选项时,我们需要放松一些安全性约束,以允许 SockJS 与 Spring Security 一起使用.
 
@@ -278,7 +341,9 @@ SockJS 可能使用利用 https://github.com/sockjs/sockjs-client/tree/v0.3.4[if
 
 同样,您可以使用以下方法自定义框架选项以在 Java 配置中使用相同的来源:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebSecurity
 public class WebSecurityConfig extends
@@ -297,6 +362,25 @@ public class WebSecurityConfig extends
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            // ...
+            headers {
+                frameOptions {
+                    sameOrigin = true
+                }
+            }
+        }
+    }
+}
+----
+====
+
 [[websocket-sockjs-csrf]]
 ==== SockJS & 放宽CSRF
 
@@ -306,7 +390,9 @@ SockJS 在 CONNECT 消息上使用 POST 进行任何基于 HTTP 的传输.  通�
 
 通过提供 CSRF RequestMatcher,我们可以轻松实现这一目标.  我们的 Java 配置非常简单.  例如,如果我们的踩踏端点为 "/chat/" ,则可以使用以下配置仅对以 "/chat/" 开头的 URL 禁用 CSRF 保护:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 @EnableWebSecurity
@@ -326,11 +412,35 @@ public class WebSecurityConfig
                     .sameOrigin()
                 )
             )
-            .authorizeRequests(authorize -> authorize
+            .authorizeHttpRequests(authorize -> authorize
                 ...
             )
             ...
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+@EnableWebSecurity
+open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
+    override fun configure(http: HttpSecurity) {
+        http {
+            csrf {
+                ignoringAntMatchers("/chat/**")
+            }
+            headers {
+                frameOptions {
+                    sameOrigin = true
+                }
+            }
+            authorizeRequests {
+                // ...
+            }
+            // ...
+
+----
+====
 
 如果使用基于 XML 的配置,则可以使用<<nsa-csrf-request-matcher-ref,csrf@request-matcher-ref>>. 例如:
 

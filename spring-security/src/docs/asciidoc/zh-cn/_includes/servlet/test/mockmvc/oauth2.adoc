@@ -1,237 +1,13 @@
-[[test-mockmvc]]
-== Spring MVC 集成测试
-
-Spring Security 提供与 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/testing.html#spring-mvc-test-framework[Spring MVC Test]的全面集成
-
-[[test-mockmvc-setup]]
-=== 设置MockMvc和Spring Security
-
-为了将 Spring Security 与 Spring MVC Test 一起使用,有必要添加Spring Security `FilterChainProxy` 作为过滤器.  还必须添加 Spring Security 的 `TestSecurityContextHolderPostProcessor` 以支持在<<test-mockmvc-securitycontextholder-a,带有注解的 Spring MVC 测试中以用户身份运行>>.  可以使用 Spring Security 的 `SecurityMockMvcConfigurers.springSecurity()` 来完成.  例如:
-
-
-NOTE: Spring Security 的测试支持需要 spring-test-4.1.3.RELEASE 或更高版本.
-
-[source,java]
-----
-
-import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.*;
-
-@RunWith(SpringJUnit4ClassRunner.class)
-@ContextConfiguration
-@WebAppConfiguration
-public class CsrfShowcaseTests {
-
-	@Autowired
-	private WebApplicationContext context;
-
-	private MockMvc mvc;
-
-	@Before
-	public void setup() {
-		mvc = MockMvcBuilders
-				.webAppContextSetup(context)
-				.apply(springSecurity()) // <1>
-				.build();
-	}
-
-...
-----
-
-<1> `SecurityMockMvcConfigurers.springSecurity()` 将执行我们将 Spring Security 与 Spring MVC Test 集成在一起所需的所有初始设置
-
-[[test-mockmvc-smmrpp]]
-=== SecurityMockMvcRequestPostProcessors
-
-Spring MVC Test 提供了一个方便的接口,称为 `RequestPostProcessor`,可用于修改请求.  Spring Security提供了许多 `RequestPostProcessor` 实现,这些实现使测试更加容易.  为了使用 Spring Security 的 `RequestPostProcessor` 实现,请确保使用以下静态导入:
-
-[source,java]
-----
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
-----
-
-[[test-mockmvc-csrf]]
-==== 使用 CSRF 保护进行测试
-
-在测试任何非安全的 HTTP 方法并使用 Spring Security 的 CSRF 保护时,必须确保在请求中包括有效的 CSRF 令牌. 使用以下命令将有效的 CSRF 令牌指定为请求参数:
-
-[source,java]
-----
-mvc
-	.perform(post("/").with(csrf()))
-----
-
-如果愿意,可以在标题中包含 CSRF 令牌:
-
-[source,java]
-----
-mvc
-	.perform(post("/").with(csrf().asHeader()))
-----
-
-您还可以使用以下方法测试提供的 CSRF 令牌无效:
-
-[source,java]
-----
-mvc
-	.perform(post("/").with(csrf().useInvalidToken()))
-----
-
-[[test-mockmvc-securitycontextholder]]
-==== 在 Spring MVC 测试中以用户身份运行测试
-
-通常需要以特定用户身份运行测试.  填充用户有两种简单的方法:
-
-* <<test-mockmvc-securitycontextholder-rpp,在 Spring MVC Test 中使用 RequestPostProcessor 以用户身份运行 >>
-* <<test-mockmvc-securitycontextholder-a,在带有注解的 Spring MVC 测试中以用户身份运行>>
-
-[[test-mockmvc-securitycontextholder-rpp]]
-==== 在 Spring MVC Test 中使用 RequestPostProcessor 以用户身份运行
-
-有许多选项可用于将用户与当前 `HttpServletRequest` 关联. 例如,以下将以用户名 "user",密码 "password" 和角色 "ROLE_USER" 的用户身份(不需要存在) 运行:
-
-[NOTE]
-====
-该支持通过将用户与 `HttpServletRequest` 关联而起作用.  要将请求关联到 `SecurityContextHolder`,您需要确保 `SecurityContextPersistenceFilter` 与 `MockMvc` 实例关联.  实现此目的的几种方法是:
-
-* 调用 <<test-mockmvc-setup,apply(springSecurity())>>
-* 将 Spring Security 的 `FilterChainProxy` 添加到 `MockMvc`
-* 使用 `MockMvcBuilders.standaloneSetup` 时,将 `SecurityContextPersistenceFilter` 手动添加到 `MockMvc` 实例可能很有意义.
-====
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(user("user")))
-----
-
-您可以轻松进行自定义. 例如,以下用户名(管理员) ,用户名 "admin", 密码 "pass" 以及角色 "ROLE_USER 和 "ROLE_ADMIN" 将作为用户(不需要存在) 运行.
-
-[source,java]
-----
-mvc
-	.perform(get("/admin").with(user("admin").password("pass").roles("USER","ADMIN")))
-----
-
-如果您有要使用的自定义 `UserDetails`,则也可以轻松指定它.  例如,下面的代码将使用指定的 `UserDetails`(不需要存在) 来运行具有指定 `UserDetails` 主体的 `UsernamePasswordAuthenticationToken`:
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(user(userDetails)))
-----
-
-您可以使用以下身份以匿名用户身份运行:
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(anonymous()))
-----
-
-如果您使用默认用户运行,并希望以匿名用户身份执行一些请求,则此功能特别有用.
-
-如果需要自定义身份验证(不需要存在) ,可以使用以下方法:
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(authentication(authentication)))
-----
-
-您甚至可以使用以下方法自定义 `SecurityContext`:
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(securityContext(securityContext)))
-----
-
-通过使用 ``MockMvcBuilders`` 的默认请求,我们还可以确保针对每个请求以特定用户身份运行.  例如,以下用户名(管理员) ,用户名 "admin",密码 "password", 和角色 "ROLE_ADMIN" 将作为用户(不需要存在) 运行:
-
-[source,java]
-----
-mvc = MockMvcBuilders
-		.webAppContextSetup(context)
-		.defaultRequest(get("/").with(user("user").roles("ADMIN")))
-		.apply(springSecurity())
-		.build();
-----
-
-如果发现您在许多测试中使用的是同一用户,建议将用户移至某个方法. 例如,您可以在自己的名为 `CustomSecurityMockMvcRequestPostProcessors` 的类中指定以下内容:
-
-[source,java]
-----
-public static RequestPostProcessor rob() {
-	return user("rob").roles("ADMIN");
-}
-----
-
-现在,您可以在 `SecurityMockMvcRequestPostProcessors` 上执行静态导入,并在测试中使用它:
-
-[source,java]
-----
-import static sample.CustomSecurityMockMvcRequestPostProcessors.*;
-
-...
-
-mvc
-	.perform(get("/").with(rob()))
-----
-
-[[test-mockmvc-securitycontextholder-a]]
-===== 在带有注解的 Spring MVC 测试中以用户身份运行
-
-除了使用 `RequestPostProcessor` 创建用户之外,还可以使用<<jc-erms,测试方法安全性>>所述的注解.  例如,以下将对具有用户名 "user",密码 "password" 和角色 "ROLE_USER" 的用户运行测试:
-
-[source,java]
-----
-@Test
-@WithMockUser
-public void requestProtectedUrlWithUser() throws Exception {
-mvc
-		.perform(get("/"))
-		...
-}
-----
-
-或者,以下将使用用户名 "user",密码 "password" 和角色 "ROLE_ADMIN" 的用户运行测试:
-
-[source,java]
-----
-@Test
-@WithMockUser(roles="ADMIN")
-public void requestProtectedUrlWithUser() throws Exception {
-mvc
-		.perform(get("/"))
-		...
-}
-----
-
-==== 测试 HTTP 基本身份验证
-
-虽然始终可以使用 HTTP Basic 进行身份验证,但是记住 header 名称,格式和对值进行编码有点繁琐.  现在,可以使用 Spring Security 的 `httpBasic` `RequestPostProcessor` 完成此操作.  例如,以下代码段:
-
-[source,java]
-----
-mvc
-	.perform(get("/").with(httpBasic("user","password")))
-----
-
-将通过确保在 HTTP 请求上填充以下 header ,尝试使用 HTTP Basic 对用户名 "user" 和密码 "password" 进行身份验证:
-
-[source,text]
-----
-Authorization: Basic dXNlcjpwYXNzd29yZA==
-----
-
 [[testing-oauth2]]
-==== 测试 OAuth 2.0
+= Testing OAuth 2.0
 
 当涉及到 OAuth 2.0 时,仍然可以使用前面介绍的相同原理: 最终,它取决于您所测试的方法期望 `在SecurityContextHolder` 中使用什么.
 
 例如,对于如下所示的控制器:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(Principal user) {
@@ -239,11 +15,23 @@ public String foo(Principal user) {
 }
 ----
 
-没有关于 OAuth2 的特定信息,因此您可能只需使 `用@WithMockUser` 就可以了.
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(user: Principal): String {
+    return user.name
+}
+----
+====
+
+没有关于 OAuth2 的特定信息,因此您可能只需使  <<test-method-withmockuser,使用 `@WithMockUser`>> 就可以了.
 
 但是,如果您的控制器绑定到 Spring Security 的 OAuth 2.0 支持的某些方面,例如:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@AuthenticationPrincipal OidcUser user) {
@@ -251,57 +39,108 @@ public String foo(@AuthenticationPrincipal OidcUser user) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@AuthenticationPrincipal user: OidcUser): String {
+    return user.idToken.subject
+}
+----
+====
+
 然后 Spring Security 的测试支持将派上用场.
 
 [[testing-oidc-login]]
-==== Testing OIDC Login
+== Testing OIDC Login
 
 使用 Spring MVC Test 测试上述方法将需要使用授权服务器模拟授权流程. 当然,这将是一项艰巨的任务,这就是 Spring Security 测试支持可以帮助删除大部分样板代码.
 
-例如,我们可以使用  `SecurityMockServerConfigurers#oidcLogin` 方法告诉 Spring Security 包含默认的 `OidcUser`,如下所示:
+例如,我们可以使用  <<request-post-processors.adoc,`RequestPostProcessor`>>  告诉 Spring Security 包含默认的 `OidcUser`,如下所示:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint").with(oidcLogin()));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oidcLogin())
+}
+----
+====
+
 这将使用的 `MockHttpServletRequest` 创建关联的 `OidcUser` ,该 `OidcUser` 包括的一个模拟的 `OidcIdToken`,模拟 `OidcUserInfo` 和一个模拟的授权集合.
 
-具体来说,它将包括一个 `OidcIdToken`,并为用户设置了一个 claim
+具体来说,它将包括一个 `OidcIdToken`, 并为 `user` 设置了一个  `sub` claim:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(user.getIdToken().getClaim("sub")).isEqualTo("user");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(user.idToken.getClaim<String>("sub")).isEqualTo("user")
+----
+====
+
 没有 claims 的 `OidcUserInfo` :
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(user.getUserInfo().getClaims()).isEmpty();
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(user.userInfo.claims).isEmpty()
+----
+====
+
 和只有一个权限 `SCOPE_read` 的权限集合:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(user.getAuthorities()).hasSize(1);
 assertThat(user.getAuthorities()).containsExactly(new SimpleGrantedAuthority("SCOPE_read"));
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(user.authorities).hasSize(1)
+assertThat(user.authorities).containsExactly(SimpleGrantedAuthority("SCOPE_read"))
+----
+====
 
 Spring Security 做了必要的工作,以确保 `OidcUser` 实例可用于  <<mvc-authentication-principal,`@AuthenticationPrincipal` 注解>>.
 
 此外,它还将 `OidcUser` 链接到 `OAuth2AuthorizedClient` 的简单实例,并将其注入模拟的 `OAuth2AuthorizedClientRepository`. 如果您的测试 <<testing-oauth2-client,使用 `@RegisteredOAuth2AuthorizedClient` 注解>>,则此方法很方便.
 
 [[testing-oidc-login-authorities]]
-===== 配置权限
+== 配置权限
 
 在许多情况下,您的方法受到过滤器或安全方法的保护,并且需要您的身份验证具有某些授予的权限才能允许该请求.
 
 在这种情况下,您可以使用 `authorities()` 方法提供所需的已授予权限:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -311,14 +150,27 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oidcLogin()
+        .authorities(SimpleGrantedAuthority("SCOPE_message:read"))
+    )
+}
+----
+====
+
 [[testing-oidc-login-claims]]
-=====  配置 Claims
+== 配置 Claims
 
 尽管授予的权限在整个 Spring Security 中非常普遍,但在 OAuth 2.0 方面我们也有主张.
 
 举例来说,假设您有一个 `user_id` 声明,该声明指出了系统中的用户 ID. 您可以像在控制器中那样访问它:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@AuthenticationPrincipal OidcUser oidcUser) {
@@ -327,9 +179,22 @@ public String foo(@AuthenticationPrincipal OidcUser oidcUser) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@AuthenticationPrincipal oidcUser: OidcUser): String {
+    val userId = oidcUser.idToken.getClaim<String>("user_id")
+    // ...
+}
+----
+====
+
 在这种情况下,您需要使用  `idToken()`  方法指定该声明:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -339,10 +204,23 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oidcLogin()
+        .idToken {
+            it.claim("user_id", "1234")
+        }
+    )
+}
+----
+====
+
 因为 `OidcUser` 从 `OidcIdToken` 收集了其 claims.
 
 [[testing-oidc-login-user]]
-===== 其他配置
+== 其他配置
 
 还有其他方法可用于进一步配置身份验证. 它仅取决于您的控制器需要什么数据:
 
@@ -356,11 +234,13 @@ mvc
 
 例如,假设您的授权服务器在 `user_name` claim 中发送主体名称,而不在 `sub` claim 中发送主体名称. 在这种情况下,您可以手动配置 `OidcUser`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 OidcUser oidcUser = new DefaultOidcUser(
         AuthorityUtils.createAuthorityList("SCOPE_message:read"),
-        Collections.singletonMap("user_name", "foo_user"),
+        OidcIdToken.withTokenValue("id-token").claim("user_name", "foo_user").build(),
         "user_name");
 
 mvc
@@ -369,14 +249,31 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val oidcUser: OidcUser = DefaultOidcUser(
+    AuthorityUtils.createAuthorityList("SCOPE_message:read"),
+    OidcIdToken.withTokenValue("id-token").claim("user_name", "foo_user").build(),
+    "user_name"
+)
+
+mvc.get("/endpoint") {
+    with(oidcLogin().oidcUser(oidcUser))
+}
+----
+====
+
 [[testing-oauth2-login]]
-==== 测试 OAuth 2.0 登录
+== 测试 OAuth 2.0 登录
 
 与 <<testing-oidc-login,测试 OIDC 登录>> 一样,测试 OAuth 2.0 登录也面临着类似需要模拟授权流程挑战. 因此,Spring Security 还对非 OIDC 用例提供了测试支持.
 
 假设我们有一个控制器,可以将登录用户作为 `OAuth2User`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@AuthenticationPrincipal OAuth2User oauth2User) {
@@ -384,43 +281,86 @@ public String foo(@AuthenticationPrincipal OAuth2User oauth2User) {
 }
 ----
 
-在这种情况下,我们可以告诉 Spring Security 使用  `SecurityMockMvcRequestPostProcessors#oauth2User` 方法包含一个默认的 `OAuth2User`,就像这样
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@AuthenticationPrincipal oauth2User: OAuth2User): String? {
+    return oauth2User.getAttribute("sub")
+}
+----
+====
 
-[source,java]
+在这种情况下,我们可以告诉 Spring Security 使用  <<request-post-processors.adoc,`RequestPostProcessor`>> 方法包含一个默认的  `OAuth2User`,就像这样
+
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint").with(oauth2Login()));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oauth2Login())
+}
+----
+====
+
+
 这将使用 `OAuth2User` 配置关联的 `MockHttpServletRequest`,该 `OAuth2User` 包括简单的属性映射和已授予权限的集合.
 
 具体来说,它将包括一个带有 `sub`/`user` 的键值对:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat((String) user.getAttribute("sub")).isEqualTo("user");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(user.getAttribute<String>("sub")).isEqualTo("user")
+----
+====
+
 和只有一个权限 `SCOPE_read` 的权限集合:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(user.getAuthorities()).hasSize(1);
 assertThat(user.getAuthorities()).containsExactly(new SimpleGrantedAuthority("SCOPE_read"));
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(user.authorities).hasSize(1)
+assertThat(user.authorities).containsExactly(SimpleGrantedAuthority("SCOPE_read"))
+----
+====
 
 Spring Security 做了必要的工作,以确保 `OAuth2User` 实例可用于  <<mvc-authentication-principal, `@AuthenticationPrincipal` 注解>>.
 
 此外,它还将 `OAuth2User` 链接到 `OAuth2AuthorizedClient` 的简单实例,并将其注入模拟的 `OAuth2AuthorizedClientRepository` 中. 如果您的测试使用 <<testing-oauth2-client,使用 `@RegisteredOAuth2AuthorizedClient` 注解>> ,则这会很方便.
 
 [[testing-oauth2-login-authorities]]
-===== 配置权限
+== 配置权限
 
 在许多情况下,您的方法受到过滤器或安全方法的保护,并且需要 `Authentication` 具有某些授予的权限才能允许该请求.
 
 在这种情况下,您可以使用 `authorities()` 方法提供所需的已授予权限:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -430,14 +370,27 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oauth2Login()
+        .authorities(SimpleGrantedAuthority("SCOPE_message:read"))
+    )
+}
+----
+====
+
 [[testing-oauth2-login-claims]]
-===== 配置 Claims
+== 配置 Claims
 
 尽管授予的权限在整个 Spring Security 中非常普遍,但在 OAuth 2.0 方面我们也有主张.
 
 举例来说,假设您有一个 `user_id` 声明,该声明指出了系统中的用户 ID. 您可以像在控制器中那样访问它:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@AuthenticationPrincipal OAuth2User oauth2User) {
@@ -446,9 +399,22 @@ public String foo(@AuthenticationPrincipal OAuth2User oauth2User) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@AuthenticationPrincipal oauth2User: OAuth2User): String {
+    val userId = oauth2User.getAttribute<String>("user_id")
+    // ...
+}
+----
+====
+
 在这种情况下,您需要使用  `attributes()` 方法指定该属性:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -458,8 +424,19 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oauth2Login()
+        .attributes { attrs -> attrs["user_id"] = "1234" }
+    )
+}
+----
+====
+
 [[testing-oauth2-login-user]]
-===== 其他配置
+== 其他配置
 
 还有其他方法可用于进一步配置身份验证. 它仅取决于您的控制器需要什么数据:
 
@@ -472,7 +449,9 @@ mvc
 
 例如,假设您的授权服务器在 `user_name` claim 中发送主体名称,而不在 `sub` claim 中发送主体名称. 在这种情况下,您可以手动配置 `OAuth2User`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 OAuth2User oauth2User = new DefaultOAuth2User(
         AuthorityUtils.createAuthorityList("SCOPE_message:read"),
@@ -485,12 +464,29 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val oauth2User: OAuth2User = DefaultOAuth2User(
+    AuthorityUtils.createAuthorityList("SCOPE_message:read"),
+    mapOf(Pair("user_name", "foo_user")),
+    "user_name"
+)
+
+mvc.get("/endpoint") {
+    with(oauth2Login().oauth2User(oauth2User))
+}
+----
+====
+
 [[testing-oauth2-client]]
-==== 测试 OAuth 2.0 客户端
+== 测试 OAuth 2.0 客户端
 
 与用户的身份验证方式无关,对于正在测试的请求,您可能还有其他令牌和客户端注册在起作用. 例如,您的控制器可能依赖于客户端凭据授予来获取与用户完全不相关的令牌:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@RegisteredOAuth2AuthorizedClient("my-app") OAuth2AuthorizedClient authorizedClient) {
@@ -502,47 +498,105 @@ public String foo(@RegisteredOAuth2AuthorizedClient("my-app") OAuth2AuthorizedCl
 }
 ----
 
-使用授权服务器模拟此握手可能很麻烦. 相反,可以使用 `SecurityMockServerConfigurers#oauth2Client` 将 `OAuth2AuthorizedClient` 添加到 `OAuth2AuthorizedClientRepository` 中:
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@RegisteredOAuth2AuthorizedClient("my-app") authorizedClient: OAuth2AuthorizedClient?): String? {
+    return this.webClient.get()
+        .attributes(oauth2AuthorizedClient(authorizedClient))
+        .retrieve()
+        .bodyToMono(String::class.java)
+        .block()
+}
+----
+====
 
-[source,java]
+使用授权服务器模拟此握手可能很麻烦. 相反,可以使用 <<request-post-processors.adoc,`RequestPostProcessor`>> 将 `OAuth2AuthorizedClient` 添加到 `OAuth2AuthorizedClientRepository` 中:
+
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint").with(oauth2Client("my-app")));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(
+        oauth2Client("my-app")
+    )
+}
+----
+====
+
 这将创建一个具有简单 `ClientRegistration`,`OAuth2AccessToken` 和资源所有者名称的 `OAuth2AuthorizedClient`.
 
 具体来说,它将包括一个 `ClientRegistration`,其客户端 ID 为 "test-client",客户端密码为 "test-secret":
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(authorizedClient.getClientRegistration().getClientId()).isEqualTo("test-client");
 assertThat(authorizedClient.getClientRegistration().getClientSecret()).isEqualTo("test-secret");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(authorizedClient.clientRegistration.clientId).isEqualTo("test-client")
+assertThat(authorizedClient.clientRegistration.clientSecret).isEqualTo("test-secret")
+----
+====
+
 资源所有者名字 "user":
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(authorizedClient.getPrincipalName()).isEqualTo("user");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(authorizedClient.principalName).isEqualTo("user")
+----
+====
+
 `OAuth2AccessToken` 只包含一个权限, `read`:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(authorizedClient.getAccessToken().getScopes()).hasSize(1);
 assertThat(authorizedClient.getAccessToken().getScopes()).containsExactly("read");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(authorizedClient.accessToken.scopes).hasSize(1)
+assertThat(authorizedClient.accessToken.scopes).containsExactly("read")
+----
+====
+
 然后可以在控制器方法中使用 `@RegisteredOAuth2AuthorizedClient` 正常检索客户端.
 
 [[testing-oauth2-client-scopes]]
-===== 配置 Scopes
+== 配置 Scopes
 
 在许多情况下,OAuth 2.0 访问令牌都带有一组范围.如果您的控制器检查了这些,如下:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(@RegisteredOAuth2AuthorizedClient("my-app") OAuth2AuthorizedClient authorizedClient) {
@@ -558,9 +612,29 @@ public String foo(@RegisteredOAuth2AuthorizedClient("my-app") OAuth2AuthorizedCl
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(@RegisteredOAuth2AuthorizedClient("my-app") authorizedClient: OAuth2AuthorizedClient): String? {
+    val scopes = authorizedClient.accessToken.scopes
+    if (scopes.contains("message:read")) {
+        return webClient.get()
+            .attributes(oauth2AuthorizedClient(authorizedClient))
+            .retrieve()
+            .bodyToMono(String::class.java)
+            .block()
+    }
+    // ...
+}
+----
+====
+
 然后您可以使用  `accessToken()` 方法配置范围:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -570,8 +644,19 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(oauth2Client("my-app")
+            .accessToken(OAuth2AccessToken(BEARER, "token", null, null, Collections.singleton("message:read")))
+    )
+}
+----
+====
+
 [[testing-oauth2-client-registration]]
-===== 其他配置
+== 其他配置
 
 还有其他方法可用于进一步配置身份验证. 它仅取决于您的控制器需要什么数据:
 
@@ -585,7 +670,9 @@ mvc
 
 在这种情况下,您的测试可以自动连接 `ClientRegistrationRepository` 并查找您的测试所需的一个:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Autowired
 ClientRegistrationRepository clientRegistrationRepository;
@@ -598,9 +685,24 @@ mvc
             .clientRegistration(this.clientRegistrationRepository.findByRegistrationId("facebook"))));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Autowired
+lateinit var clientRegistrationRepository: ClientRegistrationRepository
+
+// ...
+
+mvc.get("/endpoint") {
+    with(oauth2Client("my-app")
+        .clientRegistration(clientRegistrationRepository.findByRegistrationId("facebook"))
+    )
+}
+----
+====
 
 [[testing-jwt]]
-==== 测试 JWT 认证
+== 测试 JWT 认证
 
 为了在资源服务器上发出授权请求,您需要一个承载令牌.
 
@@ -608,15 +710,26 @@ mvc
 
 幸运的是,您可以通过许多简单的方法来克服此难题,并使您的测试专注于授权而不是表示承载令牌.  现在我们来看其中两个:
 
-===== `jwt() RequestPostProcessor`
+== `jwt() RequestPostProcessor`
 
-第一种方法是通过 `RequestPostProcessor`.  其中最简单的如下所示:
+第一种方法是通过 <<request-post-processors.adoc,`RequestPostProcessor`>> .  其中最简单的如下所示:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint").with(jwt()));
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(jwt())
+}
+----
+====
 
 这将创建一个模拟的 `Jwt`,并将其正确地通过任何身份验证 API 传递,以便可用于您的授权机制进行验证.
 
@@ -635,71 +748,153 @@ mvc
 
 经过测试的结果 `Jwt` 将通过以下方式通过:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(jwt.getTokenValue()).isEqualTo("token");
 assertThat(jwt.getHeaders().get("alg")).isEqualTo("none");
 assertThat(jwt.getSubject()).isEqualTo("sub");
-GrantedAuthority authority = jwt.getAuthorities().iterator().next();
-assertThat(authority.getAuthority()).isEqualTo("read");
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(jwt.tokenValue).isEqualTo("token")
+assertThat(jwt.headers["alg"]).isEqualTo("none")
+assertThat(jwt.subject).isEqualTo("sub")
+----
+====
 
 当然可以配置这些值.
 
 可以使用其相应的方法配置任何标题或声明:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
         .with(jwt().jwt(jwt -> jwt.header("kid", "one").claim("iss", "https://idp.example.org"))));
 ----
 
-[source,java]
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(
+        jwt().jwt { jwt -> jwt.header("kid", "one").claim("iss", "https://idp.example.org") }
+    )
+}
+----
+====
+
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
         .with(jwt().jwt(jwt -> jwt.claims(claims -> claims.remove("scope")))));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(
+        jwt().jwt { jwt -> jwt.claims { claims -> claims.remove("scope") } }
+    )
+}
+----
+====
+
 `scope` 和 `scp` claims 在这里的处理方式与它们在普通承载令牌请求中的处理方式相同.  但是,可以通过提供测试所需的 `GrantedAuthority` 实例列表来覆盖此方法:
 
-
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
         .with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_messages"))));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(
+        jwt().authorities(SimpleGrantedAuthority("SCOPE_messages"))
+    )
+}
+----
+====
+
 或者,如果您有一个自定义的 `Jwt` to  `Collection<GrantedAuthority>` 转换器,则还可以使用它来导出权限:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
         .with(jwt().authorities(new MyConverter())));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(
+        jwt().authorities(MyConverter())
+    )
+}
+----
+====
+
 您还可以指定一个完整的 `Jwt`,为此 `{security-api-url}org/springframework/security/oauth2/jwt/Jwt.Builder.html[Jwt.Builder]` 非常方便:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Jwt jwt = Jwt.withTokenValue("token")
     .header("alg", "none")
     .claim("sub", "user")
-    .claim("scope", "read");
+    .claim("scope", "read")
+    .build();
 
 mvc
     .perform(get("/endpoint")
         .with(jwt().jwt(jwt)));
 ----
 
-===== `authentication()` `RequestPostProcessor`
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val jwt: Jwt = Jwt.withTokenValue("token")
+    .header("alg", "none")
+    .claim("sub", "user")
+    .claim("scope", "read")
+    .build()
 
-第二种方法是通过使用  `authentication()` `RequestPostProcessor`.  本质上,您可以实例化自己的 `JwtAuthenticationToken` 并在测试中提供它,如下所示:
+mvc.get("/endpoint") {
+    with(
+        jwt().jwt(jwt)
+    )
+}
+----
+====
 
-[source,java]
+== `authentication()` `RequestPostProcessor`
+
+第二种方法是通过使用  `authentication()`  <<request-post-processors.adoc,`RequestPostProcessor`>>.  本质上,您可以实例化自己的 `JwtAuthenticationToken` 并在测试中提供它,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
 ----
 Jwt jwt = Jwt.withTokenValue("token")
     .header("alg", "none")
@@ -713,58 +908,120 @@ mvc
         .with(authentication(token)));
 ----
 
-请注意,作为替代方法,您还可以使用 `@MockBean` 注解来模拟 `JwtDecoder` bean本身.
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val jwt = Jwt.withTokenValue("token")
+    .header("alg", "none")
+    .claim("sub", "user")
+    .build()
+val authorities: Collection<GrantedAuthority> = AuthorityUtils.createAuthorityList("SCOPE_read")
+val token = JwtAuthenticationToken(jwt, authorities)
+
+mvc.get("/endpoint") {
+    with(
+        authentication(token)
+    )
+}
+----
+====
+
+请注意,作为替代方法,您还可以使用 `@MockBean` 注解来模拟 `JwtDecoder` bean 本身.
 
 [[testing-opaque-token]]
-==== 测试 Opaque Token 认证
+== 测试 Opaque Token 认证
 
 与 <<testing-jwt,JWTs>> 相似,不透明令牌需要授权服务器才能验证其有效性,这会使测试更加困难. 为了解决这个问题,Spring Security 提供了对不透明令牌的测试支持.
 
 假设我们有一个控制器,可以将身份验证作为 `BearerTokenAuthentication` 进行检索:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(BearerTokenAuthentication authentication) {
-    return (String) authentication.getTokenAttributes("sub");
+    return (String) authentication.getTokenAttributes().get("sub");
 }
 ----
 
-在这种情况下,我们可以使用 `SecurityMockMvcRequestPostProcessors#opaqueToken`  方法告诉 Spring Security 包含默认的 `BearerTokenAuthentication`,如下所示:
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(authentication: BearerTokenAuthentication): String {
+    return authentication.tokenAttributes["sub"] as String
+}
+----
+====
 
-[source,java]
+在这种情况下,我们可以使用 <<request-post-processors.adoc,`RequestPostProcessor`>>  `opaqueToken` 方法告诉 Spring Security 包含默认的 `BearerTokenAuthentication`,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint").with(opaqueToken()));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(opaqueToken())
+}
+----
+====
+
 这将使用 `BearerTokenAuthentication` 配置关联的 `MockHttpServletRequest`,该 `BearerTokenAuthentication` 包括简单的 `OAuth2AuthenticatedPrincipal`,属性映射和授予的权限集合.
 
 具体来说,它将包括一个带有 `sub`/`user` 键值对:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat((String) token.getTokenAttributes().get("sub")).isEqualTo("user");
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(token.tokenAttributes["sub"] as String).isEqualTo("user")
+----
+====
+
 和只有一个权限 `SCOPE_read` 的权限集合:
 
-[source,json]
+====
+.Java
+[source,java,role="primary"]
 ----
 assertThat(token.getAuthorities()).hasSize(1);
 assertThat(token.getAuthorities()).containsExactly(new SimpleGrantedAuthority("SCOPE_read"));
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+assertThat(token.authorities).hasSize(1)
+assertThat(token.authorities).containsExactly(SimpleGrantedAuthority("SCOPE_read"))
+----
+====
+
 Spring Security 做了必要的工作,以确保 `BearerTokenAuthentication` 实例可用于您的控制器方法.
 
 [[testing-opaque-token-authorities]]
-===== Configuring Authorities
+== 配置权限
 
 在许多情况下,您的方法受到过滤器或安全方法的保护,并且需要 `Authentication` 具有某些授予的权限才能允许该请求.
 
 在这种情况下,您可以使用 `authorities()` 方法提供所需的已授予权限:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -774,14 +1031,27 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(opaqueToken()
+        .authorities(SimpleGrantedAuthority("SCOPE_message:read"))
+    )
+}
+----
+====
+
 [[testing-opaque-token-attributes]]
-===== 配置 Claims
+== 配置 Claims
 
 尽管授予的权限在整个 Spring Security 中非常普遍,但在 OAuth 2.0 方面我们也有主张.
 
 举例来说,假设您有一个 `user_id` 声明,该声明指出了系统中的用户 ID. 您可以像在控制器中那样访问它:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @GetMapping("/endpoint")
 public String foo(BearerTokenAuthentication authentication) {
@@ -790,8 +1060,22 @@ public String foo(BearerTokenAuthentication authentication) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/endpoint")
+fun foo(authentication: BearerTokenAuthentication): String {
+    val userId = authentication.tokenAttributes["user_id"] as String
+    // ...
+}
+----
+====
+
 在这种情况下,您需要使用  `attributes()` 方法指定该属性:
-[source,java]
+
+====
+.Java
+[source,java,role="primary"]
 ----
 mvc
     .perform(get("/endpoint")
@@ -801,8 +1085,19 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/endpoint") {
+    with(opaqueToken()
+        .attributes { attrs -> attrs["user_id"] = "1234" }
+    )
+}
+----
+====
+
 [[testing-opaque-token-principal]]
-===== 其他配置
+== 其他配置
 
 还有其他方法可用于进一步配置身份验证. 它仅取决于您的控制器需要什么数据:
 
@@ -814,7 +1109,9 @@ mvc
 
 例如,假设您的授权服务器在 `user_name` claim 中发送主体名称,而不在 `sub` claim 中发送主体名称. 在这种情况下,您可以手动配置 `OAuth2AuthenticatedPrincipal`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Map<String, Object> attributes = Collections.singletonMap("user_name", "foo_user");
 OAuth2AuthenticatedPrincipal principal = new DefaultOAuth2AuthenticatedPrincipal(
@@ -828,92 +1125,20 @@ mvc
     );
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val attributes: Map<String, Any> = Collections.singletonMap("user_name", "foo_user")
+val principal: OAuth2AuthenticatedPrincipal = DefaultOAuth2AuthenticatedPrincipal(
+    attributes["user_name"] as String?,
+    attributes,
+    AuthorityUtils.createAuthorityList("SCOPE_message:read")
+)
+
+mvc.get("/endpoint") {
+    with(opaqueToken().principal(principal))
+}
+----
+====
+
 请注意,作为使用  `mockOpaqueToken()` 测试支持的替代方法,您还可以使用 `@MockBean` 注解来模拟 `OpaqueTokenIntrospector` bean 本身.
-
-[[test-logout]]
-==== 测试注销
-
-使用标准的 Spring MVC 测试相当简单,但您可以使用 Spring Security 的测试支持来简化测试注销.  例如,以下代码将使用有效的CSRF令牌向 "/logout" 提交 POST:
-
-[source,java]
-----
-mvc
-	.perform(logout())
-----
-
-您还可以自定义要发布到的 URL.  例如,下面的代码片段将使用有效的 CSRF 令牌向 "/signout" 提交 POST:
-
-[source,java]
-----
-mvc
-	.perform(logout("/signout"))
-----
-
-=== SecurityMockMvcResultMatchers
-
-有时希望对请求做出各种与安全性有关的断言.  为了满足这一需求,Spring Security Test 支持实现了 Spring MVC Test 的 `ResultMatcher` 接口.  为了使用 Spring Security 的 `ResultMatcher` 实现,请确保使用以下静态导入:
-
-
-[source,java]
-----
-import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.*;
-----
-
-==== 未经身份验证的断言
-
-有时断言没有与 `MockMvc` 调用的结果相关联的经过身份验证的用户可能很有价值.  例如,您可能要测试提交的用户名和密码无效,并验证没有用户通过身份验证.  您可以使用 Spring Security 的测试支持轻松地执行以下操作:
-
-[source,java]
-----
-mvc
-	.perform(formLogin().password("invalid"))
-	.andExpect(unauthenticated());
-----
-
-==== 认证断言
-
-通常,我们必须断言已通过身份验证的用户存在.  例如,我们可能要验证我们已成功验证.  我们可以使用以下代码片段来验证基于表单的登录是否成功:
-
-[source,java]
-----
-mvc
-	.perform(formLogin())
-	.andExpect(authenticated());
-----
-
-如果我们想断言用户的角色,我们可以优化我们以前的代码,如下所示:
-
-[source,java]
-----
-mvc
-	.perform(formLogin().user("admin"))
-	.andExpect(authenticated().withRoles("USER","ADMIN"));
-----
-
-或者,我们可以验证用户名:
-
-[source,java]
-----
-mvc
-	.perform(formLogin().user("admin"))
-	.andExpect(authenticated().withUsername("admin"));
-----
-
-我们还可以结合以下断言:
-
-[source,java]
-----
-mvc
-	.perform(formLogin().user("admin").roles("USER","ADMIN"))
-	.andExpect(authenticated().withUsername("admin"));
-----
-
-我们还可以对身份验证进行任意断言
-
-[source,java]
-----
-mvc
-	.perform(formLogin())
-	.andExpect(authenticated().withAuthentication(auth ->
-		assertThat(auth).isInstanceOf(UsernamePasswordAuthenticationToken.class)));
-----

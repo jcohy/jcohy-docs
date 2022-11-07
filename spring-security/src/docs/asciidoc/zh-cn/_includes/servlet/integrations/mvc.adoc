@@ -51,7 +51,9 @@ Spring Security 提供了与 Spring MVC 如何使用 `MvcRequestMatcher` 在 URL
 
 在 `WebSecurityConfiguration` 下面的 `DispatcherServlets` 中放置 `ApplicationContext`.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 public class SecurityInitializer extends
     AbstractAnnotationConfigDispatcherServletInitializer {
@@ -74,6 +76,28 @@ public class SecurityInitializer extends
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+class SecurityInitializer : AbstractAnnotationConfigDispatcherServletInitializer() {
+    override fun getRootConfigClasses(): Array<Class<*>>? {
+        return null
+    }
+
+    override fun getServletConfigClasses(): Array<Class<*>> {
+        return arrayOf(
+            RootConfiguration::class.java,
+            WebMvcConfiguration::class.java
+        )
+    }
+
+    override fun getServletMappings(): Array<String> {
+        return arrayOf("/")
+    }
+}
+----
+====
+
 [NOTE]
 ====
 始终建议通过匹配 `HttpServletRequest` 和方法安全性来提供授权规则.
@@ -85,25 +109,50 @@ public class SecurityInitializer extends
 
 考虑一个映射如下的控制器:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RequestMapping("/admin")
 public String admin() {
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RequestMapping("/admin")
+fun admin(): String {
+----
+====
+
 如果我们想将对这种控制器方法的访问限制为管理员用户,则开发人员可以通过在 `HttpServletRequest` 上匹配以下内容来提供授权规则:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 protected configure(HttpSecurity http) throws Exception {
 	http
-		.authorizeRequests(authorize -> authorize
+		.authorizeHttpRequests(authorize -> authorize
 			.antMatchers("/admin").hasRole("ADMIN")
 		);
 }
 ----
 
-或使用xml
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+override fun configure(http: HttpSecurity) {
+    http {
+        authorizeRequests {
+            authorize(AntPathRequestMatcher("/admin"), hasRole("ADMIN"))
+        }
+    }
+}
+----
+====
+
+或使用 xml
 
 [source,xml]
 ----
@@ -118,15 +167,30 @@ protected configure(HttpSecurity http) throws Exception {
 
 相反,我们可以利用 Spring Security 的 `MvcRequestMatcher`.  以下配置通过使用 Spring MVC 在 URL 上进行匹配来保护与 Spring MVC 匹配的 URL.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 protected configure(HttpSecurity http) throws Exception {
 	http
-		.authorizeRequests(authorize -> authorize
+		.authorizeHttpRequests(authorize -> authorize
 			.mvcMatchers("/admin").hasRole("ADMIN")
 		);
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+override fun configure(http: HttpSecurity) {
+    http {
+        authorizeRequests {
+            authorize("/admin", hasRole("ADMIN"))
+        }
+    }
+}
+----
+====
 
 或使用 xml
 
@@ -155,7 +219,9 @@ Spring Security 提供了 `AuthenticationPrincipalArgumentResolver`,它可以为
 
 考虑一种情况,其中自定义 `UserDetailsService` 返回一个实现 `UserDetails` 的对象和您自己的 `CustomUser` 对象.  可以使用以下代码访问当前已认证用户的 `CustomUser`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RequestMapping("/messages/inbox")
 public ModelAndView findMessagesForUser() {
@@ -167,9 +233,24 @@ public ModelAndView findMessagesForUser() {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RequestMapping("/messages/inbox")
+open fun findMessagesForUser(): ModelAndView {
+    val authentication: Authentication = SecurityContextHolder.getContext().authentication
+    val custom: CustomUser? = if (authentication as CustomUser == null) null else authentication.principal
+
+    // .. find messages for this user and return them ...
+}
+----
+====
+
 从 Spring Security 3.2 开始,我们可以通过添加注解来更直接地解析参数. 例如:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
@@ -182,9 +263,22 @@ public ModelAndView findMessagesForUser(@AuthenticationPrincipal CustomUser cust
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RequestMapping("/messages/inbox")
+open fun findMessagesForUser(@AuthenticationPrincipal customUser: CustomUser?): ModelAndView {
+
+    // .. find messages for this user and return them ...
+}
+----
+====
+
 有时可能需要以某种方式转换主体.  例如,如果 `CustomUser` 需要为 `final`,则无法扩展.  在这种情况下,`UserDetailsService` 可能返回一个实现 `UserDetails` 的对象,并提供一个名为 `getCustomUser` 的方法来访问 `CustomUser`.  例如,它可能看起来像:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 public class CustomUserUserDetails extends User {
 		// ...
@@ -194,9 +288,25 @@ public class CustomUserUserDetails extends User {
 }
 ----
 
-然后,我们可以使用 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/expressions.html[SpEL表达式] 访问 `CustomUser`,该表达式使用 `Authentication.getPrincipal()` 作为根对象:
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+class CustomUserUserDetails(
+    username: String?,
+    password: String?,
+    authorities: MutableCollection<out GrantedAuthority>?
+) : User(username, password, authorities) {
+    // ...
+    val customUser: CustomUser? = null
+}
+----
+====
 
-[source,java]
+然后,我们可以使用 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/expressions.html[SpEL 表达式] 访问 `CustomUser`,该表达式使用 `Authentication.getPrincipal()` 作为根对象:
+
+====
+.Java
+[source,java,role="primary"]
 ----
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
@@ -209,9 +319,26 @@ public ModelAndView findMessagesForUser(@AuthenticationPrincipal(expression = "c
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+
+// ...
+
+@RequestMapping("/messages/inbox")
+open fun findMessagesForUser(@AuthenticationPrincipal(expression = "customUser") customUser: CustomUser?): ModelAndView {
+
+    // .. find messages for this user and return them ...
+}
+----
+====
+
 我们还可以在 SpEL 表达式中引用 Bean. 例如,如果我们使用 JPA 来管理用户,并且想要修改并保存当前用户的属性,则可以使用以下内容.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
@@ -228,11 +355,34 @@ public ModelAndView updateName(@AuthenticationPrincipal(expression = "@jpaEntity
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+
+// ...
+
+@PutMapping("/users/self")
+open fun updateName(
+    @AuthenticationPrincipal(expression = "@jpaEntityManager.merge(#this)") attachedCustomUser: CustomUser,
+    @RequestParam firstName: String?
+): ModelAndView {
+
+    // change the firstName on an attached instance which will be persisted to the database
+    attachedCustomUser.setFirstName(firstName)
+
+    // ...
+}
+----
+====
+
 通过使 `@AuthenticationPrincipal` 成为我们自己的注解的元注解,我们可以进一步消除对 Spring Security 的依赖. 下面我们演示如何在名为 `@CurrentUser` 的注解上执行此操作.
 
 NOTE: 重要的是要意识到,为了消除对 Spring Security 的依赖,创建 `@CurrentUser` 的是消耗者的应用程序.  并非严格要求执行此步骤,但可以帮助您将对 Spring Security 的依赖隔离到更中央的位置.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Target({ElementType.PARAMETER, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
@@ -241,9 +391,22 @@ NOTE: 重要的是要意识到,为了消除对 Spring Security 的依赖,创建 
 public @interface CurrentUser {}
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Target(AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.TYPE)
+@Retention(AnnotationRetention.RUNTIME)
+@MustBeDocumented
+@AuthenticationPrincipal
+annotation class CurrentUser
+----
+====
+
 现在已经指定了 `@CurrentUser`,我们可以用它来通知解析当前已认证用户的 `CustomUser`. 我们还将对 Spring Security 的依赖隔离到一个文件中.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RequestMapping("/messages/inbox")
 public ModelAndView findMessagesForUser(@CurrentUser CustomUser customUser) {
@@ -252,6 +415,17 @@ public ModelAndView findMessagesForUser(@CurrentUser CustomUser customUser) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RequestMapping("/messages/inbox")
+open fun findMessagesForUser(@CurrentUser customUser: CustomUser?): ModelAndView {
+
+    // .. find messages for this user and return them ...
+}
+----
+====
+
 
 [[mvc-async]]
 === Spring MVC 异步整合
@@ -259,7 +433,9 @@ public ModelAndView findMessagesForUser(@CurrentUser CustomUser customUser) {
 Spring Web MVC 3.2+ 对 https://docs.spring.io/spring/docs/3.2.x/spring-framework-reference/html/mvc.html#mvc-ann-async[异步请求处理]提供了出色的支持.  无需其他配置,Spring Security 就会自动将 `SecurityContext` 设置为执行由您的控制器返回的 `Callable` 的线程.
 例如,以下方法将自动使用创建 `Callable` 时可用的 `SecurityContext` 执行其 `Callable`:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RequestMapping(method=RequestMethod.POST)
 public Callable<String> processUpload(final MultipartFile file) {
@@ -272,6 +448,19 @@ return new Callable<String>() {
 };
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RequestMapping(method = [RequestMethod.POST])
+open fun processUpload(file: MultipartFile?): Callable<String> {
+    return Callable {
+        // ...
+        "someView"
+    }
+}
+----
+====
 
 [NOTE]
 .将 SecurityContext 与 Callable 的关联
@@ -333,7 +522,9 @@ Spring Security 提供了 `CsrfTokenArgumentResolver`,它可以自动为 Spring 
 
 正确配置 `CsrfTokenArgumentResolver` 后,即可将 `CsrfToken` 暴露给基于静态 HTML 的应用程序.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @RestController
 public class CsrfController {
@@ -344,5 +535,18 @@ public class CsrfController {
 	}
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@RestController
+class CsrfController {
+    @RequestMapping("/csrf")
+    fun csrf(token: CsrfToken): CsrfToken {
+        return token
+    }
+}
+----
+====
 
 保持 `CsrfToken` 对其他域的秘密非常重要. 这意味着,如果您使用 https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS[跨源共享(CORS) ],则不应将 `CsrfToken` 暴露给任何外部域.

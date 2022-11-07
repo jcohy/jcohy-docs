@@ -16,7 +16,9 @@ https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#
 https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#getUserPrincipal()[HttpServletRequest.getUserPrincipal()] 将返回 `SecurityContextHolder.getContext().getAuthentication()` 的结果.  这意味着它是一种身份验证,当使用基于用户名和密码的身份验证时,通常是 `UsernamePasswordAuthenticationToken` 的实例.
 如果您需要有关用户的其他信息,这将很有用.  例如,您可能创建了一个自定义 `UserDetailsService`,该服务返回一个包含用户名和姓氏的自定义 `UserDetails`.  您可以通过以下方式获取此信息:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Authentication auth = httpServletRequest.getUserPrincipal();
 // assume integrated custom UserDetails called MyCustomUserDetails
@@ -25,6 +27,18 @@ MyCustomUserDetails userDetails = (MyCustomUserDetails) auth.getPrincipal();
 String firstName = userDetails.getFirstName();
 String lastName = userDetails.getLastName();
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val auth: Authentication = httpServletRequest.getUserPrincipal()
+// assume integrated custom UserDetails called MyCustomUserDetails
+// by default, typically instance of UserDetails
+val userDetails: MyCustomUserDetails = auth.principal as MyCustomUserDetails
+val firstName: String = userDetails.firstName
+val lastName: String = userDetails.lastName
+----
+====
 
 [NOTE]
 ====
@@ -36,10 +50,19 @@ String lastName = userDetails.getLastName();
 https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#isUserInRole(java.lang.String)[HttpServletRequest.isUserInRole(String)] 将确定 `SecurityContextHolder.getContext().getAuthentication().getAuthorities()` 是否包含 `GrantedAuthority`,并将角色传递给 `isUserInRole(String)`.
 通常,用户不应将 "ROLE_" 前缀传递给此方法,因为它是自动添加的.  例如,如果要确定当前用户是否具有权限 "ROLE_ADMIN",则可以使用以下命令:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 boolean isAdmin = httpServletRequest.isUserInRole("ADMIN");
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val isAdmin: Boolean = httpServletRequest.isUserInRole("ADMIN")
+----
+====
 
 这对于确定是否应显示某些 UI 组件可能很有用. 例如,仅当当前用户是管理员时,才可以显示管理员链接.
 
@@ -56,7 +79,9 @@ https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#
 ==== HttpServletRequest.login(String,String)
 https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#login%28java.lang.String,%20java.lang.String%29[HttpServletRequest.login(String,String)]  方法可用于使用当前 `AuthenticationManager` 对用户进行身份验证.  例如,以下尝试使用用户名 "user" 和密码 "password" 进行身份验证:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 try {
 httpServletRequest.login("user","password");
@@ -64,6 +89,17 @@ httpServletRequest.login("user","password");
 // fail to authenticate
 }
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+try {
+    httpServletRequest.login("user", "password")
+} catch (ex: ServletException) {
+    // fail to authenticate
+}
+----
+====
 
 [NOTE]
 ====
@@ -80,7 +116,9 @@ https://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#
 ==== AsyncContext.start(Runnable)
 确保您的凭据将被传播到新线程的 https://docs.oracle.com/javaee/6/api/javax/servlet/AsyncContext.html#start%28java.lang.Runnable%29[AsyncContext.start(Runnable)]方法.  通过使用 Spring Security 的并发支持,Spring Security 重写 `AsyncContext.start(Runnable)` 以确保在处理 Runnable 时使用当前的 SecurityContext.  例如,以下代码将输出当前用户的身份验证:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 final AsyncContext async = httpServletRequest.startAsync();
 async.start(new Runnable() {
@@ -97,6 +135,24 @@ async.start(new Runnable() {
 	}
 });
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val async: AsyncContext = httpServletRequest.startAsync()
+async.start {
+    val authentication: Authentication = SecurityContextHolder.getContext().authentication
+    try {
+        val asyncResponse = async.response as HttpServletResponse
+        asyncResponse.status = HttpServletResponse.SC_OK
+        asyncResponse.writer.write(String.valueOf(authentication))
+        async.complete()
+    } catch (ex: Exception) {
+        throw RuntimeException(ex)
+    }
+}
+----
+====
 
 [[servletapi-async]]
 ==== 异步 Servlet 支持
@@ -136,7 +192,9 @@ version="3.0">
 那么它是怎样工作的? 如果您真的不感兴趣,请随时跳过本节的其余部分,否则请继续阅读.  大部分内容都内置在 Servlet 规范中,但是 Spring Security 做了一些调整,以确保异步请求可以正常工作.
 在 Spring Security 3.2 之前,一旦提交 HttpServletResponse,就会自动保存 SecurityContextHolder 中的 SecurityContext.  这可能会在异步环境中引起问题.  例如,考虑以下内容:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 httpServletRequest.startAsync();
 new Thread("AsyncThread") {
@@ -154,6 +212,27 @@ new Thread("AsyncThread") {
 	}
 }.start();
 ----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+httpServletRequest.startAsync()
+object : Thread("AsyncThread") {
+    override fun run() {
+        try {
+            // Do work
+            TimeUnit.SECONDS.sleep(1)
+
+            // Write to and commit the httpServletResponse
+            httpServletResponse.outputStream.flush()
+        } catch (ex: java.lang.Exception) {
+            ex.printStackTrace()
+        }
+    }
+}.start()
+----
+====
+
 
 问题是 Spring Security 不知道该线程,因此不会将 SecurityContext 传播给它.  这意味着当我们提交 HttpServletResponse 时,没有 SecurityContext.  当 Spring Security 在提交 HttpServletResponse 时自动保存 SecurityContext 时,它将丢失我们的登录用户.
 
