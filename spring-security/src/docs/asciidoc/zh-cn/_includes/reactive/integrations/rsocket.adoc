@@ -5,14 +5,16 @@ Spring Security 的 RSocket 支持依赖于 `SocketAcceptorInterceptor`.  安全
 
 您可以找到一些示例程序来演示以下代码:
 
-* Hello RSocket {gh-samples-url}/boot/hellorsocket[hellorsocket]
+* Hello RSocket {gh-samples-url}/reactive/rsocket/hello-security[hellorsocket]
 * https://github.com/rwinch/spring-flights/tree/security[Spring Flights]
 
 == 最小的 RSocket 安全配置
 
 您可以在下面找到最小的 RSocket 安全配置:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 -----
 @Configuration
 @EnableRSocketSecurity
@@ -30,6 +32,25 @@ public class HelloRSocketSecurityConfig {
 }
 -----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+@EnableRSocketSecurity
+open class HelloRSocketSecurityConfig {
+    @Bean
+    open fun userDetailsService(): MapReactiveUserDetailsService {
+        val user = User.withDefaultPasswordEncoder()
+            .username("user")
+            .password("user")
+            .roles("USER")
+            .build()
+        return MapReactiveUserDetailsService(user)
+    }
+}
+----
+====
+
 此配置启用<<rsocket-authentication-simple,simple authentication>>,并设置 <<rsocket-authorization,rsocket-authorization>>  以要求经过身份验证的用户才能进行任何请求.
 
 == Adding SecuritySocketAcceptorInterceptor
@@ -40,9 +61,8 @@ public class HelloRSocketSecurityConfig {
 [source,java]
 ----
 @Bean
-ServerRSocketFactoryProcessor springSecurityRSocketSecurity(
-		SecuritySocketAcceptorInterceptor interceptor) {
-	return builder -> builder.addSocketAcceptorPlugin(interceptor);
+RSocketServerCustomizer springSecurityRSocketSecurity(SecuritySocketAcceptorInterceptor interceptor) {
+    return (server) -> server.interceptors((registry) -> registry.forSocketAcceptor(interceptor));
 }
 ----
 
@@ -77,7 +97,9 @@ RSocket 接收器可以使用 `AuthenticationPayloadExchangeConverter` 来对凭
 `AuthenticationPayloadExchangeConverter` 可以使用 DSL 的 `simpleAuthentication` 部分自动设置.
 可以在下面找到显式配置.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Bean
 PayloadSocketAcceptorInterceptor rsocketInterceptor(RSocketSecurity rsocket) {
@@ -92,17 +114,45 @@ PayloadSocketAcceptorInterceptor rsocketInterceptor(RSocketSecurity rsocket) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun rsocketInterceptor(rsocket: RSocketSecurity): PayloadSocketAcceptorInterceptor {
+    rsocket
+        .authorizePayload { authorize -> authorize
+                .anyRequest().authenticated()
+                .anyExchange().permitAll()
+        }
+        .simpleAuthentication(withDefaults())
+    return rsocket.build()
+}
+----
+====
+
 RSocket 发送者可以使用 `SimpleAuthenticationEncoder` 发送凭证,该凭证可以添加到 Spring 的 `RSocketStrategies` 中.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 RSocketStrategies.Builder strategies = ...;
 strategies.encoder(new SimpleAuthenticationEncoder());
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+var strategies: RSocketStrategies.Builder = ...
+strategies.encoder(SimpleAuthenticationEncoder())
+----
+====
+
 然后可以使用它在设置中向接收者发送用户名和密码:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 MimeType authenticationMimeType =
 	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
@@ -113,9 +163,24 @@ Mono<RSocketRequester> requester = RSocketRequester.builder()
 	.connectTcp(host, port);
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authenticationMimeType: MimeType =
+    MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.string)
+val credentials = UsernamePasswordMetadata("user", "password")
+val requester: Mono<RSocketRequester> = RSocketRequester.builder()
+    .setupMetadata(credentials, authenticationMimeType)
+    .rsocketStrategies(strategies.build())
+    .connectTcp(host, port)
+----
+====
+
 然后可以使用它在设置中向接收方发送用户名和密码:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Mono<RSocketRequester> requester;
 UsernamePasswordMetadata credentials = new UsernamePasswordMetadata("user", "password");
@@ -129,6 +194,26 @@ public Mono<AirportLocation> findRadar(String code) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+import org.springframework.messaging.rsocket.retrieveMono
+
+// ...
+
+var requester: Mono<RSocketRequester>? = null
+var credentials = UsernamePasswordMetadata("user", "password")
+
+open fun findRadar(code: String): Mono<AirportLocation> {
+    return requester!!.flatMap { req ->
+        req.route("find.radar.{code}", code)
+            .metadata(credentials, authenticationMimeType)
+            .retrieveMono<AirportLocation>()
+    }
+}
+----
+====
+
 [[rsocket-authentication-jwt]]
 === JWT
 
@@ -137,7 +222,9 @@ Spring Security 对 RSocket 的 https://github.com/rsocket/rsocket/blob/5920ed37
 
 RSocket 接收器可以使用 `BearerPayloadExchangeConverter` 解码凭据,而 `BearerPayloadExchangeConverter` 使用 DSL 的 `jwt` 部分自动设置.  可以在下面找到示例配置:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Bean
 PayloadSocketAcceptorInterceptor rsocketInterceptor(RSocketSecurity rsocket) {
@@ -152,9 +239,27 @@ PayloadSocketAcceptorInterceptor rsocketInterceptor(RSocketSecurity rsocket) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun rsocketInterceptor(rsocket: RSocketSecurity): PayloadSocketAcceptorInterceptor {
+    rsocket
+        .authorizePayload { authorize -> authorize
+            .anyRequest().authenticated()
+            .anyExchange().permitAll()
+        }
+        .jwt(withDefaults())
+    return rsocket.build()
+}
+----
+====
+
 上面的配置取决于是否存在 `ReactiveJwtDecoder` `@Bean`. 在发行人处创建一个示例的示例如下:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Bean
 ReactiveJwtDecoder jwtDecoder() {
@@ -163,9 +268,22 @@ ReactiveJwtDecoder jwtDecoder() {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun jwtDecoder(): ReactiveJwtDecoder {
+    return ReactiveJwtDecoders
+        .fromIssuerLocation("https://example.com/auth/realms/demo")
+}
+----
+====
+
 RSocket 发送方不需要执行任何特殊操作即可发送令牌,因为该值只是一个简单的 String. 例如,可以在设置时发送令牌:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 MimeType authenticationMimeType =
 	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
@@ -175,9 +293,24 @@ Mono<RSocketRequester> requester = RSocketRequester.builder()
 	.connectTcp(host, port);
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authenticationMimeType: MimeType =
+    MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.string)
+val token: BearerTokenMetadata = ...
+
+val requester = RSocketRequester.builder()
+    .setupMetadata(token, authenticationMimeType)
+    .connectTcp(host, port)
+----
+====
+
 替代地或附加地,可以在请求中发送令牌.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 MimeType authenticationMimeType =
 	MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString());
@@ -193,15 +326,35 @@ public Mono<AirportLocation> findRadar(String code) {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authenticationMimeType: MimeType =
+    MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.string)
+var requester: Mono<RSocketRequester>? = null
+val token: BearerTokenMetadata = ...
+
+open fun findRadar(code: String): Mono<AirportLocation> {
+    return this.requester!!.flatMap { req ->
+        req.route("find.radar.{code}", code)
+            .metadata(token, authenticationMimeType)
+            .retrieveMono<AirportLocation>()
+    }
+}
+----
+====
+
 [[rsocket-authorization]]
 == RSocket 授权
 
 RSocket 授权是通过 `AuthorizationPayloadInterceptor` 执行的,`AuthorizationPayloadInterceptor` 充当调用 `ReactiveAuthorizationManager` 实例的控制器.  DSL 可用于基于 `PayloadExchange` 设置授权规则.  可以在下面找到示例配置:
 
-[[source,java]]
+====
+.Java
+[source,java,role="primary"]
 ----
 rsocket
-	.authorizePayload(authorize ->
+	.authorizePayload(authz ->
 		authz
 			.setup().hasRole("SETUP") // <1>
 			.route("fetch.profile.me").authenticated() // <2>
@@ -211,8 +364,25 @@ rsocket
 				.access((authentication, context) -> checkFriends(authentication, context))
 			.anyRequest().authenticated() // <5>
 			.anyExchange().permitAll() // <6>
-	)
+	);
 ----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+rsocket
+    .authorizePayload { authz ->
+        authz
+            .setup().hasRole("SETUP") // <1>
+            .route("fetch.profile.me").authenticated() // <2>
+            .matcher { payloadExchange -> isMatch(payloadExchange) } // <3>
+            .hasRole("CUSTOM")
+            .route("fetch.profile.{username}") // <4>
+            .access { authentication, context -> checkFriends(authentication, context) }
+            .anyRequest().authenticated() // <5>
+            .anyExchange().permitAll()
+    } // <6>
+----
+====
 <1> 建立连接需要权限 `ROLE_SETUP`
 <2> 如果路由为 `fetch.profile.me`,则授权仅要求对用户进行身份验证
 <3> 在此规则中,我们设置了一个自定义匹配器,其中的授权要求用户具有权限 `ROLE_CUSTOM`

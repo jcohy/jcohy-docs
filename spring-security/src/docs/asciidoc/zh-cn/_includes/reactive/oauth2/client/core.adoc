@@ -1,0 +1,424 @@
+[[oauth2Client-core-interface-class]]
+= 核心 接口 / 类
+
+
+[[oauth2Client-client-registration]]
+== ClientRegistration
+
+`ClientRegistration`  代表 OAuth 2.0 或 OpenID Connect 1.0 Provider 客户端注册.
+
+客户端注册包含许多信息，例如客户端 ID、客户端密码、授权类型、重定向 URI、授权范围、授权 URI、令牌 URI 和其他详细信息。
+
+`ClientRegistration` 属性定义如下:
+
+[source,java]
+----
+public final class ClientRegistration {
+	private String registrationId;	<1>
+	private String clientId;	<2>
+	private String clientSecret;	<3>
+	private ClientAuthenticationMethod clientAuthenticationMethod;	<4>
+	private AuthorizationGrantType authorizationGrantType;	<5>
+	private String redirectUri;	<6>
+	private Set<String> scopes;	<7>
+	private ProviderDetails providerDetails;
+	private String clientName;	<8>
+
+	public class ProviderDetails {
+		private String authorizationUri;	<9>
+		private String tokenUri;	<10>
+		private UserInfoEndpoint userInfoEndpoint;
+		private String jwkSetUri;	<11>
+		private String issuerUri;	<12>
+		private Map<String, Object> configurationMetadata;  <13>
+
+		public class UserInfoEndpoint {
+			private String uri;	<14>
+			private AuthenticationMethod authenticationMethod;  <15>
+			private String userNameAttributeName;	<16>
+
+		}
+	}
+}
+----
+<1> `registrationId`: 唯一标识 `ClientRegistration` 的 ID.
+<2> `clientId`: client 标识.
+<3> `clientSecret`: client secret.
+<4> `clientAuthenticationMethod`: 用于向 Provider 验证 Client 的方法。 支持 *client_secret_basic*, *client_secret_post*, *private_key_jwt*, *client_secret_jwt* 和 *none* https://tools.ietf.org/html/rfc6749#section-2.1[(public clients)].
+<5> `authorizationGrantType`: OAuth 2.0 授权框架定义了四种 https://tools.ietf.org/html/rfc6749#section-1.3[Authorization Grant] 类型。
+支持的值 `authorization_code`, `client_credentials`, `password`, 以及扩展授权类型 `urn:ietf:params:oauth:grant-type:jwt-bearer`.
+<6> `redirectUri`: _Authorization Server_ 重定向终端用户代理 URI，在终端用户对客户端进行身份验证和授权之后
+<7> `scopes`: 客户端在授权请求流程中请求的范围，例如 openid、电子邮件或 profile 文件.
+<8> `clientName`: 用于客户端的描述性名称。该名称可能会在某些场景中使用，例如在自动生成的登录页面中显示客户端名称时。.
+<9> `authorizationUri`: 授权服务器的授权端点 URI。
+<10> `tokenUri`: 授权服务器的令牌端点 URI。
+<11> `jwkSetUri`: 用于从授权服务器搜索 https://tools.ietf.org/html/rfc7517[JSON Web Key (JWK)] 设置的 URI，
+其中包含用于验证 ID 令牌的 https://tools.ietf.org/html/rfc7515[JSON Web 签名 (JWS)] 和可选的 UserInfo 响应的加密密钥。
+<12> `issuerUri`: 返回 OpenID Connect 1.0 提供者或 OAuth 2.0 授权服务器的颁发者标识符 uri。
+<13> `configurationMetadata`: https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig[OpenID 提供者配置信息]。
+仅当配置了 Spring Boot 2.x 属性 `spring.security.oauth2.client.provider.[providerId].issuerUri`  时，此信息才可用。.
+<14> `(userInfoEndpoint)uri`: 用于访问经过身份验证的终端用户的声明/属性的 UserInfo 端点 URI。
+<15> `(userInfoEndpoint)authenticationMethod`: 将访问令牌发送到 UserInfo 端点时使用的身份验证方法。支持的值 *header*, *form* 和 *query*.
+<16> `userNameAttributeName`: UserInfo 响应中返回的属性的名称，它引用终端用户的名称或标识符。
+
+可以使用 OpenID Connect 提供者的 https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig[配置端点] 或授权服务器的 https://tools.ietf.org/html/rfc8414#section-3[Metadata endpoint]。
+
+`ClientRegistrations` 提供了以这种方式配置 `ClientRegistration` 的便捷方法，如以下示例所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+ClientRegistration clientRegistration =
+	ClientRegistrations.fromIssuerLocation("https://idp.example.com/issuer").build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val clientRegistration = ClientRegistrations.fromIssuerLocation("https://idp.example.com/issuer").build()
+----
+====
+
+上面的代码会依次查询 `https://idp.example.com/issuer/.well-known/openid-configuration`，然后 `https://idp.example.com/.well-known/openid- configuration/issuer`，最后是 `https://idp.example.com/.well-known/oauth-authorization-server/issuer`，在第一个停止返回 200 响应。
+
+作为替代方案，您可以使用 `ClientRegistrations.fromOidcIssuerLocation()` 来仅查询 OpenID Connect 提供者的配置端点.
+
+[[oauth2Client-client-registration-repo]]
+== ReactiveClientRegistrationRepository
+
+`ReactiveClientRegistrationRepository` 用作 OAuth 2.0 / OpenID Connect 1.0 `ClientRegistration`(s) 的存储库。
+
+[NOTE]
+客户端注册信息最终由关联的授权服务器存储和拥有。
+此存储库提供搜索主要客户端注册信息子集的能力，该信息与授权服务器一起存储。
+
+Spring Boot 2.x 自动配置将 `spring.security.oauth2.client.registration._[registrationId]_` 下的每个属性绑定到 `ClientRegistration` 的实例，
+然后组成每个 `ClientRegistration` 实例（s ) 在 `ReactiveClientRegistrationRepository` 中。
+
+[NOTE]
+`ReactiveClientRegistrationRepository` 的默认实现是 `InMemoryReactiveClientRegistrationRepository`。
+
+自动配置还将 `ReactiveClientRegistrationRepository` 注册为 `ApplicationContext` 中的 `@Bean`，以便在应用程序需要时可用于依赖注入。
+
+以下清单显示了一个示例:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Controller
+public class OAuth2ClientController {
+
+	@Autowired
+	private ReactiveClientRegistrationRepository clientRegistrationRepository;
+
+	@GetMapping("/")
+	public Mono<String> index() {
+		return this.clientRegistrationRepository.findByRegistrationId("okta")
+				...
+				.thenReturn("index");
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Controller
+class OAuth2ClientController {
+
+    @Autowired
+    private lateinit var clientRegistrationRepository: ReactiveClientRegistrationRepository
+
+    @GetMapping("/")
+    fun index(): Mono<String> {
+        return this.clientRegistrationRepository.findByRegistrationId("okta")
+            ...
+            .thenReturn("index")
+    }
+}
+----
+====
+
+[[oauth2Client-authorized-client]]
+== OAuth2AuthorizedClient
+
+`OAuth2AuthorizedClient` 是授权客户端的表示。
+当最终用户（资源所有者）已授权客户端访问其受保护的资源时，该客户端被视为已获得授权。
+
+`OAuth2AuthorizedClient` 用于将 `OAuth2AccessToken`（和可选的 `OAuth2RefreshToken`）与 `ClientRegistration`（客户端）和资源所有者相关联，后者是授予授权的 `Principal` 终端用户。
+
+[[oauth2Client-authorized-repo-service]]
+== ServerOAuth2AuthorizedClientRepository / ReactiveOAuth2AuthorizedClientService
+
+`ServerOAuth2AuthorizedClientRepository` 负责在 Web 请求之间持久化 `OAuth2AuthorizedClient`(s)。
+而 `ReactiveOAuth2AuthorizedClientService` 的主要作用是在应用程序级别管理 `OAuth2AuthorizedClient`(s)。
+
+从开发人员的角度来看，`ServerOAuth2AuthorizedClientRepository` 或 `ReactiveOAuth2AuthorizedClientService` 提供了查找与客户端关联的 `OAuth2AccessToken` 的能力，以便可以使用它来发起受保护的资源请求。
+
+以下清单显示了一个示例:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Controller
+public class OAuth2ClientController {
+
+	@Autowired
+	private ReactiveOAuth2AuthorizedClientService authorizedClientService;
+
+	@GetMapping("/")
+	public Mono<String> index(Authentication authentication) {
+		return this.authorizedClientService.loadAuthorizedClient("okta", authentication.getName())
+				.map(OAuth2AuthorizedClient::getAccessToken)
+				...
+				.thenReturn("index");
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Controller
+class OAuth2ClientController {
+
+    @Autowired
+    private lateinit var authorizedClientService: ReactiveOAuth2AuthorizedClientService
+
+    @GetMapping("/")
+    fun index(authentication: Authentication): Mono<String> {
+        return this.authorizedClientService.loadAuthorizedClient<OAuth2AuthorizedClient>("okta", authentication.name)
+            .map { it.accessToken }
+            ...
+            .thenReturn("index")
+    }
+}
+----
+====
+
+[NOTE]
+Spring Boot 2.x 自动配置在 `ApplicationContext` 中注册了 `ServerOAuth2AuthorizedClientRepository` 和/或 `ReactiveOAuth2AuthorizedClientService` `@Bean`。
+但是，应用程序可以选择覆盖和注册自定义的 `ServerOAuth2AuthorizedClientRepository` 或 `ReactiveOAuth2AuthorizedClientService` `@Bean`。
+
+`ReactiveOAuth2AuthorizedClientService` 的默认实现是 `InMemoryReactiveOAuth2AuthorizedClientService`，它将 `OAuth2AuthorizedClient` 存储在内存中。
+
+或者，R2DBC 实现 `R2dbcReactiveOAuth2AuthorizedClientService` 可以配置为在数据库中持久化 `OAuth2AuthorizedClient`。
+
+[NOTE]
+`R2dbcReactiveOAuth2AuthorizedClientService` 取决于 <<dbschema-oauth2-client,OAuth 2.0 Client Schema>> 中描述的表定义。
+
+[[oauth2Client-authorized-manager-provider]]
+== ReactiveOAuth2AuthorizedClientManager / ReactiveOAuth2AuthorizedClientProvider
+
+`ReactiveOAuth2AuthorizedClientManager` 负责 `OAuth2AuthorizedClient`(s) 的整体管理。
+
+主要职责包括：
+
+* 使用 `ReactiveOAuth2AuthorizedClientProvider` 授权（或重新授权）OAuth 2.0 客户端。
+* 委托 `OAuth2AuthorizedClient` 的持久性，通常使用 `ReactiveOAuth2AuthorizedClientService` 或 `ServerOAuth2AuthorizedClientRepository`。
+* 当 OAuth 2.0 客户端已成功授权（或重新授权）时，委托给 `ReactiveOAuth2AuthorizationSuccessHandler`。
+* 当 OAuth 2.0 客户端无法授权（或重新授权）时，委托给 `ReactiveOAuth2AuthorizationSuccessHandler`。
+
+`ReactiveOAuth2AuthorizedClientProvider` 实现了授权（或重新授权）OAuth 2.0 客户端的策略。
+实现通常会实现授权授予类型，例如。 `authorization_code`、`client_credentials` 等。
+
+`ReactiveOAuth2AuthorizedClientManager` 的默认实现是 `DefaultReactiveOAuth2AuthorizedClientManager` ，它与 `ReactiveOAuth2AuthorizedClientProvider` 相关联，它可以使用基于委托的组合支持多种授权类型。
+`ReactiveOAuth2AuthorizedClientProviderBuilder` 可用于配置和构建基于委托的组合。
+
+以下代码显示了如何配置和构建 `ReactiveOAuth2AuthorizedClientProvider` 组合的示例，该组合提供对 `authorization_code`、`refresh_token`、`client_credentials` 和 `password` 授权类型的支持：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public ReactiveOAuth2AuthorizedClientManager authorizedClientManager(
+		ReactiveClientRegistrationRepository clientRegistrationRepository,
+		ServerOAuth2AuthorizedClientRepository authorizedClientRepository) {
+
+	ReactiveOAuth2AuthorizedClientProvider authorizedClientProvider =
+			ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+					.authorizationCode()
+					.refreshToken()
+					.clientCredentials()
+					.password()
+					.build();
+
+	DefaultReactiveOAuth2AuthorizedClientManager authorizedClientManager =
+			new DefaultReactiveOAuth2AuthorizedClientManager(
+					clientRegistrationRepository, authorizedClientRepository);
+	authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider);
+
+	return authorizedClientManager;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authorizedClientManager(
+        clientRegistrationRepository: ReactiveClientRegistrationRepository,
+        authorizedClientRepository: ServerOAuth2AuthorizedClientRepository): ReactiveOAuth2AuthorizedClientManager {
+    val authorizedClientProvider: ReactiveOAuth2AuthorizedClientProvider = ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+            .authorizationCode()
+            .refreshToken()
+            .clientCredentials()
+            .password()
+            .build()
+    val authorizedClientManager = DefaultReactiveOAuth2AuthorizedClientManager(
+            clientRegistrationRepository, authorizedClientRepository)
+    authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider)
+    return authorizedClientManager
+}
+----
+====
+
+当授权尝试成功时，`DefaultReactiveOAuth2AuthorizedClientManager` 将委托给 `ReactiveOAuth2AuthorizationSuccessHandler`，它（默认情况下）将通过 `ServerOAuth2AuthorizedClientRepository` 保存 `OAuth2AuthorizedClient`。
+在重新授权失败的情况下，例如。刷新令牌不再有效，之前保存的 `OAuth2AuthorizedClient` 将通过 `RemoveAuthorizedClientReactiveOAuth2AuthorizationFailureHandler` 从 `ServerOAuth2AuthorizedClientRepository` 中删除。
+默认行为可以通过 `setAuthorizationSuccessHandler(ReactiveOAuth2AuthorizationSuccessHandler)` 和 `setAuthorizationFailureHandler(ReactiveOAuth2AuthorizationFailureHandler)` 自定义。
+
+`DefaultReactiveOAuth2AuthorizedClientManager` 还与 `Function<OAuth2AuthorizeRequest, Mono<Map<String, Object>>>` 类型的 `contextAttributesMapper` 相关联，它负责将属性从 `OAuth2AuthorizeRequest` 映射到 `Map` 与 `OAuth2AuthorizationContext` 相关联的属性。
+当您需要提供具有必需（支持）属性的 `ReactiveOAuth2AuthorizedClientProvider` 时，这可能很有用，例如。 `PasswordReactiveOAuth2AuthorizedClientProvider` 要求资源所有者的 `username` 和 `password` 在 `OAuth2AuthorizationContext.getAttributes()` 中可用。
+
+以下代码显示了 `contextAttributesMapper` 的示例:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public ReactiveOAuth2AuthorizedClientManager authorizedClientManager(
+		ReactiveClientRegistrationRepository clientRegistrationRepository,
+		ServerOAuth2AuthorizedClientRepository authorizedClientRepository) {
+
+	ReactiveOAuth2AuthorizedClientProvider authorizedClientProvider =
+			ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+					.password()
+					.refreshToken()
+					.build();
+
+	DefaultReactiveOAuth2AuthorizedClientManager authorizedClientManager =
+			new DefaultReactiveOAuth2AuthorizedClientManager(
+					clientRegistrationRepository, authorizedClientRepository);
+	authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider);
+
+	// Assuming the `username` and `password` are supplied as `ServerHttpRequest` parameters,
+	// map the `ServerHttpRequest` parameters to `OAuth2AuthorizationContext.getAttributes()`
+	authorizedClientManager.setContextAttributesMapper(contextAttributesMapper());
+
+	return authorizedClientManager;
+}
+
+private Function<OAuth2AuthorizeRequest, Mono<Map<String, Object>>> contextAttributesMapper() {
+	return authorizeRequest -> {
+		Map<String, Object> contextAttributes = Collections.emptyMap();
+		ServerWebExchange exchange = authorizeRequest.getAttribute(ServerWebExchange.class.getName());
+		ServerHttpRequest request = exchange.getRequest();
+		String username = request.getQueryParams().getFirst(OAuth2ParameterNames.USERNAME);
+		String password = request.getQueryParams().getFirst(OAuth2ParameterNames.PASSWORD);
+		if (StringUtils.hasText(username) && StringUtils.hasText(password)) {
+			contextAttributes = new HashMap<>();
+
+			// `PasswordReactiveOAuth2AuthorizedClientProvider` requires both attributes
+			contextAttributes.put(OAuth2AuthorizationContext.USERNAME_ATTRIBUTE_NAME, username);
+			contextAttributes.put(OAuth2AuthorizationContext.PASSWORD_ATTRIBUTE_NAME, password);
+		}
+		return Mono.just(contextAttributes);
+	};
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authorizedClientManager(
+        clientRegistrationRepository: ReactiveClientRegistrationRepository,
+        authorizedClientRepository: ServerOAuth2AuthorizedClientRepository): ReactiveOAuth2AuthorizedClientManager {
+    val authorizedClientProvider: ReactiveOAuth2AuthorizedClientProvider = ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+            .password()
+            .refreshToken()
+            .build()
+    val authorizedClientManager = DefaultReactiveOAuth2AuthorizedClientManager(
+            clientRegistrationRepository, authorizedClientRepository)
+    authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider)
+
+    // Assuming the `username` and `password` are supplied as `ServerHttpRequest` parameters,
+    // map the `ServerHttpRequest` parameters to `OAuth2AuthorizationContext.getAttributes()`
+    authorizedClientManager.setContextAttributesMapper(contextAttributesMapper())
+    return authorizedClientManager
+}
+
+private fun contextAttributesMapper(): Function<OAuth2AuthorizeRequest, Mono<MutableMap<String, Any>>> {
+    return Function { authorizeRequest ->
+        var contextAttributes: MutableMap<String, Any> = mutableMapOf()
+        val exchange: ServerWebExchange = authorizeRequest.getAttribute(ServerWebExchange::class.java.name)!!
+        val request: ServerHttpRequest = exchange.request
+        val username: String? = request.queryParams.getFirst(OAuth2ParameterNames.USERNAME)
+        val password: String? = request.queryParams.getFirst(OAuth2ParameterNames.PASSWORD)
+        if (StringUtils.hasText(username) && StringUtils.hasText(password)) {
+            contextAttributes = hashMapOf()
+
+            // `PasswordReactiveOAuth2AuthorizedClientProvider` requires both attributes
+            contextAttributes[OAuth2AuthorizationContext.USERNAME_ATTRIBUTE_NAME] = username!!
+            contextAttributes[OAuth2AuthorizationContext.PASSWORD_ATTRIBUTE_NAME] = password!!
+        }
+        Mono.just(contextAttributes)
+    }
+}
+----
+====
+
+`DefaultReactiveOAuth2AuthorizedClientManager` 设计用于 *_within_* `ServerWebExchange` 的上下文。
+操作 `ServerWebExchange` 上下文的 *_outside_* 时，请改用 `AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager`。
+
+_service application_ 是何时使用 `AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager` 的常见用例。
+服务应用程序通常在后台运行，无需任何用户交互，并且通常在系统级帐户而不是用户帐户下运行。
+配置了 `client_credentials` 授权类型的 OAuth 2.0 客户端可以被视为一种服务应用程序。
+
+以下代码显示了如何配置为 `client_credentials` 授权类型提供支持的 `AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager` 的示例:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public ReactiveOAuth2AuthorizedClientManager authorizedClientManager(
+		ReactiveClientRegistrationRepository clientRegistrationRepository,
+		ReactiveOAuth2AuthorizedClientService authorizedClientService) {
+
+	ReactiveOAuth2AuthorizedClientProvider authorizedClientProvider =
+			ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+					.clientCredentials()
+					.build();
+
+	AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager authorizedClientManager =
+			new AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager(
+					clientRegistrationRepository, authorizedClientService);
+	authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider);
+
+	return authorizedClientManager;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun authorizedClientManager(
+        clientRegistrationRepository: ReactiveClientRegistrationRepository,
+        authorizedClientService: ReactiveOAuth2AuthorizedClientService): ReactiveOAuth2AuthorizedClientManager {
+    val authorizedClientProvider: ReactiveOAuth2AuthorizedClientProvider = ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+            .clientCredentials()
+            .build()
+    val authorizedClientManager = AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager(
+            clientRegistrationRepository, authorizedClientService)
+    authorizedClientManager.setAuthorizedClientProvider(authorizedClientProvider)
+    return authorizedClientManager
+}
+----
+====

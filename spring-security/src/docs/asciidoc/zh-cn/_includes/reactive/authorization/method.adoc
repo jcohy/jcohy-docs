@@ -5,10 +5,12 @@ Spring Security 使用 https://projectreactor.io/docs/core/release/reference/#co
 
 [NOTE]
 ====
-为此,方法的返回类型必须是 `org.reactivestreams.Publisher`(即 `Mono/Flux`) . 这是与 Reactor 的上下文集成的必要条件.
+为此,方法的返回类型必须是 `org.reactivestreams.Publisher`(即 `Mono/Flux`) 或该函数必须是 Kotlin 协程函数. 这是与 Reactor 的上下文集成的必要条件.
 ====
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Authentication authentication = new TestingAuthenticationToken("user", "password", "ROLE_USER");
 
@@ -24,18 +26,49 @@ StepVerifier.create(messageByUsername)
 	.verifyComplete();
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authentication: Authentication = TestingAuthenticationToken("user", "password", "ROLE_USER")
+
+val messageByUsername: Mono<String> = ReactiveSecurityContextHolder.getContext()
+	.map(SecurityContext::getAuthentication)
+	.map(Authentication::getName)
+	.flatMap(this::findMessageByUsername) // In a WebFlux application the `subscriberContext` is automatically setup using `ReactorContextWebFilter`
+	.subscriberContext(ReactiveSecurityContextHolder.withAuthentication(authentication))
+
+StepVerifier.create(messageByUsername)
+	.expectNext("Hi user")
+	.verifyComplete()
+----
+====
+
+
 将 `this::findMessageByUsername` 定义为:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 Mono<String> findMessageByUsername(String username) {
 	return Mono.just("Hi " + username);
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+fun findMessageByUsername(username: String): Mono<String> {
+	return Mono.just("Hi $username")
+}
+----
+====
+
 下面是在响应式应用程序中使用方法安全性时的最小方法安全性配置.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
@@ -55,9 +88,33 @@ public class SecurityConfig {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableReactiveMethodSecurity
+class SecurityConfig {
+	@Bean
+	fun userDetailsService(): MapReactiveUserDetailsService {
+		val userBuilder: User.UserBuilder = User.withDefaultPasswordEncoder()
+		val rob = userBuilder.username("rob")
+			.password("rob")
+			.roles("USER")
+			.build()
+		val admin = userBuilder.username("admin")
+			.password("admin")
+			.roles("USER", "ADMIN")
+			.build()
+		return MapReactiveUserDetailsService(rob, admin)
+	}
+}
+----
+====
+
 考虑以下: class:
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @Component
 public class HelloWorldMessageService {
@@ -68,12 +125,44 @@ public class HelloWorldMessageService {
 }
 ----
 
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Component
+class HelloWorldMessageService {
+	@PreAuthorize("hasRole('ADMIN')")
+	fun findMessage(): Mono<String> {
+		return Mono.just("Hello World!")
+	}
+}
+----
+====
+
+Or, the following class using Kotlin coroutines:
+
+====
+.Kotlin
+[source,kotlin,role="primary"]
+----
+@Component
+class HelloWorldMessageService {
+    @PreAuthorize("hasRole('ADMIN')")
+    suspend fun findMessage(): String {
+        delay(10)
+        return "Hello World!"
+    }
+}
+----
+====
+
 结合上面的配置,`@PreAuthorize("hasRole('ADMIN')")` 将确保 `findByMessage` 仅由具有 `ADMIN` 角色的用户调用.  重要的是要注意,标准方法安全性中的任何表达式都适用于 `@EnableReactiveMethodSecurity`.
 但是,目前我们仅支持表达式的 `Boolean` or `boolean` 的返回类型.  这意味着该表达式不能阻塞.
 
 与 <<jc-webflux,第21章WebFlux Security集成>>时,Spring Security会根据已认证的用户自动建立Reactor上下文.
 
-[source,java]
+====
+.Java
+[source,java,role="primary"]
 ----
 @EnableWebFluxSecurity
 @EnableReactiveMethodSecurity
@@ -108,4 +197,37 @@ public class SecurityConfig {
 
 ----
 
-您可以在 {gh-samples-url}/javaconfig/hellowebflux-method[hellowebflux-method] 中找到完整的示例
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebFluxSecurity
+@EnableReactiveMethodSecurity
+class SecurityConfig {
+	@Bean
+	open fun springWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+		return http {
+			authorizeExchange {
+				authorize(anyExchange, permitAll)
+			}
+			httpBasic { }
+		}
+	}
+
+	@Bean
+	fun userDetailsService(): MapReactiveUserDetailsService {
+		val userBuilder: User.UserBuilder = User.withDefaultPasswordEncoder()
+		val rob = userBuilder.username("rob")
+			.password("rob")
+			.roles("USER")
+			.build()
+		val admin = userBuilder.username("admin")
+			.password("admin")
+			.roles("USER", "ADMIN")
+			.build()
+		return MapReactiveUserDetailsService(rob, admin)
+	}
+}
+----
+====
+
+您可以在 {gh-samples-url}/reactive/webflux/java/method[hellowebflux-method] 中找到完整的示例
