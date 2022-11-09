@@ -1,0 +1,439 @@
+= OAuth 2.0 Resource Server Multitenancy
+
+
+[[oauth2reourceserver-opaqueandjwt]]
+== 同时支持 JWT 和 Opaque Token
+
+在某些情况下,您可能需要访问两种令牌.  例如,您可能支持多个租户,其中一个租户发布 JWT,其他租户发布不透明令牌.
+
+如果必须在请求时做出此决定,则可以使用 `AuthenticationManagerResolver` 来实现,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+AuthenticationManagerResolver<HttpServletRequest> tokenAuthenticationManagerResolver
+        (JwtDecoder jwtDecoder, OpaqueTokenIntrospector opaqueTokenIntrospector) {
+    AuthenticationManager jwt = new ProviderManager(new JwtAuthenticationProvider(jwtDecoder));
+    AuthenticationManager opaqueToken = new ProviderManager(
+            new OpaqueTokenAuthenticationProvider(opaqueTokenIntrospector));
+    return (request) -> useJwt(request) ? jwt : opaqueToken;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun tokenAuthenticationManagerResolver
+        (jwtDecoder: JwtDecoder, opaqueTokenIntrospector: OpaqueTokenIntrospector):
+        AuthenticationManagerResolver<HttpServletRequest> {
+    val jwt = ProviderManager(JwtAuthenticationProvider(jwtDecoder))
+    val opaqueToken = ProviderManager(OpaqueTokenAuthenticationProvider(opaqueTokenIntrospector));
+
+    return AuthenticationManagerResolver { request ->
+        if (useJwt(request)) {
+            jwt
+        } else {
+            opaqueToken
+        }
+    }
+}
+----
+====
+
+NOTE: `useJwt(HttpServletRequest)` 的实现可能取决于诸如路径之类的自定义请求..
+
+然后在 DSL 中指定此 `AuthenticationManagerResolver`:
+
+.Authentication Manager Resolver
+====
+.Java
+[source,java,role="primary"]
+----
+http
+    .authorizeHttpRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(this.tokenAuthenticationManagerResolver)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+http {
+    authorizeRequests {
+        authorize(anyRequest, authenticated)
+    }
+    oauth2ResourceServer {
+        authenticationManagerResolver = tokenAuthenticationManagerResolver()
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server authentication-manager-resolver-ref="tokenAuthenticationManagerResolver"/>
+</http>
+----
+====
+
+[[oauth2resourceserver-multitenancy]]
+== 多租户
+
+当存在多种验证承载令牌的策略时,资源服务器被视为多租户,并以某些租户标识符为关键字.
+
+例如,您的资源服务器可能接受来自两个不同授权服务器的承载令牌.  或者,您的授权服务器可能代表多个发行者.
+
+在每种情况下,都需要完成两件事,并且要与选择的方式进行权衡:
+
+1. 解析租户
+2. 传播租户
+
+=== 通过 Claim 解析租户
+
+区分租户的一种方法是通过 issuer claim.  由于签发者的声明伴随着已签名的 JWT,因此可以通过 `JwtIssuerAuthenticationManagerResolver` 来完成,如下所示:
+
+.Multitenancy Tenant by JWT Claim
+====
+.Java
+[source,java,role="primary"]
+----
+JwtIssuerAuthenticationManagerResolver authenticationManagerResolver = new JwtIssuerAuthenticationManagerResolver
+    ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo");
+
+http
+    .authorizeHttpRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val customAuthenticationManagerResolver = JwtIssuerAuthenticationManagerResolver
+    ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo")
+http {
+    authorizeRequests {
+        authorize(anyRequest, authenticated)
+    }
+    oauth2ResourceServer {
+        authenticationManagerResolver = customAuthenticationManagerResolver
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+    <oauth2-resource-server authentication-manager-resolver-ref="authenticationManagerResolver"/>
+</http>
+
+<bean id="authenticationManagerResolver"
+        class="org.springframework.security.oauth2.server.resource.authentication.JwtIssuerAuthenticationManagerResolver">
+    <constructor-arg>
+        <list>
+            <value>https://idp.example.org/issuerOne</value>
+            <value>https://idp.example.org/issuerTwo</value>
+        </list>
+    </constructor-arg>
+</bean>
+----
+====
+
+这很好,因为发布者端点是延迟加载的.  实际上,仅当发送带有相应发行者的第一个请求时,才会实例化相应的 `JwtAuthenticationProvider`.  这样就可以启动应用程序,而与启动并可用的那些授权服务器无关.
+
+==== 动态租户
+
+当然,您可能不想在每次添加新租户时都重新启动应用程序.  在这种情况下,可以使用 `AuthenticationManager` 实例的存储库配置 `JwtIssuerAuthenticationManagerResolver`,您可以在运行时对其进行编辑,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+private void addManager(Map<String, AuthenticationManager> authenticationManagers, String issuer) {
+	JwtAuthenticationProvider authenticationProvider = new JwtAuthenticationProvider
+	        (JwtDecoders.fromIssuerLocation(issuer));
+	authenticationManagers.put(issuer, authenticationProvider::authenticate);
+}
+
+// ...
+
+JwtIssuerAuthenticationManagerResolver authenticationManagerResolver =
+        new JwtIssuerAuthenticationManagerResolver(authenticationManagers::get);
+
+http
+    .authorizeHttpRequests(authorize -> authorize
+        .anyRequest().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+private fun addManager(authenticationManagers: MutableMap<String, AuthenticationManager>, issuer: String) {
+    val authenticationProvider = JwtAuthenticationProvider(JwtDecoders.fromIssuerLocation(issuer))
+    authenticationManagers[issuer] = AuthenticationManager {
+        authentication: Authentication? -> authenticationProvider.authenticate(authentication)
+    }
+}
+
+// ...
+
+val customAuthenticationManagerResolver: JwtIssuerAuthenticationManagerResolver =
+    JwtIssuerAuthenticationManagerResolver(authenticationManagers::get)
+http {
+    authorizeRequests {
+        authorize(anyRequest, authenticated)
+    }
+    oauth2ResourceServer {
+        authenticationManagerResolver = customAuthenticationManagerResolver
+    }
+}
+----
+====
+
+在这种情况下,您可以使用给定 issuer 的策略来构造 `JwtIssuerAuthenticationManagerResolver`,以获取 `AuthenticationManager`.  这种方法使我们可以在运行时从存储库中添加和删除元素 (如片段中的 `Map` 所示) .
+
+NOTE: 仅选择任何 issuer 并从中构造 `AuthenticationManager` 是不安全的.  issuer 应该是代码可以从允许的 issuers 的受信任来源进行验证的发行者.
+
+==== 仅解析一次 Claim
+
+您可能已经观察到,这种策略虽然简单,但是却存在一个折衷,即 JWT 由 `AuthenticationManagerResolver` 解析一次,然后由  <<oauth2resourceserver-jwt-architecture-jwtdecoder,`JwtDecoder`>> 解析.
+
+通过直接使用Nimbus的 `JWTClaimSetAwareJWSKeySelector` 配置  <<oauth2resourceserver-jwt-architecture-jwtdecoder,`JwtDecoder`>> 可以减轻这种额外的解析:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Component
+public class TenantJWSKeySelector
+    implements JWTClaimsSetAwareJWSKeySelector<SecurityContext> {
+
+	private final TenantRepository tenants; <1>
+	private final Map<String, JWSKeySelector<SecurityContext>> selectors = new ConcurrentHashMap<>(); <2>
+
+	public TenantJWSKeySelector(TenantRepository tenants) {
+		this.tenants = tenants;
+	}
+
+	@Override
+	public List<? extends Key> selectKeys(JWSHeader jwsHeader, JWTClaimsSet jwtClaimsSet, SecurityContext securityContext)
+			throws KeySourceException {
+		return this.selectors.computeIfAbsent(toTenant(jwtClaimsSet), this::fromTenant)
+				.selectJWSKeys(jwsHeader, securityContext);
+	}
+
+	private String toTenant(JWTClaimsSet claimSet) {
+		return (String) claimSet.getClaim("iss");
+	}
+
+	private JWSKeySelector<SecurityContext> fromTenant(String tenant) {
+		return Optional.ofNullable(this.tenantRepository.findById(tenant)) <3>
+		        .map(t -> t.getAttrbute("jwks_uri"))
+				.map(this::fromUri)
+				.orElseThrow(() -> new IllegalArgumentException("unknown tenant"));
+	}
+
+	private JWSKeySelector<SecurityContext> fromUri(String uri) {
+		try {
+			return JWSAlgorithmFamilyJWSKeySelector.fromJWKSetURL(new URL(uri)); <4>
+		} catch (Exception ex) {
+			throw new IllegalArgumentException(ex);
+		}
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Component
+class TenantJWSKeySelector(tenants: TenantRepository) : JWTClaimsSetAwareJWSKeySelector<SecurityContext> {
+    private val tenants: TenantRepository <1>
+    private val selectors: MutableMap<String, JWSKeySelector<SecurityContext>> = ConcurrentHashMap() <2>
+
+    init {
+        this.tenants = tenants
+    }
+
+    fun selectKeys(jwsHeader: JWSHeader?, jwtClaimsSet: JWTClaimsSet, securityContext: SecurityContext): List<Key?> {
+        return selectors.computeIfAbsent(toTenant(jwtClaimsSet)) { tenant: String -> fromTenant(tenant) }
+                .selectJWSKeys(jwsHeader, securityContext)
+    }
+
+    private fun toTenant(claimSet: JWTClaimsSet): String {
+        return claimSet.getClaim("iss") as String
+    }
+
+    private fun fromTenant(tenant: String): JWSKeySelector<SecurityContext> {
+        return Optional.ofNullable(this.tenants.findById(tenant)) <3>
+                .map { t -> t.getAttrbute("jwks_uri") }
+                .map { uri: String -> fromUri(uri) }
+                .orElseThrow { IllegalArgumentException("unknown tenant") }
+    }
+
+    private fun fromUri(uri: String): JWSKeySelector<SecurityContext?> {
+        return try {
+            JWSAlgorithmFamilyJWSKeySelector.fromJWKSetURL(URL(uri)) <4>
+        } catch (ex: Exception) {
+            throw IllegalArgumentException(ex)
+        }
+    }
+}
+----
+====
+<1> 租户信息的假设来源
+<2> `JWKKeySelector` 的缓存,由租户标识符输入
+<3> 查找租户比简单地即时计算 JWK Set 端点更安全-查找充当租户白名单
+<4> 通过从 JWK Set 端点返回的密钥类型创建一个 `JWSKeySelector` -此处的延迟查找意味着您不需要在启动时配置所有租户
+
+上面的按键选择器由许多按键选择器组成.
+它根据 JWT 中的 `iss` 声明选择要使用的键选择器.
+
+NOTE: 要使用此方法,请确保将授权服务器配置为包括声明集作为令牌签名的一部分.
+没有这个,您就不能保证发行人不会被坏演员改变.
+
+接下来,我们可以构造一个 `JWTProcessor`:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+JWTProcessor jwtProcessor(JWTClaimSetJWSKeySelector keySelector) {
+	ConfigurableJWTProcessor<SecurityContext> jwtProcessor =
+            new DefaultJWTProcessor();
+	jwtProcessor.setJWTClaimsSetAwareJWSKeySelector(keySelector);
+	return jwtProcessor;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun jwtProcessor(keySelector: JWTClaimsSetAwareJWSKeySelector<SecurityContext>): JWTProcessor<SecurityContext> {
+    val jwtProcessor = DefaultJWTProcessor<SecurityContext>()
+    jwtProcessor.jwtClaimsSetAwareJWSKeySelector = keySelector
+    return jwtProcessor
+}
+----
+====
+
+如您所见,将租户意识降低到此级别的权衡是更多配置.
+我们还有一点.
+
+接下来,我们仍然要确保您正在验证发行人.
+但是,由于每个 JWT 的颁发者可能有所不同,因此,您还需要一个支持租户的验证器:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Component
+public class TenantJwtIssuerValidator implements OAuth2TokenValidator<Jwt> {
+	private final TenantRepository tenants;
+	private final Map<String, JwtIssuerValidator> validators = new ConcurrentHashMap<>();
+
+	public TenantJwtIssuerValidator(TenantRepository tenants) {
+		this.tenants = tenants;
+	}
+
+	@Override
+	public OAuth2TokenValidatorResult validate(Jwt token) {
+		return this.validators.computeIfAbsent(toTenant(token), this::fromTenant)
+				.validate(token);
+	}
+
+	private String toTenant(Jwt jwt) {
+		return jwt.getIssuer();
+	}
+
+	private JwtIssuerValidator fromTenant(String tenant) {
+		return Optional.ofNullable(this.tenants.findById(tenant))
+		        .map(t -> t.getAttribute("issuer"))
+				.map(JwtIssuerValidator::new)
+				.orElseThrow(() -> new IllegalArgumentException("unknown tenant"));
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Component
+class TenantJwtIssuerValidator(tenants: TenantRepository) : OAuth2TokenValidator<Jwt> {
+    private val tenants: TenantRepository
+    private val validators: MutableMap<String, JwtIssuerValidator> = ConcurrentHashMap()
+    override fun validate(token: Jwt): OAuth2TokenValidatorResult {
+        return validators.computeIfAbsent(toTenant(token)) { tenant: String -> fromTenant(tenant) }
+                .validate(token)
+    }
+
+    private fun toTenant(jwt: Jwt): String {
+        return jwt.issuer.toString()
+    }
+
+    private fun fromTenant(tenant: String): JwtIssuerValidator {
+        return Optional.ofNullable(tenants.findById(tenant))
+                .map({ t -> t.getAttribute("issuer") })
+                .map({ JwtIssuerValidator() })
+                .orElseThrow({ IllegalArgumentException("unknown tenant") })
+    }
+
+    init {
+        this.tenants = tenants
+    }
+}
+----
+====
+
+现在我们有了一个可以识别租户的处理器和一个可以识别租户的验证器,我们可以继续创建 <<oauth2resourceserver-jwt-architecture-jwtdecoder,`JwtDecoder`>> 了:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+JwtDecoder jwtDecoder(JWTProcessor jwtProcessor, OAuth2TokenValidator<Jwt> jwtValidator) {
+	NimbusJwtDecoder decoder = new NimbusJwtDecoder(jwtProcessor);
+	OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>
+			(JwtValidators.createDefault(), this.jwtValidator);
+	decoder.setJwtValidator(validator);
+	return decoder;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun jwtDecoder(jwtProcessor: JWTProcessor<SecurityContext>?, jwtValidator: OAuth2TokenValidator<Jwt>?): JwtDecoder {
+    val decoder = NimbusJwtDecoder(jwtProcessor)
+    val validator: OAuth2TokenValidator<Jwt> = DelegatingOAuth2TokenValidator(JwtValidators.createDefault(), jwtValidator)
+    decoder.setJwtValidator(validator)
+    return decoder
+}
+----
+====
+
+我们已经结束了有关解决租户的讨论.
+
+如果选择按请求材料解决租户,则需要确保以相同的方式访问下游资源服务器.
+例如,如果要按子域进行解析,则需要使用相同的子域来寻址下游资源服务器.
+
+但是,如果您通过不记名令牌中的声明解决该问题,请继续阅读以了解<<oauth2resourceserver-bearertoken-resolver,Spring Security's support for bearer token propagation>>.

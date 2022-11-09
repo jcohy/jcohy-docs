@@ -1,0 +1,923 @@
+[[oauth2login-advanced]]
+= 高级配置
+
+`HttpSecurity.oauth2Login()` 提供了许多用于自定义 OAuth 2.0 登录的配置选项. 主要配置选项分为它们的 Protocol Endpoint 对应项.
+
+例如, `oauth2Login().authorizationEndpoint()` 允许配置 _Authorization Endpoint_, `oauth2Login().tokenEndpoint()` 允许配置  _Token Endpoint_.
+
+如下:
+
+.Advanced OAuth2 Login Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .authorizationEndpoint(authorization -> authorization
+			            ...
+			    )
+			    .redirectionEndpoint(redirection -> redirection
+			            ...
+			    )
+			    .tokenEndpoint(token -> token
+			            ...
+			    )
+			    .userInfoEndpoint(userInfo -> userInfo
+			            ...
+			    )
+			);
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                authorizationEndpoint {
+                    ...
+                }
+                redirectionEndpoint {
+                    ...
+                }
+                tokenEndpoint {
+                    ...
+                }
+                userInfoEndpoint {
+                    ...
+                }
+            }
+        }
+    }
+}
+----
+====
+
+
+`oauth2Login()` DSL 的主要目标是与规范中定义的命名紧密一致. .
+
+OAuth 2.0 授权框架对 https://tools.ietf.org/html/rfc6749#section-3[Protocol Endpoint] (协议端点) 的定义如下:
+
+授权过程利用两个授权服务端 Endpoint (HTTP 资源) :
+
+* Authorization Endpoint (授权端点) : 客户端用于通过用户代理重定向从资源所有者获取授权.
+* Token Endpoint (令牌端点) : 客户端用于交换访问令牌的授权授权,通常使用客户端身份验证.
+
+以及一个客户端 Endpoint:
+
+* Redirection Endpoint (重定向端点) : 授权服务器用于通过资源所有者用户将包含授权证书的响应返回给客户端.
+
+OpenID Connect Core 1.0规范定义了 https://openid.net/specs/openid-connect-core-1_0.html#UserInfo[UserInfo Endpoint] 如下:
+
+UserInfo Endpoint 是 OAuth 2.0 受保护的资源,它返回有关经过身份验证的终端用户的声明.
+为了获得所请求的有关终端用户的声明,客户端使用通过 OpenID Connect Authentication 获得的访问令牌向 UserInfo Endpoint 发出请求.
+这些声明通常由 JSON 对象表示,该对象包含声明的名称/值对的集合.
+
+以下代码显示了可用于 `oauth2Login()` DSL的完整配置选项:
+
+.OAuth2 Login Configuration Options
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .clientRegistrationRepository(this.clientRegistrationRepository())
+			    .authorizedClientRepository(this.authorizedClientRepository())
+			    .authorizedClientService(this.authorizedClientService())
+			    .loginPage("/login")
+			    .authorizationEndpoint(authorization -> authorization
+			        .baseUri(this.authorizationRequestBaseUri())
+			        .authorizationRequestRepository(this.authorizationRequestRepository())
+			        .authorizationRequestResolver(this.authorizationRequestResolver())
+			    )
+			    .redirectionEndpoint(redirection -> redirection
+			        .baseUri(this.authorizationResponseBaseUri())
+			    )
+			    .tokenEndpoint(token -> token
+			        .accessTokenResponseClient(this.accessTokenResponseClient())
+			    )
+			    .userInfoEndpoint(userInfo -> userInfo
+			        .userAuthoritiesMapper(this.userAuthoritiesMapper())
+			        .userService(this.oauth2UserService())
+			        .oidcUserService(this.oidcUserService())
+			        .customUserType(GitHubOAuth2User.class, "github")
+			    )
+			);
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                clientRegistrationRepository = clientRegistrationRepository()
+                authorizedClientRepository = authorizedClientRepository()
+                authorizedClientService = authorizedClientService()
+                loginPage = "/login"
+                authorizationEndpoint {
+                    baseUri = authorizationRequestBaseUri()
+                    authorizationRequestRepository = authorizationRequestRepository()
+                    authorizationRequestResolver = authorizationRequestResolver()
+                }
+                redirectionEndpoint {
+                    baseUri = authorizationResponseBaseUri()
+                }
+                tokenEndpoint {
+                    accessTokenResponseClient = accessTokenResponseClient()
+                }
+                userInfoEndpoint {
+                    userAuthoritiesMapper = userAuthoritiesMapper()
+                    userService = oauth2UserService()
+                    oidcUserService = oidcUserService()
+                }
+            }
+        }
+    }
+}
+----
+====
+
+除了 `oauth2Login()` DSL 外,还支持 XML 配置.
+
+以下代码显示了  <<nsa-oauth2-login, security namespace>> 中可用的完整配置选项:
+
+.OAuth2 Login XML Configuration Options
+====
+[source,xml]
+----
+<http>
+	<oauth2-login client-registration-repository-ref="clientRegistrationRepository"
+				  authorized-client-repository-ref="authorizedClientRepository"
+				  authorized-client-service-ref="authorizedClientService"
+				  authorization-request-repository-ref="authorizationRequestRepository"
+				  authorization-request-resolver-ref="authorizationRequestResolver"
+				  access-token-response-client-ref="accessTokenResponseClient"
+				  user-authorities-mapper-ref="userAuthoritiesMapper"
+				  user-service-ref="oauth2UserService"
+				  oidc-user-service-ref="oidcUserService"
+				  login-processing-url="/login/oauth2/code/*"
+				  login-page="/login"
+				  authentication-success-handler-ref="authenticationSuccessHandler"
+				  authentication-failure-handler-ref="authenticationFailureHandler"
+				  jwt-decoder-factory-ref="jwtDecoderFactory"/>
+</http>
+----
+====
+
+以下各节详细介绍了每个可用的配置选项:
+
+* <<oauth2login-advanced-login-page, OAuth 2.0 登录页>>
+* <<oauth2login-advanced-redirection-endpoint, 重定向 Endpoint>>
+* <<oauth2login-advanced-userinfo-endpoint, UserInfo Endpoint>>
+
+
+[[oauth2login-advanced-login-page]]
+== OAuth 2.0 Login Page
+
+默认情况下,OAuth 2.0 登录页面由 `DefaultLoginPageGeneratingFilter` 自动生成.  默认登录页面显示每个配置的 OAuth 客户端及其 `ClientRegistration.clientName` 作为链接,该客户端能够启动授权请求 (或 OAuth 2.0 登录) .
+
+[NOTE]
+为了使 `DefaultLoginPageGeneratingFilter` 显示已配置的OAuth客户端的链接,注册的 `ClientRegistrationRepository` 还需要实现  `Iterable<ClientRegistration>`..  请参阅 `InMemoryClientRegistrationRepository` 以获取参考.
+
+每个OAuth客户端的链接目标默认为以下位置:
+
+`OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI` + "/{registrationId}"
+
+下面的行显示了一个示例:
+
+[source,html]
+----
+<a href="/oauth2/authorization/google">Google</a>
+----
+
+要覆盖默认登录页面,请配置 `oauth2Login().loginPage()` 和 `oauth2Login().authorizationEndpoint().baseUri()`  (可选) .
+
+以下清单显示了一个示例:
+
+.OAuth2 Login Page Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .loginPage("/login/oauth2")
+			    ...
+			    .authorizationEndpoint(authorization -> authorization
+			        .baseUri("/login/oauth2/authorization")
+			        ...
+			    )
+			);
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                loginPage = "/login/oauth2"
+                authorizationEndpoint {
+                    baseUri = "/login/oauth2/authorization"
+                }
+            }
+        }
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-login login-page="/login/oauth2"
+				  ...
+    />
+</http>
+----
+====
+
+[IMPORTANT]
+您需要提供一个  `@RequestMapping("/login/oauth2")` 的 `@Controller`,该渲染器能够呈现自定义登录页面.
+
+[TIP]
+====
+如前所述,配置 `oauth2Login().authorizationEndpoint().baseUri()`  是可选的.  但是,如果选择自定义它,请确保到每个 OAuth 客户端的链接都与 `authorizationEndpoint().baseUri()` 相匹配.
+
+下面的行显示了一个示例:
+
+[source,html]
+----
+<a href="/login/oauth2/authorization/google">Google</a>
+----
+====
+
+
+[[oauth2login-advanced-redirection-endpoint]]
+== 重定向端点
+
+重定向端点是授权服务器通过资源所有者用户将授权响应 (包含授权凭证) 返回给客户端.
+
+[TIP]
+OAuth 2.0 登录利用授权码授权.  因此,授权凭证是授权码.
+
+默认的授权响应 `baseUri` (重定向端点) 是 `*/login/oauth2/code/**`,在 `OAuth2LoginAuthenticationFilter.DEFAULT_FILTER_PROCESSES_URI` 中定义.
+
+如果要自定义 授权响应 `baseUri`,请按以下示例所示进行配置:
+
+.Redirection Endpoint Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .redirectionEndpoint(redirection -> redirection
+			        .baseUri("/login/oauth2/callback/*")
+			        ...
+			    )
+			);
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                redirectionEndpoint {
+                    baseUri = "/login/oauth2/callback/*"
+                }
+            }
+        }
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-login login-processing-url="/login/oauth2/callback/*"
+				  ...
+    />
+</http>
+----
+====
+
+[IMPORTANT]
+====
+您还需要确保 `ClientRegistration.redirectUri` 与自定义的授权响应 `baseUri` 匹配.
+
+以下清单显示了一个示例:
+
+.Java
+[source,java,role="primary",attrs="-attributes"]
+----
+return CommonOAuth2Provider.GOOGLE.getBuilder("google")
+	.clientId("google-client-id")
+	.clientSecret("google-client-secret")
+	.redirectUri("{baseUrl}/login/oauth2/callback/{registrationId}")
+	.build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary",attrs="-attributes"]
+----
+return CommonOAuth2Provider.GOOGLE.getBuilder("google")
+    .clientId("google-client-id")
+    .clientSecret("google-client-secret")
+    .redirectUri("{baseUrl}/login/oauth2/callback/{registrationId}")
+    .build()
+----
+====
+
+
+[[oauth2login-advanced-userinfo-endpoint]]
+== UserInfo Endpoint
+
+UserInfo 端点包括许多配置选项,如以下小节所述:
+
+* <<oauth2login-advanced-map-authorities, 用户权限映射>>
+* <<oauth2login-advanced-oauth2-user-service, OAuth 2.0 UserService>>
+* <<oauth2login-advanced-oidc-user-service, OpenID Connect 1.0 UserService>>
+
+
+[[oauth2login-advanced-map-authorities]]
+=== 用户权限映射
+
+用户成功通过 OAuth 2.0 提供者进行身份验证之后,可以将 `OAuth2User.getAuthorities()`  (或 `OidcUser.getAuthorities()`) 映射到一组新的 `GrantedAuthority` 实例,这些实例将在完成身份验证时提供给 `OAuth2AuthenticationToken`.
+
+[TIP]
+`OAuth2AuthenticationToken.getAuthorities()` 用于请求授权,例如 `hasRole('USER')` 或 `hasRole('ADMIN')`.
+
+映射用户权限时,有两个选项可供选择:
+
+* <<oauth2login-advanced-map-authorities-grantedauthoritiesmapper, 使用 GrantedAuthoritiesMapper>>
+* <<oauth2login-advanced-map-authorities-oauth2userservice, OAuth2UserService 使用委托机制 >>
+
+
+[[oauth2login-advanced-map-authorities-grantedauthoritiesmapper]]
+==== 使用 GrantedAuthoritiesMapper
+
+提供 `GrantedAuthoritiesMapper` 的实现,并按以下示例所示进行配置:
+
+.Granted Authorities Mapper Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .userInfoEndpoint(userInfo -> userInfo
+			        .userAuthoritiesMapper(this.userAuthoritiesMapper())
+			        ...
+			    )
+			);
+	}
+
+	private GrantedAuthoritiesMapper userAuthoritiesMapper() {
+		return (authorities) -> {
+			Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
+
+			authorities.forEach(authority -> {
+				if (OidcUserAuthority.class.isInstance(authority)) {
+					OidcUserAuthority oidcUserAuthority = (OidcUserAuthority)authority;
+
+					OidcIdToken idToken = oidcUserAuthority.getIdToken();
+					OidcUserInfo userInfo = oidcUserAuthority.getUserInfo();
+
+					// Map the claims found in idToken and/or userInfo
+					// to one or more GrantedAuthority's and add it to mappedAuthorities
+
+				} else if (OAuth2UserAuthority.class.isInstance(authority)) {
+					OAuth2UserAuthority oauth2UserAuthority = (OAuth2UserAuthority)authority;
+
+					Map<String, Object> userAttributes = oauth2UserAuthority.getAttributes();
+
+					// Map the attributes found in userAttributes
+					// to one or more GrantedAuthority's and add it to mappedAuthorities
+
+				}
+			});
+
+			return mappedAuthorities;
+		};
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    userAuthoritiesMapper = userAuthoritiesMapper()
+                }
+            }
+        }
+    }
+
+    private fun userAuthoritiesMapper(): GrantedAuthoritiesMapper = GrantedAuthoritiesMapper { authorities: Collection<GrantedAuthority> ->
+        val mappedAuthorities = emptySet<GrantedAuthority>()
+
+        authorities.forEach { authority ->
+            if (authority is OidcUserAuthority) {
+                val idToken = authority.idToken
+                val userInfo = authority.userInfo
+                // Map the claims found in idToken and/or userInfo
+                // to one or more GrantedAuthority's and add it to mappedAuthorities
+            } else if (authority is OAuth2UserAuthority) {
+                val userAttributes = authority.attributes
+                // Map the attributes found in userAttributes
+                // to one or more GrantedAuthority's and add it to mappedAuthorities
+            }
+        }
+
+        mappedAuthorities
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-login user-authorities-mapper-ref="userAuthoritiesMapper"
+				  ...
+    />
+</http>
+----
+====
+
+或者,您可以注册 `GrantedAuthoritiesMapper` `@Bean` 使其自动应用于配置,如以下示例所示:
+
+.Granted Authorities Mapper Bean Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+		    .oauth2Login(withDefaults());
+	}
+
+	@Bean
+	public GrantedAuthoritiesMapper userAuthoritiesMapper() {
+		...
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login { }
+        }
+    }
+
+    @Bean
+    fun userAuthoritiesMapper(): GrantedAuthoritiesMapper {
+        ...
+    }
+}
+----
+====
+
+
+[[oauth2login-advanced-map-authorities-oauth2userservice]]
+==== OAuth2UserService 使用委托机制
+
+与使用 `GrantedAuthoritiesMapper` 相比,这是一种高级策略,也更灵活,因为它使您可以访问 `OAuth2UserRequest` 和 `OAuth2User` (使用OAuth 2.0 UserService 时) 或 `OidcUserRequest` 和 `OidcUser` (使用 OpenID Connect 1.0 UserService 时) .
+
+`OAuth2UserRequest` (和 `OidcUserRequest`) 为您提供了对关联的 `OAuth2AccessToken` 的访问权限,这在委托者需要从受保护的资源中获取权限信息才能为其映射用户的自定义权限时非常有用.
+
+以下示例显示如何使用 OpenID Connect 1.0 UserService  实现和配置基于委派的策略:
+
+.OAuth2UserService Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .userInfoEndpoint(userInfo -> userInfo
+			        .oidcUserService(this.oidcUserService())
+			        ...
+			    )
+			);
+	}
+
+	private OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService() {
+		final OidcUserService delegate = new OidcUserService();
+
+		return (userRequest) -> {
+			// Delegate to the default implementation for loading a user
+			OidcUser oidcUser = delegate.loadUser(userRequest);
+
+			OAuth2AccessToken accessToken = userRequest.getAccessToken();
+			Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
+
+			// TODO
+			// 1) Fetch the authority information from the protected resource using accessToken
+			// 2) Map the authority information to one or more GrantedAuthority's and add it to mappedAuthorities
+
+			// 3) Create a copy of oidcUser but use the mappedAuthorities instead
+			oidcUser = new DefaultOidcUser(mappedAuthorities, oidcUser.getIdToken(), oidcUser.getUserInfo());
+
+			return oidcUser;
+		};
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    oidcUserService = oidcUserService()
+                }
+            }
+        }
+    }
+
+    @Bean
+    fun oidcUserService(): OAuth2UserService<OidcUserRequest, OidcUser> {
+        val delegate = OidcUserService()
+
+        return OAuth2UserService { userRequest ->
+            // Delegate to the default implementation for loading a user
+            var oidcUser = delegate.loadUser(userRequest)
+
+            val accessToken = userRequest.accessToken
+            val mappedAuthorities = HashSet<GrantedAuthority>()
+
+            // TODO
+            // 1) Fetch the authority information from the protected resource using accessToken
+            // 2) Map the authority information to one or more GrantedAuthority's and add it to mappedAuthorities
+            // 3) Create a copy of oidcUser but use the mappedAuthorities instead
+            oidcUser = DefaultOidcUser(mappedAuthorities, oidcUser.idToken, oidcUser.userInfo)
+
+            oidcUser
+        }
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<http>
+	<oauth2-login oidc-user-service-ref="oidcUserService"
+				  ...
+    />
+</http>
+----
+====
+
+[[oauth2login-advanced-oauth2-user-service]]
+=== OAuth 2.0 UserService
+
+`DefaultOAuth2UserService` 是支持标准 OAuth 2.0 提供程序的 `OAuth2UserService` 的实现.
+
+[NOTE]
+`OAuth2UserService` (通过使用授权流程中授权客户端的访问令牌) 从 UserInfo 端点获取最终用户 (资源所有者) 的用户属性,并以 `OAuth2User` 的形式返回 `AuthenticatedPrincipal`.
+
+当在 UserInfo 端点上请求用户属性时,`DefaultOAuth2UserService` 使用 `RestOperations`.
+
+如果需要自定义 UserInfo 请求的预处理,则可以为 `DefaultOAuth2UserService.setRequestEntityConverter()` 提供自定义 `Converter<OAuth2UserRequest, RequestEntity<?>>`..
+默认实现 `OAuth2UserRequestEntityConverter` 构建 UserInfo 请求的 `RequestEntity` 表示形式,默认情况下在 `Authorization` 头中设置 `OAuth2AccessToken`.
+
+另一方面,如果您需要自定义 UserInfo Response 的后处理,则需要向 `DefaultOAuth2UserService.setRestOperations()` 提供一个自定义配置的 `RestOperations`.  默认的 `RestOperations` 配置如下:
+
+[source,java]
+----
+RestTemplate restTemplate = new RestTemplate();
+restTemplate.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
+----
+
+`OAuth2ErrorResponseErrorHandler` 是一个 `ResponseErrorHandler`,可以处理 OAuth 2.0 错误 (400 错误请求) .  它使用 `OAuth2ErrorHttpMessageConverter` 将 OAuth 2.0 错误参数转换为 `OAuth2Error`.
+
+无论您是自定义 `DefaultOAuth2UserService` 还是提供自己的 `OAuth2UserService` 的实现,都需要按以下示例所示进行配置:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+			    .userInfoEndpoint(userInfo -> userInfo
+			        .userService(this.oauth2UserService())
+			        ...
+			    )
+			);
+	}
+
+	private OAuth2UserService<OAuth2UserRequest, OAuth2User> oauth2UserService() {
+		...
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    userService = oauth2UserService()
+                    // ...
+                }
+            }
+        }
+    }
+
+    private fun oauth2UserService(): OAuth2UserService<OAuth2UserRequest, OAuth2User> {
+        // ...
+    }
+}
+----
+====
+
+[[oauth2login-advanced-oidc-user-service]]
+=== OpenID Connect 1.0 UserService
+
+`OidcUserService` 是 `OAuth2UserService` 的实现,它支持OpenID Connect 1.0.
+
+当在 UserInfo 端点请求用户属性时,`OidcUserService` 利用 `DefaultOAuth2UserService`.
+
+如果需要自定义 UserInfo 请求的预处理 and/or UserInfo 响应的后处理,则需要为  `OidcUserService.setOauth2UserService()`  提供一个自定义配置的 `DefaultOAuth2UserService`.
+
+无论您是自定义 `OidcUserService` 还是为 OpenID Connect 1.0 自己提供 `OAuth2UserService` 的实现,都需要对其进行配置,如以下示例所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.oauth2Login(oauth2 -> oauth2
+				.userInfoEndpoint(userInfo -> userInfo
+				    .oidcUserService(this.oidcUserService())
+				    ...
+			    )
+			);
+	}
+
+	private OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService() {
+		...
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            oauth2Login {
+                userInfoEndpoint {
+                    oidcUserService = oidcUserService()
+                    // ...
+                }
+            }
+        }
+    }
+
+    private fun oidcUserService(): OAuth2UserService<OidcUserRequest, OidcUser> {
+        // ...
+    }
+}
+----
+====
+
+
+[[oauth2login-advanced-idtoken-verify]]
+==== ID令牌签名验证
+
+OpenID Connect 1.0 身份验证引入了 https://openid.net/specs/openid-connect-core-1_0.html#IDToken[ID Token],它是一种安全令牌,其中包含有关由客户端使用授权服务器进行的终端用户身份验证的声明.
+
+ID令牌表示为JSON Web令牌( https://tools.ietf.org/html/rfc7519[JSON Web Token](JWT)),并且必须使用JSON Web签名( https://tools.ietf.org/html/rfc7515[JSON Web Signature](JWS))进行签名.
+
+`OidcIdTokenDecoderFactory` 提供了一个 `JwtDecoder` 用于 `OidcIdToken` 签名验证.  默认算法为 RS256,但是在客户端注册期间分配时可能会有所不同.  对于这些情况,可以将解析程序配置为返回分配给特定客户端的预期JWS算法.
+
+JWS 算法解析器是一个接受 `ClientRegistration` 并返回客户端期望的 `JwsAlgorithm` 的函数,例如.  `SignatureAlgorithm.RS256` 或 `MacAlgorithm.HS256`
+
+以下代码显示了如何针对所有 `ClientRegistration` 将 `OidcIdTokenDecoderFactory`  `@Bean` 配置为默认为 `MacAlgorithm.HS256`:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public JwtDecoderFactory<ClientRegistration> idTokenDecoderFactory() {
+	OidcIdTokenDecoderFactory idTokenDecoderFactory = new OidcIdTokenDecoderFactory();
+	idTokenDecoderFactory.setJwsAlgorithmResolver(clientRegistration -> MacAlgorithm.HS256);
+	return idTokenDecoderFactory;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun idTokenDecoderFactory(): JwtDecoderFactory<ClientRegistration?> {
+    val idTokenDecoderFactory = OidcIdTokenDecoderFactory()
+    idTokenDecoderFactory.setJwsAlgorithmResolver { MacAlgorithm.HS256 }
+    return idTokenDecoderFactory
+}
+----
+====
+
+[NOTE]
+对于基于 MAC 的算法 (例如 `HS256`,`HS384` 或 `HS512`) ,将与 `client-id` 对应的 `client-secret` 用作对称密钥以进行签名验证.
+
+[TIP]
+如果为 OpenID Connect 1.0 身份验证配置了多个 `ClientRegistration`,则 JWS 算法解析器可以评估提供的 `ClientRegistration` 以确定要返回的算法.
+
+[[oauth2login-advanced-oidc-logout]]
+==== OpenID Connect 1.0 注销
+
+OpenID Connect 会话管理 1.0 允许使用客户端在提供商处注销最终用户.  可用的策略之一是 https://openid.net/specs/openid-connect-session-1_0.html#RPLogout[RP-Initiated Logout].
+
+如果 OpenID 提供程序同时支持会话管理和 https://openid.net/specs/openid-connect-discovery-1_0.html[发现],则客户端可以从 OpenID 提供程序的发现 https://openid.net/specs/openid-connect-session-1_0.html#OPMetadata[发现元数据] 中获取 `end_session_endpoint` `URL`.  可以通过使用 `issuer-uri` 配置 `ClientRegistration` 来实现,如以下示例所示:
+
+[source,yaml]
+----
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          okta:
+            client-id: okta-client-id
+            client-secret: okta-client-secret
+            ...
+        provider:
+          okta:
+            issuer-uri: https://dev-1234.oktapreview.com
+----
+
+。。。和实现 RP-Initiated 注销的 `OidcClientInitiatedLogoutSuccessHandler` 可以配置如下:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@EnableWebSecurity
+public class OAuth2LoginSecurityConfig extends WebSecurityConfigurerAdapter {
+
+	@Autowired
+	private ClientRegistrationRepository clientRegistrationRepository;
+
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http
+			.authorizeHttpRequests(authorize -> authorize
+				.anyRequest().authenticated()
+			)
+			.oauth2Login(withDefaults())
+			.logout(logout -> logout
+				.logoutSuccessHandler(oidcLogoutSuccessHandler())
+			);
+	}
+
+	private LogoutSuccessHandler oidcLogoutSuccessHandler() {
+		OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler =
+				new OidcClientInitiatedLogoutSuccessHandler(this.clientRegistrationRepository);
+
+		// Sets the location that the End-User's User Agent will be redirected to
+		// after the logout has been performed at the Provider
+		oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}");
+
+		return oidcLogoutSuccessHandler;
+	}
+}
+
+NOTE: `OidcClientInitiatedLogoutSuccessHandler` 支持 `{baseUrl}` 占位符.
+如果使用,则应用程序的基本URL (例如, `https://app.example.org`) 将在请求时替换它.
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@EnableWebSecurity
+class OAuth2LoginSecurityConfig : WebSecurityConfigurerAdapter() {
+    @Autowired
+    private lateinit var clientRegistrationRepository: ClientRegistrationRepository
+
+    override fun configure(http: HttpSecurity) {
+        http {
+            authorizeRequests {
+                authorize(anyRequest, authenticated)
+            }
+            oauth2Login { }
+            logout {
+                logoutSuccessHandler = oidcLogoutSuccessHandler()
+            }
+        }
+    }
+
+    private fun oidcLogoutSuccessHandler(): LogoutSuccessHandler {
+        val oidcLogoutSuccessHandler = OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository)
+
+        // Sets the location that the End-User's User Agent will be redirected to
+        // after the logout has been performed at the Provider
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}")
+        return oidcLogoutSuccessHandler
+    }
+}
+
+NOTE: `OidcClientInitiatedLogoutSuccessHandler` 支持 `{baseUrl}` 占位符.
+如果使用,则应用程序的基本 URL (例如, `https://app.example.org`) 将在请求时替换它.
+----
+====
