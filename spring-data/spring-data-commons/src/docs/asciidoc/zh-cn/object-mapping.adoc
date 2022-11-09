@@ -16,9 +16,10 @@ Spring Data 对象映射的核心职责是创建域对象的实例,并将存储�
 Spring Data 会自动尝试检测要用于实现该类型对象的持久性实体的构造函数.
 解析算法的工作原理如下:
 
-1. 如果有一个无参数的构造函数,它将被使用.  其他构造函数将被忽略.
-2. 如果只有一个构造函数接受参数,则将使用它.
-3. 如果有多个接受参数的构造函数,则 Spring Data 要使用的那个必须用 `@PersistenceConstructor` 注解.
+
+1. 如果只有一个构造函数接受参数,则将使用它.
+2. 如果有多个接受参数的构造函数,则 Spring Data 要使用的那个必须用 `@PersistenceConstructor` 注解.
+3. 如果有一个无参数的构造函数,它将被使用.其他构造函数将被忽略
 
 值解析假定构造函数参数名称与实体的属性名称匹配,即,解析将像要填充该属性一样执行,包括映射中的所有自定义项 (不同的数据存储列或字段名称等) .
 这也需要在类文件中可用的参数名称信息或在构造函数上存在的 `@ConstructorProperties` 注解.
@@ -202,6 +203,71 @@ class Person {
 * _对于要生成的标识符,仍然将 final 字段与全参数构造函数  `with…` 方法结合使用_ --
 * _使用 Lombok 来避免样板代码_ -- 由于持久性操作通常需要构造函数使用所有参数,因此它们的声明成为对字段分配的样板参数的繁琐重复,最好使用 Lombok 的 `@AllArgsConstructor` 来避免.
 
+[[mapping.general-recommendations.override.properties]]
+=== 重写属性
+
+Java 允许灵活设计 domain 类，其中子类可以定义一个已在其超类中以相同名称声明的属性。
+考虑以下示例:
+
+====
+[source,java]
+----
+public class SuperType {
+
+   private CharSequence field;
+
+   public SuperType(CharSequence field) {
+      this.field = field;
+   }
+
+   public CharSequence getField() {
+      return this.field;
+   }
+
+   public void setField(CharSequence field) {
+      this.field = field;
+   }
+}
+
+public class SubType extends SuperType {
+
+   private String field;
+
+   public SubType(String field) {
+      super(field);
+      this.field = field;
+   }
+
+   @Override
+   public String getField() {
+      return this.field;
+   }
+
+   public void setField(String field) {
+      this.field = field;
+
+      // optional
+      super.setField(field);
+   }
+}
+----
+====
+
+这两个类都使用可分配类型定义了一个  `field` 。 `SubType` 但是会影响 `SuperType.field`。
+根据类设计，使用构造函数可能是设置 `SuperType.field` 的唯一默认方法。
+或者，在 setter 中调用 `super.setField(…)` 可以在 `SuperType` 中设置 `field`。
+所有这些机制都会在某种程度上产生冲突，因为属性共享相同的名称但可能代表两个不同的值。
+如果类型不可分配，Spring Data 会跳过超类型属性。
+也就是说，被覆盖的属性的类型必须可以分配给它的超类型属性类型才能注册为覆盖，否则超类型属性被认为是瞬态的。
+我们通常建议使用不同的属性名称。
+
+Spring Data 模块通常支持覆盖不同值的属性。
+从编程模型的角度来看，有几点需要考虑：
+
+1. 哪个属性应该被持久化（默认为所有声明的属性）？ 您可以通过使用 `@Transient` 注解这些属性来排除这些属性。
+2. 如何在数据存储中表示属性？ 对不同的值使用相同的字段/列名称通常会导致数据损坏，因此您应该使用明确的字段/列名称注解至少一个属性。
+3. 不能使用 `@AccessType(PROPERTY)`，因为如果不进一步假设 setter 实现，通常无法设置超属性。
+
 [[mapping.kotlin]]
 == Kotlin 支持
 
@@ -255,3 +321,75 @@ data class Person(val id: String, val name: String)
 ====
 
 该类实际上是不可变的.  当 Kotlin 生成 `copy(…)` 方法时,它可以创建新的实例,该方法创建新的对象实例,该对象实例从现有对象复制所有属性值,并将作为参数提供的属性值应用于该方法.
+
+[[mapping.kotlin.override.properties]]
+=== Kotlin 重写属性
+
+Kotlin 允许声明 https://kotlinlang.org/docs/inheritance.html#overriding-properties[property overrides] 以更改子类中的属性。
+
+====
+[source,kotlin]
+----
+open class SuperType(open var field: Int)
+
+class SubType(override var field: Int = 1) :
+	SuperType(field) {
+}
+----
+====
+
+这样的显示了两个名为 `field` 的属性。 Kotlin 为每个类中的每个属性生成属性访问器（getter 和 setter）。
+实际上，代码如下所示：
+
+====
+[source,java]
+----
+public class SuperType {
+
+   private int field;
+
+   public SuperType(int field) {
+      this.field = field;
+   }
+
+   public int getField() {
+      return this.field;
+   }
+
+   public void setField(int field) {
+      this.field = field;
+   }
+}
+
+public final class SubType extends SuperType {
+
+   private int field;
+
+   public SubType(int field) {
+      super(field);
+      this.field = field;
+   }
+
+   public int getField() {
+      return this.field;
+   }
+
+   public void setField(int field) {
+      this.field = field;
+   }
+}
+----
+====
+
+`SubType` 上的 getter 和 setter 仅设置 `SubType.field` 而不是 `SuperType.field`。
+在这样的安排中，使用构造函数是设置 `SuperType.field` 的唯一默认方法。
+通过 `this.SuperType.field = ...` 向 `SubType` 添加方法以设置 `SuperType.field` 是可能的，但不符合支持的约定。
+属性覆盖在某种程度上会产生冲突，因为属性共享相同的名称但可能代表两个不同的值。
+我们通常建议使用不同的属性名称。
+
+Spring Data 模块通常支持覆盖不同值的属性。
+从编程模型的角度来看，有几点需要考虑：
+
+1. 哪个属性应该被持久化（默认为所有声明的属性）？ 您可以通过使用 `@Transient` 注解这些属性来排除这些属性。
+2. 如何在数据存储中表示属性？ 对不同的值使用相同的字段/列名称通常会导致数据损坏，因此您应该使用明确的字段/列名称注解至少一个属性。
+3. 不能使用 `@AccessType(PROPERTY)`，因为如果不进一步假设 setter 实现，通常无法设置超属性。
