@@ -1,0 +1,76 @@
+[[elasticsearch-migration-guide-4.2-4.3]]
+= 从 4.2.x 升级到 4.3.x
+
+本节介绍从 4.2.x 版到 4.3.x 版的重大更改，以及如何用新引入的功能替换已删除的功能。
+
+[NOTE]
+====
+Elasticsearch 正在开发一个新的客户端，它将取代 `RestHighLevelClient`，因为  `RestHighLevelClient` 使用来自 Elasticsearch 核心库的代码，这些库不再获得 Apache 2 许可。
+Spring Data Elasticsearch 也在为这种变化做准备。
+这意味着在内部需要更改 `*Operations` 接口的实现 - 如果用户针对 `ElasticsearchOperations` 或 `ReactiveElasticsearchOperations` 等接口进行编程，这应该没有问题。
+如果您直接使用 `ElasticsearchRestTemplate` 之类的实现类，则需要适应这些变化。
+
+Spring Data Elasticsearch 还在其 API 类和方法中删除或替换了  `org.elasticsearch` 包中类的使用，仅在实现对 Elasticsearch 访问的实现中使用它们。
+对于用户来说，这意味着一些使用的枚举类被替换为 `org.springframework.data.elasticsearch`  中具有相同值的枚举，这些在内部映射到 Elasticsearch 上。
+
+使用无法轻易替换的类的地方，这种用法被标记为已弃用，我们正在研究替换。
+
+查看 <<elasticsearch-migration-guide-4.2-4.3.deprecations>> 和 <<elasticsearch-migration-guide-4.2-4.3.breaking-changes>> 部分了解更多详情。
+====
+
+[[elasticsearch-migration-guide-4.2-4.3.deprecations]]
+== 弃用
+
+=== suggest 方法
+
+在 `SearchOperations` 和 `ElasticsearchOperations` 中，`suggest` 方法以 `org.elasticsearch.search.suggest.SuggestBuilder` 作为参数并返回 `org.elasticsearch.action.search.SearchResponse` 已弃用。
+改用 `SearchHits<T> search(Query query, Class<T> clazz)`，传入可以包含 `SuggestBuilder` 的 `NativeSearchQuery` 并从返回的 `SearchHit<T>` 读取 suggest 结果。
+
+在 `ReactiveSearchOperations` 中，新的 `suggest` 方法现在返回 `Mono<org.springframework.data.elasticsearch.core.suggest.response.Suggest>`。
+在这里，旧的方法也被弃用了。
+
+[[elasticsearch-migration-guide-4.2-4.3.breaking-changes]]
+== 重大变化
+
+=== 从 API 中删除 `org.elasticsearch` 类
+
+* 在 `org.springframework.data.elasticsearch.annotations.CompletionContext` 注解中，属性 `type()` 已从 `org.elasticsearch.search.suggest.completion.context.ContextMapping.Type` 更改为 `org.springframework。 data.elasticsearch.annotations.CompletionContext.ContextMappingType`，可用的枚举值是一样的。
+* 在 `org.springframework.data.elasticsearch.annotations.Document` 注解中 `versionType()` 属性已更改为 `org.springframework.data.elasticsearch.annotations.Document.VersionType`，可用的枚举值相同.
+* 在 `org.springframework.data.elasticsearch.core.query.Query` 接口中 `searchType()` 属性已更改为 `org.springframework.data.elasticsearch.core.query.Query.SearchType`，可用的枚举值是相同的。
+* `org.springframework.data.elasticsearch.core.query.Query` 接口中 `timeout()` 的返回值改为 `java.time.Duration`。
+* `SearchHits<T>` 类不再包含 `org.elasticsearch.search.aggregations.Aggregations`。
+相反，它现在包含 `org.springframework.data.elasticsearch.core.AggregationsContainer<T>` 类的实例，其中 `T` 是使用的底层客户端的具体聚合类型。
+目前这将是一个 `org.springframework.data.elasticsearch.core.clients.elasticsearch7.ElasticsearchAggregations` 对象；稍后将提供不同的实现。 对 `ReactiveSearchOperations.aggregate()` 函数进行了相同的更改，现在返回一个 `Flux<AggregationContainer<?>>`。
+需要更改使用聚合的程序以将返回值转换为适当的类以进一步处理它。
+* 可能抛出 `org.elasticsearch.ElasticsearchStatusException` 的方法现在将抛出 `org.springframework.data.elasticsearch.RestStatusException`。
+
+=== Query 的 field 和 sourceFilter 属性的处理
+
+直到 4.2 版，`Query` 的 `fields` 属性被解释并添加到 `sourceFilter` 的包含列表中。
+这是不正确的，因为这些对于 Elasticsearch 来说是不同的。 这已得到纠正。
+因此，依赖于使用 `fields` 来指定应该从文档的 `_source` 返回哪些字段并且应该更改为使用 `sourceFilter` 的代码可能不再起作用。
+
+=== search_type 默认值
+
+Elasticsearch 中 `search_type` 的默认值为 `query_then_fetch`。
+这现在也被设置为 `Query` 实现中的默认值，它之前被设置为 `dfs_query_then_fetch`。
+
+=== BulkOptions 改变
+
+`org.springframework.data.elasticsearch.core.query.BulkOptions` 类的一些属性改变了它们的类型：
+
+* `timeout` 属性的类型已更改为 `java.time.Duration`。
+* `refreshPolicy` 属性的类型已更改为 `org.springframework.data.elasticsearch.core.RefreshPolicy`。
+
+=== IndicesOptions 改变
+
+Spring Data Elasticsearch 现在使用 `org.springframework.data.elasticsearch.core.query.IndicesOptions` 而不是 `org.elasticsearch.action.support.IndicesOptions`。
+
+=== Completion classes
+
+`org.springframework.data.elasticsearch.core.completion` 包中的类已移至 `org.springframework.data.elasticsearch.core.suggest`。
+
+=== 其他重命名
+
+`org.springframework.data.elasticsearch.core.mapping.ElasticsearchPersistentPropertyConverter` 接口已重命名为 `org.springframework.data.elasticsearch.core.mapping.PropertyValueConverter`。
+同样，名为 _XXPersistentPropertyConverter_ 的实现类已重命名为 _XXPropertyValueConverter_。
