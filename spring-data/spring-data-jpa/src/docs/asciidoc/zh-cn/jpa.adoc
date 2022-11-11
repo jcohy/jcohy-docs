@@ -137,7 +137,7 @@ Spring Data JPA 提供以下策略来检测实体是否为新实体:
 2. 实现 `Persistable`: 如果实体实现 `Persistable`,则 Spring Data JPA 将新检测委托给该实体的 `isNew(…)` 方法.  有关详细信息,请参见 link:$$https://docs.spring.io/spring-data/data-commons/docs/current/api/index.html?org/springframework/data/domain/Persistable.html$$[JavaDoc] .
 3. 实现 `EntityInformation`: 通过创建 `JpaRepositoryFactory` 的子类并相应地重写  `getEntityInformation(…)` 方法,可以自定义 `SimpleJpaRepository` 实现中使用的 `EntityInformation` 抽象.  然后,您必须将 JpaRepositoryFactory 的自定义实现注册为 Spring bean.  请注意,这几乎没有必要.  有关详细信息,请参见  link:$$https://docs.spring.io/spring-data/data-jpa/docs/current/api/index.html?org/springframework/data/jpa/repository/support/JpaRepositoryFactory.html$$[JavaDoc] .
 
-对于使用手动分配的标识符的实体,选项 1 不是选项,因为标识符将始终为非 `null`.  在这种情况下,一种常见的模式是使用一个公共基类,该基类的过渡标志默认表示一个新实例,并使用 JPA 生命周期回调在持久化操作上反转该标志:
+对于使用手动分配的标识符并且没有 version 属性的实体,选项 1 不是选项,因为标识符将始终为非 `null`.  在这种情况下,一种常见的模式是使用一个公共基类,该基类的过渡标志默认表示一个新实例,并使用 JPA 生命周期回调在持久化操作上反转该标志:
 
 .具有手动分配的标识符的实体的基类
 ====
@@ -624,7 +624,6 @@ public class GroupInfo {
 ====
 [source, java]
 ----
-@Repository
 public interface GroupRepository extends CrudRepository<GroupInfo, String> {
 
   @EntityGraph(value = "GroupInfo.detail", type = EntityGraphType.LOAD)
@@ -640,7 +639,6 @@ public interface GroupRepository extends CrudRepository<GroupInfo, String> {
 ====
 [source, java]
 ----
-@Repository
 public interface GroupRepository extends CrudRepository<GroupInfo, String> {
 
   @EntityGraph(attributePaths = { "members" })
@@ -650,6 +648,9 @@ public interface GroupRepository extends CrudRepository<GroupInfo, String> {
 ----
 ====
 
+NOTE: 基于类的投影不适用于本地查询。 作为一种解决方法，您可以使用带有 `ResultSetMapping` 或 Hibernate 特定的命名查询 https://docs.jboss.org/hibernate/orm/6.0/javadocs/org/hibernate/transform/ResultTransformer.html[`ResultTransformer`]
+
+// :repository-projections-trailing-dto-fragment: {spring-data-commons}/repository-projections-dto-limitations.adoc
 
 include::{spring-data-commons}/repository-projections.adoc[leveloffset=+2]
 
@@ -828,8 +829,11 @@ include::query-by-example.adoc[leveloffset=+1]
 [[transactions]]
 == 事务性
 
-默认情况下,存储库实例上的 CRUD 方法是事务性的.  对于读取操作,事务配置 `readOnly` 标志设置为 `true`.  所有其他文件都配置有简单的 `@Transactional`,以便应用默认事务配置.
-有关详细信息,请参见 link:$$https://docs.spring.io/spring-data/data-jpa/docs/current/api/index.html?org/springframework/data/jpa/repository/support/SimpleJpaRepository.html$$[`SimpleJpaRepository`] 的JavaDoc.  如果需要调整存储库中声明的方法之一的事务配置,请在存储库接口中重新声明该方法,如下所示:
+默认情况下，存储库实例上的 CRUD 方法继承 https://docs.spring.io/spring-data/data-jpa/docs/current/api/org/springframework/data/jpa/repository/support/ SimpleJpaRepository.html$$[`SimpleJpaRepository`] 的是事务性的。
+对于读取操作，事务配置 `readOnly` 标志设置为 `true`。 对于读取操作,事务配置 `readOnly` 标志设置为 `true`.  所有其他文件都配置有简单的 `@Transactional`,以便应用默认事务配置.
+由事务存储库 fragments 支持的存储库方法从实际 fragments 方法继承事务属性。
+
+如果需要调整存储库中声明的方法之一的事务配置,请在存储库接口中重新声明该方法,如下所示:
 
 .CRUD 的自定义事务配置
 ====
@@ -854,12 +858,11 @@ public interface UserRepository extends CrudRepository<User, Long> {
 [source, java]
 ----
 @Service
-class UserManagementImpl implements UserManagement {
+public class UserManagementImpl implements UserManagement {
 
   private final UserRepository userRepository;
   private final RoleRepository roleRepository;
 
-  @Autowired
   public UserManagementImpl(UserRepository userRepository,
     RoleRepository roleRepository) {
     this.userRepository = userRepository;
@@ -875,6 +878,7 @@ class UserManagementImpl implements UserManagement {
       user.addRole(role);
       userRepository.save(user);
     }
+  }
 }
 ----
 此示例使对 `addRoleToAllUsers(…)`  的调用在事务内运行 (参与现有事务或在没有事务的情况下创建新事务) .  然后忽略存储库中的事务配置,因为外部事务配置确定了实际使用的事务配置.  请注意,必须激活 `<tx:annotation-driven />` 或显式使用 `@EnableTransactionManagement` 才能使立面的基于注解的配置生效.  本示例假定您使用组件扫描.
@@ -891,7 +895,7 @@ class UserManagementImpl implements UserManagement {
 [source, java]
 ----
 @Transactional(readOnly = true)
-public interface UserRepository extends JpaRepository<User, Long> {
+interface UserRepository extends JpaRepository<User, Long> {
 
   List<User> findByLastname(String lastname);
 
@@ -944,6 +948,8 @@ interface UserRepository extends Repository<User, Long> {
 :leveloffset: +1
 include::{spring-data-commons}/auditing.adoc[]
 :leveloffset: -1
+
+还有一个方便的类 `AbstractAuditable`，您可以对其进行扩展以避免手动实现接口方法的需要。 这样做会增加 domain 类与 Spring Data 的耦合，这可能是您想要避免的。 通常，首选基于注解的方式来定义审计元数据，因为它侵入性更小且更灵活。
 
 [[jpa.auditing]]
 == JPA 审计
