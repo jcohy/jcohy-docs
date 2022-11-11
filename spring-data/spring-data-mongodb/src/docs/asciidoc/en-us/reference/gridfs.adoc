@@ -1,0 +1,117 @@
+[[gridfs]]
+== GridFS 支持
+
+MongoDB 支持在其文件系统 GridFS 中存储二进制文件。 Spring Data MongoDB 提供了一个 `GridFsOperations` 接口以及相应的实现，
+`GridFsTemplate` 让您与文件系统进行交互。 您可以通过将 `MongoDatabaseFactory` 和 `MongoConverter` 交给它来设置 `GridFsTemplate` 实例，
+如以下示例所示：
+
+.JavaConfig setup for a GridFsTemplate
+====
+[source,java]
+----
+class GridFsConfiguration extends AbstractMongoClientConfiguration {
+
+  // … further configuration omitted
+
+  @Bean
+  public GridFsTemplate gridFsTemplate() {
+    return new GridFsTemplate(mongoDbFactory(), mappingMongoConverter());
+  }
+}
+----
+====
+
+The corresponding XML configuration follows:
+
+.XML configuration for a GridFsTemplate
+====
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:mongo="http://www.springframework.org/schema/data/mongo"
+  xsi:schemaLocation="http://www.springframework.org/schema/data/mongo
+                      https://www.springframework.org/schema/data/mongo/spring-mongo.xsd
+                      http://www.springframework.org/schema/beans
+                      https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+  <mongo:db-factory id="mongoDbFactory" dbname="database" />
+  <mongo:mapping-converter id="converter" />
+
+  <bean class="org.springframework.data.mongodb.gridfs.GridFsTemplate">
+    <constructor-arg ref="mongoDbFactory" />
+    <constructor-arg ref="converter" />
+  </bean>
+
+</beans>
+----
+====
+
+现在可以注入模板并用于执行存储和检索操作，如以下示例所示：
+
+.Using GridFsTemplate to store files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void storeFileToGridFs() {
+
+    FileMetadata metadata = new FileMetadata();
+    // populate metadata
+    Resource file = … // lookup File or Resource
+
+    operations.store(file.getInputStream(), "filename.txt", metadata);
+  }
+}
+----
+====
+
+`store(...)` 操作接受一个 `InputStream`、一个文件名和（可选的）关于要存储的文件的元数据信息。 元数据可以是任意对象，它将由使用 GridFsTemplate 配置的 MongoConverter 进行编组。 或者，您也可以提供“文档”。
+
+您可以通过 `find(...)` 或 `getResources(...)` 方法从文件系统中读取文件。 让我们先看看 `find(...)` 方法。 您可以找到与“查询”匹配的单个文件或多个文件。 您可以使用 `GridFsCriteria` 辅助类来定义查询。 它提供静态工厂方法来封装默认元数据字段（例如`whereFilename()`和`whereContentType()`）或通过`whereMetaData()`自定义一个。 下面的例子展示了如何使用 `GridFsTemplate` 来查询文件：
+
+.Using GridFsTemplate to query for files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void findFilesInGridFs() {
+    GridFSFindIterable result = operations.find(query(whereFilename().is("filename.txt")))
+  }
+}
+----
+====
+
+NOTE: 目前，MongoDB 在从 GridFS 检索文件时不支持定义排序标准。 出于这个原因，在 `Query` 实例上定义的任何排序标准都被传递给 `find(...)` 方法被忽略。
+
+从 GridFs 读取文件的另一个选项是使用由 `ResourcePatternResolver` 接口引入的方法。 它们允许将 Ant 路径传递给方法，因此可以检索与给定模式匹配的文件。 下面的例子展示了如何使用 `GridFsTemplate` 来读取文件：
+
+.Using GridFsTemplate to read files
+====
+[source,java]
+----
+class GridFsClient {
+
+  @Autowired
+  GridFsOperations operations;
+
+  @Test
+  public void readFilesFromGridFs() {
+    GridFsResources[] txtFiles = operations.getResources("*.txt");
+  }
+}
+----
+====
+
+`GridFsOperations` 扩展了 `ResourcePatternResolver` 并允许将 `GridFsTemplate`（例如）插入到 `ApplicationContext` 以从 MongoDB 数据库中读取 Spring Config 文件。
