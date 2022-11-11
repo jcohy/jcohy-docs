@@ -77,12 +77,12 @@ Redis 提供了几个组件. 对于大多数任务,高级抽象和支持服务�
 [[redis:connectors:connection]]
 === RedisConnection 和 RedisConnectionFactory
 
-`RedisConnection` 提供了 Redis 通信的核心模块,因为它处理与 Redis 服务端的通信. 它还会自动将底层连接库异常转换为 Spring 的 DAO 异常 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#dao-exceptions[层次结构],以便您可以在不更改任何代码的情况下切换连接器,因为操作语义保持不变.
+`RedisConnection` 提供了 Redis 通信的核心模块,因为它处理与 Redis 服务端的通信. 它还会自动将底层连接库异常转换为 Spring 的 DAO 异常 {spring-framework-reference}/data-access.html#dao-exceptions[层次结构],以便您可以在不更改任何代码的情况下切换连接器,因为操作语义保持不变.
 
 NOTE: 对于需要本地库 API 的特殊情况,`RedisConnection` 提供了专用方法(`getNativeConnection`),该方法返回用于通信的原始底层对象.
 
 激活的 `RedisConnection` 对象是通过 `RedisConnectionFactory` 创建的. 另外,工厂还充当 `PersistenceExceptionTranslator` 对象,这意味着一旦声明,它们就可以让您进行透明的异常转换.
-例如,您可以使用 `@Repository` 注解和AOP进行异常转换. 有关更多信息,请参见 Spring Framework 文档中的 https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#orm-exception-translation[相关部分].
+例如,您可以使用 `@Repository` 注解和AOP进行异常转换. 有关更多信息,请参见 Spring Framework 文档中的 {spring-framework-reference}/data-access.html#orm-exception-translation[相关部分].
 
 NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或共享本地连接时).
 
@@ -502,7 +502,7 @@ public void useCallback() {
 * `JdkSerializationRedisSerializer`, 默认情况下用于 `RedisCache` 和 `RedisTemplate`.
 * `StringRedisSerializer`.
 
-但是,可以通过 Spring https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/data-access.html#oxm[OXM] 支持或使用 `Jackson2JsonRedisSerializer` 或 `GenericJackson2JsonRedisSerializer` 将 `OxmSerializer` 用于 对象/XML映射,以 https://en.wikipedia.org/wiki/JSON[JSON] 格式存储数据.
+但是,可以通过 Spring {spring-framework-reference}/data-access.html#oxm[OXM] 支持或使用 `Jackson2JsonRedisSerializer` 或 `GenericJackson2JsonRedisSerializer` 将 `OxmSerializer` 用于 对象/XML映射,以 https://en.wikipedia.org/wiki/JSON[JSON] 格式存储数据.
 
 请注意,存储格式不仅限于 values. 它可以不受限制地用于 keys,values 或 hashes.
 
@@ -660,6 +660,8 @@ include::{referenceDir}/pipelining.adoc[]
 
 include::{referenceDir}/redis-scripting.adoc[]
 
+include::{referenceDir}/redis-cache.adoc[]
+
 :leveloffset: 1
 [[redis:support]]
 == 支持的类
@@ -701,121 +703,3 @@ public class AnotherExample {
 ----
 
 如前面的示例所示,使用代码与实际的存储实现分离. 实际上,没有迹象表明在下面使用了 Redis. 这使得从开发环境到生产环境的迁移变得透明,并大大提高了可测试性(Redis 实施可替换为内存中的实施).
-
-[[redis:support:cache-abstraction]]
-=== 支持 Spring Cache 抽象
-
-NOTE: Changed in 2.0
-
-Spring Redis 通过 `org.springframework.data.redis.cache` 包提供了 Spring https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference/integration.html#cache[缓存抽象]的实现. 要将 Redis 用作实现,请将 `RedisCacheManager` 添加到您的配置中,如下所示:
-
-[source,java]
-----
-@Bean
-public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-	return RedisCacheManager.create(connectionFactory);
-}
-----
-
-可以使用 `RedisCacheManagerBuilder` 配置 `RedisCacheManager` 行为,让您设置默认的 `RedisCacheConfiguration`,事务行为和预定义的缓存.
-
-[source,java]
-----
-RedisCacheManager cm = RedisCacheManager.builder(connectionFactory)
-	.cacheDefaults(defaultCacheConfig())
-	.withInitialCacheConfigurations(singletonMap("predefined", defaultCacheConfig().disableCachingNullValues()))
-	.transactionAware()
-	.build();
-----
-
-如前面的示例所示,`RedisCacheManager` 允许在每个缓存的基础上定义配置.
-
-由 `RedisCacheManager` 创建的 `RedisCache` 的行为由 `RedisCacheConfiguration` 定义. 通过该配置,您可以设置 key 到期时间,前缀和 `RedisSerializer` 实现,以实现与二进制存储格式之间的相互转换,如以下示例所示:
-
-[source,java]
-----
-RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-    .entryTtl(Duration.ofSeconds(1))
-	.disableCachingNullValues();
-----
-
-`RedisCacheManager` 默认使用无锁 `RedisCacheWriter` 来读写二进制值. 无锁缓存提高了吞吐量. 缺少条目锁定会导致 `putIfAbsent` 和 `clean` 方法的重叠,非原子性命令重叠,因为这些方法需要将多个命令发送到 Redis.
-锁定对方通过设置显式锁定键并检查该键是否存在来防止命令重叠,从而导致其他请求和潜在的命令等待时间.
-
-可以选择如下锁定行为:
-
-[source,java]
-----
-RedisCacheManager cm = RedisCacheManager.build(RedisCacheWriter.lockingRedisCacheWriter())
-	.cacheDefaults(defaultCacheConfig())
-	...
-----
-
-默认情况下,缓存条目的任何 key 都以实际的缓存名称作为前缀,后跟两个冒号. 此行为可以更改为静态前缀和计算前缀.
-
-以下示例显示了如何设置静态前缀:
-
-[source,java]
-----
-// static key prefix
-RedisCacheConfiguration.defaultCacheConfig().prefixKeysWith("( ͡° ᴥ ͡°)");
-
-The following example shows how to set a computed prefix:
-
-// computed key prefix
-RedisCacheConfiguration.defaultCacheConfig().computePrefixWith(cacheName -> "¯\_(ツ)_/¯" + cacheName);
-----
-
-下表列出了 `RedisCacheManager` 的默认设置
-
-.`RedisCacheManager` defaults
-[width="80%",cols="<1,<2",options="header"]
-|====
-|Setting
-|Value
-
-|Cache Writer
-|Non-locking
-
-|Cache Configuration
-|`RedisCacheConfiguration#defaultConfiguration`
-
-|Initial Caches
-|None
-
-|Transaction Aware
-|No
-|====
-
-下表列出了 `RedisCacheConfiguration` 的默认设置:
-
-.RedisCacheConfiguration defaults
-[width="80%",cols="<1,<2",options="header"]
-|====
-|Key Expiration
-|None
-
-|Cache `null`
-|Yes
-
-|Prefix Keys
-|Yes
-
-|Default Prefix
-|The actual cache name
-
-|Key Serializer
-|`StringRedisSerializer`
-
-|Value Serializer
-|`JdkSerializationRedisSerializer`
-
-|Conversion Service
-|`DefaultFormattingConversionService` with default cache key converters
-|====
-
-[NOTE]
-====
-默认情况下， `RedisCache` 的统计信息是禁用的.
-使用 `RedisCacheManagerBuilder.enableStatistics()` 通过 `RedisCache#getStatistics()` 来收集本地 _hits_ 和 _misses_ 返回所收集数据的快照.
-====
