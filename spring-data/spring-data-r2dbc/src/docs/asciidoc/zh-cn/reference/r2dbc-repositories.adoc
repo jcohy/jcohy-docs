@@ -106,6 +106,9 @@ interface ReactivePersonRepository extends ReactiveSortingRepository<Person, Lon
 带注解的查询使用本地绑定标记，在本例中是 Postgres 绑定标记。.
 ====
 
+请注意，`@Query` 注解中使用的 select 语句的列必须与 `NamingStrategy` 为相应属性生成的名称匹配。
+如果 select 语句不包含匹配的列，则不会设置该属性。 如果持久性构造函数需要该属性，则提供 `null` 或（对于原始类型）默认值。
+
 查询方法支持的关键字如下表所示:
 
 [cols="1,2,3", options="header", subs="quotes"]
@@ -257,6 +260,45 @@ include::{example-root}/PersonRepository.java[tags=spel]
 表达式支持可通过 Query SPI 进行扩展: Query SPI 可以提供属性和函数，并可以自定义根对象。在构建查询时进行 SpEL 评估时，从应用程序上下文中检索扩展。
 
 TIP: 将 SpEL 表达式与普通参数结合使用时，请使用命名参数表示法而不是本机绑定标记，以确保正确的绑定顺序。
+
+[[r2dbc.repositories.queries.query-by-example]]
+=== Query By Example
+
+Spring Data R2DBC 还允许您使用 Query By Example 来进行查询。 此技术允许您使用  "probe"  对象。 本质上，任何不为空或 `null` 的字段都将用于匹配。
+
+例如:
+
+====
+[source,java,indent=0]
+----
+include::../{example-root}/QueryByExampleTests.java[tag=example]
+----
+<1> 使用 criteria 创建 domain 对象(`null` 字段将被忽略).
+<2> 使用 domain 对象，创建 `Example`.
+<3> 通过 `R2dbcRepository`,执行查询 (对于   `Mono` 使用 `findOne`).
+====
+
+这说明了如何使用域对象制作简单的探针。
+在这种情况下，它将根据 `Employee` 对象的 `name` 字段等于 `Frodo` 进行查询。
+`null` 字段被忽略。
+
+====
+[source,java,indent=0]
+----
+include::../{example-root}/QueryByExampleTests.java[tag=example-2]
+----
+<1> 创建一个自定义的 `ExampleMatcher` 匹配所有字段 (使用 `matchingAny()` 匹配 *ANY* 字段)
+<2> 对于 `name` 字段，使用与字段末尾匹配的通配符
+<3> 将列与 `null` 匹配（不要忘记 `NULL` 在关系数据库中不等于 `NULL`）。
+<4> 形成查询时忽略 `role` 字段。.
+<5> 将自定义的 `ExampleMatcher` 插入探针。
+====
+
+也可以对任何属性应用 `withTransform()`，允许您在形成查询之前转换属性。
+例如，您可以在创建查询之前将 `toUpperCase()` 应用于基于 `String` 的属性。
+
+当您事先不知道查询中所需的所有字段时，按示例查询真的很出色。
+如果您在用户可以选择字段的网页上构建过滤器，那么通过示例查询是灵活地将其捕获到有效查询中的好方法。
 
 [[r2dbc.entity-persistence.state-detection-strategies]]
 include::{spring-data-commons}/is-new-state-detection.adoc[leveloffset=+2]

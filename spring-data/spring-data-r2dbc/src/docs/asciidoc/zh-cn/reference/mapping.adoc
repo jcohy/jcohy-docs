@@ -13,7 +13,9 @@ include::{spring-data-commons}/object-mapping.adoc[leveloffset=+1]
 当没有提供额外的元数据映射时，`MappingR2dbcConverter` 有一些将对象映射到行的约定。 这些约定是:
 
 * 将 Java 的类名（非完全限定）映射到数据库表名.
-类 `com.bigbank.SavingsAccount` 映射为 `savings_account` 表.
+类 `com.bigbank.SavingsAccount` 映射为 `SAVINGS_ACCOUNT` 表.
+同名映射应用于将字段映射到列名。 例如，`firstName` 字段映射到 `FIRST_NAME` 列。 您可以通过提供自定义的 `NamingStrategy` 来控制此映射。 有关详细信息，请参阅 <<mapping.configuration>>。
+默认情况下，在 SQL 语句中使用从属性名或类名派生的表名和列名，不带引号。 您可以通过设置 `R2dbcMappingContext.setForceQuote(true)` 来控制此行为。
 
 * 不支持嵌套对象.
 
@@ -26,9 +28,15 @@ include::{spring-data-commons}/object-mapping.adoc[leveloffset=+1]
 [[mapping.configuration]]
 == 映射配置
 
-默认情况下（除非明确配置）在您创建 `DatabaseClient` 时会创建一个 `MappingR2dbcConverter` 实例。 您可以创建自己的 `MappingR2dbcConverter` 实例。 通过创建您自己的实例，您可以注册 Spring 转换器来将特定类映射到数据库或从数据库映射。
+默认情况下（除非明确配置）在您创建 `DatabaseClient` 时会创建一个 `MappingR2dbcConverter` 实例。 您可以创建自己的 `MappingR2dbcConverter` 实例。
+通过创建您自己的实例，您可以注册 Spring 转换器来将特定类映射到数据库或从数据库映射。
 
 您可以使用基于 Java 的元数据来配置 `MappingR2dbcConverter` 以及 `DatabaseClient` 和 `ConnectionFactory`。 以下示例使用 Spring 的基于 Java 的配置：
+
+如果将  `R2dbcMappingContext to` 的 `setForceQuote` 设置为 `true`，则从类和属性继承的表和列名称将与数据库特定的引号一起使用。
+这意味着可以在这些名称中使用保留的 SQL 字（例如 order）。 您可以通过覆盖 `AbstractR2dbcConfiguration` 的 `r2dbcMappingContext(Optional<NamingStrategy>)` 来实现。
+Spring Data 将此类名称的字母大小写转换为配置数据库在不使用引用时也使用的格式。 因此，您可以在创建表时使用不带引号的名称，只要您的名称中不使用关键字或特殊字符即可。
+对于遵循 SQL 标准的数据库，这意味着将名称转换为大写。 引用字符和名称大写的方式由使用的“方言”控制。 请参阅 <<r2dbc.drivers>> 了解如何配置自定义方言。
 
 .@Configuration 类来配置 R2DBC 映射支持
 ====
@@ -58,6 +66,8 @@ public class MyAppConfig extends AbstractR2dbcConfiguration {
 `AbstractR2dbcConfiguration` 要求您实现一个定义 `ConnectionFactory` 的方法。
 
 您可以通过覆盖 `r2dbcCustomConversions` 方法向转换器添加其他转换器。
+
+您可以通过将其注册为 bean 来配置自定义的 `NamingStrategy`。`NamingStrategy` 控制类和属性的名称如何转换为表和列的名称。
 
 NOTE: `AbstractR2dbcConfiguration` 创建一个 `DatabaseClient` 实例， 并以 `databaseClient` 的名称将其注册到容器中。
 
@@ -152,7 +162,8 @@ NOTE: 列的本地数据类型取决于 R2DBC 驱动程序类型映射。 驱动
 * `@Transient`: 默认情况下，所有字段都映射到数据库的行。使用该注解可以将它的字段排除在数据库中。Transient 属性不能在持久构造函数中使用，因为转换器不能实例化构造函数参数的值。
 * `@PersistenceConstructor`: 标记给定的构造函数 — 甚至是受保护的包 — 以在从数据库实例化对象时使用。 构造函数参数按名称映射到检索行中的值。
 * `@Value`: 这个注解是 Spring 框架的一部分。 在映射框架内，它可以应用于构造函数参数。 这使您可以使用 Spring 表达式语言语句在用于构造 domain 对象之前转换在数据库中检索到的键的值。 为了引用给定行的列，必须使用如下表达式：`@Value("#root.myProperty")`  其中 root 是指给定 `Row` 的根。
-* `@Column`: 字段可用，描述在行中表示的列的名称，允许名称与类的字段名称不同。
+* `@Column`: 字段可用，描述在行中表示的列的名称，允许名称与类的字段名称不同。在 SQL 语句中使用时，使用 `@Column` 注释指定的名称总是被引用。 对于大多数数据库，这意味着这些名称是区分大小写的。 这也意味着您可以在这些名称中使用特殊字符。
+但是，不建议这样做，因为它可能会导致其他工具出现问题。
 * `@Version`: 字段级别可用，用于乐观锁并检查保存操作的修改。 值为 `null`（基本类型为 `0`）被视为实体的标记为新实体。 最初存储的值为 `0`（基本类型为 `1`）。 每次更新时，版本都会自动增加。 请参阅 <<r2dbc.optimistic-locking>>  以获取更多参考。
 
 元数映射据在独立的 spring-data-commons 项目中定义，该项目与技术无关。 R2DBC 支持中使用了特定的子类来支持基于注解的元数据。 也可以采用其他策略（如果有需求）。
