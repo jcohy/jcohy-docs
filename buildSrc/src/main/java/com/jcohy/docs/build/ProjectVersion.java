@@ -14,7 +14,7 @@ import java.util.Map;
  */
 public enum ProjectVersion {
 
-    GRADLE_DOCS("gradle-docs","gradle-version","6.7",""),
+    GRADLE_DOCS("gradle-docs","gradle-version","6.9.3",""),
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
     REACTOR("reactor","reactor-version","3.4.8",""),
     REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.3",""),

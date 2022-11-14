@@ -1,0 +1,294 @@
+[[session-mgmt]]
+= Session 管理器
+与 HTTP 会话相关的功能由 `SessionManagementFilter` 和 `SessionAuthenticationStrategy` 接口的组合处理,过滤器委托该接口.  典型的用法包括 防止会话固定保护攻击,检测会话超时以及限制已认证用户可以同时打开多少个会话.
+
+== 检测超时
+您可以配置 Spring Security 来检测无效会话 ID,并将用户重定向到适当的 URL.  这是通过 `session-management` 元素实现的:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception{
+    http
+        .sessionManagement(session -> session
+            .invalidSessionUrl("/invalidSession.htm")
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+...
+<session-management invalid-session-url="/invalidSession.htm" />
+</http>
+----
+====
+
+请注意,如果使用此机制来检测会话超时时,在不关闭浏览器的情况下,用户注销然后重新登录,它可能会错误地报告错误.
+这是因为在使会话无效时不会清除会话 cookie,即使用户已注销,会话 cookie 也会重新提交.  您可以在注销时显式删除 `JSESSIONID` cookie,例如通过在注销处理程序中使用以下语法:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception{
+    http
+        .logout(logout -> logout
+            .deleteCookies("JSESSIONID")
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+<logout delete-cookies="JSESSIONID" />
+</http>
+----
+====
+
+不幸的是,不能保证它可以与每个 servlet 容器一起使用,因此您需要在您的环境中对其进行测试
+
+[NOTE]
+如果您在代理服务器后运行应用程序,则还可以通过配置代理服务器来删除会话 cookie.  例如,使用 Apache HTTPD 的 mod_headers,以下指令会通过在注销请求的响应中将其过期而删除 `JSESSIONID` cookie (假设应用程序已部署在 `/tutorial` 路径下) :
+
+[source,xml]
+----
+<LocationMatch "/tutorial/logout">
+Header always set Set-Cookie "JSESSIONID=;Path=/tutorial;Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+</LocationMatch>
+----
+
+[[ns-concurrent-sessions]]
+== 并发会话控制
+
+如果您希望限制单个用户登录到您的应用程序的能力,Spring Security 可以通过以下简单的补充来支持此功能.  首先,您需要将以下监听器添加到您的 configuration 文件中,以使 Spring Security 更新有关会话生命周期事件的信息:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public HttpSessionEventPublisher httpSessionEventPublisher() {
+    return new HttpSessionEventPublisher();
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<listener>
+<listener-class>
+	org.springframework.security.web.session.HttpSessionEventPublisher
+</listener-class>
+</listener>
+----
+====
+
+然后将以下行添加到您的应用程序上下文:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .sessionManagement(session -> session
+            .maximumSessions(1)
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+...
+<session-management>
+	<concurrency-control max-sessions="1" />
+</session-management>
+</http>
+----
+====
+
+这将防止用户多次登录-第二次登录将使第一次登录无效.  通常,您希望避免再次登录,在这种情况下,您可以使用
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .sessionManagement(session -> session
+            .maximumSessions(1)
+            .maxSessionsPreventsLogin(true)
+        );
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+<session-management>
+	<concurrency-control max-sessions="1" error-if-maximum-exceeded="true" />
+</session-management>
+</http>
+----
+====
+
+然后,第二次登录将被拒绝.  "拒绝" 是指如果使用基于表单的登录名,则会将用户发送到 `authentication-failure-url`.
+如果第二次身份验证是通过另一个非交互机制 (例如 `remember-me`) 进行的,则 "unauthorized"  (401) 错误将发送给客户端.  相反,如果要使用错误页面,则可以将属性 `session-authentication-error-url` 添加到 `session-management` 元素中.
+
+如果使用定制的身份验证过滤器进行基于表单的登录,则必须显式配置并发会话控制支持.  更多细节可以在 <<session-mgmt,会话管理一章>> 中找到.
+
+[[ns-session-fixation]]
+== 会话固定攻击防护
+https://en.wikipedia.org/wiki/Session_fixation[会话固定] 攻击是一种潜在的风险,恶意攻击者有可能通过访问站点来创建会话,然后诱使另一个用户以相同的会话登录 (例如: 通过向他们发送包含会话标识符作为参数的链接) .
+Spring Security 通过创建新会话或在用户登录时更改会话ID来自动防止这种情况的发生. 如果您不需要此保护,或者与其他要求冲突,则可以使用会话固定来控制行为 `<session-management>` 上的 `session-fixation-protection` 属性,它具有四个选项
+
+
+* `none` - 什么都不要做 原始会话将保留.
+
+* `newSession` - 创建一个新的 "干净" 会话,而不复制现有会话数据 (仍将复制与Spring Security相关的属性) .
+
+* `migrateSession` - 创建一个新会话,并将所有现有会话属性复制到新会话.  这是Servlet 3.0或更早版本的容器中的默认值.
+
+* `changeSessionId` - 不要创建新的会话.  而是使用 Servlet 容器提供的(`HttpServletRequest#changeSessionId()`) 会话固定保护 .
+此选项仅在 Servlet 3.1 (Java EE 7) 和更高版本的容器中可用.  在较旧的容器中指定它会导致异常.  这是 Servlet 3.1 和更高版本容器中的默认设置.
+
+发生会话固定保护时,它将导致 `SessionFixationProtectionEvent` 在应用程序上下文中发布.  如果使用 `changeSessionId`,则此保护还将导致任何 `javax.servlet.http.HttpSessionIdListener` 收到通知,因此,如果您的代码监听这两个事件,请务必谨慎.  有关其他信息,请参见<<session-mgmt,会话管理>>一章.
+
+== SessionManagementFilter
+`SessionManagementFilter` 根据 `SecurityContextHolder` 的当前内容检查 `SecurityContextRepository` 的内容,以确定用户是否已在当前请求期间进行了身份验证,通常是通过非交互式身份验证机制进行的,例如预身份验证或 remember-me footnote:[.
+如果存储库包含安全上下文,则过滤器不执行任何操作.
+如果不是,并且线程本地 `SecurityContext` 包含 (非匿名) 身份验证对象,则过滤器将假定它们已由堆栈中的先前过滤器进行了身份验证.  然后它将调用配置的 `SessionAuthenticationStrategy`. ].
+
+如果用户当前未通过身份验证,则过滤器将检查是否已请求了无效的会话ID (例如,由于超时) ,并且将调用已配置的 `InvalidSessionStrategy` (如果已设置) .
+最常见的行为就是重定向到固定 URL,并将其封装在标准实现 `SimpleRedirectInvalidSessionStrategy` 中.  <<session-mgmt,如前所述>>,在通过命名空间配置无效的会话 URL 时,也会使用后者.
+
+== SessionAuthenticationStrategy
+由于 `SessionManagementFilter` 和 `AbstractAuthenticationProcessingFilter` 都使用 `SessionAuthenticationStrategy`,因此,例如,如果使用自定义的表单登录类,则需要将其注入到这两个类中.  在这种情况下,将命名空间和自定义 bean 结合起来的典型配置如下所示:
+
+[source,xml]
+----
+
+<http>
+<custom-filter position="FORM_LOGIN_FILTER" ref="myAuthFilter" />
+<session-management session-authentication-strategy-ref="sas"/>
+</http>
+
+<beans:bean id="myAuthFilter" class=
+"org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter">
+	<beans:property name="sessionAuthenticationStrategy" ref="sas" />
+	...
+</beans:bean>
+
+<beans:bean id="sas" class=
+"org.springframework.security.web.authentication.session.SessionFixationProtectionStrategy" />
+
+----
+
+请注意,如果您在实现 `HttpSessionBindingListener` 的会话中存储 bean (包括 Spring 会话范围的 bean) ,则使用默认的 `SessionFixationProtectionStrategy` 可能会导致问题.  有关更多信息,请参见 Javadoc.
+
+[[concurrent-sessions]]
+== 并发控制
+Spring Security 可以防止主体同时向同一应用程序进行身份验证超过指定次数.  许多 ISV 都利用此功能来实施许可,而网络管理员喜欢此功能,因为它有助于防止人们共享登录名.  例如,您可以阻止用户 "蝙蝠侠" 从两个不同的会话登录到 Web 应用程序.
+您可以使他们的先前登录到期,也可以在他们再次尝试登录时报告错误,从而阻止第二次登录.  请注意,如果您使用第二种方法,则未明确注销的用户 (例如,刚刚关闭浏览器的用户) 将无法再次登录,直到他们的原始会话期满为止.
+
+命名空间支持并发控制,因此,请查阅前面的命名空间一章以获取最简单的配置.  有时您需要自定义内容.
+
+该实现使用 `SessionAuthenticationStrategy` 的专用版本,称为 `ConcurrentSessionControlAuthenticationStrategy`.
+[NOTE]
+====
+
+以前,并发身份验证检查是由 `ProviderManager` 进行的,可以通过 `ConcurrentSessionController` 进行注入.  后者将检查用户是否试图超过允许的会话数.
+但是,这种方法要求预先创建 HTTP 会话,这是不希望的.  在 Spring Security 3 中,首先通过 `AuthenticationManager` 对用户进行身份验证,一旦成功对用户进行身份验证,就会创建一个会话,并检查是否允许他们打开另一个会话.
+
+====
+
+
+要使用并发会话支持,您需要在 `web.xml` 中添加以下内容:
+
+[source,xml]
+----
+
+<listener>
+	<listener-class>
+	org.springframework.security.web.session.HttpSessionEventPublisher
+	</listener-class>
+</listener>
+----
+
+
+另外,您需要将 `ConcurrentSessionFilter` 添加到 `FilterChainProxy` 中.  `ConcurrentSessionFilter` 需要两个构造函数参数: `sessionRegistry` (通常指向 `SessionRegistryImpl` 的一个实例) 和 `sessionInformationExpiredStrategy`,用于定义会话过期时要应用的策略.
+使用命名空间创建 `FilterChainProxy` 和其他默认 Bean 的配置如下所示:
+
+[source,xml]
+----
+
+<http>
+<custom-filter position="CONCURRENT_SESSION_FILTER" ref="concurrencyFilter" />
+<custom-filter position="FORM_LOGIN_FILTER" ref="myAuthFilter" />
+
+<session-management session-authentication-strategy-ref="sas"/>
+</http>
+
+<beans:bean id="redirectSessionInformationExpiredStrategy"
+class="org.springframework.security.web.session.SimpleRedirectSessionInformationExpiredStrategy">
+<beans:constructor-arg name="invalidSessionUrl" value="/session-expired.htm" />
+</beans:bean>
+
+<beans:bean id="concurrencyFilter"
+class="org.springframework.security.web.session.ConcurrentSessionFilter">
+<beans:constructor-arg name="sessionRegistry" ref="sessionRegistry" />
+<beans:constructor-arg name="sessionInformationExpiredStrategy" ref="redirectSessionInformationExpiredStrategy" />
+</beans:bean>
+
+<beans:bean id="myAuthFilter" class=
+"org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter">
+<beans:property name="sessionAuthenticationStrategy" ref="sas" />
+<beans:property name="authenticationManager" ref="authenticationManager" />
+</beans:bean>
+
+<beans:bean id="sas" class="org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy">
+<beans:constructor-arg>
+	<beans:list>
+	<beans:bean class="org.springframework.security.web.authentication.session.ConcurrentSessionControlAuthenticationStrategy">
+		<beans:constructor-arg ref="sessionRegistry"/>
+		<beans:property name="maximumSessions" value="1" />
+		<beans:property name="exceptionIfMaximumExceeded" value="true" />
+	</beans:bean>
+	<beans:bean class="org.springframework.security.web.authentication.session.SessionFixationProtectionStrategy">
+	</beans:bean>
+	<beans:bean class="org.springframework.security.web.authentication.session.RegisterSessionAuthenticationStrategy">
+		<beans:constructor-arg ref="sessionRegistry"/>
+	</beans:bean>
+	</beans:list>
+</beans:constructor-arg>
+</beans:bean>
+
+<beans:bean id="sessionRegistry"
+	class="org.springframework.security.core.session.SessionRegistryImpl" />
+
+----
+
+
+将监听器添加到 `web.xml` 中后,每次 `HttpSession` 开始或终止时,都会将 `ApplicationEvent` 发布到Spring `ApplicationContext`.
+这很关键,因为它允许在会话结束时通知 `SessionRegistryImpl`.  如果没有它,即使用户退出另一个会话或超时,一旦超出会话允许量,用户将永远无法再次登录.
+
+[[list-authenticated-principals]]
+=== 查询 SessionRegistry 中当前经过身份验证的用户及其会话
+通过命名空间或使用普通 bean 设置并发控制具有有益的副作用,即为您提供对 `SessionRegistry` 的引用,您可以在应用程序中直接使用它,因此即使您不想限制它的数量.  用户可能拥有的会话,无论如何都值得建立基础架构.
+您可以将 `maximumSession` 属性设置为 `-1`,以允许无限制的会话.  如果您使用的是命名空间,则可以使用 `session-registry-alias` 属性为内部创建的 `SessionRegistry` 设置别名,并提供一个可以注入到您自己的 bean 中的参考.
+
+`getAllPrincipals()` 方法为您提供了当前经过身份验证的用户的列表.  您可以通过调用 `getAllSessions(ObjectPrincipal,boolean includeExpiredSessions)` 方法列出用户的会话,该方法返回 `SessionInformation` 对象的列表.
+您还可以通过在 `SessionInformation` 实例上调用 `expireNow()` 来使用户会话失效.  当用户返回到应用程序时,将阻止他们继续操作.  例如,您可能会发现这些方法在管理应用程序中很有用.  看看 Javadoc 了解更多信息.

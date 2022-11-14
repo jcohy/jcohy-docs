@@ -11,6 +11,7 @@ import org.asciidoctor.gradle.jvm.AsciidoctorJExtension;
 import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.plugins.PluginContainer;
 import org.gradle.api.tasks.Sync;
 
@@ -48,7 +49,10 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
         project.getTasks()
-                .withType(Sync.class, (sync -> sync.from("src/main/resources", (spec) -> spec.into("main/resources"))));
+                .withType(Sync.class, (sync -> sync.from("src/main/resources", (spec) -> {
+                    spec.into("main/resources");
+                    spec.setDuplicatesStrategy(DuplicatesStrategy.INCLUDE);
+                })));
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {

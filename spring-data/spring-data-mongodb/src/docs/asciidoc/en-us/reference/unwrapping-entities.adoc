@@ -1,0 +1,382 @@
+[[unwrapped-entities]]
+== Unwrapping Types
+
+未包装的实体用于设计 Java 域模型中的值对象，其属性被展平到父级的 MongoDB 文档中。
+
+[[unwrapped-entities.mapping]]
+=== Unwrapped Types 映射
+
+考虑下面的 domain 模型，其中 `User.name` 用 `@Unwrapped` 注解。
+`@Unwrapped` 注解表明 `UserName` 的所有属性都应该展开到拥有 `name` 属性的 `user` 文档中。
+
+.Sample Code of unwrapping objects
+====
+[source,java]
+----
+class User {
+
+    @Id
+    String userId;
+
+    @Unwrapped(onEmpty = USE_NULL) <1>
+    UserName name;
+}
+
+class UserName {
+
+    String firstname;
+
+    String lastname;
+
+}
+----
+
+[source,json]
+----
+{
+  "_id" : "1da2ba06-3ba7",
+  "firstname" : "Emma",
+  "lastname" : "Frost"
+}
+----
+<1> When loading the `name` property its value is set to `null` if both `firstname` and `lastname` are either `null` or not present.
+By using `onEmpty=USE_EMPTY` an empty `UserName`, with potential `null` value for its properties, will be created.
+====
+
+对于不太冗长的可嵌入类型声明，使用 `@Unwrapped.Nullable` 和 `@Unwrapped.Empty` 而不是 `@Unwrapped(onEmpty = USE_NULL)` 和 `@Unwrapped(onEmpty = USE_EMPTY)`。
+两个注解都使用 JSR-305 `@javax.annotation.Nonnull` 进行元注释，以帮助进行可空性检查。
+
+[WARNING]
+====
+可以在展开的对象中使用复杂类型。
+但是，它们本身不能是，也不包含未包装的字段。
+====
+
+[[unwrapped-entities.mapping.field-names]]
+=== Unwrapped Types 字段名
+
+使用 `@Unwrapped` 注解的可选 `prefix` 属性可以多次展开值对象。
+通过这样做，选择的前缀被添加到展开对象中的每个属性或  `@Field("…")` 名称之前。
+请注意，如果多个属性呈现为相同的字段名称，则值将相互覆盖。
+
+.Sample Code of unwrapped object with name prefix
+====
+[source,java]
+----
+class User {
+
+    @Id
+    String userId;
+
+    @Unwrapped.Nullable(prefix = "u_") <1>
+    UserName name;
+
+    @Unwrapped.Nullable(prefix = "a_") <2>
+    UserName name;
+}
+
+class UserName {
+
+    String firstname;
+
+    String lastname;
+}
+----
+
+[source,json]
+----
+{
+  "_id" : "a6a805bd-f95f",
+  "u_firstname" : "Jean",             <1>
+  "u_lastname" : "Grey",
+  "a_firstname" : "Something",        <2>
+  "a_lastname" : "Else"
+}
+----
+<1> `UserName` 的所有属性都以 `u_` 为前缀。
+<2> `UserName` 的所有属性都以 `a_` 为前缀。
+====
+
+虽然在同一个属性上将 `@Field` 注释与 `@Unwrapped` 组合起来没有意义，因此会导致错误。
+在任何展开的类型属性上使用 `@Field` 是一种完全有效的方法。
+
+.Sample Code unwrapping objects with `@Field` annotation
+====
+[source,java]
+----
+public class User {
+
+	@Id
+    private String userId;
+
+    @Unwrapped.Nullable(prefix = "u-") <1>
+    UserName name;
+}
+
+public class UserName {
+
+	@Field("first-name")              <2>
+    private String firstname;
+
+	@Field("last-name")
+    private String lastname;
+}
+----
+
+[source,json]
+----
+{
+  "_id" : "2647f7b9-89da",
+  "u-first-name" : "Barbara",         <2>
+  "u-last-name" : "Gordon"
+}
+----
+<1> `UserName` 的所有属性都以 `u-` 为前缀。
+<2> 最终字段名称是连接 `@Unwrapped(prefix)` 和 `@Field(name)` 的结果。
+====
+
+[[unwrapped-entities.queries]]
+=== Query on Unwrapped Objects
+
+由于提供的  `Criteria` 与 domain 类型匹配，因此可以在类型和字段级别上定义对展开属性的查询。
+呈现实际查询时将考虑前缀和潜在的自定义字段名称。
+使用解包对象的属性名称来匹配所有包含的字段，如下面的示例所示。
+
+.Query on unwrapped object
+====
+[source,java]
+----
+UserName userName = new UserName("Carol", "Danvers")
+Query findByUserName = query(where("name").is(userName));
+User user = template.findOne(findByUserName, User.class);
+----
+
+[source,json]
+----
+db.collection.find({
+  "firstname" : "Carol",
+  "lastname" : "Danvers"
+})
+----
+====
+
+也可以使用属性名称直接寻址解包对象的任何字段，如下面的片段所示。
+
+.Query on field of unwrapped object
+====
+[source,java]
+----
+Query findByUserFirstName = query(where("name.firstname").is("Shuri"));
+List<User> users = template.findAll(findByUserFirstName, User.class);
+----
+
+[source,json]
+----
+db.collection.find({
+  "firstname" : "Shuri"
+})
+----
+====
+
+[[unwrapped-entities.queries.sort]]
+==== Sort by unwrapped field.
+
+未包装对象的字段可用于通过其属性路径进行排序，如下面的示例所示。
+
+.Sort on unwrapped field
+====
+[source,java]
+----
+Query findByUserLastName = query(where("name.lastname").is("Romanoff"));
+List<User> user = template.findAll(findByUserName.withSort(Sort.by("name.firstname")), User.class);
+----
+
+[source,json]
+----
+db.collection.find({
+  "lastname" : "Romanoff"
+}).sort({ "firstname" : 1 })
+----
+====
+
+[NOTE]
+====
+尽管可能，但使用展开的对象本身作为排序标准会以不可预知的顺序包含其所有字段，并可能导致排序不准确。
+====
+
+[[unwrapped-entities.queries.project]]
+==== Field projection on unwrapped objects
+
+unwrapped 对象的字段可以作为一个整体或通过单个字段进行投影，如下面的示例所示。
+
+.Project on unwrapped object.
+====
+[source,java]
+----
+Query findByUserLastName = query(where("name.firstname").is("Gamora"));
+findByUserLastName.fields().include("name");                             <1>
+List<User> user = template.findAll(findByUserName, User.class);
+----
+
+[source,json]
+----
+db.collection.find({
+  "lastname" : "Gamora"
+},
+{
+  "firstname" : 1,
+  "lastname" : 1
+})
+----
+<1> A field projection on an unwrapped object includes all of its properties.
+====
+
+.Project on a field of an unwrapped object.
+====
+[source,java]
+----
+Query findByUserLastName = query(where("name.lastname").is("Smoak"));
+findByUserLastName.fields().include("name.firstname");                   <1>
+List<User> user = template.findAll(findByUserName, User.class);
+----
+
+[source,json]
+----
+db.collection.find({
+  "lastname" : "Smoak"
+},
+{
+  "firstname" : 1
+})
+----
+<1> A field projection on an unwrapped object includes all of its properties.
+====
+
+[[unwrapped-entities.queries.by-example]]
+==== Query By Example on unwrapped object.
+
+Unwrapped 对象可以像任何其他类型一样在  `Example`  探针中使用。
+请查看 <<query-by-example.running,Query By Example>> 部分，了解有关此功能的更多信息。
+
+[[unwrapped-entities.queries.repository]]
+==== Repository Queries on unwrapped objects.
+
+`Repository` 抽象允许对展开的对象以及整个对象的字段派生查询。
+
+.Repository queries on unwrapped objects.
+====
+[source,java]
+----
+interface UserRepository extends CrudRepository<User, String> {
+
+	List<User> findByName(UserName username);         <1>
+
+	List<User> findByNameFirstname(String firstname); <2>
+}
+----
+<1> Matches against all fields of the unwrapped object.
+<2> Matches against the `firstname`.
+====
+
+[NOTE]
+====
+即使存储库的  `create-query-indexes`  命名空间属性设置为  `true`，为展开的对象创建索引也会暂停。
+====
+
+[[unwrapped-entities.update]]
+=== Update on Unwrapped Objects
+
+Unwrapped 对象可以像属于域模型的任何其他对象一样更新。
+映射层负责将结构展平到其周围环境中。
+可以更新解包对象的单个属性以及整个值，如下例所示。
+
+.Update a single field of an unwrapped object.
+====
+[source,java]
+----
+Update update = new Update().set("name.firstname", "Janet");
+template.update(User.class).matching(where("id").is("Wasp"))
+   .apply(update).first()
+----
+
+[source,json]
+----
+db.collection.update({
+  "_id" : "Wasp"
+},
+{
+  "$set" { "firstname" : "Janet" }
+},
+{ ... }
+)
+----
+====
+
+.Update an unwrapped object.
+====
+[source,java]
+----
+Update update = new Update().set("name", new Name("Janet", "van Dyne"));
+template.update(User.class).matching(where("id").is("Wasp"))
+   .apply(update).first()
+----
+
+[source,json]
+----
+db.collection.update({
+  "_id" : "Wasp"
+},
+{
+  "$set" {
+    "firstname" : "Janet",
+    "lastname" : "van Dyne",
+  }
+},
+{ ... }
+)
+----
+====
+
+[[unwrapped-entities.aggregations]]
+=== Aggregations on Unwrapped Objects
+
+<<mongo.aggregation,Aggregation Framework>> 将尝试映射类型聚合的未包装值。
+请确保在引用其值之一时使用包含包装器对象的属性路径。
+除此之外，不需要特别行动。
+
+[[unwrapped-entities.indexes]]
+=== Index on Unwrapped Objects
+
+可以将 `@Indexed` 注解附加到未包装类型的属性上，就像使用常规对象一样。
+不能在拥有属性上使用 `@Indexed` 和 `@Unwrapped` 注释。
+
+====
+[source,java]
+----
+public class User {
+
+	@Id
+    private String userId;
+
+    @Unwrapped(onEmpty = USE_NULL)
+    UserName name;                    <1>
+
+    // Invalid -> InvalidDataAccessApiUsageException
+    @Indexed                          <2>
+    @Unwrapped(onEmpty = USE_Empty)
+    Address address;
+}
+
+public class UserName {
+
+    private String firstname;
+
+    @Indexed
+    private String lastname;           <1>
+}
+----
+<1> Index created for `lastname` in `users` collection.
+<2> Invalid `@Indexed` usage along with `@Unwrapped`
+====
+
+

@@ -15,7 +15,7 @@ tasks.named<BootBuildImage>("bootBuildImage") {
 	docker {
 		host = "tcp://192.168.99.100:2376"
 		isTlsVerify = true
-		certPath = "/home/user/.minikube/certs"
+		certPath = "/home/users/.minikube/certs"
 	}
 }
 // end::docker-host[]

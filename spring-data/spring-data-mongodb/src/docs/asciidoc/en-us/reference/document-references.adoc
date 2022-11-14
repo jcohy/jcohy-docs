@@ -1,0 +1,502 @@
+[[mapping-usage-references]]
+=== 使用 DBRefs
+
+映射框架不必存储嵌入在文档中的子对象。 您也可以单独存储它们并使用 `DBRef` 来引用该文档。
+当从 MongoDB 加载对象时，这些引用会被急切地解析，以便您返回一个看起来与嵌入在顶级文档中一样的映射对象。
+
+下面的示例使用 DBRef 来引用独立于引用它的对象而存在的特定文档（为简洁起见，两个类都显示在行内）：
+
+====
+[source,java]
+----
+@Document
+public class Account {
+
+  @Id
+  private ObjectId id;
+  private Float total;
+}
+
+@Document
+public class Person {
+
+  @Id
+  private ObjectId id;
+  @Indexed
+  private Integer ssn;
+  @DBRef
+  private List<Account> accounts;
+}
+----
+====
+
+您不需要使用 `@OneToMany` 或类似机制，因为对象列表告诉映射框架您需要一对多关系。
+当对象存储在 MongoDB 中时，会有一个 DBRef 列表，而不是 `Account` 对象本身。
+在加载 DBRef 的集合时，建议将集合类型中保存的引用限制为特定的 MongoDB 集合。
+这允许批量加载所有引用，而指向不同 MongoDB 集合的引用需要一一解析。
+
+IMPORTANT: 映射框架不处理级联保存。
+如果您更改了由 `Person` 对象引用的 `Account` 对象，则必须单独保存 `Account` 对象。
+在 `Person` 对象上调用 `save` 不会自动将 `Account` 对象保存在 `accounts` 属性中。
+
+`DBRef` 也可以延迟解析。
+在这种情况下，引用的实际“对象”或“集合”在首次访问属性时被解析。
+使用 `@DBRef` 的 `lazy` 属性来指定它。
+也被定义为延迟加载 DBRef 并用作构造函数参数的必需属性也使用延迟加载代理进行修饰，以确保对数据库和网络施加尽可能小的压力。
+
+TIP: 延迟加载的 DBRef 可能很难调试。
+确保工具不会意外触发代理解析，例如 调用 `toString()` 或一些调用属性获取器的内联调试渲染。
+请考虑为 `org.springframework.data.mongodb.core.convert.DefaultDbRefResolver` 启用 _trace_ 日志记录，以深入了解 `DBRef` 解析。
+
+CAUTION: 由于 https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate，延迟加载可能需要类代理，而从 Java 16+ 开始，可能需要访问未开放的 jdk 内部 默认情况下的JDK内部]。
+对于这些情况，请考虑回退到接口类型（例如，从 `ArrayList` 切换到 `List`）或提供所需的 `--add-opens` 参数。
+
+[[mapping-usage.document-references]]
+=== 使用 Document Reference
+
+使用 `@DocumentReference` 提供了一种在 MongoDB 中引用实体的灵活方式。
+虽然目标与使用 <<mapping-usage-references,DBRefs>> 时的目标相同，但存储表示不同。
+`DBRef` 解析为具有固定结构的文档，如 https://docs.mongodb.com/manual/reference/database-references/[MongoDB 参考文档] 中所述。 +
+文档引用，不遵循特定格式。
+它们实际上可以是任何东西，单个值，整个文档，基本上可以存储在 MongoDB 中的所有内容。
+默认情况下，映射层将使用引用的实体 _id_ 值进行存储和检索，如下面的示例所示。
+
+====
+[source,java]
+----
+@Document
+class Account {
+
+  @Id
+  String id;
+  Float total;
+}
+
+@Document
+class Person {
+
+  @Id
+  String id;
+
+  @DocumentReference                                   <1>
+  List<Account> accounts;
+}
+----
+
+[source,java]
+----
+Account account = …
+
+tempate.insert(account);                               <2>
+
+template.update(Person.class)
+  .matching(where("id").is(…))
+  .apply(new Update().push("accounts").value(account)) <3>
+  .first();
+----
+
+[source,json]
+----
+{
+  "_id" : …,
+  "accounts" : [ "6509b9e" … ]                        <4>
+}
+----
+<1> 标记要引用的 `Account` 值的集合。
+<2> 映射框架不处理级联保存，因此请确保单独保存引用的实体。
+<3> 添加对现有实体的引用。
+<4> 引用的 `Account` 实体表示为其 `_id` 值的数组。
+====
+
+上面的示例使用基于``_id`` 的获取查询（`{ '_id' : ?#{#target} }`）进行数据检索并急切地解析链接实体。
+可以使用 `@DocumentReference` 的属性更改 resolution 默认值（如下所列）
+
+.@DocumentReference defaults
+[cols="2,3,5",options="header"]
+|===
+| Attribute | Description | Default
+
+| `db`
+| 集合查找的目标数据库名称。
+| `MongoDatabaseFactory.getMongoDatabase()`
+
+| `collection`
+| 目标集合名.
+| The annotated property's domain type, respectively the value type in case of `Collection` like or `Map` properties, collection name.
+
+| `lookup`
+| The single document lookup query evaluating placeholders via SpEL expressions using `#target` as the marker for a given source value. `Collection` like or `Map` properties combine individual lookups via an `$or` operator.
+| An `_id` field based query (`{ '_id' : ?#{#target} }`) using the loaded source value.
+
+| `sort`
+| Used for sorting result documents on server side.
+| None by default.
+Result order of `Collection` like properties is restored based on the used lookup query on a best-effort basis.
+
+| `lazy`
+| If set to `true` value resolution is delayed upon first access of the property.
+| Resolves properties eagerly by default.
+|===
+
+CAUTION: 由于 https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate，延迟加载可能需要类代理，而从 Java 16+ 开始，可能需要访问未开放的 jdk 内部 默认情况下的JDK内部]。
+对于这些情况，请考虑回退到接口类型（例如，从 `ArrayList` 切换到 `List`）或提供所需的 `--add-opens` 参数。
+
+`@DocumentReference(lookup)` 允许定义与 `_id` 字段不同的过滤查询，因此提供了一种灵活的方式来定义实体之间的引用，如下面的示例所示，其中一本书的 `Publisher` 被引用 它的首字母缩写词而不是内部的“id”。
+
+====
+[source,java]
+----
+@Document
+class Book {
+
+  @Id
+  ObjectId id;
+  String title;
+  List<String> author;
+
+  @Field("publisher_ac")
+  @DocumentReference(lookup = "{ 'acronym' : ?#{#target} }") <1>
+  Publisher publisher;
+}
+
+@Document
+class Publisher {
+
+  @Id
+  ObjectId id;
+  String acronym;                                            <1>
+  String name;
+
+  @DocumentReference(lazy = true)                            <2>
+  List<Book> books;
+
+}
+----
+
+.`Book` document
+[source,json]
+----
+{
+  "_id" : 9a48e32,
+  "title" : "The Warded Man",
+  "author" : ["Peter V. Brett"],
+  "publisher_ac" : "DR"
+}
+----
+
+.`Publisher` document
+[source,json]
+----
+{
+  "_id" : 1a23e45,
+  "acronym" : "DR",
+  "name" : "Del Rey",
+  …
+}
+----
+<1> Use the `acronym` field to query for entities in the `Publisher` collection.
+<2> Lazy load back references to the `Book` collection.
+====
+
+上面的片段显示了使用自定义引用对象时的阅读方面。
+编写需要一些额外的设置，因为映射信息不表达 `#target` 的来源。
+映射层需要在目标文档和 `DocumentPointer` 之间注册一个 `Converter`，如下所示：
+
+====
+[source,java]
+----
+@WritingConverter
+class PublisherReferenceConverter implements Converter<Publisher, DocumentPointer<String>> {
+
+	@Override
+	public DocumentPointer<String> convert(Publisher source) {
+		return () -> source.getAcronym();
+	}
+}
+----
+====
+
+如果没有提供 `DocumentPointer` 转换器，则可以根据给定的查找查询计算目标参考文档。
+在这种情况下，将评估关联目标属性，如以下示例所示。
+
+====
+[source,java]
+----
+@Document
+class Book {
+
+  @Id
+  ObjectId id;
+  String title;
+  List<String> author;
+
+  @DocumentReference(lookup = "{ 'acronym' : ?#{acc} }") <1> <2>
+  Publisher publisher;
+}
+
+@Document
+class Publisher {
+
+  @Id
+  ObjectId id;
+  String acronym;                                        <1>
+  String name;
+
+  // ...
+}
+----
+
+[source,json]
+----
+{
+  "_id" : 9a48e32,
+  "title" : "The Warded Man",
+  "author" : ["Peter V. Brett"],
+  "publisher" : {
+    "acc" : "DOC"
+  }
+}
+----
+<1> Use the `acronym` field to query for entities in the `Publisher` collection.
+<2> The field value placeholders of the lookup query (like `acc`) is used to form the reference document.
+====
+
+还可以使用 `@ReadonlyProperty` 和 `@DocumentReference` 的组合对关系样式 _One-To-Many_ 引用建模。
+这种方法允许链接类型，而不是将链接值存储在拥有文档中，而是存储在引用文档中，如下例所示。
+
+====
+[source,java]
+----
+@Document
+class Book {
+
+  @Id
+  ObjectId id;
+  String title;
+  List<String> author;
+
+  ObjectId publisherId;                                        <1>
+}
+
+@Document
+class Publisher {
+
+  @Id
+  ObjectId id;
+  String acronym;
+  String name;
+
+  @ReadOnlyProperty                                            <2>
+  @DocumentReference(lookup="{'publisherId':?#{#self._id} }")  <3>
+  List<Book> books;
+}
+----
+
+.`Book` document
+[source,json]
+----
+{
+  "_id" : 9a48e32,
+  "title" : "The Warded Man",
+  "author" : ["Peter V. Brett"],
+  "publisherId" : 8cfb002
+}
+----
+
+.`Publisher` document
+[source,json]
+----
+{
+  "_id" : 8cfb002,
+  "acronym" : "DR",
+  "name" : "Del Rey"
+}
+----
+<1> Set up the link from `Book` (reference) to `Publisher` (owner) by storing the `Publisher.id` within the `Book` document.
+<2> Mark the property holding the references to be readonly.
+This prevents storing references to individual ``Book``s with the `Publisher` document.
+<3> Use the `#self` variable to access values within the `Publisher` document and in this retrieve `Books` with matching `publisherId`.
+====
+
+有了以上所有内容，就可以对实体之间的各种关联进行建模。
+请查看下面的非详尽示例列表，以了解可能的情况。
+
+.Simple Document Reference using _id_ field
+====
+[source,java]
+----
+class Entity {
+  @DocumentReference
+  ReferencedObject ref;
+}
+----
+
+[source,json]
+----
+// entity
+{
+  "_id" : "8cfb002",
+  "ref" : "9a48e32" <1>
+}
+
+// referenced object
+{
+  "_id" : "9a48e32" <1>
+}
+----
+<1> MongoDB simple type can be directly used without further configuration.
+====
+
+.Simple Document Reference using _id_ field with explicit lookup query
+====
+[source,java]
+----
+class Entity {
+  @DocumentReference(lookup = "{ '_id' : '?#{#target}' }") <1>
+  ReferencedObject ref;
+}
+----
+
+[source,json]
+----
+// entity
+{
+  "_id" : "8cfb002",
+  "ref" : "9a48e32"                                        <1>
+}
+
+// referenced object
+{
+  "_id" : "9a48e32"
+}
+----
+<1> _target_ defines the reference value itself.
+====
+
+.Document Reference extracting the `refKey` field for the lookup query
+====
+[source,java]
+----
+class Entity {
+  @DocumentReference(lookup = "{ '_id' : '?#{refKey}' }")  <1> <2>
+  private ReferencedObject ref;
+}
+----
+
+[source,java]
+----
+@WritingConverter
+class ToDocumentPointerConverter implements Converter<ReferencedObject, DocumentPointer<Document>> {
+	public DocumentPointer<Document> convert(ReferencedObject source) {
+		return () -> new Document("refKey", source.id);    <1>
+	}
+}
+----
+
+[source,json]
+----
+// entity
+{
+  "_id" : "8cfb002",
+  "ref" : {
+    "refKey" : "9a48e32"                                   <1>
+  }
+}
+
+// referenced object
+{
+  "_id" : "9a48e32"
+}
+----
+<1> The key used for obtaining the reference value must be the one used during write.
+<2> `refKey` is short for `target.refKey`.
+====
+
+.Document Reference with multiple values forming the lookup query
+====
+[source,java]
+----
+class Entity {
+  @DocumentReference(lookup = "{ 'firstname' : '?#{fn}', 'lastname' : '?#{ln}' }") <1> <2>
+  ReferencedObject ref;
+}
+----
+
+[source,json]
+----
+// entity
+{
+  "_id" : "8cfb002",
+  "ref" : {
+    "fn" : "Josh",           <1>
+    "ln" : "Long"            <1>
+  }
+}
+
+// referenced object
+{
+  "_id" : "9a48e32",
+  "firsntame" : "Josh",      <2>
+  "lastname" : "Long",       <2>
+}
+----
+<1> Read/wirte the keys `fn` & `ln` from/to the linkage document based on the lookup query.
+<2> Use non _id_ fields for the lookup of the target documents.
+====
+
+.Document Reference reading from a target collection
+====
+[source,java]
+----
+class Entity {
+  @DocumentReference(lookup = "{ '_id' : '?#{id}' }", collection = "?#{collection}") <2>
+  private ReferencedObject ref;
+}
+----
+
+[source,java]
+----
+@WritingConverter
+class ToDocumentPointerConverter implements Converter<ReferencedObject, DocumentPointer<Document>> {
+	public DocumentPointer<Document> convert(ReferencedObject source) {
+		return () -> new Document("id", source.id)                                   <1>
+                           .append("collection", … );                                <2>
+	}
+}
+----
+
+[source,json]
+----
+// entity
+{
+  "_id" : "8cfb002",
+  "ref" : {
+    "id" : "9a48e32",                                                                <1>
+    "collection" : "…"                                                               <2>
+  }
+}
+----
+<1> Read/wirte the keys `_id` from/to the reference document to use them in the lookup query.
+<2> The collection name can be read from the reference document using its key.
+====
+
+[WARNING]
+====
+我们知道在查找查询中使用各种 MongoDB 查询运算符很诱人，这很好。
+但有几个方面需要考虑：
+
+* 确保有支持您查找的索引。
+* 请注意，解决方案需要服务器往返导致延迟，请考虑采用惰性策略。
+* 使用 `$or` 运算符批量加载文档引用的集合。 +
+原始元素顺序会尽最大努力在内存中恢复。
+仅在使用相等表达式时才能恢复顺序，而在使用 MongoDB 查询运算符时无法恢复顺序。
+在这种情况下，结果将在从商店或通过提供的`@DocumentReference(sort)` 属性接收时进行排序。
+
+一些更一般的备注：
+
+* 你使用循环引用吗？
+问问自己是否需要它们。
+* 懒惰的文档引用很难调试。
+确保工具不会意外触发代理解析，例如 调用`toString()`。
+* 不支持使用响应式基础架构读取文档参考。
+====

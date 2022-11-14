@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2020 the original author or authors.
+ * Copyright 2013-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,8 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package java.org.springframework.data.rest.tests.security;
+package org.springframework.data.rest.tests.security;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.repository.CrudRepository;
@@ -27,6 +28,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 // tag::code[]
 @PreAuthorize("hasRole('ROLE_USER')") // <1>
 public interface PreAuthorizedOrderRepository extends CrudRepository<Order, UUID> {
+
+	@PreAuthorize("hasRole('ROLE_ADMIN')")
+	@Override
+	Optional<Order> findById(UUID id);
 
 	@PreAuthorize("hasRole('ROLE_ADMIN')") // <2>
 	@Override
