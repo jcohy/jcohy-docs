@@ -69,8 +69,8 @@ return new ResponseEntity<PersonModel>(headers, HttpStatus.CREATED);
 ----
 ====
 
-[[fundamentals.obtaining-links.builder.methods]]
-=== 建立指向方法的链接
+[[server.link-builder.webmvc.methods]]
+=== [[fundamentals.obtaining-links.builder.methods]] Building links that point to methods
 
 您甚至可以建立指向方法的链接,或创建虚拟控制器方法调用. 第一种方法是将 `Method` 实例传递给 `WebMvcLinkBuilder`. 以下示例显示了如何执行此操作:
 
@@ -99,6 +99,36 @@ assertThat(link.getHref()).endsWith("/people/2");
 
 * 返回类型必须能够代理,因为我们需要暴露对其的方法调用.
 * 通常忽略传递给方法的参数(通过 `@PathVariable` 引用的参数除外,因为它们构成了 URI).
+
+[[server.link-builder.webmvc.methods.request-params]]
+==== 控制请求参数呈现
+
+集合值请求参数实际上可以通过两种不同的方式实现。 URI 模板规范列出了呈现它们的复合方式，它为每个值重复参数名称（`param=value1&param=value2`），以及用逗号分隔值的非复合方式（`param=value1,value2`） .
+Spring MVC 正确地解析出这两种格式的集合。 默认情况下，将值呈现为复合样式。 如果您希望以非复合样式呈现值，则可以将 `@NonComposite` 注解与请求参数处理程序方法参数一起使用：
+
+====
+[source, java]
+----
+@Controller
+class PersonController {
+
+  @GetMapping("/people")
+  HttpEntity<PersonModel> showAll(
+    @NonComposite @RequestParam Collection<String> names) { … } <1>
+}
+
+var values = List.of("Matthews", "Beauford");
+var link = linkTo(methodOn(PersonController.class).showAll(values)).withSelfRel(); <2>
+
+assertThat(link.getHref()).endsWith("/people?names=Matthews,Beauford"); <3>
+----
+<1> 我们使用 `@NonComposite` 注解来声明我们希望以逗号分隔的值呈现。
+<2> 我们使用值列表调用该方法。
+<3> 查看请求参数如何以预期的格式呈现。
+====
+
+NOTE: 我们公开 `@NonComposite` 的原因是渲染请求参数的复合方式已融入 Spring 的 `UriComponents` 构建器的内部，我们仅在 Spring HATEOAS 1.4 中引入了非复合样式。
+如果我们今天从头开始，我们可能会默认使用该样式，而是让用户明确地选择复合样式，而不是相反。
 
 [[server.link-builder.webflux]]
 == 在 Spring WebFlux 中建立链接
@@ -518,7 +548,16 @@ include::{resource-dir}/docs/order-with-payment-link.json[]
 
 同样,在此示例中,`PaymentProcessor` 更改提供的  `EntityModel<Order>`. 您也可以将其替换为另一个对象. 请注意,API 要求返回类型等于输入类型.
 
-[[spis.rel-provider]]
+[[server.processors.empty-collections]]
+=== Processing empty collection models
+
+为了找到正确的 `RepresentationModelProcessor` 实例集以调用 `RepresentationModel` 实例，调用基础设施对已注册的 `RepresentationModelProcessor` 的泛型声明进行详细分析。
+对于 `CollectionModel` 实例，这包括检查底层集合的元素，因为在运行时，唯一的模型实例不会公开泛型信息（由于 Java 的类型擦除）。
+这意味着，默认情况下，不会为空集合模型调用  `RepresentationModelProcessor`  实例。
+为了仍然允许基础设施正确推断负载类型，您可以从一开始就使用显式回退负载类型初始化空的  `CollectionModel` 实例，或者通过调用  `CollectionModel.withFallbackType(…)` 来注册它。
+详见<<fundamentals.collection-model>>。
+
+[[server.rel-provider]]
 ==  使用 `LinkRelationProvider` API
 
 构建链接时,通常需要确定要用于链接的关系类型. 在大多数情况下,关系类型与(域)类型直接关联. 我们封装了详细的算法,以在LinkRelationProvider API 之后查找关系类型,该 API 使您可以确定单个资源和集合资源的关系类型. 查找关系类型的算法如下:

@@ -35,7 +35,7 @@ var customerLink = Link.of("/orders/{id}/customer") <2>
 
 var additional = …
 
-var model = HalModelBuilder.halModel(order)
+var model = HalModelBuilder.halModelOf(order)
   .preview(new CustomerSummary(customer)) <3>
   .forLink(customerLink) <4>
   .embed(additional) <5>
@@ -306,12 +306,42 @@ include::{resource-dir}/docs/mediatype/hal/forms/hal-forms-sample.json[]
 
 HAL-FORMS 允许描述每个表单字段的标准. Spring HATEOAS 可以通过调整输入和输出类型的模型类型并在其上使用注解来自定义它们.
 
+每个模板都将定义以下属性
+
+.Template attributes
+[options="header", cols="1,4"]
+|===============
+|Attribute|Description
+|`contentType`| 服务器预期接收的媒体类型。仅当指向的控制器方法公开了 `@RequestMapping(consumes = "…")` 属性，或者在设置可供性时明确定义了媒体类型时才包括在内。
+|`method`| 提交模板时使用的 HTTP 方法。
+|`target`| 要将表单提交到的目标 URI。 仅当示能目标与其声明的链接不同时才会呈现。
+|`title`| 显示模板时可读的标题。
+|`properties`| 与表格一起提交的所有属性（见下文）。
+|===============
+
+每个属性都将定义以下属性:
+
+.Property attributes
 [options="header", cols="1,4"]
 |===============
 |Attribute|Description
 |`readOnly`| 如果该属性没有设置方法,则设置为 `true`.如果存在,请在访问器或字段上明确使用 Jackson 的 `@JsonProperty(Access.READ_ONLY)`.默认情况下不呈现,因此默认为 `false`.
 |`regex`| 可以通过在字段或类型上使用 JSR-303 的 `@Pattern` 注解进行自定义.对于后者,该模式将用于声明为该特定类型的每个属性.默认情况下不呈现.
 |`required`| 可以使用 JSR-303 的 `@NotNull` 进行自定义.默认情况下不呈现,因此默认为 `false`.使用 `PATCH` 作为方法的模板将自动将所有属性设置为不需要.
+|`max`| 属性允许的最大值。 继承自 Hibernate Validator 的 `@Range` 或 JSR-303 的 `@Max` 和 `@DecimalMax` 注解。
+|`maxLength`| 属性允许的最大长度值。 继承自 Hibernate Validator 的 `@Length` 注解。
+|`min`| 属性允许的最小值。 继承自 Hibernate Validator 的 `@Range` 或 JSR-303 的 `@Min` 和 `@DecimalMin` 注解。
+|`minLength`|属性允许的最小长度值。 继承自 Hibernate Validator 的 `@Length` 注解。
+|`options`| 提交表单时选择值的选项。 有关详细信息，请参阅 <<mediatypes.hal-forms.options>>.
+|`prompt`| The user readable prompt to use when rendering the form input. For details, see <<mediatypes.hal-forms.i18n.prompts>>.
+|`placeholder`| 呈现表单输入时使用的用户可读提示。 有关详细信息，请参阅 <<mediatypes.hal-forms.i18n.prompts>> but uses the suffix `_placeholder`.
+|`type`| 从显式 `@InputType` 注解、JSR-303 验证注解或属性类型派生的 HTML 输入类型。
+|===============
+
+[options="header", cols="1,4"]
+|===============
+|Attribute|Description
+
 |===============
 
 对于无法手动注解的类型,可以通过应用程序上下文中存在的 `HalFormsConfiguration` bean注册自定义模式.
@@ -332,11 +362,37 @@ class CustomConfiguration {
 
 此设置将使 `CreditCardNumber` 类型的表示模型属性的 HAL-FORMS 模板属性声明值为  `[0-9]{16}` 的正则表达式字段.
 
+[[mediatypes.hal-forms.options]]
+==== 为属性定义 HAL-FORMS 选项
+
+对于其值应该与某个值的超集匹配的属性，HAL-FORMS 在属性定义中定义了 `options` 子文档。
+可以通过  ``HalFormsConfiguration``'s `withOptions(…)`  来描述某个属性可用的选项，该方法采用指向类型属性的指针和将 `PropertyMetadata` 转换为  `HalFormsOptions` 实例的创建者函数。
+
+[source, java]
+----
+@Configuration
+class CustomConfiguration {
+
+  @Bean
+  HalFormsConfiguration halFormsConfiguration() {
+
+    HalFormsConfiguration configuration = new HalFormsConfiguration();
+    configuration.withOptions(Order.class, "shippingMethod" metadata ->
+      HalFormsOptions.inline("FedEx", "DHL"));
+  }
+}
+----
+
+看看我们如何设置选项值 `FedEx` 和 `DHL` 作为 `Order.shippingMethod` 属性的选项。
+或者，`HalFormsOptions.remote(…)` 可以指向动态提供值的远程资源。
+有关选项设置的更多限制，请参阅 https://rwcbook.github.io/hal-forms/#options-element[规范] 或 `HalFormsOptions` 的 Javadoc。
+
 [[mediatypes.hal-forms.i18n]]
 === 表单属性的国际化
 
 HAL-FORMS 包含用于人工解释的属性,例如模板的标题或属性提示. 可以使用 Spring 的资源包支持和默认情况下由 Spring HATEOAS 配置的  `rest-messages` 资源包来定义和国际化它们.
 
+[[mediatypes.hal-forms.i18n.template-titles]]
 ==== Template titles
 
 要定义模板标题,请使用以下模式: `_templates.$affordanceName.title`. 请注意,在 HAL-FORMS 中,如果模板名称是唯一的,则它是默认名称. 这意味着您通常必须使用能力描述的本地或完全限定的输入类型名称来限定键.
@@ -351,13 +407,14 @@ Employee._templates.default.title=Create employee <3>
 com.acme.Employee._templates.default.title=Create employee <4>
 ----
 <1> 使用默认键作为标题的全局定义.
-<2> 使用实际可得名称作为关键字的标题的全局定义. 除非在创建提供者时明确定义,否则默认为  `$httpMethod + $simpleInputTypeName`.
+<2> 使用实际可得名称作为关键字的标题的全局定义. 除非在创建提供者时明确定义,否则默创建已指向的方法的名称。.
 <3> 本地定义的标题将应用于名为 `Employee` 的所有类型.
 <4> 使用完全限定的类型名称的标题定义.
 ====
 
 NOTE: 使用实际可负担名称的密钥优先于默认密钥.
 
+[[mediatypes.hal-forms.i18n.prompts]]
 ==== 属性提示
 
 还可以通过 Spring HATEOAS 自动配置的  `rest-messages` 资源包来解决属性提示. 这些密钥可以全局,本地或完全定义,并且需要一个  `._prompt`  链接到实际的属性密钥
@@ -375,37 +432,115 @@ com.acme.Employee.firstName._prompt=Firstname <3>
 <3> `com.acme.Employee` 的 `firstName` 属性将获得分配的  `Firstname` 提示.
 ====
 
-定义了模板标题和属性提示的示例文档将如下所示:
+[[mediatypes.hal-forms.example]]
+=== 一个完整的例子
 
-.带有国际化模板标题和属性提示的 HAL-FORMS 文档示例
-====
+让我们看一些结合了上述所有定义和自定义属性的示例代码。 Customer 的 `RepresentationModel` 可能如下所示：:
+
+[source, java]
+----
+class CustomerRepresentation
+  extends RepresentationModel<CustomerRepresentation> {
+
+  String name;
+  LocalDate birthdate; <1>
+  @Pattern(regex = "[0-9]{16}") String ccn; <2>
+  @Email String email; <3>
+}
+----
+<1> 我们定义了一个  `LocalDate` 类型的 `birthdate` 属性.
+<2> 我们希望 `ccn` 符合正则表达式.
+<3> 我们将 `email` 定义为使用 JSR-303 `@Email` 注解的电子邮件.
+
+请注意，此类型不是 domain 类型。
+它被有意设计为捕获广泛的潜在无效输入，以便可以立即拒绝字段的潜在错误值。
+
+让我们继续看看控制器如何使用该模型：:
+
+[source, java]
+----
+@Controller
+class CustomerController {
+
+  @PostMapping("/customers")
+  EntityModel<?> createCustomer(@RequestBody CustomerRepresentation payload) { <1>
+    // …
+  }
+
+  @GetMapping("/customers")
+  CollectionModel<?> getCustomers() {
+
+  	CollectionModel<?> model = …;
+
+    CustomerController controller = methodOn(CustomerController.class);
+
+    model.add(linkTo(controller.getCustomers()).withSelfRel() <2>
+      .andAfford(controller.createCustomer(null)));
+
+  	return ResponseEntity.ok(model);
+  }
+}
+----
+<1> 如果向 `/customers` 发出 `POST`，则声明一个控制器方法以使用上面定义的表示模型将请求正文绑定到。
+<2> 对 `/customers` 的 `GET` 请求准备了一个模型，添加了一个 `self` 链接，并在该链接上声明了一个可供性，指向映射到 `POST` 的控制器方法。
+这将导致建立一个<<server.affordances,affordance model>>，根据最终要渲染的媒体类型，它会被翻译成媒体类型特定的格式。
+
+接下来，让我们添加一些额外的元数据以使表单更易于人类访问：
+
+.Additional properties declared in `rest-messages.properties`.
 [source]
+----
+CustomerRepresentation._template.createCustomer.title=Create customer <1>
+CustomerRepresentation.ccn._prompt=Credit card number <2>
+CustomerRepresentation.ccn._placeholder=1234123412341234 <2>
+----
+<1> 我们为通过指向 `createCustomer(…)` 方法创建的模板定义一个明确的标题。
+<2> 我们为 `CustomerRepresentation` 模型的 `ccn` 属性显式地提供了提示符和占位符。
+
+如果客户端现在使用 `application/prs.hal-forms+json` 的 `Accept` 标头向 `/customers` 发出 `GET` 请求，则响应 HAL 文档将扩展为 HAL-FORMS 文档以包含以下内容 `_templates` 定义：
+
+[source, json]
 ----
 {
   …,
   "_templates" : {
-    "default" : {
-      "title" : "Create employee",
-      "method" : "put",
-      "contentType" : "",
+    "default" : { <1>
+      "title" : "Create customer", <2>
+      "method" : "post", <3>
       "properties" : [ {
-        "name" : "firstName",
-        "prompt" : "Firstname",
-        "required" : true
-      }, {
-        "name" : "lastName",
-        "prompt" : "Lastname",
-        "required" : true
-      }, {
-        "name" : "role",
-        "prompt" : "Role",
-        "required" : true
+      	"name" : "name",
+      	"required" : true,
+      	"type" : "text" <4>
+      } , {
+      	"name" : "birthdate",
+      	"required" : true,
+      	"type" : "date" <4>
+      } , {
+      	"name" : "ccn",
+      	"prompt" : "Credit card number", <5>
+      	"placeholder" : "1234123412341234" <5>
+      	"required" : true,
+      	"regex" : "[0-9]{16}", <6>
+      	"type" : "text"
+      } , {
+      	"name" : "email",
+      	"prompt" : "Email",
+      	"required" : true,
+      	"type" : "email" <7>
       } ]
     }
   }
 }
 ----
-====
+<1> 一个名为 `default` 的模板被公开。它的名称是 `default`，因为它是定义的唯一模板，并且规范要求使用该名称。 如果附加了多个模板（通过声明额外的功能），它们将分别以它们指向的方法命名。
+<2> 模板标题来源于资源包中定义的值。请注意，根据随请求发送的  `Accept-Language`  头和可用性，可能会返回不同的值。
+<3> `method` 属性的值是从方法的映射派生而来的。
+<4> `type` 属性的值 `text` 派生自属性的类型 `String`。 这同样适用于 `birthdate` 属性，但会生成 `date`。
+<5> `ccn` 属性的提示符和占位符也来自资源包。
+<6> `ccn` 属性的 `@Pattern` 声明公开为模板属性的 `regex` 属性。
+<7> `email` 属性上的 `@Email` 注解已被翻译成对应的 `type` 值。
+
+HAL-FORMS 模板被考虑，例如https://github.com/toedter/hal-explorer[HAL Explorer]，它会根据这些描述自动呈现 HTML 表单。
 
 [[mediatypes.http-problem]]
 == HTTP Problem Details
@@ -701,7 +836,7 @@ public class MyMediaTypeConfiguration implements HypermediaMappingInformation {
 
   @Override
   public List<MediaType> getMediaTypes() {
-    return MediaType.parse("application/vnd-acme-media-type") <1>
+    return Collections.singletonList(MediaType.parseMediaType("application/vnd-acme-media-type")); <1>
   }
 
   @Override
@@ -733,5 +868,5 @@ Jackson 模块通常为表示模型类型 `RepresentationModel`,`EntityModel`,`C
 
 实现媒体类型表示的首选方法是通过提供与预期格式匹配的类型层次结构,并且可以由 Jackson 进行序列化. 在为 `RepresentationModel` 注册的序列化器和反序列化器实现中,将实例转换为特定于媒体类型的模型类型,然后为这些实例查找 Jackson 序列化器.
 
-默认情况下支持的媒体类型使用与第三方实现相同的配置机制.因此,值得研究  https://github.com/spring-projects/spring-hateoas/tree/master/src/main/java/org/springframework/hateoas/mediatype[ `mediatype` 包] 中的实现.
+默认情况下支持的媒体类型使用与第三方实现相同的配置机制.因此,值得研究  https://github.com/spring-projects/spring-hateoas/tree/main/src/main/java/org/springframework/hateoas/mediatype[ `mediatype` 包] 中的实现.
 请注意, 内置媒体类型实现通过 `@EnableHypermediaSupport` 激活后, 将其配置类包保持私有.  自定义实现可能应该公开这些配置, 以确保用户可以从其应用程序包中导入那些配置类.
