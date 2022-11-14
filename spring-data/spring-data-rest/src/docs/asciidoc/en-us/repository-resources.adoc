@@ -15,7 +15,7 @@ public interface OrderRepository extends CrudRepository<Order, Long> { }
 
 For this repository, Spring Data REST exposes a collection resource at `/orders`. The path is derived from the uncapitalized, pluralized, simple class name of the domain class being managed. It also exposes an item resource for each of the items managed by the repository under the URI template `/orders/{id}`.
 
-By default the HTTP methods to interact with these resources map to the according methods of `CrudRepository`. Read more on that in the sections on <<repository-resources.collection-resource,collection resources>> and <<repository-resources.item-resource,item resources>>.
+By default the HTTP methods to interact with these resources map to the according methods of `CrudRepository`. Read more on that in the sections on <<repository-resources.collection-resource, collection resources>> and <<repository-resources.item-resource, item resources>>.
 
 [[repository-resources.methods]]
 === Repository methods exposure
@@ -26,7 +26,7 @@ If you extend `CrudRepository` you usually expose all methods required to expose
 Each of the resources listed below will define which of the methods need to be present so that a particular HTTP method can be exposed for each of the resources.
 That means, that repositories that are not exposing those methods -- either by not declaring them at all or explicitly using `@RestResource(exported = false)` -- won't expose those HTTP methods on those resources.
 
-For details on how to tweak the default method exposure or dedicated HTTP methods individually see
+For details on how to tweak the default method exposure or dedicated HTTP methods individually see <<customizing-sdr.http-methods>>.
 
 [[repository-resources.default-status-codes]]
 === Default Status Codes
@@ -35,14 +35,16 @@ For the resources exposed, we use a set of default status codes:
 
 * `200 OK`: For plain `GET` requests.
 * `201 Created`: For `POST` and `PUT` requests that create new resources.
-* `204 No Content`: For `PUT`, `PATCH`, and `DELETE` requests when the configuration is set to not return response bodies for resource updates (`RepositoryRestConfiguration.returnBodyOnUpdate`). If the configuration value is set to include responses for `PUT`, `200 OK` is returned for updates, and `201 Created` is returned for resource created through `PUT`.
+* `204 No Content`: For `PUT`, `PATCH`, and `DELETE` requests when the configuration is set to not return response bodies for resource updates (`RepositoryRestConfiguration.setReturnBodyOnUpdate(…)`).
+If the configuration value is set to include responses for `PUT`, `200 OK` is returned for updates, and `201 Created` is returned for resource created through `PUT`.
 
-If the configuration values (`RepositoryRestConfiguration.returnBodyOnUpdate` and `RepositoryRestConfiguration.returnBodyCreate)` are explicitly set to `null`, the presence of the HTTP Accept header is used to determine the response code.
+If the configuration values (`RepositoryRestConfiguration.returnBodyOnUpdate(…)` and `RepositoryRestConfiguration.returnBodyCreate(…)`) are explicitly set to `null` -- which they are by default --, the presence of the HTTP Accept header is used to determine the response code.
+Read more on this in the detailed description of <<repository-resources.collection-resource.supported-methods.post, collection>> and <<repository-resources.item-resource.supported-methods.put, item resources>>.
 
 [[repository-resources.resource-discoverability]]
 === Resource Discoverability
 
-A core principle of HATEOAS is that resources should be discoverable through the publication of links that point to the available resources. There are a few competing de-facto standards of how to represent links in JSON. By default, Spring Data REST uses https://tools.ietf.org/html/draft-kelly-json-hal[HAL] to render responses. HAL defines the links to be contained in a property of the returned document.
+A core principle of https://github.com/spring-guides/understanding/tree/master/hateoas[HATEOAS] is that resources should be discoverable through the publication of links that point to the available resources. There are a few competing de-facto standards of how to represent links in JSON. By default, Spring Data REST uses https://tools.ietf.org/html/draft-kelly-json-hal[HAL] to render responses. HAL defines the links to be contained in a property of the returned document.
 
 Resource discovery starts at the top level of the application. By issuing a request to the root URL under which the Spring Data REST application is deployed, the client can extract, from the returned JSON object, a set of links that represent the next level of resources that are available to the client.
 
@@ -77,10 +79,12 @@ NOTE: For more details about the `profile` link, see <<metadata.alps>>.
 
 Spring Data REST exposes a collection resource named after the uncapitalized, pluralized version of the domain class the exported repository is handling. Both the name of the resource and the path can be customized by using `@RepositoryRestResource` on the repository interface.
 
+[[repository-resources.collection-resource.supported-methods]]
 === Supported HTTP Methods
 
 Collections resources support both `GET` and `POST`. All other HTTP methods cause a `405 Method Not Allowed`.
 
+[[repository-resources.collection-resource.supported-methods.get]]
 ==== `GET`
 
 Returns all entities the repository servers through its `findAll(…)` method.
@@ -88,7 +92,7 @@ If the repository is a paging repository we include the pagination links if nece
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `findAll(Pageable)`
 - `findAll(Sort)`
@@ -123,13 +127,14 @@ The `GET` method supports a single link for discovering related resources:
 
 * `search`: A <<repository-resources.search-resource,search resource>> is exposed if the backing repository exposes query methods.
 
+[[repository-resources.collection-resource.supported-methods.head]]
 ==== `HEAD`
 
 The `HEAD` method returns whether the collection resource is available. It has no status codes, media types, or related resources.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `findAll(Pageable)`
 - `findAll(Sort)`
@@ -137,13 +142,18 @@ The following methods are used if present (decending order):
 
 For more information on the default exposure of methods, see <<repository-resources.methods>>.
 
+[[repository-resources.collection-resource.supported-methods.post]]
 ==== `POST`
 
 The `POST` method creates a new entity from the given request body.
+By default, whether the response contains a body is controlled by the `Accept` header sent with the request.
+If one is sent, a response body is created.
+If not, the response body is empty and a representation of the resource created can be obtained by following link contained in the `Location` response header.
+This behavior can be overridden by configuring `RepositoryRestConfiguration.setReturnBodyOnCreate(…)` accordingly.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `save(…)`
 
@@ -167,17 +177,19 @@ The `POST` method supports the following media types:
 
 Spring Data REST exposes a resource for individual collection items as sub-resources of the collection resource.
 
+[[repository-resources.item-resource.supported-methods]]
 === Supported HTTP Methods
 
 Item resources generally support `GET`, `PUT`, `PATCH`, and `DELETE`, unless explicit configuration prevents that (see "`<<repository-resources.association-resource>>`" for details).
 
+[[repository-resources.item-resource.supported-methods.get]]
 ==== GET
 
 The `GET` method returns a single entity.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `findById(…)`
 
@@ -200,25 +212,31 @@ The `GET` method supports the following media types:
 
 For every association of the domain type, we expose links named after the association property. You can customize this behavior by using `@RestResource` on the property. The related resources are of the <<repository-resources.association-resource,association resource>> type.
 
+[[repository-resources.item-resource.supported-methods.head]]
 ==== `HEAD`
 
 The `HEAD` method returns whether the item resource is available. It has no status codes, media types, or related resources.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `findById(…)`
 
 For more information on the default exposure of methods, see <<repository-resources.methods>>.
 
+[[repository-resources.item-resource.supported-methods.put]]
 ==== `PUT`
 
 The `PUT` method replaces the state of the target resource with the supplied request body.
+By default, whether the response contains a body is controlled by the `Accept` header sent with the request.
+If the request header is present, a response body and a status code of `200 OK` is returned.
+If no header is present, the response body is empty and a successful request returns a status of `204 No Content`.
+This behavior can be overridden by configuring `RepositoryRestConfiguration.setReturnBodyOnUpdate(…)` accordingly.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `save(…)`
 
@@ -237,13 +255,14 @@ The `PUT` method supports the following media types:
 * application/hal+json
 * application/json
 
+[[repository-resources.item-resource.supported-methods-patch]]
 ==== `PATCH`
 
 The `PATCH` method is similar to the `PUT` method but partially updates the resources state.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `save(…)`
 
@@ -264,13 +283,14 @@ The `PATCH` method supports the following media types:
 * https://tools.ietf.org/html/rfc6902[application/patch+json]
 * https://tools.ietf.org/html/rfc7386[application/merge-patch+json]
 
+[[repository-resources.item-resource.supported-methods.delete]]
 ==== `DELETE`
 
 The `DELETE` method deletes the resource exposed.
 
 ===== Methods used for invocation
 
-The following methods are used if present (decending order):
+The following methods are used if present (descending order):
 
 - `delete(T)`
 - `delete(ID)`
@@ -289,6 +309,7 @@ The `DELETE` method has only one custom status code:
 
 Spring Data REST exposes sub-resources of every item resource for each of the associations the item resource has. The name and path of the resource defaults to the name of the association property and can be customized by using `@RestResource` on the association property.
 
+[[repository-resources.association-resource.supported-methods]]
 === Supported HTTP Methods
 
 The association resource supports the following media types:
@@ -298,6 +319,7 @@ The association resource supports the following media types:
 * POST
 * DELETE
 
+[[repository-resources.association-resource.supported-methods.get]]
 ==== `GET`
 
 The `GET` method returns the state of the association resource.
@@ -309,9 +331,10 @@ The `GET` method supports the following media types:
 * application/hal+json
 * application/json
 
+[[repository-resources.association-resource.supported-methods.put]]
 ==== `PUT`
 
-The `PUT` method binds the resource pointed to by the given URI(s) to the resource. This
+The `PUT` method binds the resource pointed to by the given URI(s) to the association resource (see Supported Media Types).
 
 ===== Custom Status Codes
 
@@ -325,6 +348,7 @@ The `PUT` method supports only one media type:
 
 * text/uri-list: URIs pointing to the resource to bind to the association.
 
+[[repository-resources.association-resource.supported-methods.post]]
 ==== `POST`
 
 The `POST` method is supported only for collection associations. It adds a new element to the collection.
@@ -335,6 +359,7 @@ The `POST` method supports only one media type:
 
 * text/uri-list: URIs pointing to the resource to add to the association.
 
+[[repository-resources.association-resource.supported-methods.delete]]
 ==== `DELETE`
 
 The `DELETE` method unbinds the association.
@@ -350,10 +375,12 @@ The `POST` method has only one custom status code:
 
 The search resource returns links for all query methods exposed by a repository. The path and name of the query method resources can be modified using `@RestResource` on the method declaration.
 
+[[repository-resources.search-resource.supported-methods]]
 === Supported HTTP Methods
 
 As the search resource is a read-only resource, it supports only the `GET` method.
 
+[[repository-resources.search-resource.supported-methods.get]]
 ==== `GET`
 
 The `GET` method returns a list of links pointing to the individual query method resources.
@@ -369,6 +396,7 @@ The `GET` method supports the following media types:
 
 For every query method declared in the repository, we expose a <<repository-resources.query-method-resource,query method resource>>. If the resource supports pagination, the URI pointing to it is a URI template containing the pagination parameters.
 
+[[repository-resources.search-resource.supported-methods.head]]
 ==== `HEAD`
 
 The `HEAD` method returns whether the search resource is available. A 404 return code indicates no query method resources are available.
@@ -378,13 +406,15 @@ The `HEAD` method returns whether the search resource is available. A 404 return
 
 The query method resource runs the exposed query through an individual query method on the repository interface.
 
+[[repository-resources.query-resource.supported-method]]
 === Supported HTTP Methods
 
-As the search resource is a read-only resource, it supports `GET` only.
+As the query method resource is a read-only resource, it supports `GET` only.
 
+[[repository-resources.query-resource.supported-method.get]]
 ==== `GET`
 
-The `GET` method returns the result of the query execution.
+The `GET` method returns the result of the query.
 
 ===== Parameters
 
@@ -401,6 +431,7 @@ The `GET` method supports the following media types:
 * `application/hal+json`
 * `application/json`
 
+[[repository-resources.query-resource.supported-method.head]]
 ==== `HEAD`
 
 The `HEAD` method returns whether a query method resource is available.

@@ -1,0 +1,120 @@
+= OAuth 2.0 Resource Server Bearer Tokens
+
+[[webflux-oauth2resourceserver-bearertoken-resolver]]
+== Bearer Token Resolution
+
+默认情况下， 资源服务器在 `Authorization`  头中查找承载令牌. 但是， 可以自定义.
+
+例如， 您可能需要从自定义头中读取承载令牌.
+为此， 您可以将 `ServerBearerTokenAuthenticationConverter` 的实例连接到 DSL， 如以下示例所示:
+
+.Custom Bearer Token Header
+====
+.Java
+[source,java,role="primary"]
+----
+ServerBearerTokenAuthenticationConverter converter = new ServerBearerTokenAuthenticationConverter();
+converter.setBearerTokenHeaderName(HttpHeaders.PROXY_AUTHORIZATION);
+http
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .bearerTokenConverter(converter)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val converter = ServerBearerTokenAuthenticationConverter()
+converter.setBearerTokenHeaderName(HttpHeaders.PROXY_AUTHORIZATION)
+return http {
+    oauth2ResourceServer {
+        bearerTokenConverter = converter
+    }
+}
+----
+====
+
+== Bearer Token 传播
+
+现在您已经拥有了一个 Bearer 令牌,将它传递给下游服务可能会很方便.
+使用 `{security-api-url}org/springframework/security/oauth2/server/resource/web/reactive/function/client/ServerBearerExchangeFilterFunction.html[ServerBearerExchangeFilterFunction]` 非常简单,您可以在以下示例中看到它:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public WebClient rest() {
+    return WebClient.builder()
+            .filter(new ServerBearerExchangeFilterFunction())
+            .build();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun rest(): WebClient {
+    return WebClient.builder()
+            .filter(ServerBearerExchangeFilterFunction())
+            .build()
+}
+----
+====
+
+当上述 `WebClient` 用于执行请求时,Spring Security 将查找当前的 `Authentication` 并提取任何 `{security-api-url}org/springframework/security/oauth2/core/AbstractOAuth2Token.html[AbstractOAuth2Token]`  凭据.  然后,它将在授权请求头中传递该令牌.
+
+
+例如:
+
+====
+.Java
+[source,java,role="primary"]
+----
+this.rest.get()
+        .uri("https://other-service.example.com/endpoint")
+        .retrieve()
+        .bodyToMono(String.class)
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+this.rest.get()
+        .uri("https://other-service.example.com/endpoint")
+        .retrieve()
+        .bodyToMono<String>()
+----
+====
+
+将调用  `https://other-service.example.com/endpoint`, 为您添加 Bearer 令牌 `Authorization`  请求头.
+
+在您需要覆盖此行为的地方,您可以自己提供请求头,这很简单,例如:
+
+====
+.Java
+[source,java,role="primary"]
+----
+this.rest.get()
+        .uri("https://other-service.example.com/endpoint")
+        .headers(headers -> headers.setBearerAuth(overridingToken))
+        .retrieve()
+        .bodyToMono(String.class)
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+rest.get()
+        .uri("https://other-service.example.com/endpoint")
+        .headers { it.setBearerAuth(overridingToken) }
+        .retrieve()
+        .bodyToMono<String>()
+----
+====
+
+在这种情况下,过滤器将回退并将请求转发到 Web 过滤器链的其余部分.
+
+[NOTE]
+与 https://docs.spring.io/spring-security/site/docs/current-SNAPSHOT/api/org/springframework/security/oauth2/client/web/reactive/function/client/ServletOAuth2AuthorizedClientExchangeFilterFunction.html[OAuth 2.0 Client filter function]功能不同,此过滤器功能不会在令牌过期时尝试更新令牌.  要获得此级别的支持,请使用 OAuth 2.0 客户端过滤器.

@@ -1,0 +1,61 @@
+=== SecurityMockMvcResultHandlers
+
+Spring Security 提供了一些 `ResultHandler` 的实现。
+为了使用 Spring Security 的 ResultHandler 实现，请确保使用以下静态导入：
+
+[source,java]
+----
+import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultHandlers.*;
+----
+
+==== Exporting the SecurityContext
+
+很多时候，我们想查询一个存储库，看看是否有一些 `MockMvc` 请求实际上持久化在数据库中。
+在某些情况下，我们的存储库查询使用 <<data.adoc#data,Spring Data Integration>> 根据当前用户的用户名或任何其他属性过滤结果。
+让我们看一个例子:
+
+A repository interface:
+[source,java]
+----
+private interface MessageRepository extends JpaRepository<Message, Long> {
+	@Query("SELECT m.content FROM Message m WHERE m.sentBy = ?#{ principal?.name }")
+	List<String> findAllUserMessages();
+}
+----
+
+我们的测试场景：
+
+[source,java]
+----
+mvc
+	.perform(post("/message")
+		.content("New Message")
+		.contentType(MediaType.TEXT_PLAIN)
+	)
+	.andExpect(status().isOk());
+
+List<String> userMessages = messageRepository.findAllUserMessages();
+assertThat(userMessages).hasSize(1);
+----
+
+此测试不会通过，因为在我们的请求完成后，`SecurityContextHolder` 将被过滤器链清除。
+然后我们可以将 `TestSecurityContextHolder` 导出到我们的 `SecurityContextHolder` 并根据需要使用它：
+
+[source,java]
+----
+mvc
+	.perform(post("/message")
+		.content("New Message")
+		.contentType(MediaType.TEXT_PLAIN)
+	)
+	.andDo(exportTestSecurityContext())
+	.andExpect(status().isOk());
+
+List<String> userMessages = messageRepository.findAllUserMessages();
+assertThat(userMessages).hasSize(1);
+----
+
+[NOTE]
+====
+请记住在您的测试之间清除 `SecurityContextHolder`，否则它可能会在测试之间泄漏
+====

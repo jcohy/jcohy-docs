@@ -1,0 +1,286 @@
+[[servlet-saml2login-sp-initiated-factory]]
+= 生成 `<saml2:AuthnRequest>`
+
+如前所述， Spring Security 的 SAML 2.0 支持生成一个  `<saml2:AuthnRequest>`  来开始与 asserting party 的身份验证.
+
+Spring Security 通过在过滤器链中注册 `Saml2WebSsoAuthenticationRequestFilter` 来实现这一点. 这个过滤器默认响应端点  `+/saml2/authenticate/{registrationId}+`.
+
+例如， 如果你部署到 `https://rp.example.com`， 你给你的 registration `okta` ID， 你可以链接到:
+
+`https://rp.example.org/saml2/authenticate/okta`
+
+结果将是一个重定向， 其中包含一个包含有符号、压缩和编码 `<saml2:AuthnRequest>` 的 `SAMLRequest` 参数.
+
+[[servlet-saml2login-store-authn-request]]
+== 更改 `<saml2:AuthnRequest>` 的存储方式
+
+`Saml2WebSsoAuthenticationRequestFilter` 使用 `Saml2AuthenticationRequestRepository` 在 <<servlet-saml2login-sp-initiated-factory, 发送 `<saml2:AuthnRequest>`>> 给接受方之前持久化 `AbstractSaml2AuthenticationRequest` 实例 。
+
+此外，`Saml2WebSsoAuthenticationFilter` 和 `Saml2AuthenticationTokenConverter` 使用 `Saml2AuthenticationRequestRepository` 来加载任何 `AbstractSaml2AuthenticationRequest` 作为
+<<servlet-saml2login-authenticate-responses, 验证 `<saml2:Response >`>>。
+
+默认情况下，Spring Security 使用 `HttpSessionSaml2AuthenticationRequestRepository`，它将 `AbstractSaml2AuthenticationRequest` 存储在 `HttpSession` 中。
+
+如果您有 `Saml2AuthenticationRequestRepository` 的自定义实现，则可以通过将其公开为 `@Bean` 来配置它，如下例所示：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+Saml2AuthenticationRequestRepository<AbstractSaml2AuthenticationRequest> authenticationRequestRepository() {
+	return new CustomSaml2AuthenticationRequestRepository();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun authenticationRequestRepository(): Saml2AuthenticationRequestRepository<AbstractSaml2AuthenticationRequest> {
+    return CustomSaml2AuthenticationRequestRepository()
+}
+----
+====
+
+[[servlet-saml2login-sp-initiated-factory-signing]]
+== 改变 `<saml2:AuthnRequest>` 的发送方式
+
+默认情况下， Spring Security 对每个 `<saml2:AuthnRequest>` 进行签名， 并将其作为 GET 发送到 asserting party .
+
+许多 asserting party 不需要 signed `<saml2:AuthnRequest>`. 这可以通过  `RelyingPartyRegistrations` 自动配置， 也可以手动提供， 如下所示:
+
+.Not Requiring Signed AuthnRequests
+====
+.Boot
+[source,yaml,role="primary"]
+----
+spring:
+  security:
+    saml2:
+      relyingparty:
+        okta:
+          identityprovider:
+            entity-id: ...
+            singlesignon.sign-request: false
+----
+
+.Java
+[source,java,role="secondary"]
+----
+RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistration.withRegistrationId("okta")
+        // ...
+        .assertingPartyDetails(party -> party
+            // ...
+            .wantAuthnRequestsSigned(false)
+        )
+        .build();
+----
+
+.Kotlin
+[source,java,role="secondary"]
+----
+var relyingPartyRegistration: RelyingPartyRegistration =
+    RelyingPartyRegistration.withRegistrationId("okta")
+        // ...
+        .assertingPartyDetails { party: AssertingPartyDetails.Builder -> party
+                // ...
+                .wantAuthnRequestsSigned(false)
+        }
+        .build();
+----
+====
+
+否则， 你需要为 `RelyingPartyRegistration#signingX509Credentials` 指定一个私钥， 这样 Spring Security 就可以在发送之前对  `<saml2:AuthnRequest>` 进行签名.
+
+[[servlet-saml2login-sp-initiated-factory-algorithm]]
+默认情况下，Spring Security 将使用 `rsa-sha256` 对 `<saml2:AuthnRequest>` 进行签名，尽管一些断言方将需要不同的算法，如其元数据中所示。
+
+您可以根据断言方的外部参照配置算法：<<servlet-saml2login-relyingpartyregistrationrepository,使用 `RelyingPartyRegistrations` 的元数据>>。
+
+或者，您可以手动提供：
+
+====
+.Java
+[source,java,role="primary"]
+----
+String metadataLocation = "classpath:asserting-party-metadata.xml";
+RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistrations.fromMetadataLocation(metadataLocation)
+        // ...
+        .assertingPartyDetails((party) -> party
+            // ...
+            .signingAlgorithms((sign) -> sign.add(SignatureConstants.ALGO_ID_SIGNATURE_RSA_SHA512))
+        )
+        .build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+var metadataLocation = "classpath:asserting-party-metadata.xml"
+var relyingPartyRegistration: RelyingPartyRegistration =
+    RelyingPartyRegistrations.fromMetadataLocation(metadataLocation)
+        // ...
+        .assertingPartyDetails { party: AssertingPartyDetails.Builder -> party
+                // ...
+                .signingAlgorithms { sign: MutableList<String?> ->
+                    sign.add(
+                        SignatureConstants.ALGO_ID_SIGNATURE_RSA_SHA512
+                    )
+                }
+        }
+        .build();
+----
+====
+
+NOTE: 上面的代码片段使用 OpenSAML `SignatureConstants` 类来提供算法名称。 但是，这只是为了方便。 由于数据类型是“字符串”，您可以直接提供算法的名称。
+
+[[servlet-saml2login-sp-initiated-factory-binding]]
+一些 asserting party 要求 POSTed `<saml2:AuthnRequest>` . 这可以通过 `RelyingPartyRegistrations` 自动配置， 也可以手动提供， 如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistration.withRegistrationId("okta")
+        // ...
+        .assertingPartyDetails(party -> party
+            // ...
+            .singleSignOnServiceBinding(Saml2MessageBinding.POST)
+        )
+        .build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+var relyingPartyRegistration: RelyingPartyRegistration? =
+    RelyingPartyRegistration.withRegistrationId("okta")
+        // ...
+        .assertingPartyDetails { party: AssertingPartyDetails.Builder -> party
+            // ...
+            .singleSignOnServiceBinding(Saml2MessageBinding.POST)
+        }
+        .build()
+----
+====
+
+[[servlet-saml2login-sp-initiated-factory-custom-authnrequest]]
+== 自定义 OpenSAML 的 `AuthnRequest` 实例
+
+调整 `AuthnRequest` 的原因有很多. 例如， 您可能希望将 `ForceAuthN` 设置为 `true`, Spring Security 默认设置为 `false`.
+
+如果你不需要来自 `HttpServletRequest` 的信息来做决定， 那么最简单的方法就是用 <<servlet-saml2login-opensaml-customization,OpenSAML 注册一个自定义的 `AuthnRequestMarshaller`>>.这将使您能够在 `AuthnRequest` 实例被序列化之前对其进行后处理.
+
+但是， 如果你确实需要从请求中获取一些东西， 那么你可以创建一个自定义 `Saml2AuthenticationRequestContext` 实现， 然后使用 `Converter<Saml2AuthenticationRequestContext, AuthnRequest>` 来自己构建一个 `AuthnRequest`， 如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Component
+public class AuthnRequestConverter implements
+        Converter<Saml2AuthenticationRequestContext, AuthnRequest> {
+
+    private final AuthnRequestBuilder authnRequestBuilder;
+    private final IssuerBuilder issuerBuilder;
+
+    // ... constructor
+
+    public AuthnRequest convert(Saml2AuthenticationRequestContext context) {
+        MySaml2AuthenticationRequestContext myContext = (MySaml2AuthenticationRequestContext) context;
+        Issuer issuer = issuerBuilder.buildObject();
+        issuer.setValue(myContext.getIssuer());
+
+        AuthnRequest authnRequest = authnRequestBuilder.buildObject();
+        authnRequest.setIssuer(issuer);
+        authnRequest.setDestination(myContext.getDestination());
+        authnRequest.setAssertionConsumerServiceURL(myContext.getAssertionConsumerServiceUrl());
+
+        // ... additional settings
+
+        authRequest.setForceAuthn(myContext.getForceAuthn());
+        return authnRequest;
+    }
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Component
+class AuthnRequestConverter : Converter<Saml2AuthenticationRequestContext, AuthnRequest> {
+    private val authnRequestBuilder: AuthnRequestBuilder? = null
+    private val issuerBuilder: IssuerBuilder? = null
+
+    // ... constructor
+    override fun convert(context: Saml2AuthenticationRequestContext): AuthnRequest {
+        val myContext: MySaml2AuthenticationRequestContext = context
+        val issuer: Issuer = issuerBuilder.buildObject()
+        issuer.value = myContext.getIssuer()
+        val authnRequest: AuthnRequest = authnRequestBuilder.buildObject()
+        authnRequest.issuer = issuer
+        authnRequest.destination = myContext.getDestination()
+        authnRequest.assertionConsumerServiceURL = myContext.getAssertionConsumerServiceUrl()
+
+        // ... additional settings
+        authRequest.setForceAuthn(myContext.getForceAuthn())
+        return authnRequest
+    }
+}
+----
+====
+
+然后， 你可以构造自己的 `Saml2AuthenticationRequestContextResolver` 和 `Saml2AuthenticationRequestFactory`， 并以 `@Bean` 的形式发布它们:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+Saml2AuthenticationRequestContextResolver authenticationRequestContextResolver() {
+    Saml2AuthenticationRequestContextResolver resolver =
+            new DefaultSaml2AuthenticationRequestContextResolver();
+    return request -> {
+        Saml2AuthenticationRequestContext context = resolver.resolve(request);
+        return new MySaml2AuthenticationRequestContext(context, request.getParameter("force") != null);
+    };
+}
+
+@Bean
+Saml2AuthenticationRequestFactory authenticationRequestFactory(
+        AuthnRequestConverter authnRequestConverter) {
+
+    OpenSaml4AuthenticationRequestFactory authenticationRequestFactory =
+            new OpenSaml4AuthenticationRequestFactory();
+    authenticationRequestFactory.setAuthenticationRequestContextConverter(authnRequestConverter);
+    return authenticationRequestFactory;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun authenticationRequestContextResolver(): Saml2AuthenticationRequestContextResolver {
+    val resolver: Saml2AuthenticationRequestContextResolver = DefaultSaml2AuthenticationRequestContextResolver()
+    return Saml2AuthenticationRequestContextResolver { request: HttpServletRequest ->
+        val context = resolver.resolve(request)
+        MySaml2AuthenticationRequestContext(
+            context,
+            request.getParameter("force") != null
+        )
+    }
+}
+
+@Bean
+open fun authenticationRequestFactory(
+    authnRequestConverter: AuthnRequestConverter?
+): Saml2AuthenticationRequestFactory? {
+    val authenticationRequestFactory = OpenSaml4AuthenticationRequestFactory()
+    authenticationRequestFactory.setAuthenticationRequestContextConverter(authnRequestConverter)
+    return authenticationRequestFactory
+}
+----
+====
+

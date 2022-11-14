@@ -3,6 +3,76 @@
 
 本章涵盖了对不能通过 repository 接口直接访问的 Elasticsearch 操作的额外支持.建议将这些操作添加为自定义实现,如 <<repositories.custom-implementations>> 中所述.
 
+[[elasticsearc.misc.index.settings]]
+== 设置索引
+
+当使用 Spring Data Elasticsearch 创建 Elasticsearch 索引时，可以使用 `@Setting` 注解定义不同的索引设置。
+可以使用以下参数：
+
+* `useServerConfiguration` does not send any settings parameters, so the Elasticsearch server configuration determines them.
+* `settingPath` refers to a JSON file defining the settings that must be resolvable in the classpath
+* `shards` the number of shards to use, defaults to _1_
+* `replicas` the number of replicas, defaults to _1_
+* `refreshIntervall`, defaults to _"1s"_
+* `indexStoreType`, defaults to _"fs"_
+
+
+也可以定义 https://www.elastic.co/guide/en/elasticsearch/reference/7.11/index-modules-index-sorting.html[索引排序]（查看链接的 Elasticsearch 文档以了解可能的字段 类型和值）：
+
+====
+[source,java]
+----
+@Document(indexName = "entities")
+@Setting(
+  sortFields = { "secondField", "firstField" },                                  <.>
+  sortModes = { Setting.SortMode.max, Setting.SortMode.min },                    <.>
+  sortOrders = { Setting.SortOrder.desc, Setting.SortOrder.asc },
+  sortMissingValues = { Setting.SortMissing._last, Setting.SortMissing._first })
+class Entity {
+    @Nullable
+    @Id private String id;
+
+    @Nullable
+    @Field(name = "first_field", type = FieldType.Keyword)
+    private String firstField;
+
+    @Nullable @Field(name = "second_field", type = FieldType.Keyword)
+    private String secondField;
+
+    // getter and setter...
+}
+----
+
+<.> when defining sort fields, use the name of the Java property (_firstField_), not the name that might be defined for Elasticsearch (_first_field_)
+<.> `sortModes`, `sortOrders` and `sortMissingValues` are optional, but if they are set, the number of entries must match the number of `sortFields` elements
+====
+
+[[elasticsearch.misc.mappings]]
+== Index Mapping（索引映射）
+
+当 Spring Data Elasticsearch 使用 `IndexOperations.createMapping()` 方法创建索引映射时，它会使用 <<elasticsearch.mapping.meta-model.annotations>> 中描述的注解，尤其是 `@Field` 注解。
+除此之外，还可以将 `@Mapping` 注解添加到类中。 此注解具有以下属性：
+
+* `mappingPath` a classpath resource in JSON format; if this is not empty it is used as the mapping, no other mapping processing is done.
+* `enabled`  when set to false, this flag is written to the mapping and no further processing is done.
+* `dateDetection` and `numericDetection` set the corresponding properties in the mapping when not set to `DEFAULT`.
+* `dynamicDateFormats` when this String array is not empty, it defines the date formats used for automatic date detection.
+* `runtimeFieldsPath` a classpath resource in JSON format containing the definition of runtime fields which is written to the index mappings, for example:
+
+====
+[source,json]
+----
+{
+  "day_of_week": {
+    "type": "keyword",
+    "script": {
+      "source": "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))"
+    }
+  }
+}
+----
+====
+
 [[elasticsearch.misc.filter]]
 == Filter Builder
 
@@ -29,6 +99,7 @@ Page<SampleEntity> sampleEntities = operations.searchForPage(searchQuery, Sample
 
 Elasticsearch 有一个 scroll API,用于以块为单位获取较大的结果集. Spring Data Elasticsearch 在内部使用此方法来提供 `<T> SearchHitsIterator<T> SearchOperations.searchForStream(Query query, Class<T> clazz, IndexCoordinates index)` 方法的实现.
 
+====
 [source,java]
 ----
 IndexCoordinates index = IndexCoordinates.of("sample-index");
@@ -48,9 +119,11 @@ while (stream.hasNext()) {
 
 stream.close();
 ----
+====
 
 `SearchOperations` API 中没有方法访问 scroll ID,如果必须访问 scroll ID,则可以使用 `ElasticsearchRestTemplate` 的以下方法:
 
+====
 [source,java]
 ----
 
@@ -75,9 +148,11 @@ while (scroll.hasSearchHits()) {
 }
 template.searchScrollClear(scrollId);
 ----
+====
 
 要将 Scroll API 与存储库方法一起使用,返回类型必须在 `Elasticsearch` 存储库中定义为 `Stream`. 然后,该方法的实现将使用 `ElasticsearchTemplate` 中的 scroll 方法.
 
+====
 [source,java]
 ----
 interface SampleEntityRepository extends Repository<SampleEntity, String> {
@@ -86,19 +161,100 @@ interface SampleEntityRepository extends Repository<SampleEntity, String> {
 
 }
 ----
+====
 
 [[elasticsearch.misc.sorts]]
 == Sort 选项
 
-除了描述的默认排序选项之外,<<repositories.paging-and-sorting>> Spring Data Elasticsearch 还具有 `GeoDistanceOrder` 类,该类可以将搜索结果按地理距离排序.
+除了 <<repositories.paging-and-sorting>> 中描述的默认排序选项之外，Spring Data Elasticsearch 还提供了继承自 `org.springframework.data.domain.Sort.Order` 的类 `org.springframework.data.elasticsearch.core.query.Order` 。
+它提供了在指定结果排序时可以发送到 Elasticsearch 的其他参数（请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/7.15/sort-search-results.html）。
 
 如果要搜索的类有 _location_ 的 `GeoPoint` 属性,则下面的 `Sort` 将按到指定点的距离对结果进行排序:
 
+====
 [source,java]
 ----
 Sort.by(new GeoDistanceOrder("location", new GeoPoint(48.137154, 11.5761247)))
 ----
+====
 
+[[elasticsearch.misc.runtime-fields]]
+== Runtime Fields
+
+从 Elasticsearch 的 7.12 版本开始，添加了运行时字段的功能（https://www.elastic.co/guide/en/elasticsearch/reference/7.12/runtime.html）。
+Spring Data Elasticsearch 通过两种方式支持这一点：
+
+=== Runtime field definitions in the index mappings
+
+定义 runtime 字段的第一种方法是将定义添加到索引映射中（请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/7.12/runtime-mapping-fields.html）。
+要在 Spring Data Elasticsearch 中使用这种方法，用户必须提供一个包含相应定义的 JSON 文件，例如：
+
+.runtime-fields.json
+====
+[source,json]
+----
+{
+  "day_of_week": {
+    "type": "keyword",
+    "script": {
+      "source": "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))"
+    }
+  }
+}
+----
+====
+
+这个 JSON 文件的路径必须存在于类路径中，然后必须在实体的 `@Mapping` 注解中设置：:
+
+====
+[source,java]
+----
+@Document(indexName = "runtime-fields")
+@Mapping(runtimeFieldsPath = "/runtime-fields.json")
+public class RuntimeFieldEntity {
+	// properties, getter, setter,...
+}
+
+----
+====
+
+=== 在查询上设置的 Runtime  字段定义
+
+定义 runtime 字段的第二种方法是将定义添加到搜索查询中（请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/7.12/runtime-search-request.html）。
+以下代码示例显示了如何使用 Spring Data Elasticsearch 执行此操作：
+
+使用的实体是一个具有  `price`  属性的简单对象：
+
+====
+[source,java]
+----
+@Document(indexName = "some_index_name")
+public class SomethingToBuy {
+
+	private @Id @Nullable String id;
+	@Nullable @Field(type = FieldType.Text) private String description;
+	@Nullable @Field(type = FieldType.Double) private Double price;
+
+	// getter and setter
+}
+
+----
+====
+
+以下查询使用运行时字段，该字段通过将 19% 的价格添加到计算 `priceWithTax` 值，并在搜索查询中使用此值来查找 `priceWithTax` 高于或等于给定值的所有实体：
+
+====
+[source,java]
+----
+RuntimeField runtimeField = new RuntimeField("priceWithTax", "double", "emit(doc['price'].value * 1.19)");
+Query query = new CriteriaQuery(new Criteria("priceWithTax").greaterThanEqual(16.5));
+query.addRuntimeField(runtimeField);
+
+SearchHits<SomethingToBuy> searchHits = operations.search(query, SomethingToBuy.class);
+----
+====
+
+这适用于  `Query`  接口的每个实现。
 
 [[elasticsearch.misc.jointype]]
 == Join-Type 实现

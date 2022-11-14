@@ -14,4 +14,4 @@ signing {
     useInMemoryPgpKeys(signingKey, signingPassword)
     sign(tasks["stuffZip"])
 }
-// end::signing[]
+// end::sign-task[]

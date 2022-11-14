@@ -1,0 +1,299 @@
+
+// from the original documentation
+[[authz-arch]]
+= 授权体系结构
+
+[[authz-authorities]]
+== Authorities
+正如我们在 <<servlet-authentication-authentication,`Authentication`>> 所看到,所有的 `Authentication` 实现都存储了 `GrantedAuthority` 列表. 这些代表已授予主体的权限.  `GrantedAuthority` 对象由 `AuthenticationManager` 插入 `Authentication` 对象,并在以后做出授权决策时由 `AccessDecisionManager` 读取.
+
+`GrantedAuthority` 接口只有一个方法:
+
+[source,java]
+----
+
+String getAuthority();
+
+----
+
+此方法使 `AuthorizationManager` 可以获取 `GrantedAuthority` 的 `String` 表示形式。通过以字符串形式返回,大多数 `AccessDecisionManager` 和 `AuthorizationManager` 都可以轻松地读取 `GrantedAuthority`.  如果 `GrantedAuthority` 无法精确地表示为 `String`,则 `GrantedAuthority` 被视为 "complex" ,并且 `getAuthority()` 必须返回 `null`.
+
+"complex" `GrantedAuthority的` 示例将是一种实现,该实现存储适用于不同客户帐号的一系列操作和权限阈值.
+将复杂的 `GrantedAuthority` 表示为 String 会非常困难,因此 `getAuthority()` 方法应返回 `null`.  这将向任何 `AuthorizationManager` 指示它将需要特别支持 `GrantedAuthority` 实现,以便理解其内容.
+
+Spring Security 包含一个具体的 `GrantedAuthority` 实现,即 `SimpleGrantedAuthority`.  这允许将任何用户指定的 `String` 转换为 `GrantedAuthority`.  安全体系结构中包含的所有 `AuthenticationProvider` 都使用 `SimpleGrantedAuthority` 来填充 `Authentication` 对象.
+
+[[authz-pre-invocation]]
+== 调用处理前
+Spring Security 提供了拦截器,用于控制对安全对象的访问,例如方法调用或 Web 请求.  `AccessDecisionManager` 会判断是否允许进行调用.
+
+[[authz-authorization-manager]]
+=== AuthorizationManager
+`AuthorizationManager` 取代了 <<authz-legacy-note,`AccessDecisionManager` 和 `AccessDecisionVoter`>>。
+
+建议自定义 `AccessDecisionManager` 或 `AccessDecisionVoter` 的应用程序<<authz-voter-adaptation, 使用 `AuthorizationManager`>>。
+
+``AuthorizationManager``s 由 <<servlet-authorization-authorizationfilter,`AuthorizationFilter`>> 调用，并负责做出最终的访问控制决策。
+`AuthorizationManager` 接口包含两个方法:
+
+[source,java]
+----
+AuthorizationDecision check(Supplier<Authentication> authentication, Object secureObject);
+
+default AuthorizationDecision verify(Supplier<Authentication> authentication, Object secureObject)
+        throws AccessDeniedException {
+    // ...
+}
+----
+
+`AuthorizationManager` 的 `check` 方法传递了它需要的所有相关信息，以便做出授权决定。 特别是，传递安全 `Object`  可以检查包含在实际安全对象调用中的那些参数。
+例如，假设安全对象是 `MethodInvocation`。
+查询任何  `Customer` 参数的  `MethodInvocation` 是很容易的，然后在  `AuthorizationManager` 中实现某种安全逻辑，以确保允许 principal 对该 customer 进行操作。
+如果访问被授予，实现应该返回一个 positive `AuthorizationDecision`，如果访问被拒绝，则返回一个 negative  `AuthorizationDecision`，
+并且在放弃做出决定时返回一个空的 `AuthorizationDecision`。
+
+`verify` 调用 `check` 并随后在 `AuthorizationDecision` 为负的情况下抛出 `AccessDeniedException`。
+
+[[authz-delegate-authorization-manager]]
+=== 基于委托的 AuthorizationManager 实现
+虽然用户可以实现自己的 `AuthorizationManager` 来控制授权的所有方面，但 Spring Security 附带了一个委托 `AuthorizationManager`，它可以与各个 `AuthorizationManager` 协作。
+
+`RequestMatcherDelegatingAuthorizationManager` 会将请求与最合适的委托 `AuthorizationManager` 匹配。
+为了方法安全，可以使用 `AuthorizationManagerBeforeMethodInterceptor` 和 `AuthorizationManagerAfterMethodInterceptor`。
+
+<<authz-authorization-manager-implementations>> 说明了相关的类。.
+
+[[authz-authorization-manager-implementations]]
+.Authorization Manager 实现
+image::{image-resource}/servlet/authorization/authorizationhierarchy.png[]
+
+使用这种方法，可以根据授权决定轮询 `AuthorizationManager` 实现的组合。
+
+[[authz-authority-authorization-manager]]
+==== AuthorityAuthorizationManager
+Spring Security 提供的最常见的 `AuthorizationManager` 是 `AuthorityAuthorizationManager`。
+它配置了一组给定的权限以在当前的  `Authentication` 上查找。
+如果 `Authentication` 包含任何配置的权限，它将返回肯定的 `AuthorizationDecision`。
+否则它将返回一个否定的 `AuthorizationDecision`。
+
+[[authz-authenticated-authorization-manager]]
+==== AuthenticatedAuthorizationManager
+另一个管理器是 `AuthenticatedAuthorizationManager`。
+它可用于区分匿名、完全认证和记住我认证的用户。
+许多站点在记住我身份验证下允许某些有限的访问，但要求用户通过登录来确认其身份以获得完全访问权限。
+
+[[authz-custom-authorization-manager]]
+==== 自定义授权管理器
+显然，您还可以实现自定义的 `AuthorizationManager`，并且可以在其中放置几乎任何您想要的访问控制逻辑。
+它可能特定于您的应用程序（与业务逻辑相关），或者它可能实现一些安全管理逻辑。
+例如，您可以创建一个可以查询 Open Policy Agent 或您自己的授权数据库的实现。
+
+[TIP]
+你会在 Spring web 上找到 https://spring.io/blog/2009/01/03/spring-security-customization-part-2-adjusting-secured-session-in-real-time[博客文章] 该网站描述了如何使用旧版 `AccessDecisionVoter` 实时拒绝帐户已被暂停的用户的访问。
+您可以通过实现 `AuthorizationManager` 来实现相同的结果。
+
+[[authz-voter-adaptation]]
+== 调整 AccessDecisionManager 和 AccessDecisionVoters
+
+在 `AuthorizationManager` 之前，Spring Security 发布了 <<authz-legacy-note,`AccessDecisionManager` 和 `AccessDecisionVoter`>>。
+
+在某些情况下，例如迁移旧应用程序，可能需要引入调用 `AccessDecisionManager` 或 `AccessDecisionVoter` 的 `AuthorizationManager`。
+
+要调用现有的 `AccessDecisionManager`，您可以执行以下操作：:
+
+.Adapting an AccessDecisionManager
+====
+.Java
+[source,java,role="primary"]
+----
+@Component
+public class AccessDecisionManagerAuthorizationManagerAdapter implements AuthorizationManager {
+    private final AccessDecisionManager accessDecisionManager;
+    private final SecurityMetadataSource securityMetadataSource;
+
+    @Override
+    public AuthorizationDecision check(Supplier<Authentication> authentication, Object object) {
+        try {
+            Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+            this.accessDecisionManager.decide(authentication.get(), object, attributes);
+            return new AuthorizationDecision(true);
+        } catch (AccessDeniedException ex) {
+            return new AuthorizationDecision(false);
+        }
+    }
+
+    @Override
+    public void verify(Supplier<Authentication> authentication, Object object) {
+        Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+        this.accessDecisionManager.decide(authentication.get(), object, attributes);
+    }
+}
+----
+====
+
+然后将其连接到您的 `SecurityFilterChain`。
+
+或者只调用一个 `AccessDecisionVoter`，你可以这样做：
+
+.Adapting an AccessDecisionVoter
+====
+.Java
+[source,java,role="primary"]
+----
+@Component
+public class AccessDecisionVoterAuthorizationManagerAdapter implements AuthorizationManager {
+    private final AccessDecisionVoter accessDecisionVoter;
+    private final SecurityMetadataSource securityMetadataSource;
+
+    @Override
+    public AuthorizationDecision check(Supplier<Authentication> authentication, Object object) {
+        Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+        int decision = this.accessDecisionVoter.vote(authentication.get(), object, attributes);
+        switch (decision) {
+        case ACCESS_GRANTED:
+            return new AuthorizationDecision(true);
+        case ACCESS_DENIED:
+            return new AuthorizationDecision(false);
+        }
+        return null;
+    }
+}
+----
+====
+
+然后将其连接到您的  `SecurityFilterChain`。
+
+[[authz-hierarchical-roles]]
+== 分层角色
+通常要求应用程序中的特定角色应自动 "包括" 其他角色.  例如,在具有 "admin" 和 "user" 角色概念的应用程序中,您可能希望管理员能够执行普通用户可以执行的所有操作.
+为此,您可以确保还为所有管理员用户分配了 "user" 角色.  或者,您可以修改每个需要 "user" 角色也要包括 "admin" 角色的访问约束.  如果您的应用程序中有很多不同的角色,这可能会变得非常复杂.
+
+使用角色层次结构,可以配置哪些角色 (或权限) 应包括其他角色.  Spring Security 的  <<authz-role-voter,RoleVoter>> 的扩展版本 `RoleHierarchyVoter` 配置有 `RoleHierarchy`,从中可以获取分配给用户的所有 "可访问权限".
+典型的配置可能如下所示:
+
+.Hierarchical Roles Configuration
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+AccessDecisionVoter hierarchyVoter() {
+    RoleHierarchy hierarchy = new RoleHierarchyImpl();
+    hierarchy.setHierarchy("ROLE_ADMIN > ROLE_STAFF\n" +
+            "ROLE_STAFF > ROLE_USER\n" +
+            "ROLE_USER > ROLE_GUEST");
+    return new RoleHierarcyVoter(hierarchy);
+}
+----
+
+.Xml
+[source,java,role="secondary"]
+----
+
+<bean id="roleVoter" class="org.springframework.security.access.vote.RoleHierarchyVoter">
+	<constructor-arg ref="roleHierarchy" />
+</bean>
+<bean id="roleHierarchy"
+		class="org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl">
+	<property name="hierarchy">
+		<value>
+			ROLE_ADMIN > ROLE_STAFF
+			ROLE_STAFF > ROLE_USER
+			ROLE_USER > ROLE_GUEST
+		</value>
+	</property>
+</bean>
+----
+====
+
+在这里,我们在层次结构 `ROLE_ADMIN => ROLE_STAFF => ROLE_USER => ROLE_GUEST` 中具有四个角色.
+在对使用上述 `RoleHierarchyVoter` 配置的 `AuthorizationManager` 评估安全约束时,使用 `ROLE_ADMIN` 进行身份验证的用户将表现为具有所有四个角色.  可以将 `>` 符号视为 "includes".
+
+角色层次结构为简化应用程序的访问控制配置数据 和/或 减少需要分配给用户的权限数量提供了一种方便的方法.  对于更复杂的要求,您可能希望在应用程序需要的特定访问权限与分配给用户的角色之间定义逻辑映射 ,并在加载用户信息时在两者之间进行转换.
+
+[[authz-legacy-note]]
+== 旧版授权组件
+
+[NOTE]
+Spring Security 包含一些遗留组件。 由于它们尚未删除，因此包含文档以用于历史目的。 他们推荐的替代品在上面。
+
+[[authz-access-decision-manager]]
+=== AccessDecisionManager
+`AccessDecisionManager` 由 `AbstractSecurityInterceptor` 调用,并负责做出最终的访问决策控制.  `AccessDecisionManager` 接口包含三种方法:
+
+[source,java]
+----
+void decide(Authentication authentication, Object secureObject,
+	Collection<ConfigAttribute> attrs) throws AccessDeniedException;
+
+boolean supports(ConfigAttribute attribute);
+
+boolean supports(Class clazz);
+----
+
+`AccessDecisionManager` 的 `decide` 方法是判定是否拥有访问权限的决策方法,.  特别是,通过传递安全对象,可以检查实际安全对象调用中包含的那些参数.
+例如,假设安全对象是 `MethodInvocation`.  在 `MethodInvocation` 中查询 `Customer` 参数,然后在 `AccessDecisionManager` 中实现某种安全性逻辑允许主体对该客户进行操作.  如果访问被拒绝,则将引发 `AccessDeniedException`.
+
+在启动时,`AbstractSecurityInterceptor` 将调用 `support (ConfigAttribute)` 方法,以确定 `AccessDecisionManager` 是否可以处理传递的 `ConfigAttribute`.   Security 拦截器实现调用 `support (Class)` 方法,以确保配置的 `AccessDecisionManager` 支持 Security 拦截器显示的安全对象的类型.
+
+[[authz-voting-based]]
+=== 基于 `AccessDecisionManager` 实现
+尽管用户可以实现自己的 `AccessDecisionManager` 来控制授权的各个方面,但是 Spring Security 包括几种基于投票策略的 `AccessDecisionManager` 实现.  图11.1 <<authz-access-voting,访问决策管理器>> 说明了相关的类.
+
+[[authz-access-voting]]
+.Voting Decision Manager
+image::{image-resource}/servlet/authorization/access-decision-voting.png[]
+
+
+使用此方法,将根据授权决策轮询一系列 `AccessDecisionVoter` 实现.  然后,`AccessDecisionManager` 根据对投票的结果来决定是否引发 `AccessDeniedException`.
+
+`AccessDecisionVoter` 接口具有三种方法:
+
+[source,java]
+----
+int vote(Authentication authentication, Object object, Collection<ConfigAttribute> attrs);
+
+boolean supports(ConfigAttribute attribute);
+
+boolean supports(Class clazz);
+----
+
+具体的实现返回一个 `int`,可能的值在 `AccessDecisionVoter` 的静态字段 `ACCESS_ABSTAIN`,`ACCESS_DENIED` 和 `ACCESS_GRANTED` 中.  如果对授权决定没有意见,则将返回 `ACCESS_ABSTAIN`.  如果确实有意见,则必须返回 `ACCESS_DENIED` 或 `ACCESS_GRANTED`.
+
+Spring Security 提供了三个具体的 `AccessDecisionManager` 来对选票进行汇总.  基于 `ConsensusBased` 的实现将根据没有弃权的总数来决定授权或者拒绝访问.  可以提供一个参数控制在票数相等或所有票都弃权的情况下的行为.
+如果收到一个或多个 `ACCESS_GRANTED` 投票,则 `AffirmativeBased` 实现将授予访问权限 (即,如果至少有一个授予投票,则拒绝投票将被忽略) .  像基于 `ConsensusBased` 的实现一样,有一个参数可以控制所有投票者弃权时的行为.
+`UnanimousBased` 提供程序希望获得一致的 `ACCESS_GRANTED` 投票才能授予访问权限,而忽略弃权.  如果有任何 `ACCESS_DENIED` 投票,它将拒绝访问.  像其他实现一样,如果所有投票者都弃权,则有一个控制行为的参数.
+
+可以实现自定义 `AccessDecisionManager`,以不同方式计算票数.  例如,来自特定 `AccessDecisionVoter` 的投票可能会获得其他权重,而来自特定选民的拒绝投票可能会产生否决权.
+
+
+[[authz-role-voter]]
+==== RoleVoter
+Spring Security 提供的最常用的 `AccessDecisionVoter` 是 `RoleVoter`,它将配置属性视为简单的角色名称和投票,在授予了用户角色后才授予访问权限.
+
+如果任何 `ConfigAttribute` 以前缀 `ROLE_` 开头,它将进行投票.  如果存在 `GrantedAuthority` 可以返回一个字符串表示形式 (通过 `getAuthority()` 方法) ,如果  `ConfigAttributes`  匹配该字符串有一个或者多个以前缀 `ROLE_` 开头的,则它将投票授予访问权限.  如果任何的 `ConfigAttribute` 不是以 `ROLE_` 开头的,则 `RoleVoter` 会投票拒绝访问.  如果没有 `ConfigAttribute` 以 `ROLE_` 开头,则投票者将弃权.
+
+[[authz-authenticated-voter]]
+==== AuthenticatedVoter
+我们暗中看到的另一个投票者是 `AuthenticatedVoter`,它可用于区分匿名,完全认证和记住我的认证用户.  许多站点允许使用 "记住我" 身份验证进行某些受限访问,但是要求用户通过登录以进行完全访问来确认其身份.
+
+当我们使用属性 `IS_AUTHENTICATED_ANONYMOUSLY` 授予匿名访问权限时,此属性已由 `AuthenticatedVoter` 处理.  有关更多信息,请参见Javadoc.
+
+
+[[authz-custom-voter]]
+==== 自定义投票者
+显然,您还可以实现一个自定义的 `AccessDecisionVoter`,并且可以将几乎任何所需的访问控制逻辑放入其中.
+它可能特定于您的应用程序 (与业务逻辑相关) ,也可能实现某些安全管理逻辑.  例如,您会在Spring网站上找到一篇 https://spring.io/blog/2009/01/03/spring-security-customization-part-2-adjusting-secured-session-in-real-time[博客文章],其中描述了如何使用投票器实时拒绝帐户被暂停的用户的实时访问.
+
+[[authz-after-invocation]]
+.调用后实现
+image::{image-resource}/servlet/authorization/after-invocation.png[]
+
+像 Spring Security 的许多其他部分一样,`AfterInvocationManager` 具有一个具体的实现 `AfterInvocationProviderManager`,它轮询 `AfterInvocationProvider` 的列表.
+每个 `AfterInvocationProvider` 都可以修改返回对象或引发 `AccessDeniedException`.  实际上,由于前一个提供程序的结果将传递到列表中的下一个,因此多个提供程序可以修改对象.
+
+请注意,如果您使用的是 `AfterInvocationManager`,则仍然需要允许 `MethodSecurityInterceptor` 的 `AccessDecisionManager` 进行操作的配置属性.
+如果您使用的是典型的 Spring Security 随附的 `AccessDecisionManager` 实现,则未为特定的安全方法调用定义配置属性,这将导致每个 `AccessDecisionVoter` 放弃投票.
+反过来,如果 `AccessDecisionManager` 属性 "allowIfAllAbstainDecisions" 为 `false`,则将引发 `AccessDeniedException`.  您可以通过
+ (i) 将 "allowIfAllAbstainDecisions" 设置为 `true` (尽管通常不建议这样做) 或
+ (ii) 仅确保至少有一个 `AccessDecisionVoter` 将投票批准授予访问权限的配置属性来避免此潜在问题.  后一种 (推荐) 方法通常是通过 `ROLE_USER或ROLE_AUTHENTICATED` 配置属性来实现的.

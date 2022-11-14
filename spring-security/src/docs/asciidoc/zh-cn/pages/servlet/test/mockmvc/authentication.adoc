@@ -1,0 +1,266 @@
+[[test-mockmvc-securitycontextholder]]
+= 在 Spring MVC 测试中以用户身份运行测试
+
+通常需要以特定用户身份运行测试.  填充用户有两种简单的方法:
+
+* <<test-mockmvc-securitycontextholder-rpp,在 Spring MVC Test 中使用 RequestPostProcessor 以用户身份运行 >>
+* <<test-mockmvc-securitycontextholder-a,在带有注解的 Spring MVC 测试中以用户身份运行>>
+
+[[test-mockmvc-securitycontextholder-rpp]]
+== 在 Spring MVC Test 中使用 RequestPostProcessor 以用户身份运行
+
+有许多选项可用于将用户与当前 `HttpServletRequest` 关联. 例如,以下将以用户名 "user",密码 "password" 和角色 "ROLE_USER" 的用户身份(不需要存在) 运行:
+
+[NOTE]
+====
+该支持通过将用户与 `HttpServletRequest` 关联而起作用.  要将请求关联到 `SecurityContextHolder`,您需要确保 `SecurityContextPersistenceFilter` 与 `MockMvc` 实例关联.  实现此目的的几种方法是:
+
+* 调用 <<test-mockmvc-setup,apply(springSecurity())>>
+* 将 Spring Security 的 `FilterChainProxy` 添加到 `MockMvc`
+* 使用 `MockMvcBuilders.standaloneSetup` 时,将 `SecurityContextPersistenceFilter` 手动添加到 `MockMvc` 实例可能很有意义.
+====
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/").with(user("user")))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/") {
+    with(user("user"))
+}
+----
+====
+
+您可以轻松进行自定义. 例如,以下用户名(管理员) ,用户名 "admin", 密码 "pass" 以及角色 "ROLE_USER 和 "ROLE_ADMIN" 将作为用户(不需要存在) 运行.
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/admin").with(user("admin").password("pass").roles("USER","ADMIN")))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/admin") {
+    with(user("admin").password("pass").roles("USER","ADMIN"))
+}
+----
+====
+
+如果您有一个想要使用的自定义 `UserDetails`，您也可以轻松地指定它。
+例如，以下将使用指定的 `UserDetails`（不需要存在）以使用具有指定 `UserDetails` 的 principal 的 `UsernamePasswordAuthenticationToken` 运行：
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/").with(user(userDetails)))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/") {
+    with(user(userDetails))
+}
+----
+====
+
+您可以使用以下身份以匿名用户身份运行:
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/").with(anonymous()))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/") {
+    with(anonymous())
+}
+----
+====
+
+如果您使用默认用户运行,并希望以匿名用户身份执行一些请求,则此功能特别有用.
+
+如果需要自定义身份验证(不需要存在) ,可以使用以下方法:
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/").with(authentication(authentication)))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/") {
+    with(authentication(authentication))
+}
+----
+====
+
+您甚至可以使用以下内容自定义  `SecurityContext` ：
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc
+	.perform(get("/").with(securityContext(securityContext)))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc.get("/") {
+    with(securityContext(securityContext))
+}
+----
+====
+
+通过使用 ``MockMvcBuilders`` 的默认请求,我们还可以确保针对每个请求以特定用户身份运行.  例如,以下用户名(管理员) ,用户名 "admin",密码 "password", 和角色 "ROLE_ADMIN" 将作为用户(不需要存在) 运行:
+
+====
+.Java
+[source,java,role="primary"]
+----
+mvc = MockMvcBuilders
+		.webAppContextSetup(context)
+		.defaultRequest(get("/").with(user("user").roles("ADMIN")))
+		.apply(springSecurity())
+		.build();
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+mvc = MockMvcBuilders
+    .webAppContextSetup(context)
+    .defaultRequest<DefaultMockMvcBuilder>(get("/").with(user("user").roles("ADMIN")))
+    .apply<DefaultMockMvcBuilder>(springSecurity())
+    .build()
+----
+====
+
+如果发现您在许多测试中使用的是同一用户,建议将用户移至某个方法. 例如,您可以在自己的名为 `CustomSecurityMockMvcRequestPostProcessors` 的类中指定以下内容:
+
+====
+.Java
+[source,java,role="primary"]
+----
+public static RequestPostProcessor rob() {
+	return user("rob").roles("ADMIN");
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+fun rob(): RequestPostProcessor {
+    return user("rob").roles("ADMIN")
+}
+----
+====
+
+现在,您可以在 `CustomSecurityMockMvcRequestPostProcessors` 上执行静态导入,并在测试中使用它:
+
+====
+.Java
+[source,java,role="primary"]
+----
+import static sample.CustomSecurityMockMvcRequestPostProcessors.*;
+
+...
+
+mvc
+	.perform(get("/").with(rob()))
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+import sample.CustomSecurityMockMvcRequestPostProcessors.*
+
+//...
+
+mvc.get("/") {
+    with(rob())
+}
+----
+====
+
+[[test-mockmvc-securitycontextholder-a]]
+== 在带有注解的 Spring MVC 测试中以用户身份运行
+
+除了使用 `RequestPostProcessor` 创建用户之外,还可以使用<<jc-erms,测试方法安全性>>所述的注解.  例如,以下将对具有用户名 "user",密码 "password" 和角色 "ROLE_USER" 的用户运行测试:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser
+public void requestProtectedUrlWithUser() throws Exception {
+mvc
+		.perform(get("/"))
+		...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser
+fun requestProtectedUrlWithUser() {
+    mvc
+        .get("/")
+        // ...
+}
+----
+====
+
+或者,以下将使用用户名 "user",密码 "password" 和角色 "ROLE_ADMIN" 的用户运行测试:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser(roles="ADMIN")
+public void requestProtectedUrlWithUser() throws Exception {
+mvc
+		.perform(get("/"))
+		...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser(roles = ["ADMIN"])
+fun requestProtectedUrlWithUser() {
+    mvc
+        .get("/")
+        // ...
+}
+----
+====

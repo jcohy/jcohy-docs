@@ -21,28 +21,33 @@ public class TransportClientConfig extends ElasticsearchConfigurationSupport {
 
     @Bean
     public Client elasticsearchClient() throws UnknownHostException {
-        Settings settings = Settings.builder().put("cluster.name", "elasticsearch").build();        <1>
+        Settings settings = Settings.builder().put("cluster.name", "elasticsearch").build();        <.>
         TransportClient client = new PreBuiltTransportClient(settings);
-        client.addTransportAddress(new TransportAddress(InetAddress.getByName("127.0.0.1"), 9300)); <2>
+        client.addTransportAddress(new TransportAddress(InetAddress.getByName("127.0.0.1"), 9300)); <.>
         return client;
     }
 
     @Bean(name = { "elasticsearchOperations", "elasticsearchTemplate" })
     public ElasticsearchTemplate elasticsearchTemplate() throws UnknownHostException {
-        return new ElasticsearchTemplate(elasticsearchClient());
+
+		ElasticsearchTemplate template = new ElasticsearchTemplate(elasticsearchClient, elasticsearchConverter);
+		template.setRefreshPolicy(refreshPolicy());                                                 <.>
+
+		return template;
     }
 }
 
 // ...
 
-IndexRequest request = new IndexRequest("spring-data", "elasticsearch", randomID())
- .source(someObject)
- .setRefreshPolicy(IMMEDIATE);
+IndexRequest request = new IndexRequest("spring-data")
+ .id(randomID())
+ .source(someObject);
 
 IndexResponse response = client.index(request);
 ----
-<1> 必须使用群集名称配置 `TransportClient`.
-<2> 连接客户端的主机和端口.
+<.> 必须使用群集名称配置 `TransportClient`.
+<.> 连接客户端的主机和端口.
+<.> RefreshPolicy 必须在 `ElasticsearchTemplate` 中设置（覆盖 `refreshPolicy()` 以不使用默认值）
 ====
 
 [[elasticsearch.clients.rest]]
@@ -79,11 +84,12 @@ public class RestClientConfig extends AbstractElasticsearchConfiguration {
 
 // ...
 
-IndexRequest request = new IndexRequest("spring-data", "elasticsearch", randomID())
+IndexRequest request = new IndexRequest("spring-data")
+  .id(randomID())
   .source(singletonMap("feature", "high-level-rest-client"))
   .setRefreshPolicy(IMMEDIATE);
 
-IndexResponse response = highLevelClient.index(request);
+IndexResponse response = highLevelClient.index(request,RequestOptions.DEFAULT);
 ----
 <1> 使用 builder 提供集群地址, 设置默认的 `HttpHeaders` 或 启用 SSL.
 <2> 创建 RestHighLevelClient.
@@ -99,39 +105,29 @@ IndexResponse response = highLevelClient.index(request);
 ====
 [source,java]
 ----
-static class Config {
+@Configuration
+public class ReactiveRestClientConfig extends AbstractReactiveElasticsearchConfiguration {
 
-  @Bean
-  ReactiveElasticsearchClient client() {
-
-    ClientConfiguration clientConfiguration = ClientConfiguration.builder()   <1>
-      .connectedTo("localhost:9200", "localhost:9291")
-      .withWebClientConfigurer(webClient -> {                                 <2>
-        ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
-            .codecs(configurer -> configurer.defaultCodecs()
-                .maxInMemorySize(-1))
+    @Override
+    @Bean
+    public ReactiveElasticsearchClient reactiveElasticsearchClient() {
+        final ClientConfiguration clientConfiguration = ClientConfiguration.builder() <.>
+            .connectedTo("localhost:9200") //
             .build();
-        return webClient.mutate().exchangeStrategies(exchangeStrategies).build();
-       })
-      .build();
+        return ReactiveRestClients.create(clientConfiguration);
 
-    return ReactiveRestClients.create(clientConfiguration);
-  }
+    }
 }
-
 // ...
 
 Mono<IndexResponse> response = client.index(request ->
 
   request.index("spring-data")
-    .type("elasticsearch")
     .id(randomID())
-    .source(singletonMap("feature", "reactive-client"))
-    .setRefreshPolicy(IMMEDIATE);
+    .source(singletonMap("feature", "reactive-client"));
 );
 ----
 <1> 使用 builder 提供集群地址, 设置默认的 `HttpHeaders` 或 启用 SSL.
-<2> 当配置一个响应式客户端时,可以使用 `withWebClientConfigurer` 钩子来自定义 web 客户端.
 ====
 
 NOTE: ReactiveClient 响应, (特别是搜索操作)绑定到请求的 `from` (offset) & `size` (limit) 选项.
@@ -146,39 +142,74 @@ NOTE: ReactiveClient 响应, (特别是搜索操作)绑定到请求的 `from` (o
 [source,java]
 ----
 HttpHeaders httpHeaders = new HttpHeaders();
-httpHeaders.add("some-header", "on every request")                      <1>
+httpHeaders.add("some-header", "on every request")                      <.>
 
 ClientConfiguration clientConfiguration = ClientConfiguration.builder()
-  .connectedTo("localhost:9200", "localhost:9291")                      <2>
-  .useSsl()                                                             <3>
-  .withProxy("localhost:8888")                                          <4>
-  .withPathPrefix("ela")                                                <5>
-  .withConnectTimeout(Duration.ofSeconds(5))                            <6>
-  .withSocketTimeout(Duration.ofSeconds(3))                             <7>
-  .withDefaultHeaders(defaultHeaders)                                   <8>
-  .withBasicAuth(username, password)                                    <9>
-  .withHeaders(() -> {                                                  <10>
+  .connectedTo("localhost:9200", "localhost:9291")                      <.>
+  .usingSsl()                                                           <.>
+  .withProxy("localhost:8888")                                          <.>
+  .withPathPrefix("ela")                                                <.>
+  .withConnectTimeout(Duration.ofSeconds(5))                            <.>
+  .withSocketTimeout(Duration.ofSeconds(3))                             <.>
+  .withDefaultHeaders(defaultHeaders)                                   <.>
+  .withBasicAuth(username, password)                                    <.>
+  .withHeaders(() -> {                                                  <.>
     HttpHeaders headers = new HttpHeaders();
     headers.add("currentTime", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
     return headers;
   })
+  .withClientConfigurer(                                                <.>
+    ReactiveRestClients.WebClientConfigurationCallback.from(webClient -> {
+  	  // ...
+      return webClient;
+  	}))
+  .withClientConfigurer(                                                <.>
+    RestClients.RestClientConfigurationCallback.from(clientBuilder -> {
+  	  // ...
+      return clientBuilder;
+  	}))
   . // ... other options
   .build();
-
 ----
-<1> 定义默认的 headers, 如有需要,可以自定义
-<2> 使用 builder 提供集群机制, 设置默认 `HttpHeaders` 或 启用 SSL.
-<3> 可选的,启用 SSL.
-<4> 可选的,设置代理.
-<5> 可选的,设置路径前缀, 主要用于不同的集群在某个反向代理后面.
-<6> 设置连接超时.默认值为 10 秒.
-<7> 设置 socket 超时.默认值为 5 秒
-<8> 可选的.设置 headers.
-<9> 添加 basic 认证.
-<10> 可以指定一个 `Supplier<Header>` 函数,该函数在每次请求发送到 Elasticsearch 之前都会被调用——例如,上例中,当前时间被写入 header 中.
+<.> 定义默认的 headers, 如有需要,可以自定义
+<.> 使用 builder 提供集群机制, 设置默认 `HttpHeaders` 或 启用 SSL.
+<.> 可选的,启用 SSL.
+<.> 可选的,设置代理.
+<.> 可选的,设置路径前缀, 主要用于不同的集群在某个反向代理后面.
+<.> 设置连接超时.默认值为 10 秒.
+<.> 设置 socket 超时.默认值为 5 秒
+<.> 可选的.设置 headers.
+<.> 添加 basic 认证.
+<.> 可以指定一个 `Supplier<Header>` 函数,该函数在每次请求发送到 Elasticsearch 之前都会被调用——例如,上例中,当前时间被写入 header 中.
+<.> 用于响应式设置一个配置 `WebClient` 的函数
+<.> 用于非响应式设置，配置 REST 客户端的功能
 ====
 
 IMPORTANT: 如上例所示,可以将随时间变化请求头的注入到 Supplier 中, 例如身份验证 JWT 令牌. 如果这是在响应式中使用的,supplier 函数一定不能阻塞!
+
+=== Elasticsearch 7 compatibility headers
+
+当使用 Spring Data Elasticsearch 4（使用 Elasticsearch 7 客户端库）并访问在版本 8 上运行的 Elasticsearch 集群时，需要设置兼容性请求头
+https://www.elastic.co/guide/en/elasticsearch/reference/8.0/rest-api-compatibility.html[参见 Elasticserach 文档]。
+这应该使用如上所示的 header supplier 来完成：
+
+====
+[source,java]
+----
+ClientConfigurationBuilder configurationBuilder = new ClientConfigurationBuilder();
+    configurationBuilder //
+		// ...
+		.withHeaders(() -> {
+			HttpHeaders defaultCompatibilityHeaders = new HttpHeaders();
+			defaultCompatibilityHeaders.add("Accept",
+                          "application/vnd.elasticsearch+json;compatible-with=7");
+			defaultCompatibilityHeaders.add("Content-Type",
+                          "application/vnd.elasticsearch+json;compatible-with=7");
+			return defaultCompatibilityHeaders;
+		});
+----
+====
+
 
 [[elasticsearch.clients.logging]]
 == Client 日志
