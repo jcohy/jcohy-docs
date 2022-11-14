@@ -1,0 +1,64 @@
+[[elasticsearch-migration-guide-4.1-4.2]]
+= 从4.1.x 升级到 4.2.x
+
+本节介绍从 4.1.x 版本到 4.2.x 版本的重大更改，以及如何用新引入的功能替换已删除的功能。
+
+[[elasticsearch-migration-guide-4.1-4.2.deprecations]]
+== 已弃用
+
+=== @Document 参数
+
+与索引设置相关的 `@Document` 注解参数（`useServerConfiguration`、`shards`. `replicas`、`refreshIntervall` 和 `indexStoretype`）已移至 `@Setting` 注解。
+在 `@Document` 中使用仍然是可能的，但已弃用。
+
+[[elasticsearch-migration-guide-4.1-4.2.removal]]
+== Removals
+
+用于在实体中设置分数返回值的 `@Score` 注解在 4.0 版中已弃用并已被删除。 Scroe 值在封装返回实体的  `SearchHit`  实例中返回。
+
+`org.springframework.data.elasticsearch.ElasticsearchException` 类已被移除。 其余用法已替换为 `org.springframework.data.mapping.MappingException` 和 `org.springframework.dao.InvalidDataAccessApiUsageException`。
+
+已弃用的 `ScoredPage`、`ScrolledPage` `@AggregatedPage` 和实现已被删除。
+
+已弃用的 `GetQuery` 和 `DeleteQuery` 已被删除。
+
+`ReactiveSearchOperations` 和 `ReactiveDocumentOperations` 中已弃用的 `find` 方法已被删除。
+
+[[elasticsearch-migration-guide-4.1-4.2.breaking-changes]]
+== 重大变化
+
+=== RefreshPolicy
+
+==== 枚举包已更改
+
+在 4.1 中，可以通过覆盖自定义配置类中的方法 `AbstractReactiveElasticsearchConfiguration.refreshPolicy()` 来配置 `ReactiveElasticsearchTemplate` 的刷新策略。
+该方法的返回值是  `org.elasticsearch.action.support.WriteRequest.RefreshPolicy` 类的一个实例。
+
+现在配置必须返回 `org.springframework.data.elasticsearch.core.RefreshPolicy`。
+该枚举具有与以前相同的值并触发相同的行为，因此只需调整 `import` 语句。
+
+==== 刷新行为
+
+`ElasticsearchOperations` 和 `ReactiveElasticsearchOperations` 现在显式使用模板上设置的 `RefreshPolicy` 用于写入请求（如果不为空）。
+如果刷新策略为空，则没有做任何特别的事情，因此使用集群默认值。 在此版本之前，`ElasticsearchOperations` 始终使用集群默认值。
+
+为 `ElasticsearchRepository` 和 `ReactiveElasticsearchRepository` 提供的实现将在刷新策略为空时进行显式刷新。
+这与以前版本中的行为相同。 如果设置了刷新策略，那么存储库也将使用它。
+
+==== 刷新配置
+
+当使用 `ElasticsearchConfigurationSupport`、`AbstractElasticsearchConfiguration` 或 `AbstractReactiveElasticsearchConfiguration` 配置 Spring Data Elasticsearch 时，如 <<elasticsearch.clients>> 中所述，刷新策略将初始化为 `null`。
+以前反应式代码将其初始化为  `IMMEDIATE`，现在响应式和非响应式代码显示相同的行为。
+
+=== 方法返回类型
+
+==== 删除接受查询的方法
+
+响应式方法之前返回一个带有已删除文档数量的  `Mono<Long>` ，非响应式版本是无效的。 他们现在返回一个 `Mono<ByQueryResponse>`，其中包含有关已删除文档和可能发生的错误的更多详细信息。
+
+==== multiget methods
+
+_multiget_ previousl 的实现只返回在 `List<T>` 中找到的实体用于非响应式实现和在 `Flux<T>` 中用于响应式实现。 如果请求包含未找到的 id，则这些缺失的信息不可用。
+用户需要将返回的 id 与请求的 id 进行比较才能找到哪些丢失了。
+
+现在，`multiget` 方法为每个请求的 id 返回一个 `MultiGetItem`。 这包含有关失败的信息（如不存在的索引）以及项目是否存在的信息（然后它包含在 `MultiGetItem` 中）。

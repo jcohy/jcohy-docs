@@ -1,0 +1,106 @@
+
+[[elasticsearch.routing]]
+= Routing values
+
+当 Elasticsearch 将文档存储在具有多个分片的索引中时，它会根据文档的 _id_ 确定要使用的分片。
+有时需要预先定义多个文档应该在同一个分片上建立索引（连接类型，更快地搜索相关数据）。
+为此，Elasticsearch 提供了定义路由的可能性，它是应该用来计算分片的值，而不是 _id_。
+
+Spring Data Elasticsearch 支持通过以下方式存储和检索数据的路由定义：
+
+== Routing on join-types
+
+当使用连接类型时（参见 <<elasticsearch.jointype>>），Spring Data Elasticsearch 将自动使用实体的 `JoinField` 属性的 `parent` 属性作为路由的值。
+
+这对于父子关系只有一个级别的所有用例都是正确的。
+如果它更深，就像孩子-父母-祖父母的关系 - 就像上面的例子中的 _vote_ -> _answer_ -> _question_ - 那么路由需要使用下一节中描述的技术明确指定（_vote_ 需要 _question .id_ 作为路由值）。
+
+== Custom routing values
+
+为了为实体定义自定义路由，Spring Data Elasticsearch 提供了一个 `@Routing` 注解（重用上面的 `Statement` 类）：
+
+====
+[source,java]
+----
+@Document(indexName = "statements")
+@Routing("routing")                  <.>
+public class Statement {
+    @Id
+    private String id;
+
+    @Field(type = FieldType.Text)
+    private String text;
+
+    @JoinTypeRelations(
+        relations =
+            {
+                @JoinTypeRelation(parent = "question", children = {"answer", "comment"}),
+                @JoinTypeRelation(parent = "answer", children = "vote")
+            }
+    )
+    private JoinField<String> relation;
+
+    @Nullable
+    @Field(type = FieldType.Keyword)
+    private String routing;          <.>
+
+    // getter/setter...
+}
+----
+<.> This defines _"routing"_ as routing specification
+<.> a property with the name _routing_
+====
+
+如果注解的 `routing` 规范是纯字符串而不是 SpEL 表达式，则将其解释为实体的属性名称，在示例中为 _routing_ 属性。
+然后，此属性的值将用作使用该实体的所有请求的路由值。
+
+我们也可以在 `@Document` 注解中使用 SpEL 表达式，如下所示：
+
+====
+[source,java]
+----
+@Document(indexName = "statements")
+@Routing("@myBean.getRouting(#entity)")
+public class Statement{
+    // all the needed stuff
+}
+----
+====
+
+在这种情况下，用户需要提供一个名为 _myBean_ 的 bean，它有一个方法 `String getRouting(Object)`。 要引用实体 _"#entity"_ 必须在 SpEL 表达式中使用，并且返回值必须为 `null` 或作为 String 的路由值。
+
+如果普通属性的名称和 SpEL 表达式不足以自定义路由定义，则可以定义提供 `RoutingResolver` 接口的实现。 然后可以在 `ElasticOperations` 实例上设置：
+
+====
+[source,java]
+----
+RoutingResolver resolver = ...;
+
+ElasticsearchOperations customOperations= operations.withRouting(resolver);
+
+----
+====
+
+`withRouting()` 函数返回带有自定义路由集的原始 `ElasticsearchOperations` 实例的副本。
+
+
+当实体存储在 Elasticsearch 中时已在实体上定义路由时，执行 _get_ 或 _delete_ 操作时必须提供相同的值。 对于不使用实体的方法 - 例如 `get(ID)` 或 `delete(ID)` - `ElasticsearchOperations.withRouting(RoutingResolver)` 方法可以像这样使用：
+
+====
+[source,java]
+----
+String id = "someId";
+String routing = "theRoutingValue";
+
+// get an entity
+Statement s = operations
+                .withRouting(RoutingResolver.just(routing))       <.>
+                .get(id, Statement.class);
+
+// delete an entity
+operations.withRouting(RoutingResolver.just(routing)).delete(id);
+
+----
+<.> `RoutingResolver.just(s)` 返回一个解析器，它只会返回给定的字符串。
+====
+

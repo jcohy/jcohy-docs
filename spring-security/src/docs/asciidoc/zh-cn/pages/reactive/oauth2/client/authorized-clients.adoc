@@ -1,0 +1,247 @@
+[[reactive-oauth2Client-additional-features]]
+= 授权客户端
+
+
+[[reactive-oauth2Client-registered-authorized-client]]
+== 解析授权客户端
+
+`@RegisteredOAuth2AuthorizedClient` 注解提供了将方法参数解析为 `OAuth2AuthorizedClient` 类型的参数值的能力。
+与使用 `ReactiveOAuth2AuthorizedClientManager` 或 `ReactiveOAuth2AuthorizedClientService` 访问 `OAuth2AuthorizedClient` 相比，这是一种方便的替代方法。
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Controller
+public class OAuth2ClientController {
+
+	@GetMapping("/")
+	public Mono<String> index(@RegisteredOAuth2AuthorizedClient("okta") OAuth2AuthorizedClient authorizedClient) {
+		return Mono.just(authorizedClient.getAccessToken())
+				...
+				.thenReturn("index");
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Controller
+class OAuth2ClientController {
+    @GetMapping("/")
+    fun index(@RegisteredOAuth2AuthorizedClient("okta") authorizedClient: OAuth2AuthorizedClient): Mono<String> {
+        return Mono.just(authorizedClient.accessToken)
+                ...
+                .thenReturn("index")
+    }
+}
+----
+====
+
+`@RegisteredOAuth2AuthorizedClient` 注释由 `OAuth2AuthorizedClientArgumentResolver` 处理，它直接使用 <<reactive-oauth2Client-authorized-manager-provider, ReactiveOAuth2AuthorizedClientManager>> 并因此继承了它的功能。
+
+[[reactive-oauth2Client-webclient-webflux]]
+== Reactive 环境的 WebClient 集成
+
+OAuth 2.0 客户端支持使用 `ExchangeFilterFunction` 与 `WebClient` 集成。
+
+`ServerOAuth2AuthorizedClientExchangeFilterFunction` 提供了一种简单的机制，用于通过使用 `OAuth2AuthorizedClient` 并包括关联的 `OAuth2AccessToken` 作为承载令牌来请求受保护的资源。
+它直接使用 <<reactive-oauth2Client-authorized-manager-provider, ReactiveOAuth2AuthorizedClientManager>>，因此继承了以下功能：
+
+* 如果客户端尚未获得授权，将请求一个 `OAuth2AccessToken`。
+** `authorization_code` - 触发授权请求重定向以启动流程
+** `client_credentials` - 访问令牌直接从令牌端点获取
+** `password` - 访问令牌直接从令牌端点获取
+* 如果 `OAuth2AccessToken` 过期，如果 `ReactiveOAuth2AuthorizedClientProvider` 可用于执行授权，它将被刷新（或更新）
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+WebClient webClient(ReactiveOAuth2AuthorizedClientManager authorizedClientManager) {
+	ServerOAuth2AuthorizedClientExchangeFilterFunction oauth2Client =
+			new ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager);
+	return WebClient.builder()
+			.filter(oauth2Client)
+			.build();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun webClient(authorizedClientManager: ReactiveOAuth2AuthorizedClientManager): WebClient {
+    val oauth2Client = ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager)
+    return WebClient.builder()
+            .filter(oauth2Client)
+            .build()
+}
+----
+====
+
+=== Providing the Authorized Client
+
+`ServerOAuth2AuthorizedClientExchangeFilterFunction` 通过从 `ClientRequest.attributes()`（请求属性）解析 `OAuth2AuthorizedClient` 来确定要使用的客户端（用于请求）。
+
+以下代码显示了如何将 `OAuth2AuthorizedClient` 设置为请求属性:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@GetMapping("/")
+public Mono<String> index(@RegisteredOAuth2AuthorizedClient("okta") OAuth2AuthorizedClient authorizedClient) {
+	String resourceUri = ...
+
+	return webClient
+			.get()
+			.uri(resourceUri)
+			.attributes(oauth2AuthorizedClient(authorizedClient))   <1>
+			.retrieve()
+			.bodyToMono(String.class)
+			...
+			.thenReturn("index");
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/")
+fun index(@RegisteredOAuth2AuthorizedClient("okta") authorizedClient: OAuth2AuthorizedClient): Mono<String> {
+    val resourceUri: String = ...
+
+    return webClient
+            .get()
+            .uri(resourceUri)
+            .attributes(oauth2AuthorizedClient(authorizedClient)) <1>
+            .retrieve()
+            .bodyToMono<String>()
+            ...
+            .thenReturn("index")
+}
+----
+====
+
+<1> `oauth2AuthorizedClient()` 是 `ServerOAuth2AuthorizedClientExchangeFilterFunction` 中的 `static` 方法。
+
+以下代码显示了如何将 `ClientRegistration.getRegistrationId()` 设置为请求属性：:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@GetMapping("/")
+public Mono<String> index() {
+	String resourceUri = ...
+
+	return webClient
+			.get()
+			.uri(resourceUri)
+			.attributes(clientRegistrationId("okta"))   <1>
+			.retrieve()
+			.bodyToMono(String.class)
+			...
+			.thenReturn("index");
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@GetMapping("/")
+fun index(): Mono<String> {
+    val resourceUri: String = ...
+
+    return webClient
+            .get()
+            .uri(resourceUri)
+            .attributes(clientRegistrationId("okta"))  <1>
+            .retrieve()
+            .bodyToMono<String>()
+            ...
+            .thenReturn("index")
+}
+----
+====
+<1> `clientRegistrationId()` 是 `ServerOAuth2AuthorizedClientExchangeFilterFunction` 中的 `static` 方法。
+
+
+=== 默认授权客户端
+
+如果 `OAuth2AuthorizedClient` 或 `ClientRegistration.getRegistrationId()` 都没有作为请求属性提供，则 `ServerOAuth2AuthorizedClientExchangeFilterFunction` 可以根据其配置确定要使用的 _default_ 客户端。
+
+如果配置了 `setDefaultOAuth2AuthorizedClient(true)` 并且用户已经使用 `ServerHttpSecurity.oauth2Login()` 进行了身份验证，则使用与当前 `OAuth2AuthenticationToken` 关联的 `OAuth2AccessToken`。
+
+下面的代码展示了具体的配置:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+WebClient webClient(ReactiveOAuth2AuthorizedClientManager authorizedClientManager) {
+	ServerOAuth2AuthorizedClientExchangeFilterFunction oauth2Client =
+			new ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager);
+	oauth2Client.setDefaultOAuth2AuthorizedClient(true);
+	return WebClient.builder()
+			.filter(oauth2Client)
+			.build();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun webClient(authorizedClientManager: ReactiveOAuth2AuthorizedClientManager): WebClient {
+    val oauth2Client = ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager)
+    oauth2Client.setDefaultOAuth2AuthorizedClient(true)
+    return WebClient.builder()
+            .filter(oauth2Client)
+            .build()
+}
+----
+====
+
+[WARNING]
+建议谨慎使用此功能，因为所有 HTTP 请求都会收到访问令牌。
+
+或者，如果 `setDefaultClientRegistrationId("okta")` 配置了有效的 `ClientRegistration`，则使用与 `OAuth2AuthorizedClient` 关联的 `OAuth2AccessToken`。
+
+下面的代码展示了具体的配置:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+WebClient webClient(ReactiveOAuth2AuthorizedClientManager authorizedClientManager) {
+	ServerOAuth2AuthorizedClientExchangeFilterFunction oauth2Client =
+			new ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager);
+	oauth2Client.setDefaultClientRegistrationId("okta");
+	return WebClient.builder()
+			.filter(oauth2Client)
+			.build();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun webClient(authorizedClientManager: ReactiveOAuth2AuthorizedClientManager): WebClient {
+    val oauth2Client = ServerOAuth2AuthorizedClientExchangeFilterFunction(authorizedClientManager)
+    oauth2Client.setDefaultClientRegistrationId("okta")
+    return WebClient.builder()
+            .filter(oauth2Client)
+            .build()
+}
+----
+====
+
+[WARNING]
+建议谨慎使用此功能，因为所有 HTTP 请求都会收到访问令牌。

@@ -12,29 +12,26 @@ TIP: A https://github.com/snicoll-demos/spring-boot-master-auto-configuration[de
 
 [[features.developing-auto-configuration.understanding-auto-configured-beans]]
 === Understanding Auto-configured Beans
-Under the hood, auto-configuration is implemented with the `@AutoConfiguration` annotation.
-This annotation itself is meta-annotated with `@Configuration`, making auto-configurations standard `@Configuration` classes.
+Under the hood, auto-configuration is implemented with standard `@Configuration` classes.
 Additional `@Conditional` annotations are used to constrain when the auto-configuration should apply.
 Usually, auto-configuration classes use `@ConditionalOnClass` and `@ConditionalOnMissingBean` annotations.
 This ensures that auto-configuration applies only when relevant classes are found and when you have not declared your own `@Configuration`.
 
-You can browse the source code of {spring-boot-autoconfigure-module-code}[`spring-boot-autoconfigure`] to see the `@Configuration` classes that Spring provides (see the {spring-boot-code}/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports[`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`] file).
+You can browse the source code of {spring-boot-autoconfigure-module-code}[`spring-boot-autoconfigure`] to see the `@Configuration` classes that Spring provides (see the {spring-boot-code}/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/spring.factories[`META-INF/spring.factories`] file).
 
 
 
 [[features.developing-auto-configuration.locating-auto-configuration-candidates]]
 === Locating Auto-configuration Candidates
-
-Spring Boot checks for the presence of a `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` file within your published jar.
-The file should list your configuration classes, as shown in the following example:
+Spring Boot checks for the presence of a `META-INF/spring.factories` file within your published jar.
+The file should list your configuration classes under the `EnableAutoConfiguration` key, as shown in the following example:
 
 [indent=0]
 ----
-    com.mycorp.libx.autoconfigure.LibXAutoConfiguration
-    com.mycorp.libx.autoconfigure.LibXWebAutoConfiguration
+	org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+	com.mycorp.libx.autoconfigure.LibXAutoConfiguration,\
+	com.mycorp.libx.autoconfigure.LibXWebAutoConfiguration
 ----
-
-TIP: You can use comments via `#` in this file.
 
 NOTE: Auto-configurations must be loaded that way _only_.
 Make sure that they are defined in a specific package space and that they are never the target of component scanning.
@@ -43,8 +40,6 @@ Specific ``@Import``s should be used instead.
 
 You can use the {spring-boot-autoconfigure-module-code}/AutoConfigureAfter.java[`@AutoConfigureAfter`] or {spring-boot-autoconfigure-module-code}/AutoConfigureBefore.java[`@AutoConfigureBefore`] annotations if your configuration needs to be applied in a specific order.
 For example, if you provide web-specific configuration, your class may need to be applied after `WebMvcAutoConfiguration`.
-
-TIP: If you are using the {spring-boot-autoconfigure-module-code}/AutoConfiguration.java[`@AutoConfiguration`] annotation, you can use the `before`, `beforeName`, `after` and `afterName` attribute aliases instead of the dedicated annotations.
 
 If you want to order certain auto-configurations that should not have any direct knowledge of each other, you can also use `@AutoConfigureOrder`.
 That annotation has the same semantic as the regular `@Order` annotation but provides a dedicated order for auto-configuration classes.
@@ -81,7 +76,10 @@ This mechanism does not apply the same way to `@Bean` methods where typically th
 
 To handle this scenario, a separate `@Configuration` class can be used to isolate the condition, as shown in the following example:
 
-include::code:MyAutoConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/conditionannotations/classconditions/MyAutoConfiguration.java[]
+----
 
 TIP: If you use `@ConditionalOnClass` or `@ConditionalOnMissingClass` as a part of a meta-annotation to compose your own composed annotations, you must use `name` as referring to the class in such a case is not handled.
 
@@ -95,7 +93,10 @@ The `search` attribute lets you limit the `ApplicationContext` hierarchy that sh
 
 When placed on a `@Bean` method, the target type defaults to the return type of the method, as shown in the following example:
 
-include::code:MyAutoConfiguration[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/conditionannotations/beanconditions/MyAutoConfiguration.java[]
+----
 
 In the preceding example, the `someService` bean is going to be created if no bean of type `SomeService` is already contained in the `ApplicationContext`.
 
@@ -156,7 +157,10 @@ Concretely, each test should create a well defined `ApplicationContext` that rep
 `ApplicationContextRunner` is usually defined as a field of the test class to gather the base, common configuration.
 The following example makes sure that `MyServiceAutoConfiguration` is always invoked:
 
-include::code:MyServiceAutoConfigurationTests[tag=runner]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/testing/MyServiceAutoConfigurationTests.java[tag=runner]
+----
 
 TIP: If multiple auto-configurations have to be defined, there is no need to order their declarations as they are invoked in the exact same order as when running the application.
 
@@ -164,17 +168,26 @@ Each test can use the runner to represent a particular use case.
 For instance, the sample below invokes a user configuration (`UserConfiguration`) and checks that the auto-configuration backs off properly.
 Invoking `run` provides a callback context that can be used with `AssertJ`.
 
-include::code:MyServiceAutoConfigurationTests[tag=test-user-config]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/testing/MyServiceAutoConfigurationTests.java[tag=test-user-config]
+----
 
 It is also possible to easily customize the `Environment`, as shown in the following example:
 
-include::code:MyServiceAutoConfigurationTests[tag=test-env]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/testing/MyServiceAutoConfigurationTests.java[tag=test-env]
+----
 
 The runner can also be used to display the `ConditionEvaluationReport`.
 The report can be printed at `INFO` or `DEBUG` level.
 The following example shows how to use the `ConditionEvaluationReportLoggingListener` to print the report in auto-configuration tests.
 
-include::code:MyConditionEvaluationReportingTests[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/testing/MyConditionEvaluationReportingTests.java[]
+----
 
 
 
@@ -190,7 +203,10 @@ It is also possible to test what happens when a particular class and/or package 
 Spring Boot ships with a `FilteredClassLoader` that can easily be used by the runner.
 In the following example, we assert that if `MyService` is not present, the auto-configuration is properly disabled:
 
-include::code:../MyServiceAutoConfigurationTests[tag=test-classloader]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/testing/MyServiceAutoConfigurationTests.java[tag=test-classloader]
+----
 
 
 
@@ -236,7 +252,10 @@ As a rule of thumb, prefix all your keys with a namespace that you own (for exam
 
 Make sure that configuration keys are documented by adding field javadoc for each property, as shown in the following example:
 
-include::code:AcmeProperties[]
+[source,java,indent=0,subs="verbatim"]
+----
+include::{docs-java}/features/developingautoconfiguration/customstarter/configurationkeys/AcmeProperties.java[]
+----
 
 NOTE: You should only use plain text with `@ConfigurationProperties` field Javadoc, since they are not processed before being added to the JSON.
 

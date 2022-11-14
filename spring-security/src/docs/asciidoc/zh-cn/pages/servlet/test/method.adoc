@@ -1,0 +1,601 @@
+[[test-method]]
+= 测试安全方法
+
+本节演示如何使用 Spring Security 的测试支持来测试基于方法的安全性。我们首先介绍一个 `MessageService`，它要求用户进行身份验证才能访问它.
+
+====
+.Java
+[source,java,role="primary"]
+----
+public class HelloMessageService implements MessageService {
+
+	@PreAuthorize("authenticated")
+	public String getMessage() {
+		Authentication authentication = SecurityContextHolder.getContext()
+			.getAuthentication();
+		return "Hello " + authentication;
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+class HelloMessageService : MessageService {
+    @PreAuthorize("authenticated")
+    fun getMessage(): String {
+        val authentication: Authentication = SecurityContextHolder.getContext().authentication
+        return "Hello $authentication"
+    }
+}
+----
+====
+
+
+`getMessage` 的结果是一个字符串,表示当前的 Spring Security `Authentication` 为  "Hello" . 输出示例如下所示.
+
+[source,text]
+----
+Hello org.springframework.security.authentication.UsernamePasswordAuthenticationToken@ca25360: Principal: org.springframework.security.core.userdetails.User@36ebcb: Username: user; Password: [PROTECTED]; Enabled: true; AccountNonExpired: true; credentialsNonExpired: true; AccountNonLocked: true; Granted Authorities: ROLE_USER; Credentials: [PROTECTED]; Authenticated: true; Details: null; Granted Authorities: ROLE_USER
+----
+
+[[test-method-setup]]
+== 安全测试设置
+
+在使用 Spring Security Test 支持之前,我们必须执行一些设置. 可以在下面看到一个示例:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@ExtendWith(SpringExtension.class) // <1>
+@ContextConfiguration // <2>
+public class WithMockUserTests {
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration
+class WithMockUserTests {
+----
+====
+
+这是如何设置 Spring Security Test 的基本示例. 重点是:
+
+<1> `@ExtendWith` 指示 `spring-test` 模块应该创建一个 `ApplicationContext`.  这与使用现有的Spring Test支持没有什么不同.  有关更多信息,请参考 https://docs.spring.io/spring-framework/docs/4.0.x/spring-framework-reference/htmlsingle/#integration-testing-annotations-standard[Spring Reference]
+<2> `@ContextConfiguration` 指示弹簧测试配置用于创建 `ApplicationContext`.  由于未指定任何配置,因此将尝试使用默认配置位置.  这与使用现有的 Spring Test 支持没有什么不同.  有关更多信息,请参考 https://docs.spring.io/spring-framework/docs/4.0.x/spring-framework-reference/htmlsingle/#testcontext-ctx-management[Spring Reference]
+
+NOTE: Spring Security 使用 `WithSecurityContextTestExecutionListener` 吸引了Spring Test的支持,这将确保我们的测试以正确的用户运行.  它通过在运行我们的测试之前填充 `SecurityContextHolder` 来实现.  如果您正在使用响应式方法安全性,则还需要 `ReactorContextTestExecutionListener` 来填充 `ReactiveSecurityContextHolder`.
+测试完成后,它将清除 `SecurityContextHolder`.  如果只需要与 Spring Security 相关的支持,则可以将 `@ContextConfiguration` 替换为 `@SecurityTestExecutionListeners`.
+
+记住,我们已将 `@PreAuthorize` 注解添加到我们的 `HelloMessageService` 中,因此需要经过身份验证的用户才能调用它. 如果我们运行以下测试,我们期望以下测试将通过:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test(expected = AuthenticationCredentialsNotFoundException.class)
+public void getMessageUnauthenticated() {
+	messageService.getMessage();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test(expected = AuthenticationCredentialsNotFoundException::class)
+fun getMessageUnauthenticated() {
+    messageService.getMessage()
+}
+----
+====
+
+[[test-method-withmockuser]]
+== @WithMockUser
+
+问题是 "我们如何最轻松地以特定用户身份运行测试? " ,答案是使用 `@WithMockUser`. 以下测试将以用户名 "user",密码 "password" 和角色 "ROLE_USER" 的用户身份运行.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser
+public void getMessageWithMockUser() {
+String message = messageService.getMessage();
+...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser
+fun getMessageWithMockUser() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+具体来说,以下是正确的:
+
+* 用户名 "user" 的用户不必存在,因为我们在模拟用户
+* 在 `SecurityContext` 中填充的 `Authentication` 的类型为 `UsernamePasswordAuthenticationToken`
+*  `Authentication` 的主体是 Spring Security 的 `User` 对象
+* 用户将具有用户名 "user",密码 "password" ,并使用一个名为 "ROLE_USER" 的 `GrantedAuthority`.
+
+我们的示例很好,因为我们能够利用很多默认值. 如果我们想使用其他用户名运行测试该怎么办? 以下测试将使用用户名 "customUser" 运行. 同样,用户不需要实际存在.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser("customUsername")
+public void getMessageWithMockUserCustomUsername() {
+	String message = messageService.getMessage();
+...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser("customUsername")
+fun getMessageWithMockUserCustomUsername() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+我们还可以轻松地自定义角色. 例如,将使用用户名 "admin" 以及角色 "ROLE_USER" 和 "ROLE_ADMIN" 调用此测试.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser(username="admin",roles={"USER","ADMIN"})
+public void getMessageWithMockUserCustomUser() {
+	String message = messageService.getMessage();
+	...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser(username="admin",roles=["USER","ADMIN"])
+fun getMessageWithMockUserCustomUser() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+如果我们不希望该值自动以 `ROLE_` 作为前缀,则可以利用 `Authority` 属性. 例如,将使用用户名 "admin" 以及权限 "USER" 和 "ADMIN" 调用此测试.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithMockUser(username = "admin", authorities = { "ADMIN", "USER" })
+public void getMessageWithMockUserCustomAuthorities() {
+	String message = messageService.getMessage();
+	...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithMockUser(username = "admin", authorities = ["ADMIN", "USER"])
+fun getMessageWithMockUserCustomUsername() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+当然,在每种测试方法上放置注解可能会有些乏味.  相反,我们可以将注解放置在类级别,并且每个测试都将使用指定的用户.  例如,下面的代码将使用用户名 "admin" ,密码 "password" 以及角色 "ROLE_USER" 和 "ROLE_ADMIN" 的用户运行每个测试.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration
+@WithMockUser(username="admin",roles={"USER","ADMIN"})
+public class WithMockUserTests {
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration
+@WithMockUser(username="admin",roles=["USER","ADMIN"])
+class WithMockUserTests {
+----
+====
+
+如果您使用 JUnit 5 的 `@Nested` 测试支持，您还可以将注解放在封闭类上以应用于所有嵌套类。
+例如，以下将使用 username "admin"、password "password" 以及两种测试方法的角色 "ROLE_USER" 和 "ROLE_ADMIN"的用户运行每个测试。
+
+====
+.Java
+[source,java,role="primary"]
+----
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration
+@WithMockUser(username="admin",roles={"USER","ADMIN"})
+public class WithMockUserTests {
+
+	@Nested
+	public class TestSuite1 {
+		// ... all test methods use admin user
+	}
+
+	@Nested
+	public class TestSuite2 {
+		// ... all test methods use admin user
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@ExtendWith(SpringExtension::class)
+@ContextConfiguration
+@WithMockUser(username = "admin", roles = ["USER", "ADMIN"])
+class WithMockUserTests {
+    @Nested
+    inner class TestSuite1 { // ... all test methods use admin user
+    }
+
+    @Nested
+    inner class TestSuite2 { // ... all test methods use admin user
+    }
+}
+----
+====
+
+默认情况下,在 `TestExecutionListener.beforeTestMethod` 事件期间设置 `SecurityContext`.  这相当于在JUnit的 `@Before` 之前发生.  您可以将其更改为在 `TestExecutionListener.beforeTestExecution` 事件期间发生,该事件在JUnit的 `@Before` 之后但在调用测试方法之前.
+
+[source,java]
+----
+@WithMockUser(setupBefore = TestExecutionEvent.TEST_EXECUTION)
+----
+
+
+[[test-method-withanonymoususer]]
+== @WithAnonymousUser
+
+使用 `@WithAnonymousUser` 允许以匿名用户身份运行.  当您希望与特定用户一起运行大多数测试,但希望以匿名用户身份运行一些测试时,这特别方便.  例如,以下将使用 <<test-method-withmockuser,@WithMockUser>> 和匿名用户(匿名用户) 在 withMockUser1 和 withMockUser2 中运行.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@ExtendWith(SpringExtension.class)
+@WithMockUser
+public class WithUserClassLevelAuthenticationTests {
+
+	@Test
+	public void withMockUser1() {
+	}
+
+	@Test
+	public void withMockUser2() {
+	}
+
+	@Test
+	@WithAnonymousUser
+	public void anonymous() throws Exception {
+		// override default to run as anonymous user
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@ExtendWith(SpringExtension.class)
+@WithMockUser
+class WithUserClassLevelAuthenticationTests {
+    @Test
+    fun withMockUser1() {
+    }
+
+    @Test
+    fun withMockUser2() {
+    }
+
+    @Test
+    @WithAnonymousUser
+    fun anonymous() {
+        // override default to run as anonymous user
+    }
+}
+----
+====
+
+默认情况下,在 `TestExecutionListener.beforeTestMethod` 事件期间设置 `SecurityContext`.  这相当于在 JUnit 的 `@Before` 之前发生.  您可以将其更改为在 `TestExecutionListener.beforeTestExecution` 事件期间发生,该事件在 JUnit 的 `@Before` 之后但在调用测试方法之前.
+
+[source,java]
+----
+@WithAnonymousUser(setupBefore = TestExecutionEvent.TEST_EXECUTION)
+----
+
+
+[[test-method-withuserdetails]]
+== @WithUserDetails
+
+虽然 `@WithMockUser` 是一种非常方便的入门方法,但可能并非在所有情况下都有效.  例如,应用程序通常期望 `Authentication` 主体为特定类型.  这样做是为了使应用程序可以将委托人称为自定义类型,并减少 Spring Security 上的耦合.
+
+自定义主体通常由自定义 `UserDetailsService` 返回,该 `UserDetailsService` 返回一个实现了 `UserDetails` 和自定义类型的对象.  在这种情况下,使用自定义 `UserDetailsService` 创建测试用户非常有用.  这正是 `@WithUserDetails` 所做的.
+
+假设我们将 `UserDetailsService` 暴露为 Bean,将使用类型为 `UsernamePasswordAuthenticationToken` 的 `Authentication` 和从 `UserDetailsService` 返回且用户名为 "user" 的主体来调用以下测试.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithUserDetails
+public void getMessageWithUserDetails() {
+	String message = messageService.getMessage();
+	...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithUserDetails
+fun getMessageWithUserDetails() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+我们还可以自定义用于从 `UserDetailsService` 查找用户的用户名. 例如,将使用从 `UserDetailsService` 返回的用户名为 "customUsername" 的委托人执行此测试.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithUserDetails("customUsername")
+public void getMessageWithUserDetailsCustomUsername() {
+	String message = messageService.getMessage();
+	...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithUserDetails("customUsername")
+fun getMessageWithUserDetailsCustomUsername() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+我们还可以提供一个明确的 bean 名称来查找 `UserDetailsService`. 例如,此测试将使用具有 bean 名称 `myUserDetailsService` 的 `UserDetailsService` 查找 "customUsername" 的用户名.
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Test
+@WithUserDetails(value="customUsername", userDetailsServiceBeanName="myUserDetailsService")
+public void getMessageWithUserDetailsServiceBeanName() {
+	String message = messageService.getMessage();
+	...
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Test
+@WithUserDetails(value="customUsername", userDetailsServiceBeanName="myUserDetailsService")
+fun getMessageWithUserDetailsServiceBeanName() {
+    val message: String = messageService.getMessage()
+    // ...
+}
+----
+====
+
+像 `@WithMockUser` 一样,我们也可以将注解放在类级别,以便每个测试都使用同一用户.  但是,与 `@WithMockUse` r不同,`@WithUserDetails` 要求用户存在.
+
+默认情况下,在 `TestExecutionListener.beforeTestMethod` 事件期间设置 `SecurityContext`.  这相当于在 JUnit 的 `@Before` 之前发生.  您可以将其更改为在 `TestExecutionListener.beforeTestExecution` 事件期间发生,该事件在 JUnit 的 `@Before` 之后但在调用测试方法之前.
+
+[source,java]
+----
+@WithUserDetails(setupBefore = TestExecutionEvent.TEST_EXECUTION)
+----
+
+[[test-method-withsecuritycontext]]
+== @WithSecurityContext
+
+我们已经看到,如果不使用自定义身份验证主体,则 `@WithMockUser` 是一个很好的选择.  接下来,我们发现 `@WithUserDetails` 将允许我们使用自定义 `UserDetailsService` 来创建我们的身份验证主体,但需要用户存在.  现在,我们将看到一个具有最大灵活性的选项.
+
+我们可以创建自己的注解,该注解使用 `@WithSecurityContext` 创建所需的任何 `SecurityContext`.  例如,我们可以创建一个名为 `@WithMockCustomUser` 的注解,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Retention(RetentionPolicy.RUNTIME)
+@WithSecurityContext(factory = WithMockCustomUserSecurityContextFactory.class)
+public @interface WithMockCustomUser {
+
+	String username() default "rob";
+
+	String name() default "Rob Winch";
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Retention(AnnotationRetention.RUNTIME)
+@WithSecurityContext(factory = WithMockCustomUserSecurityContextFactory::class)
+annotation class WithMockCustomUser(val username: String = "rob", val name: String = "Rob Winch")
+----
+====
+
+您可以看到 `@WithMockCustomUser` 带有 `@WithSecurityContext` 注解.  这就是向 Spring Security Test 支持人员发出信号的信号,我们打算为该测试创建一个 `SecurityContext`.  `@WithSecurityContext` 注解要求我们指定一个 `SecurityContextFactory`,
+它会在给定 `@WithMockCustomUser` 注解的情况下创建一个新的 `SecurityContext`.  您可以在下面找到我们的 `WithMockCustomUserSecurityContextFactory` 实现:
+
+====
+.Java
+[source,java,role="primary"]
+----
+public class WithMockCustomUserSecurityContextFactory
+	implements WithSecurityContextFactory<WithMockCustomUser> {
+	@Override
+	public SecurityContext createSecurityContext(WithMockCustomUser customUser) {
+		SecurityContext context = SecurityContextHolder.createEmptyContext();
+
+		CustomUserDetails principal =
+			new CustomUserDetails(customUser.name(), customUser.username());
+		Authentication auth =
+			new UsernamePasswordAuthenticationToken(principal, "password", principal.getAuthorities());
+		context.setAuthentication(auth);
+		return context;
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+class WithMockCustomUserSecurityContextFactory : WithSecurityContextFactory<WithMockCustomUser> {
+    override fun createSecurityContext(customUser: WithMockCustomUser): SecurityContext {
+        val context = SecurityContextHolder.createEmptyContext()
+        val principal = CustomUserDetails(customUser.name, customUser.username)
+        val auth: Authentication =
+            UsernamePasswordAuthenticationToken(principal, "password", principal.authorities)
+        context.authentication = auth
+        return context
+    }
+}
+----
+====
+
+现在,我们可以使用新的注解对测试类或测试方法进行注解,并且 Spring Security 的 `WithSecurityContextTestExecutionListener` 将确保正确填充我们的 `SecurityContext`.
+
+创建自己的 `WithSecurityContextFactory` 实现时,很高兴知道可以使用标准的 Spring 注解对其进行注解.  例如,`WithUserDetailsSecurityContextFactory` 使用 `@Autowired` 注解来获取 `UserDetailsService`:
+
+====
+.Java
+[source,java,role="primary"]
+----
+final class WithUserDetailsSecurityContextFactory
+	implements WithSecurityContextFactory<WithUserDetails> {
+
+	private UserDetailsService userDetailsService;
+
+	@Autowired
+	public WithUserDetailsSecurityContextFactory(UserDetailsService userDetailsService) {
+		this.userDetailsService = userDetailsService;
+	}
+
+	public SecurityContext createSecurityContext(WithUserDetails withUser) {
+		String username = withUser.value();
+		Assert.hasLength(username, "value() must be non-empty String");
+		UserDetails principal = userDetailsService.loadUserByUsername(username);
+		Authentication authentication = new UsernamePasswordAuthenticationToken(principal, principal.getPassword(), principal.getAuthorities());
+		SecurityContext context = SecurityContextHolder.createEmptyContext();
+		context.setAuthentication(authentication);
+		return context;
+	}
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+class WithUserDetailsSecurityContextFactory @Autowired constructor(private val userDetailsService: UserDetailsService) :
+    WithSecurityContextFactory<WithUserDetails> {
+    override fun createSecurityContext(withUser: WithUserDetails): SecurityContext {
+        val username: String = withUser.value
+        Assert.hasLength(username, "value() must be non-empty String")
+        val principal = userDetailsService.loadUserByUsername(username)
+        val authentication: Authentication =
+            UsernamePasswordAuthenticationToken(principal, principal.password, principal.authorities)
+        val context = SecurityContextHolder.createEmptyContext()
+        context.authentication = authentication
+        return context
+    }
+}
+----
+====
+
+默认情况下,在 `TestExecutionListener.beforeTestMethod` 事件期间设置 `SecurityContext`.  这相当于在 JUnit 的 `@Before` 之前发生.  您可以将其更改为在 `TestExecutionListener.beforeTestExecution` 事件期间发生,该事件在 JUnit 的 `@Before` 之后但在调用测试方法之前.
+
+[source,java]
+----
+@WithSecurityContext(setupBefore = TestExecutionEvent.TEST_EXECUTION)
+----
+
+[[test-method-meta-annotations]]
+== 测试元注解
+
+如果您经常在测试中重用同一用户,则不理想的是必须重复指定属性.  例如,如果有许多与用户名为 "admin" 且角色为 `ROLE_USER` 和 `ROLE_ADMIN` 的管理用户相关的测试,则您必须编写:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@WithMockUser(username="admin",roles={"USER","ADMIN"})
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@WithMockUser(username="admin",roles=["USER","ADMIN"])
+----
+====
+
+我们可以使用元注解,而不是在所有地方重复此操作. 例如,我们可以创建一个名为 `WithMockAdmin` 的元注解:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Retention(RetentionPolicy.RUNTIME)
+@WithMockUser(value="rob",roles="ADMIN")
+public @interface WithMockAdmin { }
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Retention(AnnotationRetention.RUNTIME)
+@WithMockUser(value = "rob", roles = ["ADMIN"])
+annotation class WithMockAdmin
+----
+====
+
+现在,我们可以像使用更详细的 `@WithMockUser` 一样使用 `@WithMockAdmin` .
+
+元注解可与上述任何测试注解一起使用.  例如,这意味着我们也可以为  `@WithUserDetails("admin")` 创建一个元注解.

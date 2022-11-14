@@ -58,8 +58,24 @@ ReactiveRedisMessageListenerContainer container = new ReactiveRedisMessageListen
 Flux<ChannelMessage<String, String>> stream = container.receive(ChannelTopic.of("my-channel"));
 ----
 
+要等待并确保正确订阅，您可以使用返回 `Mono<Flux<ChannelMessage>>` 的 `receiveLater` 方法。
+作为完成对给定主题的订阅的结果，生成的  `Mono`  与内部发布者一起完成。 通过拦截 `onNext` 信号，您可以同步服务器端订阅。
+
+[source,java]
+----
+ReactiveRedisConnectionFactory factory = …
+ReactiveRedisMessageListenerContainer container = new ReactiveRedisMessageListenerContainer(factory);
+
+Mono<Flux<ChannelMessage<String, String>>> stream = container.receiveLater(ChannelTopic.of("my-channel"));
+
+stream.doOnNext(inner -> // notification hook when Redis subscriptions are synchronized with the server)
+    .flatMapMany(Function.identity())
+    .…;
+----
+
+
 [[redis:reactive:pubsub:subscribe:template]]
-=== 通过模板API订阅
+=== 通过模板 API 订阅
 
 如上所述,您可以直接使用 `ReactiveRedisTemplate` 订阅通道/模式. 这种方法提供了一种直接但有限的解决方案,因为您松开了在初始订阅之后添加订阅的选项. 不过,您仍然可以使用例如返回的 `Flux` 控制消息流. 服用(持续时间). 完成读取后,一旦出错或取消,所有绑定的资源将再次释放.
 

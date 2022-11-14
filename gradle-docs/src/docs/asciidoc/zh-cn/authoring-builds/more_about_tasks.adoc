@@ -63,7 +63,7 @@ Task 的输出不改变.
 
 [NOTE]
 ====
-The task configuration APIs are described in more detail in the <<task_configuration_avoidance#,task configuration avoidance chapter>>.
+有关任务配置的 API 将在 <<task_configuration_avoidance#,task configuration avoidance 章节进行详细说明>>.
 ====
 
 .使用 strings 来定义任务的名字
@@ -72,25 +72,20 @@ include::{snippets-dir}/tasks/defineUsingStringTaskNames/groovy/build.gradle[]
 include::{snippets-dir}/tasks/defineUsingStringTaskNames/kotlin/build.gradle.kts[]
 ====
 
-还有另外一种语法形式来定义任务,更加直观:
+将任务添加到 `tasks` 集合中. 可以看一看 link:{javadocPath}/org/gradle/api/tasks/TaskContainer.html[TaskContainer] 来深入了解 `register()` 方法.
 
-.使用 `tasks` 容器定义任务
+在 Kotlin DSL 中还有一个特定的链接：link:https://kotlinlang.org/docs/reference/delegated-properties.html[delegated properties] 语法，如果您需要注册的任务以供进一步参考，该语法很有用。
+
+.使用 DSL 特定语法将任务分配给变量
 ====
-include::{snippets-dir}/tasks/addToTaskContainer/groovy/build.gradle[]
-include::{snippets-dir}/tasks/addToTaskContainer/kotlin/build.gradle.kts[]
-====
-
-这里实际上我们把 tasks 加入到 `tasks` collection 中.可以看一看 link:{javadocPath}/org/gradle/api/tasks/TaskContainer.html[TaskContainer] 来深入了解 `register()` 方法.
-
-最后,使用 Groovy 和 Kotlin DSL 特定语法:
-
-.使用 Groovy 和 Kotlin DSL 特定语法定义任务
-====
-include::{snippets-dir}/tasks/defineAsGroovyExpression/groovy/build.gradle[]
+include::{snippets-dir}/tasks/defineAsKotlinDelegatedProperty/groovy/build.gradle[]
 include::{snippets-dir}/tasks/defineAsKotlinDelegatedProperty/kotlin/build.gradle.kts[]
+====
 
-[.multi-language-text.lang-kotlin]
-Note that the Kotlin link:https://kotlinlang.org/docs/reference/delegated-properties.html[delegated properties] syntax is particularly useful if you need the created task for further reference.
+[WARNING]
+====
+如果您查看 _tasks_ 容器的 API，您可能会注意到 _create_ 任务还有其他方法。
+不鼓励使用这些方法，并将在未来的版本中弃用。 这些方法的存在只是为了向后兼容，因为它们是在将 <<task_configuration_avoidance#,task configuration Avoidance>> 添加到 Gradle 之前引入的。
 ====
 
 [[sec:locating_tasks]]
@@ -98,20 +93,27 @@ Note that the Kotlin link:https://kotlinlang.org/docs/reference/delegated-proper
 
 你经常需要在构建文件里找到你定义的 tasks,举个例子,为了配置他们或者使用他们作为依赖,有许多方式都可以来实现定位.首先,就像定义任务一样,Groovy 和 Kotlin DSL也有特定于语言的语法
 
-
-.使用 DSL 特定语法获取任务
-====
-include::{snippets-dir}/tasks/accessAsGroovyProperty/groovy/build.gradle[]
-include::{snippets-dir}/tasks/accessAsKotlinDelegatedProperty/kotlin/build.gradle.kts[]
-====
-
-
-Tasks 也可以通过 `tasks` collection 来得到.
+通常，可以通过 `tasks` 集合获得可用任务。
+你应该使用返回 _task provider_ 的方法 —— `register()` 或 `named()` —— 确保你不会破坏 <<task_configuration_avoidance#,task configuration Avoidance>>。
 
 .Accessing tasks via tasks collection
 ====
 include::{snippets-dir}/tasks/accessFromTaskContainer/groovy/build.gradle[]
 include::{snippets-dir}/tasks/accessFromTaskContainer/kotlin/build.gradle.kts[]
+====
+
+也可以使用 `tasks.withType()` 方法访问特定类型的任务。这可以避免代码重复并减少冗余。
+
+.Accessing tasks by their type
+====
+include::{snippets-dir}/tasks/accessUsingType/groovy/build.gradle[]
+include::{snippets-dir}/tasks/accessUsingType/kotlin/build.gradle.kts[]
+====
+
+[WARNING]
+====
+下面展示了如何通过路径访问任务。 这不再是推荐的做法，因为它破坏了 <<task_configuration_avoidance#,task configuration Avoidance>> 和项目隔离。
+项目之间的依赖关系 <<declaring_dependencies_between_subprojects.adoc#,应该声明为依赖关系>>。
 ====
 
 你可以使用 `tasks.getByPath()` 方法通过任务的路径来使用任何 project 里的任务,你可以通过使用任务的名字,任务的相对路径或者绝对路径作为  `getByPath()` 方法的输入
@@ -128,50 +130,44 @@ include::{snippets-dir}/tasks/accessUsingPath/tests/accessUsingPath.out[]
 ----
 ====
 
-特定类型的 tasks 也可以通过  `tasks.withType()` 方法获得.这可以避免代码重复和冗余
-
-.通过类型来获取 task
-====
-include::{snippets-dir}/tasks/accessUsingType/groovy/build.gradle[]
-include::{snippets-dir}/tasks/accessUsingType/kotlin/build.gradle.kts[]
-====
-
 参考 link:{javadocPath}/org/gradle/api/tasks/TaskContainer.html[TaskContainer] 可以知道更多关于定位 tasks 的选项
 
 [[sec:configuring_tasks]]
 == 配置 tasks
 
-举个例子,让我们看一看 Gradle 自带的 `Copy` task ,为了创建一个 `Copy` task ,你需要在你的构建脚本里先声明他:
+举个例子,让我们看一看 Gradle 自带的 `Copy` task ,为了注册一个 `Copy` task ,你需要在你的构建脚本里先声明他:
 
-.创建一个 copy task
+.注册一个 copy task
 ====
 include::{snippets-dir}/tasks/configureUsingBlock/groovy/build.gradle[tags=declare-task]
 include::{snippets-dir}/tasks/configureUsingBlock/kotlin/build.gradle.kts[tags=declare-task]
 ====
 
-它创建了一个没有默认行为的 `Copy` task .这个 task 可以通过它的 API(see link:{groovyDslPath}/org.gradle.api.tasks.Copy.html[Copy]) 来配置,接下来的例子展示了不同的实现方法
+它注册了一个没有默认行为的 `Copy` task .这个 task 可以通过它的 API(see link:{groovyDslPath}/org.gradle.api.tasks.Copy.html[Copy]) 来配置,接下来的例子展示了不同的实现方法
 
 补充说明一下,这个 task 的名字是  "`myCopy`" , 但是它的类型是  "`Copy`" .你可以有许多相同类型不同名字的 task,这个在实现特定类型的所有任务的 cross-cutting concerns 时特别有用
 
-.使用 API 配置 task
+.配置 task
 ====
 include::{snippets-dir}/tasks/configureUsingVar/groovy/build.gradle[tags=configure]
 include::{snippets-dir}/tasks/configureUsingVar/kotlin/build.gradle.kts[tags=configure]
 ====
 
-这个我们通过 Java 配置对象是一样的形式. 但是你每次都必须在语句里重复上下文(`myCopy`). 这种方式可能读起来并不是那么的漂亮.
+您还可以将任务引用存储在变量中，并在后面的脚本中进一步配置任务。
 
-下面一种方式就解决了这个问题. 是公认的最具可读性的方式.
-
-.Configuring a task using a DSL specific syntax
+.Retrieve a task reference and use it to configuring the task
 ====
 include::{snippets-dir}/tasks/configureUsingBlock/groovy/build.gradle[tags=configure]
 include::{snippets-dir}/tasks/configureUsingBlock/kotlin/build.gradle.kts[tags=configure]
 ====
 
-这适用于_any_任务. 例子中的获取任务只是  `tasks.named()` (Kotlin) 或 `tasks.getByName()` (Groovy) 方法的一个简洁的写法. 重要的是要注意,此处使用闭包配置任务,并且在执行任务时不进行评估.
-
 参考 link:{javadocPath}/org/gradle/api/tasks/TaskContainer.html[TaskContainer] 可以知道更多关于配置 tasks 的选项
+
+[TIP]
+====
+如果您使用 _Kotlin DSL_ 并且您要配置的任务是由插件添加的，您可以为任务使用简便的方法访问。
+也就是说，你可以只写 `tasks.test` 而不是 `tasks.named("test")`。
+====
 
 你也可以直接在定义 task 时使用闭包.
 
@@ -201,22 +197,13 @@ include::{snippets-dir}/tasks/taskConstructorArgs-onTaskContainer/kotlin/build.g
 
 然后,您可以创建一个任务,并在参数列表的末尾传递构造函数参数.
 
-.Creating a task with constructor arguments using TaskContainer
+.Registering a task with constructor arguments using TaskContainer
 ====
 include::{snippets-dir}/tasks/taskConstructorArgs-onTaskContainer/groovy/build.gradle[tags=on-task-container]
 include::{snippets-dir}/tasks/taskConstructorArgs-onTaskContainer/kotlin/build.gradle.kts[tags=on-task-container]
 ====
 
-您还可以使用 Project API 的 `constructorArgs` Map 参数来创建任务:
-
-.Creating a task with constructor arguments using Map
-====
-include::{snippets-dir}/tasks/taskConstructorArgs-onProject/groovy/build.gradle[tags=on-project]
-include::{snippets-dir}/tasks/taskConstructorArgs-onProject/kotlin/build.gradle.kts[tags=on-project]
-====
-
 [NOTE]
-.Prefer creating a task with constructor arguments using the TaskContainer
 ====
 建议使用 <<task_configuration_avoidance.adoc#,Task Configuration Avoidance>> API来缩短配置时间.
 ====
@@ -243,9 +230,9 @@ include::{snippets-dir}/tasks/addDependencyUsingPath/tests/addDependencyUsingPat
 ----
 ====
 
-您可以使用 `Task` 对象来定义依赖,而不是使用任务名称,如下例所示:
+您可以使用 `TaskProvider` 对象来定义依赖,而不是使用任务名称,如下例所示:
 
-.使用 task 对象添加依赖
+.使用 task provider 对象添加依赖
 ====
 include::{snippets-dir}/tasks/addDependencyUsingTask/groovy/build.gradle[]
 include::{snippets-dir}/tasks/addDependencyUsingTask/kotlin/build.gradle.kts[]
@@ -433,17 +420,13 @@ include::{snippets-dir}/tutorial/disableTask/tests/disableTask.out[]
 [[sec:task_timeouts]]
 === 任务超时
 
-每个任务都有一个 `timeout` 属性,可用于限制其执行时间.
-当任务达到超时时,其任务执行线程将被中断.
-该任务将被标记为失败.  Finalizer 任务仍将运行.
-如果使用 `--continue`,其他任务可以在它之后继续运行.
-不响应中断的任务无法超时.
-Gradle 的所有内置任务均会及时响应超时.
+每个任务都有一个 `timeout` 属性,可用于限制其执行时间.当任务达到超时时,其任务执行线程将被中断.该任务将被标记为失败.  Finalizer 任务仍将运行.
+如果使用 `--continue`,其他任务可以在它之后继续运行.不响应中断的任务无法超时.Gradle 的所有内置任务均会及时响应超时.
 
 .Specifying task timeouts
 ====
 include::{snippets-dir}/tasks/timeout/groovy/build.gradle[]
-include::{snippets-dir}/tasks/timeout/kotlin/build.gradle.kts[]
+include::{snippets-dir}/tasks/timeout/kotlin/build.gradle.kts[tags=without-import]
 ====
 
 [[sec:up_to_date_checks]]
@@ -668,6 +651,10 @@ include::{snippets-dir}/tasks/incrementalBuild-customTaskClass/tests/customTaskC
 | `@link:{javadocPath}/org/gradle/api/tasks/PathSensitive.html[PathSensitive]`
 | `File`+++*+++
 | [[inputs_path_sensitivity]]与任何输入文件属性一起使用,以告诉 Gradle 仅将文件路径的给定部分视为重要. 例如,如果使用  `@PathSensitive(PathSensitivity.NAME_ONLY)` 注解属性,则在不更改文件内容的情况下移动文件不会使任务过时.
+
+| `@link:{javadocPath}/org/gradle/api/tasks/IgnoreEmptyDirectories.html[IgnoreEmptyDirectories]`
+| `Iterable&lt;File&gt;`*
+| 和`@InputFiles` 或 `@InputDirectory` 一起使用，表示 Gradle 仅跟踪目录内容的更改，而不是目录自己本身，例如，在目录中删除、重命名或添加空目录不会使任务 out-of-date.
 |===
 
 [NOTE]
@@ -761,12 +748,6 @@ test.getJvmArgumentProviders().add(new JacocoAgent(extension));
 ===== 运行时验证
 
 执行构建时,Gradle 检查任务类型是否用适当的注解声明. 它试图找出问题所在,例如 注解用于不兼容的类型或 setter 等.未标记有输入/输出注解的任何 getter 也会被标记. 然后,在执行任务时,这些问题就会变成弃用警告.
-
-.带有未声明输入和输出的任务的示例输出
-----
-> gradle processTemplatesRuntime
-include::{snippets-dir}/tasks/incrementalBuild-customTaskClass/tests/customTaskClassWithoutInputOutputAnnotations.out[]
-----
 
 [[sec:task_input_output_runtime_api]]
 ==== Runtime API
@@ -1148,12 +1129,38 @@ include::{snippets-dir}/tasks/inputNormalization/kotlin/build.gradle.kts[tags=ig
 
 此配置的结果是,对于最新检查和 <<build_cache.adoc#build_cache,构建缓存>> key 计算,对 `build-info.properties` 的更改将被忽略. 请注意,这不会改变测试任务的运行时行为-也就是说,任何测试仍然能够加载 `build-info.properties`,并且运行时类路径仍与之前相同
 
+[[sec:property_file_normalization]]
+===== 属性文件规范化
+
+默认情况下，属性文件（即以 `.properties` 扩展名结尾的文件）将被规范化，忽略注释、空格和属性顺序的差异。
+Gradle 的规范化在加载属性文件和 up-to-date（最新检查） 或构建缓存键计算期间考虑各个属性。
+
+但是，有时某些属性会对运行时产生影响，而有些则不会。 如果正在更改的某个属性对运行时类路径没有影响，则可能需要将其排除在最新检查和 <<build_cache.adoc#build_cache,build cache>> 键计算之外。
+但是，排除整个文件也会排除确实会影响运行时的属性。 在这种情况下，可以有选择地从运行时类路径上排除任何或所有属性文件中属性。
+
+可以使用 link:{groovyDslPath}/org.gradle.normalization.RuntimeClasspathNormalization.html[RuntimeClasspathNormalization] 中描述的模式将忽略属性的规则应用于一组特定的文件。
+如果文件与规则匹配，但无法作为属性文件加载（例如，因为它没有正确格式化或使用非标准编码），它将被合并到最新或构建缓存键中 计算为普通文件。 换句话说，如果文件不能作为属性文件加载，对空格、属性顺序或注释的任何更改都可能导致任务过期或导致缓存未命中。
+
+.Ignore a property in selected properties files
+====
+include::{snippets-dir}/tasks/inputNormalizationPropertiesFiles/groovy/build.gradle[tags=ignore-property-selected]
+include::{snippets-dir}/tasks/inputNormalizationPropertiesFiles/kotlin/build.gradle.kts[tags=ignore-property-selected]
+====
+
+.Ignore a property in all properties files
+====
+include::{snippets-dir}/tasks/inputNormalizationPropertiesFiles/groovy/build.gradle[tags=ignore-property-all]
+include::{snippets-dir}/tasks/inputNormalizationPropertiesFiles/kotlin/build.gradle.kts[tags=ignore-property-all]
+====
+
 [[sec:meta_inf_normalization]]
 ===== Java `META-INF` 标准化
 
 对于 jar 归档文件的 `META-INF` 目录中的文件,由于其对运行时间的影响,并非总是能够完全忽略文件.
 
 对 `META-INF` 中的清单和属性文件进行了标准化,以忽略注解,空格和顺序差异. 清单属性名称不区分大小写进行比较. 属性文件密钥不区分顺序.
+
+清单属性文件根据 <<more_about_tasks.adoc#sec:property_file_normalization,Properties File Normalization>> 进行规范化。
 
 .忽略 `META-INF` manifest 属性
 ====
@@ -1224,7 +1231,7 @@ include::{snippets-dir}/tasks/addRules/tests/taskRuleDependsOn.out[]
 ----
 ====
 
-如果你运行 "`gradle -q tasks`" , 你并不能找到名叫 "`pingServer1`"  或者 "`pingServer2`"  的任务, 但是这个脚本仍然会执行这些任务.
+如果你运行 `gradle -q tasks` , 你并不能找到名叫 `pingServer1`  或者 `pingServer2`  的任务, 但是这个脚本仍然会执行这些任务.
 
 [[sec:finalizer_tasks]]
 == 终止 tasks
