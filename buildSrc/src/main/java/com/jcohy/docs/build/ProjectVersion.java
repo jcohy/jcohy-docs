@@ -21,6 +21,7 @@ public enum ProjectVersion {
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     HIBERNATE_ORM("hibernate-orm","hibernate-orm-version","5.5.7",""),
     DEPENDENCY_MANAGEMENT_PLUGIN("dependency-management-plugin","dependency-management-plugin-version","1.0.11.RELEASE",""),
+    KAFKA("kafka","kafka-version","3.0.1",""),
 
     SPRING_BOOT("spring-boot","spring-boot-version","2.6.11",""),
     SPRING_BOOT_ACTUATOR_AUTOCONFIGURE("spring-boot-actuator-autoconfigure","spring-boot-actuator-autoconfigure-version",ProjectVersion.SPRING_BOOT.getVersion(),""),
