@@ -1,0 +1,927 @@
+[[kafka-upgrade]]
+= 从早期版本升级
+
+[[kafka-upgrade-301-notable]]
+== 3.0.1 中的变化
+
+* 如果未设置冲突配置，则默认情况下启用生产者的幂等性。 一个错误阻止了生产者幂等性默认值的应用，这意味着它保持禁用状态，除非用户明确将 `enable.idempotence` 设置为 `true`。
+有关详细信息，请参阅 {kafka-jira}/KAFKA-13598[KAFKA-13598]。 此问题已修复，默认值已正确应用。
+
+[[kafka-upgrade-300-notable]]
+== 3.0.0 中的变化
+
+* 默认情况下，生产者具有更强的交付保证：启用 `idempotence`  并将 `acks` 设置为 `all` 而不是 `1`。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-679%3A+Producer+will+enable+the+strongest+delivery+guarantee+by+default[KIP-679]。
+在 3.0.0 和 3.1.0 中，一个错误阻止了幂等性默认值的应用，这意味着它保持禁用状态，除非用户明确将 `enable.idempotence` 设置为 `true`。
+请注意，该错误不影响 `acks=all` 更改。 有关详细信息，请参阅 {kafka-jira}/KAFKA-13598[KAFKA-13598]。 此问题已修复，默认值已在 `3.0.1`、`3.1.1` 和 `3.2.0` 中正确应用。
+* ZooKeeper 已升级到版本 `3.6.3`。
+* 提供了 KRaft 模式的预览版本，但无法从 `2.8` 早期版本升级到它。 有关详细信息，请参阅 `config/kraft/README.md` 文件。
+* 发布 tarball 不再包含 test, sources, javadoc 和 test sources jars。 这些仍然发布到 Maven 中央存储库。
+* 现在，在 https://github.com/apache/kafka/pull/10203[运行时类路径] 中提供了许多 implementation 依赖 jar，而不是编译和运行时类路径。 升级后的编译错误可以通过显式添加缺少的依赖 jar 或更新应用程序以不使用内部类来修复。
+* 消费者配置 `session.timeout.ms` 的默认值从 `10` 秒增加到 `45` 秒。 有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-735%3A+Increase+default+consumer+session+timeout[KIP-735]。
+* 代理配置 `log.message.format.version` 和主题配置 `message.format.version` 已被弃用。 如果 `inter.broker.protocol.version` 为 3.0 或更高，则两个配置的值始终假定为 `3.0`。
+如果设置了 `log.message.format.version` 或 `message.format.version`，我们建议在 `inter.broker.protocol.version` 升级到 `3.0` 的同时删除它们。
+如果对 `inter.broker.protocol.version` 降级，这将避免潜在的兼容性问题。 有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-724%3A+Drop+support+for+message+formats+v0+and+v1[KIP-724]。
+* Streams API 删除了在 `2.5.0` 或更早版本中已弃用的所有弃用 API。 有关已删除 API 的完整列表，请比较详细的 Kafka Streams 升级说明。
+* Kafka Streams 不再对 "connect:json" 模块有编译时依赖（{kafka-jira}/KAFKA-5146[KAFKA-5146]）。 依赖这种依赖传递的项目必须明确声明它。
+* 通过 `principal.builder.class` 指定的自定义 principal 构建器实现现在必须实现 `KafkaPrincipalSerde` 接口以允许在代理之间进行转发。 有关 `KafkaPrincipalSerde` 使用的更多详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-590%3A+Redirect+Zookeeper+Mutation+Protocols+to+The+Controller[KIP-590]。
+* 从 `clients`、`connect`、`core`  和 `tools`  模块中删除了许多不推荐使用的类、方法和工具：
+** Scala `Authorizer`、`SimpleAclAuthorizer` 和相关类已被删除。请改用 Java `Authorizer` 和 `AclAuthorizer`。
+** `Metric#value()` 方法已被删除 (https://issues.apache.org/jira/browse/KAFKA-12573[KAFKA-12573])。
+** `Sum` 和 `Total` 类已被删除 (https://issues.apache.org/jira/browse/KAFKA-12584[KAFKA-12584])。请改用 `WindowedSum` 和 `CumulativeSum`。
+** `Count` 和 `SampledTotal` 类已被删除。请分别使用 `WindowedCount` 和 `WindowedSum`。
+** `PrincipalBuilder`、`DefaultPrincipalBuilder` 和 `ResourceFilter` 类已被删除。
+** 从 `SslConfigs`、`SaslConfigs`、`AclBinding` 和 `AclBindingFilter` 中删除了各种常量和构造函数。
+** `Admin.electedPreferredLeaders()` 方法已被删除。请改用 `Admin.electLeaders`。
+** 删除了 `kafka-preferred-replica-election` 命令行工具。请改用 `kafka-leader-election`。
+** `--zookeeper` 选项已从 `kafka-topics` 和 `kafka-reassign-partitions` 命令行工具中删除。请改用 `--bootstrap-server`。
+** 在 `kafka-configs` 命令行工具中，`--zookeeper` 选项仅支持在代理未运行时更新 <<security-sasl-scram-credentials,SCRAM 凭据配置>> 和 <<dynamicbrokerconfigs,描述/更新>> 动态代理配置。请使用 `--bootstrap-server` 进行其他配置操作。
+** `ConfigEntry` 构造函数已被删除 (https://issues.apache.org/jira/browse/KAFKA-12577[KAFKA-12577])。请改用剩下的公共构造函数。
+** 客户端配置 `client.dns.lookup` 的配置值默认值已被删除。万一您明确设置此配置，我们建议您不要设置此配置（默认使用 `use_all_dns_ips`）。
+** `ExtendedDeserializer` 和 `ExtendedSerializer` 类已被删除。请改用 `Deserializer` 和 `Serializer` 。
+** `close(long, TimeUnit)` 方法已从生产者、消费者和管理客户端中删除。请使用 `close(Duration)`。
+** 删除了 `ConsumerConfig.addDeserializerToConfig` 和 `ProducerConfig.addSerializerToConfig` 方法。这些方法不打算成为公共 API，也没有替代品。
+** 删除了 `NoOffsetForPartitionException.partition()` 方法。请改用 `partitions()`。
+** 默认 `partition.assignment.strategy` 更改为  "[RangeAssignor, CooperativeStickyAssignor]"，默认情况下将使用 `RangeAssignor`，但允许升级到 `CooperativeStickyAssignor`，只需一个 rolling bounce 即可从列表中删除 `RangeAssignor`。请在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-429:+Kafka+Consumer+Incremental+Rebalance+Protocol#KIP429:KafkaConsumerIncrementalRebalanceProtocol-Consumer[此处] 查看客户端升级路径指南以获取更多详细信息。
+** Scala `kafka.common.MessageFormatter` 已删除。请使用 Java `org.apache.kafka.common.MessageFormatter`。
+** `MessageFormatter.init(Properties)` 方法已被删除。请改用 `configure(Map)`。
+** `checksum()` 方法已从 `ConsumerRecord` 和 `RecordMetadata` 中删除。自 `0.11` 以来一直默认的消息格式 v2 将校验和从记录移动到记录批次。因此，这些方法没有意义，也不存在替代品。
+** `ChecksumMessageFormatter` 类已被删除。它不是公共 API 的一部分，但它可能已与 `kafka-console-consumer.sh` 一起使用。它报告了每条记录的校验和，自消息格式 v2 以来一直不支持。
+** `org.apache.kafka.clients.consumer.internals.PartitionAssignor` 类已被删除。请改用 `org.apache.kafka.clients.consumer.ConsumerPartitionAssignor`。
+** 已删除 `quota.producer.default` 和 `quota.consumer.default` 配置 (https://issues.apache.org/jira/browse/KAFKA-12591[KAFKA-12591])。必须改为使用动态配额默认值。
+** 移除了 `port` 和 `host.name` 配置。请改用 `listeners` 。
+** 删除了 `advertised.port` 和 `advertised.host.name` 配置。请改为使用 `advertised.listeners`。
+** 从 Kafka Connect 工作程序配置中删除了已弃用的工作程序配置 `rest.host.name` 和 `rest.port` (https://issues.apache.org/jira/browse/KAFKA-12482[KAFKA-12482])。请改用 `listeners`。
+* `Producer#sendOffsetsToTransaction(Map offsets, String consumerGroupId)` 方法已被弃用。 请改用 `Producer#sendOffsetsToTransaction(Map offsets, ConsumerGroupMetadata metadata)`，其中可以通过 `KafkaConsumer#groupMetadata()` 检索 `ConsumerGroupMetadata` 以获得更强的语义。 请注意，只有 brokers 或 2.5 或更高版本才能完全理解消费者组元数据，因此您必须升级您的 kafka 集群以获得更强的语义。 否则，您可以传入新的 `ConsumerGroupMetadata(consumerGroupId)` 以与旧代理一起工作。 有关详细信息，请参阅 https://cwiki.apache.org/confluence/x/zJONCg[KIP-732]。
+* Connect `internal.key.converter` 和 `internal.value.converter` 属性已被完全 https://cwiki.apache.org/confluence/x/2YDOCg[删除]。 自版本 `2.0.0` 起，这些 Connect 工作程序属性的使用已被弃用。 工作人员现在被硬编码以使用 JSON 转换器并将 `schemas.enable` 设置为 `false`。 如果您的集群一直在使用不同的内部键或值转换器，您可以按照 https://cwiki.apache.org/confluence/x/2YDOCg[KIP-738] 中概述的迁移步骤将您的 Connect 集群安全地升级到 3.0。
+* 基于连接的 `MirrorMaker (MM2)` 包括支持 `IdentityReplicationPolicy` 的更改，无需重命名主题即可启用复制。 默认情况下仍使用现有的 `DefaultReplicationPolicy`，但可以通过 `replication.policy` 配置属性启用身份复制。 这对于从较旧的 `MirrorMaker (MM1)` 迁移的用户，或者对于不希望重命名主题的简单单向复制拓扑的用例特别有用。 请注意，与 `DefaultReplicationPolicy` 不同，`IdentityReplicationPolicy` 无法防止基于主题名称的复制循环，因此在构建复制拓扑时请注意避免循环。
+* 原始 `MirrorMaker (MM1)` 和相关类已被弃用。 请使用基于连接的 `MirrorMaker (MM2)`，如 <<kafka-georeplication,异地复制>> 部分所述。
+
+[[kafka-upgrade-280-notable]]
+== 2.8.0 中的变化
+
+* 2.8.0 版本为 https://cwiki.apache.org/confluence/display/KAFKA/KIP-679%3A+Producer+will+enable+the+strongest+delivery+guarantee+by+default[KIP-679] 中引入的 `Authorizer` 接口添加了一种新方法。 其动机是解除对我们未来计划的阻碍，以默认启用最强的消息传递保证。 自定义授权应考虑提供更有效的实现，以支持审计日志记录和任何自定义配置或访问规则。
+* 作为 https://cwiki.apache.org/confluence/display/KAFKA/KIP-516%3A+Topic+Identifiers[KIP-516] 的一部分，IBP 2.8 将主题 ID 引入主题。 使用 ZooKeeper 时，此信息存储在 `TopicZNode` 中。 如果集群降级到以前的 IBP 或版本，未来的主题将不会获得主题 ID，并且不能保证主题将在 ZooKeeper 中保留其主题 ID。 这意味着在再次升级时，将为某些主题或所有主题分配新的 ID。
+* Kafka Streams 引入了一个类型安全的 `split()` 运算符来替代已弃用的 `KStream#branch()` 方法（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-418%3A+A+method-chaining+way+to+branch+KStream[KIP-418]）。
+
+[[kafka-upgrade-2-7-0]]
+== 从 0.8.x 到 2.6.x 的任何版本升级到 2.7.0
+
+如果您是从 2.1.x 之前的版本升级，请参阅下面关于用于存储消费者偏移量的架构更改的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+https://xxx[]
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。
+如果您之前覆盖了消息格式版本，则应保留其当前值。 或者，如果您从 0.11.0.x 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `2.6`、`2.5` 等）
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x` 或更高版本升级，并且您没有覆盖消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `2.6`、`2.5` 等）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。 完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。 如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.7` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。 一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。 将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.7` 并一一重启。
+请注意，不再维护的旧 Scala 客户端不支持 `0.11` 中引入的消息格式，因此为了避免转换成本（或使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+[[kafka-upgrade-270-notable]]
+== 2.7.0 中的变化
+
+* `2.7.0` 版本包括 https://cwiki.apache.org/confluence/display/KAFKA/KIP-595%3A+A+Raft+Protocol+for+the+Metadata+Quorum[KIP-595] 中指定的核心 Raft 实现。 有一个单独的 "raft" 模块包含大部分逻辑。 在与控制器的集成完成之前，用户可以使用一个独立的服务器来测试 Raft 实现的性能。 有关详细信息，请参阅 raft 模块中的 README.md
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-651+-+Support+PEM+format+for+SSL+certificates+and+private+key[KIP-651] 添加了对使用 PEM 文件进行密钥和信任存储的支持。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-612%3A+Ability+to+Limit+Connection+Creation+Rate+on+Brokers[KIP-612] 增加了对强制执行代理范围和每个侦听器连接创建速率的支持。 2.7.0 版本包含 KIP-612 的第一部分，动态配置将在 2.8.0 版本中出现。
+* 限制主题和分区创建或主题删除的能力，以防止集群受到 https://cwiki.apache.org/confluence/display/KAFKA/KIP-599%3A+Throttle+Create+Topic%2C+Create+Partition+and+Delete+Topic+Operations[KIP-599] 的损害
+* 当 Kafka 中的新功能可用时，有两个主要问题：
+* Kafka 客户端如何了解代理功能？
+* 代理如何决定启用哪些功能？
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-584%3A+Versioning+scheme+for+features[KIP-584] 为客户端发现、功能选通和滚动升级提供了一个灵活且易于操作的解决方案，只需一次重启即可。
+* 现在可以通过 https://cwiki.apache.org/confluence/display/KAFKA/KIP-431%3A+Support+of+printing+additional+ConsumerRecord+fields+in+DefaultMessageFormatter[KIP-431] 使用 `ConsoleConsumer` 打印记录偏移量和标题
+* 添加 https://cwiki.apache.org/confluence/display/KAFKA/KIP-554%3A+Add+Broker-side+SCRAM+Config+API[KIP-554] 继续朝着从 Kafka 中移除 Zookeeper 的目标取得进展。添加 KIP-554 意味着您不必再直接连接到 ZooKeeper 来管理 SCRAM 凭据。
+* 更改现有侦听器的不可重新配置配置会导致 `InvalidRequestException`。相比之下，先前的（意外）行为会导致更新的配置被持久化，但直到重新启动代理才会生效。有关更多讨论，请参阅 https://github.com/apache/kafka/pull/9284[KAFKA-10479]。有关现有侦听器支持的可重新配置配置，请参阅 `DynamicBrokerConfig.DynamicSecurityConfigs` 和 `SocketServer.ListenerReconfigurableConfigs`。
+* Kafka Streams 在 KStreams DSL 中添加了对 https://cwiki.apache.org/confluence/display/KAFKA/KIP-450%3A+Sliding+Window+Aggregations+in+the+DSL[滑动窗口聚合] 的支持。
+* 对状态存储进行反向迭代，使用 https://cwiki.apache.org/confluence/display/KAFKA/KIP-617%3A+Allow+Kafka+Streams+State+Stores+to+be+iterated+backwards[KIP-617] 实现更高效的最新更新搜索
+* Kafka Steams 中的端到端延迟指标请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-613%3A+Add+end-to-end+latency+metrics+to+Streams[KIP-613] 了解更多详细信息
+* Kafka Streams 添加了使用 https://cwiki.apache.org/confluence/display/KAFKA/KIP-607%3A+Add+Metrics+to+Kafka+Streams+to+Report+Properties+of+RocksDB[KIP-607] 报告默认 RocksDB 属性的指标
+* 来自 https://cwiki.apache.org/confluence/display/KAFKA/KIP-616%3A+Rename+implicit+Serdes+instances+in+kafka-streams-scala[KIP-616] 的更好的 Scala 隐式 Serdes 支持
+
+[[kafka-upgrade-2-6-0]]
+== 从 0.8.x 到 2.5.x 的任何版本升级到 2.6.0
+
+如果您是从 `2.1.x` 之前的版本升级，请参阅下面关于用于存储消费者偏移量的架构更改的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。
+如果您之前重写过消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如，`2.5`、`2.4` 等）
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x` 或更高版本升级，并且您没有覆盖消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如，`2.5`、`2.4` 等）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。 完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。 如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.5` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。 一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。 将所有（或大多数）消费者升级到 0.11.0 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.4` 并一一重启。
+请注意，不再维护的旧 Scala 客户端不支持 `0.11` 中引入的消息格式，因此为了避免转换成本（或使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+其他升级说明：
+
+. ZooKeeper 已升级到 3.5.6。如果 3.4 数据目录中没有快照文件，ZooKeeper 从 3.4.X 升级到 3.5.6 可能会失败。这通常发生在 ZooKeeper 3.5.6 尝试加载未创建快照文件的现有 3.4 数据目录的测试升级中。有关该问题的更多详细信息，请参阅 ZOOKEEPER-3056。 ZOOKEEPER-3056 中给出了一个修复，即升级前在 zookeeper.properties 中设置 snapshot.trust.empty=true 配置。但是我们在使用 snapshot.trust.empty=true 配置时观察到独立集群升级中的数据丢失。有关该问题的更多详细信息，请参阅 ZOOKEEPER-3644。因此，如果 3.4 数据目录中没有快照文件，我们建议将空快照文件复制到 3.4 数据目录的安全解决方法。有关解决方法的更多详细信息，请参阅 ZooKeeper 升级常见问题解答。
+. ZooKeeper 3.5 中添加了基于 Jetty 的嵌入式 AdminServer。 ZooKeeper 中默认启用 AdminServer，并在端口 8080 上启动。Apache Kafka 发行版提供的 ZooKeeper 配置 (zookeeper.properties) 中默认禁用 AdminServer。如果您希望禁用 AdminServer，请确保使用 admin.enableServer=false 更新本地 zookeeper.properties 文件。请参考 AdminServer config 来配置 AdminServer。
+
+[[kafka-upgrade-2-6-0]]
+== 2.6.0 中的变化
+
+* Kafka Streams 添加了一种新的处理模式（需要 broker 2.5 或更高版本），该模式使用完全一次保证来提高应用程序的可扩展性（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-447%3A+Producer+scalability+for+exactly+once+semantics[KIP-447]）
+* Java 11 或更新版本默认启用 TLSv1.3。如果双方都支持，客户端和服务器将协商 TLSv1.3，否则回退到 TLSv1.2。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-573%3A+Enable+TLSv1.3+by+default[KIP-573]。
+* `client.dns.lookup` 配置的默认值已从默认更改为 `use_all_dns_ips`。如果主机名解析为多个 IP 地址，客户端和代理现在将尝试按顺序连接到每个 IP，直到成功建立连接。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-602%3A+Change+default+value+for+client.dns.lookup[KIP-602]。
+* `NotLeaderForPartitionException` 已被弃用并替换为 `NotLeaderOrFollowerException`。如果代理不是副本，则仅针对领导者或跟随者的获取请求和其他请求返回 `NOT_LEADER_OR_FOLLOWER(6)` 而不是 `REPLICA_NOT_AVAILABLE(9)`，确保所有客户端将重新分配期间的此临时错误作为可重试异常处理。
+
+[[kafka-upgrade-2-5-0]]
+== 从 0.8.x 到 2.4.x 的任何版本升级到 2.5.0
+
+如果您是从 `2.1.x` 之前的版本升级，请参阅下面有关更改用于存储消费者偏移量的架构的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+
+. 更新所有代理上的 server.`properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前重写了消息格式版本，则应保留其当前值。
+或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** inter.broker.protocol.version=CURRENT_KAFKA_VERSION（例如，`2.4`、`2.3` 等）
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x` 或更高版本升级，并且您没有重写消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如，`2.4`、`2.3` 等）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.5` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。将所有（或大多数）消费者升级到 0.11.0 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.5` 并一一重启。请注意，不再维护的旧 Scala 客户端不支持 0.11 中引入的消息格式，因此为了避免转换成本（或使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+. 在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-455%3A+Create+an+Administrative+API+for+Replica+Reassignment[KIP-455] 完成后，重新分配工具 `kafka-reassign-partitions.sh` 有几个显着的变化。此工具现在需要在更改活动重新分配的节流阀时提供 `--additional` 标志。现在可以使用 `--cancel` 命令取消重新分配。最后，不推荐使用 `--zookeeper` 重新分配，取而代之的是 `--bootstrap-server`。有关详细信息，请参阅 KIP。
+
+[[kafka-upgrade-250-notable]]
+== 2.5.0 中的变化
+
+* 当使用 `RebalanceProtocol#COOPERATIVE` 时，`Consumer#poll` 仍然可以在对仍归消费者所有的分区进行重新平衡时返回数据；此外，`Consumer#commitSync` 现在可能会抛出一个非致命的 `RebalanceInProgressException` 来通知用户此类事件，以区别于致命的 `CommitFailedException` 并允许用户完成正在进行的重新平衡，然后重新尝试为那些仍然拥有的分区提交偏移量。
+* 为了提高典型网络环境的弹性，`zookeeper.session.timeout.ms` 的默认值从 `6s` 增加到 `18s`，`replica.lag.time.max.ms` 从 `10s` 增加到 `30s`。
+* 添加了新的 DSL 运算符 `cogroup()` 用于一次将多个流聚合在一起。
+* 添加了新的 `KStream.toTable()` API 以将输入事件流转换为 KTable。
+* 添加了一个新的 `Serde` 类型 `Void` 来表示来自输入主题的空键或空值。
+* 弃用 `UsePreviousTimeOnInvalidTimestamp` 并将其替换为 `UsePartitionTimeOnInvalidTimeStamp`。
+* 通过添加挂起的偏移防护机制和更强的事务提交一致性检查改进了一次性语义，这极大地简化了可扩展的一次性应用程序的实现。我们还在示例文件夹下添加了一个新的完全一次语义代码 https://github.com/apache/kafka/tree/2.5/examples[示例]。查看 https://cwiki.apache.org/confluence/display/KAFKA/KIP-447%3A+Producer+scalability+for+exactly+once+semantics[KIP-447] 了解完整详情。
+* 添加了一个新的公共 api `KafkaStreams.queryMetadataForKey(String, K, Serializer)` 以获取有关正在查询的密钥的详细信息。除了包含密钥的活动和备用分区的主机之外，它还提供有关密钥所在的分区号的信息。
+* 通过弃用 `KafkaStreams.store(String, QueryableStoreType)` 并将其替换为 `KafkaStreams.store(StoreQueryParameters)`，支持查询陈旧的存储（用于高可用性）和属于特定分区的存储。
+* 添加了一个新的公共 api 来访问具有 `KafkaStreams.allLocalStorePartitionLags()` 的实例本地存储的滞后信息。
+* 不再支持 Scala 2.11。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-531%3A+Drop+support+for+Scala+2.11+in+Kafka+2.5[KIP-531]。
+* 包 `kafka.security.auth` 中的所有 Scala 类都已被弃用。有关 `2.4.0` 中添加的新 Java 授权 API 的详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-504+-+Add+new+Java+Authorizer+Interface[KIP-504]。请注意，`kafka.security.auth.Authorizer` 和 `kafka.security.auth.SimpleAclAuthorizer` 在 2.4.0 中已弃用。
+* 默认情况下禁用 TLSv1 和 TLSv1.1，因为它们存在已知的安全漏洞。现在默认情况下仅启用 TLSv1.2。您可以通过在配置选项 `ssl.protocol` 和 `ssl.enabled.protocols` 中显式启用它们来继续使用 TLSv1 和 TLSv1.1。
+* ZooKeeper 已升级到 `3.5.7`，如果 `3.4` 数据目录中没有快照文件，ZooKeeper 从 `3.4.X` 升级到 `3.5.7` 可能会失败。这通常发生在 ZooKeeper `3.5.7` 尝试加载未创建快照文件的现有 `3.4` 数据目录的测试升级中。有关该问题的更多详细信息，请参阅 https://issues.apache.org/jira/browse/ZOOKEEPER-3056[ZOOKEEPER-3056]。 https://issues.apache.org/jira/browse/ZOOKEEPER-3056[ZOOKEEPER-3056] 中给出了一个修复，即升级前在 `zookeeper.properties` 中设置 `snapshot.trust.empty=true` 配置。
+* ZooKeeper 版本 `3.5.7` 支持与 ZooKeeper 的 TLS 加密连接，无论是否有客户端证书，并且可以使用额外的 Kafka 配置来利用这一点。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-515%3A+Enable+ZK+client+to+use+the+new+TLS+supported+authentication[KIP-515]。
+
+[[kafka-upgrade-2-4-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x、1.0.x、1.1.x、2.0.x 或 2.1.x 升级或 2.2.x 或 2.3.x 到 2.4.0
+
+如果您是从 `2.1.x` 之前的版本升级，请参阅下面有关更改用于存储消费者偏移量的架构的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前重写了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.10.0、0.11.0、1.0、2.0、2.2`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x` 或更高版本升级，并且您没有重写消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION` (0.11.0, 1.0, 1.1, 2.0, 2.1, 2.2, 2.3)。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version ` 并将其设置为 `2.4` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。将所有（或大多数）消费者升级到 0.11.0 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.4` 并一一重启。请注意，不再维护的旧 Scala 客户端不支持 `0.11` 中引入的消息格式，因此为了避免转换成本（或使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+其他升级说明：
+
+* ZooKeeper 已升级到 `3.5.6`。如果 3.4 数据目录中没有快照文件，ZooKeeper 从 `3.4.X` 升级到 `3.5.6` 可能会失败。这通常发生在 ZooKeeper `3.5.6` 尝试加载未创建快照文件的现有 `3.4` 数据目录的测试升级中。有关该问题的更多详细信息，请参阅 https://issues.apache.org/jira/browse/ZOOKEEPER-3056[ZOOKEEPER-3056]。 https://issues.apache.org/jira/browse/ZOOKEEPER-3056[ZOOKEEPER-3056] 中给出了一个修复，即升级前在 `zookeeper.properties` 中设置 `snapshot.trust.empty=true` 配置。但是我们在使用 `snapshot.trust.empty=true` 配置时观察到独立集群升级中的数据丢失。有关该问题的更多详细信息，请参阅 https://issues.apache.org/jira/browse/ZOOKEEPER-3644[ZOOKEEPER-3644]。因此，如果 3.4 数据目录中没有 https://issues.apache.org/jira/secure/attachment/12928686/snapshot.0[快照文件]，我们建议将空快照文件复制到 `3.4` 数据目录的安全解决方法。有关解决方法的更多详细信息，请参阅 https://cwiki.apache.org/confluence/display/ZOOKEEPER/Upgrade+FAQ[ZooKeeper 升级常见问题解答]。
+* ZooKeeper `3.5` 中添加了基于 Jetty 的嵌入式 http://zookeeper.apache.org/doc/r3.5.6/zookeeperAdmin.html#sc_adminserver[`AdminServer`]。 ZooKeeper 中默认启用 AdminServer，并在端口 `8080` 上启动。Apache Kafka 发行版提供的 ZooKeeper 配置 (`zookeeper.properties`) 中默认禁用 `AdminServer`。如果您希望禁用 `AdminServer`，请确保使用 `admin.enableServer=false` 更新本地 `zookeeper.properties` 文件。请参考 http://zookeeper.apache.org/doc/r3.5.6/zookeeperAdmin.html#sc_adminserver[`AdminServer` config] 来配置 `AdminServer`。
+
+[[kafka-upgrade-240-notable]]
+== 2.4.0 中的变化
+
+* 为分区重新分配添加了一个新的 Admin  API。由于改变了 Kafka 传播重新分配信息的方式，在升级到新版本时可能会在失败的边缘情况下丢失重新分配状态。不建议在升级时开始重新分配。
+* ZooKeeper 已从 `3.4.14` 升级到 `3.5.6`。新版本支持 TLS 和动态重新配置。
+* `bin/kafka-preferred-replica-election.sh` 命令行工具已被弃用。它已被 `bin/kafka-leader-election.sh` 取代。
+* Java `AdminClient` 类中的 `electPreferredLeaders` 方法 已被弃用，取而代之的是方法 `electLeaders`。
+* 利用具有文本值的 `NewTopic(String, int, short)` 构造函数的 Scala 代码将需要在第二个文字上显式调用 `toShort`。
+* 构造函数 `GroupAuthorizationException(String)` 中的参数现在用于指定异常消息。以前它指的是授权失败的组。这样做是为了与其他异常类型保持一致并避免潜在的误用。之前用于单个未授权主题的构造函数 `TopicAuthorizationException(String)` 进行了类似的更改。
+* 内部 `PartitionAssignor` 接口已被弃用，取而代之的是公共 API 中的新 `ConsumerPartitionAssignor`。两个接口之间的某些方法/签名略有不同。实现自定义 `PartitionAssignor` 的用户应尽快迁移到新界面。
+* `DefaultPartitioner` 现在使用粘性分区策略。这意味着具有空键且未分配分区的特定主题的记录将被发送到同一分区，直到准备好发送批处理。创建新批次时，将选择一个新分区。这会减少生成的延迟，但可能会导致边缘情况下跨分区的记录分布不均匀。通常用户不会受到影响，但这种差异在测试和其他在很短的时间内产生记录的情况下可能会很明显。
+* 阻塞的 `KafkaConsumer#committed` 方法已扩展为允许将分区列表作为输入参数，而不是单个分区。它可以减少客户端和代理之间的请求/响应迭代，以获取消费者组的已提交偏移量。旧的重载函数已被弃用，我们建议用户更改代码以利用新方法（详细信息可在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-520%3A+Add+overloaded+Consumer%23committed+for+batching+partitions[KIP-520] 中找到）。
+* 我们在生产响应中引入了一个新的 `INVALID_RECORD` 错误，以区别于 `CORRUPT_MESSAGE` 错误。更具体地说，以前当一批记录作为单个请求的一部分发送到代理时，一个或多个记录由于各种原因（不匹配魔术字节、crc 校验和错误、压缩日志的空键）而未能通过验证主题等），整个批次将被拒绝并具有相同且具有误导性的 `CORRUPT_MESSAGE`，并且生产者客户端的调用者将从发送调用返回的 `RecordMetadata` 的未来对象以及 `Callback#onCompletion` 中看到相应的异常（`RecordMetadata` 元数据，异常异常）现在有了新的错误代码和改进的异常错误消息，生产者调用者将更好地了解他们发送记录失败的根本原因。
+* 我们正在向客户端的组协议引入增量协作重新平衡，它允许消费者在重新平衡期间保留所有分配的分区，最后只撤销必须迁移到另一个消费者以实现整体集群平衡的分区。 `ConsumerCoordinator` 将选择所有消费者支持的分配者共同支持的最新的 `RebalanceProtocol`。您可以使用新的内置 `CooperativeStickyAssignor` 或插入您自己的自定义合作分配器。为此，您必须实现 `ConsumerPartitionAssignor` 接口并在 `ConsumerPartitionAssignor#supportedProtocols` 返回的列表中包含 `RebalanceProtocol`.COOPERATIVE。然后，您的自定义分配者可以利用每个消费者订阅中的 `ownedPartitions` 字段，尽可能将分区还给其先前的所有者。请注意，当一个分区要重新分配给另一个消费者时，它必须从新的分配中删除，直到它被其原始所有者撤销。任何必须撤销分区的消费者都将触发后续重新平衡，以允许将撤销的分区安全地分配给其新所有者。有关更多信息，请参阅 https://kafka.apache.org/24/javadoc/index.html?org/apache/kafka/clients/consumer/ConsumerPartitionAssignor.RebalanceProtocol.html[ConsumerPartitionAssignor RebalanceProtocol javadocs]。
+* 要从旧的（急切的）协议（总是在重新平衡之前撤销所有分区）升级到协作重新平衡，您必须遵循特定的升级路径，以使所有客户端都在支持协作协议的同一个 `ConsumerPartitionAssignor` 上。这可以通过两次滚动反弹来完成，以 `CooperativeStickyAssignor` 为例：在第一个期间，将 "cooperative-sticky" 添加到每个成员的支持分配者列表中（不删除前一个分配者 - 请注意，如果以前使用默认情况下，您也必须明确包含它）。然后你反弹和/或升级它。一旦整个组都在 2.4+ 并且所有成员在其支持的分配者中都具有 "合作粘性"，请移除其他分配者并执行第二次滚动反弹，以便最终所有成员仅支持合作协议。有关协作再平衡协议和升级路径的更多详细信息，请参阅 https://cwiki.apache.org/confluence/x/vAclBg[KIP-429]。
+* `ConsumerRebalanceListener` 有一些行为变化，还有一个新的 API。在侦听器的三个回调中的任何一个期间抛出的异常将不再被吞没，而是会一直被重新抛出到 `Consumer.poll()` 调用。添加了 `onPartitionsLost` 方法，以允许用户对异常情况做出反应，其中消费者可能失去了其分区的所有权（例如错过了重新平衡）并且无法提交偏移量。默认情况下，这将简单地调用现有的 `onPartitionsRevoked` API 以与之前的行为保持一致。但是请注意，当丢失的分区集为空时，不会调用 `onPartitionsLost`。这意味着在加入组的新消费者的第一次重新平衡开始时不会调用回调。
+当遵循上述合作再平衡协议时，`ConsumerRebalanceListener` 回调的语义会进一步改变。除了 `onPartitionsLost` 之外，当撤销的分区集为空时，也永远不会调用 `onPartitionsRevoked`。回调通常仅在重新平衡结束时调用，并且仅在移动到另一个消费者的分区集上调用。然而，即使有一组空的分区，`onPartitionsAssigned` 回调也将始终被调用，作为通知用户重新平衡事件的一种方式（这对于合作和渴望都是如此）。有关新回调语义的详细信息，请参阅 https://kafka.apache.org/24/javadoc/index.html?org/apache/kafka/clients/consumer/ConsumerRebalanceListener.html[ConsumerRebalanceListener javadocs]。
+* `Scala trait kafka.security.auth.Authorizer` 已被弃用，取而代之的是新的 Java API `org.apache.kafka.server.authorizer.Authorizer`。`Authorizer` 实现类 `kafka.security.auth.SimpleAclAuthorizer` 也已被弃用，并被新的实现 `kafka.security.authorizer.AclAuthorizer` 取代。 `AclAuthorizer` 使用新 API 支持的功能来改进授权日志记录，并且与 `SimpleAclAuthorizer` 兼容。有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-504+-+Add+new+Java+Authorizer+Interface[KIP-504]。
+
+[[kafka-upgrade-2-3-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x、1.0.x、1.1.x、2.0.x 或 2.1.x 升级或 2.2.x 到 2.3.0
+
+如果您是从 `2.1.x` 之前的版本升级，请参阅下面关于用于存储消费者偏移量的架构更改的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前覆盖了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 CURRENT_MESSAGE_FORMAT_VERSION 以匹配 CURRENT_KAFKA_VERSION。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0、1.0、1.1`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x、1.0.x、1.1.x、2.0.x` 或 `2.1.x` 升级，并且您没有覆盖消息格式，那么您只需要覆盖代理间协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION` (`0.11.0, 1.0, 1.1, 2.0, 2.1, 2.2`)。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.3` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.3` 并一一重启。请注意，不再维护的旧 Scala 客户端不支持 `0.11` 中引入的消息格式，因此为了避免转换成本（或使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+[[kafka-upgrade-230-notable]]
+== 2.3.0 中的变化
+
+* 我们正在为 Kafka Connect 引入基于 https://cwiki.apache.org/confluence/display/KAFKA/KIP-415%3A+Incremental+Cooperative+Rebalancing+in+Kafka+Connect[增量协作重新平衡] 的新重新平衡协议。新协议不需要在 Connect 工作人员之间的重新平衡阶段停止所有任务。相反，只有需要在工作人员之间交换的任务才会停止，并在后续的重新平衡中启动。从 `2.3.0` 开始，默认启用新的 Connect 协议。有关它如何工作以及如何启用急切重新平衡的旧行为的更多详细信息，请查看 <<kafka-connect-administration,增量协作重新平衡设计>>。
+* 我们正在向消费者用户引入静态成员资格。此功能减少了正常应用程序升级或滚动反弹期间不必要的重新平衡。有关如何使用它的更多详细信息，请查看 <<kafka-static-membership,静态成员设计>>。
+* Kafka Streams DSL 切换其使用的存储类型。尽管此更改主要对用户透明，但在某些极端情况下可能需要更改代码。有关更多详细信息，请参阅 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_230[Kafka Streams 升级部分]。
+* Kafka Streams `2.3.0` 需要 `0.11` 或更高版本的消息格式，并且不适用于较旧的消息格式。
+
+[[kafka-upgrade-2-2-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x、1.0.x、1.1.x、2.0.x 或 2.1.x 升级到 2.2.0
+
+如果您是从 `2.1.x` 之前的版本升级，请参阅下面关于用于存储消费者偏移量的架构更改的说明。 将 `inter.broker.protocol.version` 更改为最新版本后，将无法降级到 `2.1` 之前的版本。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前覆盖了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0、1.0、1.1`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x、1.0.x、1.1.x` 或 `2.0.x` 升级并且您没有覆盖消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION` (`0.11.0, 1.0, 1.1, 2.0`)。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.2` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.2` 并一一重启。请注意，不再维护的旧 Scala 客户端不支持 `0.11` 中引入的消息格式，因此为了避免转换成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+[[kafka-upgrade-221-notable]]
+== 2.2.1 中的变化
+
+* Kafka Streams `2.2.1` 需要 `0.11` 或更高版本的消息格式，并且不适用于较旧的消息格式。
+
+[[kafka-upgrade-220-notable]]
+== 2.2.0 中的变化
+
+* 默认消费者组 ID 已从空字符串 (`""`) 更改为 `null`。 使用新的默认组 ID 的消费者将无法订阅主题，也无法获取或提交偏移量。 作为消费者组 ID 的空字符串已被弃用，但在未来的主要版本之前将受到支持。 依赖空字符串组 id 的旧客户端现在必须将其作为其消费者配置的一部分显式提供。 有关详细信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-289%3A+Improve+the+default+group+id+behavior+in+KafkaConsumer[KIP-289]。
+* `bin/kafka-topics.sh` 命令行工具现在能够使用 `--bootstrap-server` 而不是 zookeeper 直接连接到代理。 旧的 `--zookeeper` 选项现在仍然可用。 请阅读 https://cwiki.apache.org/confluence/display/KAFKA/KIP-377%3A+TopicCommand+to+use+AdminClient[KIP-377] 了解更多信息。
+* Kafka Streams 依赖于更新版本的 `RocksDBs`，需要 MacOS `10.13` 或更高版本。
+
+[[kafka-upgrade-2-1-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x、1.0.x、1.1.x 或 2.0.0 升级到 2.1.0
+
+请注意，`2.1.x` 包含对用于存储消费者偏移量的内部模式的更改。 升级完成后，将无法降级到以前的版本。 有关更多详细信息，请参阅下面的滚动升级说明。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前重写了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0、1.0、1.1`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您是从 `0.11.0.x、1.0.x、1.1.x` 或 `2.0.x` 升级并且您没有覆盖消息格式，那么您只需要覆盖中间代理协议版本。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION` (`0.11.0, 1.0, 1.1, 2.0`)。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。完成此操作后，代理将运行最新版本，您可以验证集群的行为和性能是否符合预期。如果有任何问题，此时仍然可以降级。
+. 验证集群的行为和性能后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.1` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。一旦代理开始使用最新的协议版本，就无法再将集群降级到旧版本。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.1` 并一一重启。请注意，不再维护的旧 Scala 客户端不支持 0.11 中引入的消息格式，因此为了避免转换成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 客户端。
+
+其他升级说明：
+
+. 此版本中的偏移过期语义略有变化。根据新语义，当组订阅了相应的主题并且仍然处于活动状态（有活动的消费者）时，不会删除组中的分区偏移量。如果组变为空，则在默认偏移保留期（或 brokers 设置的保留期）过去后，其所有偏移将被删除（除非该组再次变为活动状态）。与不使用 Kafka 组管理的独立（简单）消费者关联的偏移量将在自上次提交后经过默认偏移量保留期（或代理设置的保留期）后被删除。
+. 未提供 `group.id` 时，控制台使用者的 `enable.auto.commit` 属性的默认值现在设置为 `false`。这是为了避免污染消费者协调器缓存，因为自动生成的组不太可能被其他消费者使用。
+. 生产者重试配置的默认值已更改为 `Integer.MAX_VALUE`，因为我们在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-91+Provide+Intuitive+User+Timeouts+in+The+Producer[KIP-91] 中引入了 `delivery.timeout.ms`，它设置了发送记录和接收代理确认之间的总时间的上限。默认情况下，传递超时设置为 `2` 分钟。
+. 默认情况下，`MirrorMaker` 现在在配置生产者时将 `delivery.timeout.ms` 覆盖为 `Integer.MAX_VALUE`。如果您为了更快地失败而覆盖了 `retries` 的值，则需要覆盖 `delivery.timeout.ms`。
+. 作为推荐的替代方案，`ListGroup` API 现在期望对用户应该能够列出的组进行描述组访问。尽管仍支持旧的 `Describe Cluster` 访问以实现向后兼容性，但不建议将其用于此 API。
+. https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=87298242[KIP-336] 弃用了 `ExtendedSerializer` 和 `ExtendedDeserializer` 接口，并传播了 `Serializer` 和 `Deserializer` 的使用。 https://cwiki.apache.org/confluence/display/KAFKA/KIP-82+-+Add+Record+Headers[KIP-82] 引入了 `ExtendedSerializer` 和 `ExtendedDeserializer`，以兼容 Java 7 的方式为序列化器和反序列化器提供记录头。现在我们合并了这些接口，因为 Java 7 支持已经被删除了。
+
+[[kafka-upgrade-210-notable]]
+== 2.1.0 中的变化
+
+* Jetty 已升级到 `9.4.12`，默认情况下不包括 `TLS_RSA_*` 密码，因为它们不支持前向保密，请参阅 https://github.com/eclipse/jetty.project/issues/2807[https://github.com/eclipse/jetty.project/issues/2807] 了解更多信息。
+* 当 `unclean.leader.election.enable` 配置通过使用 `per-topic` 配置覆盖动态更新时，控制器会自动启用不干净的领导者选举。
+* `AdminClient` 添加了一个方法 `AdminClient#metrics()`。 现在，任何使用 `AdminClient` 的应用程序都可以通过查看从 `AdminClient` 捕获的指标来获得更多信息和洞察力。 有关更多信息，请参阅 https://cwiki.apache.org/confluence/display/KAFKA/KIP-324%3A+Add+method+to+get+metrics%28%29+in+AdminClient[KIP-324]
+* Kafka 现在支持来自 https://cwiki.apache.org/confluence/display/KAFKA/KIP-110%3A+Add+Codec+for+ZStandard+Compression[KIP-110] 的 `Zstandard` 压缩。 您必须升级代理和客户端才能使用它。 `2.1.0` 之前的消费者将无法读取使用 Zstandard 压缩的主题，因此在升级所有下游消费者之前，您不应为主题启用它。 有关详细信息，请参阅 KIP。
+
+[[kafka-upgrade-2-0-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x、1.0.x 或 1.1.x 升级到 2.0.0
+
+Kafka `2.0.0` 引入了有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前查看 `2.0.0` 中的显着变化。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前重写了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0、1.0、1.1`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您从 `0.11.0.x`、`1.0.x` 或 `1.1.x` 升级并且您没有覆盖消息格式，那么您只需覆盖代理间协议格式。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION` (`0.11.0, 1.0, 1.1`)。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 整个集群升级后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `2.0` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。 将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `2.0` 并一一重启。 请注意，旧的 Scala 消费者不支持 `0.11` 中引入的新消息格式，因此为了避免下转换的性能成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 消费者。
+
+其他升级说明：
+
+. 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并重新启动它们。 默认情况下，它们将从新协议开始。
+. 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。 对于消息格式版本也是如此。
+. 如果您在 Kafka Streams 代码中使用 Java 8 方法引用，则可能需要更新代码以解决方法歧义。 仅热交换 jar 文件可能不起作用。
+. 在集群中的所有代理都已更新之前，不应将 ACL 添加到前缀资源（在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-290%3A+Support+for+Prefixed+ACLs[KIP-290] 中添加）。
+
+NOTE: 添加到集群的任何带前缀的 ACL，即使在集群完全升级后，如果集群再次降级，都将被忽略。
+
+[[kafka-upgrade-200-notable]]
+== 2.0.0 中的变化
+
+* https://cwiki.apache.org/confluence/x/oYtjB[KIP-186] 将默认偏移保留时间从 1 天增加到 7 天。这使得它不太可能在不经常提交的应用程序中 "lose" 偏移量。它还增加了活动的偏移量集，因此可以增加代理的内存使用量。请注意，控制台使用者当前默认启用偏移提交，并且可能是大量偏移的来源，此更改现在将保留 7 天而不是 1 天。您可以通过设置代理配置 `offsets.retention.minutes` 为 `1440`。
+* 已放弃对 Java 7 的支持，Java 8 现在是所需的最低版本。
+* `ssl.endpoint.identification.algorithm` 的默认值更改为 `https`，它执行主机名验证（否则可能发生中间人攻击）。将 `ssl.endpoint.identification.algorithm` 设置为空字符串以恢复之前的行为。
+* https://issues.apache.org/jira/browse/KAFKA-5674[KAFKA-5674] 将 `max.connections.per.ip` 最小值的下限扩展至零，因此允许基于 IP 的入站连接过滤。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-272%3A+Add+API+version+tag+to+broker%27s+RequestsPerSec+metric[KIP-272] 将 API 版本标签添加到度量 `kafka.network:type=RequestMetrics,name=RequestsPerSec,request={Produce|FetchConsumer|FetchFollower|...}`。该指标现在变为 `kafka.network:type=RequestMetrics,name=RequestsPerSec,request={Produce|FetchConsumer|FetchFollower|...},version={0|1|2|3|...}`。这将影响不会自动聚合的 JMX 监控工具。要获取特定请求类型的总数，需要更新该工具以跨不同版本进行聚合。
+* https://cwiki.apache.org/confluence/x/uaBzB[KIP-225] 更改了指标 "records.lag" 以使用主题和分区的标签。名称格式为 "{topic}-{partition}.records-lag"  的原始版本已被删除。
+* 自 `0.11.0.0` 起已弃用的 Scala 消费者已被删除。自 `0.10.0.0` 以来，Java 使用者一直是推荐的选项。请注意，即使代理升级到 `2.0.0`，`1.1.0`（和更早版本）中的 Scala 消费者仍将继续工作。
+* 自 `0.10.0.0` 起已弃用的 Scala 生产者已被删除。自 `0.9.0.0` 以来，Java 生产者一直是推荐的选项。请注意，Java 生产者中默认分区器的行为与 Scala 生产者中的默认分区器不同。迁移的用户应该考虑配置一个保留以前行为的自定义分区器。请注意，即使代理升级到 `2.0.0`，`1.1.0`（及更早版本）中的 Scala 生产者仍将继续工作。
+* `MirrorMaker` 和 `ConsoleConsumer` 不再支持 Scala 消费者，它们始终使用 Java 消费者。
+* `ConsoleProducer` 不再支持 Scala 生产者，它始终使用 Java 生产者。
+* 许多依赖 Scala 客户端的已弃用工具已被删除：`ReplayLogProducer`、`SimpleConsumerPerformance`、`SimpleConsumerShell`、`ExportZkOffsets`、`ImportZkOffsets`、`UpdateOffsetsInZK`、`VerifyConsumerRebalance`。
+* 已弃用的 `kafka.tools.ProducerPerformance` 已被删除，请使用 `org.apache.kafka.tools.ProducerPerformance`。
+* 添加了新的 Kafka Streams 配置参数 `upgrade.from`，允许从旧版本滚动反弹升级。
+* https://cwiki.apache.org/confluence/x/DVyHB[KIP-284] 通过将其默认值设置为 `Long.MAX_VALUE` 更改了 Kafka Streams 重新分区主题的保留时间。
+* 更新了 Kafka Streams 中的 ProcessorStateManager API，用于将状态存储注册到处理器拓扑。有关更多详细信息，请阅读 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_200[Streams 升级指南]。
+* 在早期版本中，Connect 的工作人员配置需要 `internal.key.converter` 和 `internal.value.converter` 属性。在 `2.0` 中，这些 https://cwiki.apache.org/confluence/x/AZQ7B[不再需要] 并且默认为 JSON 转换器。您可以从 Connect 独立和分布式工作器配置中安全地删除这些属性：
+** internal.key.converter=org.apache.kafka.connect.json.JsonConverter
+** internal.key.converter.schemas.enable=false
+** internal.value.converter=org.apache.kafka.connect.json.JsonConverter
+** internal.value.converter .schemas.enable=false
+* https://cwiki.apache.org/confluence/x/5kiHB[KIP-266] 添加了一个新的消费者配置 `default.api.timeout.ms` 以指定用于可能阻塞的 `KafkaConsumer` API 的默认超时。 KIP 还为此类阻塞 API 添加了重载，以支持为每个 API 指定特定超时，而不是使用 `default.api.timeout.ms` 设置的默认超时。特别是，添加了一个新的 poll(Duration) API，它不会阻止动态分区分配。旧的 poll(long) API 已被弃用，将在未来版本中删除。还为其他 `KafkaConsumer` 方法添加了重载，例如 `partitionsFor`、`listTopics`、`offsetsForTimes`、`beginOffsets`、`endOffsets` 和 `close`，它们需要 `Duration`。
+* 同样作为 KIP-266 的一部分，`request.timeout.ms` 的默认值已更改为 `30` 秒。之前的值略高于 `5` 分钟，以说明重新平衡所需的最长时间。现在我们将重新平衡中的 `JoinGroup` 请求视为一种特殊情况，并使用从 `max.poll.interval.ms` 派生的值作为请求超时。所有其他请求类型使用 `request.timeout.ms` 定义的超时
+* 内部方法 `kafka.admin.AdminClient.deleteRecordsBefore` 已被删除。鼓励用户迁移到 `org.apache.kafka.clients.admin.AdminClient.deleteRecords`。
+* AclCommand 工具 `--producer` 便利选项在给定主题上使用 https://cwiki.apache.org/confluence/display/KAFKA/KIP-277+-+Fine+Grained+ACL+for+CreateTopics+API[KIP-277] 更细粒度的 ACL。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-176%3A+Remove+deprecated+new-consumer+option+for+tools[KIP-176] 删除了所有基于消费者的工具的 `--new-consumer` 选项。此选项是多余的，因为如果定义了 `--bootstrap-server`，则会自动使用新的使用者。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-290%3A+Support+for+Prefixed+ACLs[KIP-290] 增加了在前缀资源上定义 ACL 的能力，例如任何以 'foo' 开头的主题。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-283%3A+Efficient+Memory+Usage+for+Down-Conversion[KIP-283] 改进了 Kafka 代理上的消息下转换处理，这通常是一个内存密集型操作。 KIP 添加了一种机制，该机制通过一次向下转换分区数据块来降低操作的内存密集度，这有助于设置内存消耗的上限。通过这一改进，`FetchResponse` 协议行为发生了变化，代理可以在响应结束时发送一个带有无效偏移量的超大消息批次。消费者客户端必须忽略此类超大消息，就像 `KafkaConsumer` 所做的那样。
+* KIP-283 还增加了新的 topic 和 broker 配置 `message.downconversion.enable` 和 `log.message.downconversion.enable` 分别控制是否启用下转换。禁用时，代理不执行任何向下转换，而是向客户端发送 `UNSUPPORTED_VERSION` 错误。
+* 动 borker 理配置选项可以在代理启动之前使用 `kafka-configs.sh` 存储在 ZooKeeper 中。此选项可用于避免在 `server.properties` 中存储明确的密码，因为所有密码配置都可以加密存储在 ZooKeeper 中。
+* 如果连接尝试失败，ZooKeeper 主机现在会重新解析。但是如果你的 ZooKeeper 主机名解析为多个地址并且其中一些地址不可访问，那么你可能需要增加连接超时 `zookeeper.connection.timeout.ms`。
+
+[[kafka-upgrade-200-new-protocols]]
+== 新协议版本
+
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-279%3A+Fix+log+divergence+between+leader+and+follower+after+fast+leader+fail+ove[KIP-279]：OffsetsForLeaderEpochResponse v1 引入了分区级别的 `leader_epoch` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-219+-+Improve+quota+communication[KIP-219]：提高因违反配额而受到限制的非集群操作请求和响应的协议版本。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-290%3A+Support+for+Prefixed+ACLs[KIP-290]：提高 ACL 创建、描述和删除请求和响应的协议版本。
+
+[[kafka-upgrade-200-streams-from-11]]
+== 升级 1.1 Kafka Streams 应用程序
+
+* 将 Streams 应用程序从 `1.1` 升级到 `2.0` 不需要代理升级。 Kafka Streams 2.0 应用程序可以连接到 `2.0、1.1、1.0、0.11.0、0.10.2` 和 `0.10.1` 代理（虽然不能连接到 `0.10.0` 代理）。
+* 请注意，在 `2.0` 中，我们删除了在 `1.0` 之前已弃用的公共 API； 利用那些已弃用的 API 的用户需要相应地进行代码更改。 有关更多详细信息，请参阅 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_200[2.0.0 中的 Streams API 更改]。
+
+[[kafka-upgrade-1-1-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x、0.11.0.x 或 1.0.x 升级到 1.1.x
+
+Kafka 1.1.0 引入了有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前 <<kafka-upgrade-110-notable,查看 `1.1.0` 中的显着变化>>。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前重写了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0、1.0`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果您从 `0.11.0.x` 或 `1.0.x` 升级并且您没有覆盖消息格式，那么您只需要覆盖代理间协议格式。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（`0.11.0` 或 `1.0`）。
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 整个集群升级后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `1.1` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。 将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `1.1` 并一一重启。 请注意，旧的 Scala 消费者不支持 `0.11` 中引入的新消息格式，因此为了避免下转换的性能成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 消费者。
+
+其他升级说明：
+
+. 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并重新启动它们。 默认情况下，它们将从新协议开始。
+. 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。 对于消息格式版本也是如此。
+. 如果您在 Kafka Streams 代码中使用 Java8 方法引用，则可能需要更新代码以解决方法歧义。 仅热交换 jar 文件可能不起作用。
+
+[[kafka-upgrade-111-notable]]
+== 1.1.1 中的变化
+
+* 添加了新的 Kafka Streams 配置参数 upgrade.from，允许从版本 `0.10.0.x` 滚动反弹升级
+* 有关此新配置的详细信息，请参阅 {kafka-docs}/documentation/streams/upgrade-guide.html[Kafka Streams 升级指南]。
+
+[[kafka-upgrade-110-notable]]
+== 1.1.0 中的变化
+
+* Maven 中的 kafka 神器不再依赖于 `log4j` 或 `slf4j-log4j12`。与 kafka-clients 构件类似，用户现在可以通过包含适当的 slf4j 模块（slf4j-log4j12、logback 等）来选择日志记录后端。发布的 tarball 仍然包含 log4j 和 slf4j-log4j12。
+* https://cwiki.apache.org/confluence/x/uaBzB[KIP-225 ]更改了指标  "records.lag"  以使用主题和分区的标签。名称格式为 "{topic}-{partition}.records-lag"  的原始版本已弃用，并将在 `2.0.0` 中删除。
+* Kafka Streams 对代理通信错误更加健壮。 Kafka Streams 不会因致命异常而停止 Kafka Streams 客户端，而是尝试自我修复并重新连接到集群。使用新的 `AdminClient`，您可以更好地控制 Kafka Streams 重试的频率，并且可以 {kafka-docs}/documentation/streams/developer-guide/config-streams[配置] 细粒度的超时（而不是像旧版本那样硬编码重试）。
+* Kafka Streams 重新平衡时间进一步减少，使 Kafka Streams 响应更快。
+* Kafka Connect 现在支持接收器和源连接器中的消息头，并通过简单的消息转换来操作它们。必须更改连接器才能显式使用它们。引入了新的 HeaderConverter 来控制标头的（反）序列化方式，并且默认使用新的“SimpleHeaderConverter”来使用值的字符串表示形式。
+* kafka.tools.DumpLogSegments 现在会自动设置深度迭代选项，如果由于任何其他选项（如解码器）而显式或隐式启用打印数据日志。
+
+[[kafka-upgrade-110-new-protocols]]
+== 新协议版本
+
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-226+-+Dynamic+Broker+Configuration[KIP-226] 引入了 DescribeConfigs 请求/响应 v1。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-227%3A+Introduce+Incremental+FetchRequests+to+Increase+Partition+Scalability[KIP-227] 引入了 Fetch Request/Response v7。
+
+[[kafka-upgrade-110-streams-from-10]]
+== 升级 1.0 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 1.0 升级到 1.1 不需要代理升级。 Kafka Streams 1.1 应用程序可以连接到 1.0、0.11.0、0.10.2 和 0.10.1 代理（虽然不能连接到 0.10.0 代理）。
+* 有关更多详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_110[请参阅 1.1.0 中的 Streams API 更改]。
+
+[[kafka-upgrade-1-0-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x、0.10.2.x 或 0.11.0.x 升级到 1.0.0
+
+Kafka `1.0.0` 引入了有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前查看 `1.0.0` 中的显着变化。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 CURRENT_KAFKA_VERSION 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的消息格式版本。 如果您之前覆盖了消息格式版本，则应保留其当前值。 或者，如果您从 `0.11.0.x` 之前的版本升级，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2、0.9.0、0.10.0、0.10.1、0.10.2、0.11.0`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
++
+如果从 `0.11.0.x` 升级并且没有覆盖消息格式，则必须将消息格式版本和代理间协议版本都设置为 `0.11.0`。
+** `inter.broker.protocol.version=0.11.0`
+** `log.message.format.version=0.11.0`
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 升级整个集群后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `1.0` 来提升协议版本。
+. 一个个重启 broker，让新的协议版本生效。
+. 如果您已按照上述说明覆盖了消息格式版本，则需要再进行一次滚动重启以将其升级到最新版本。 将所有（或大多数）消费者升级到 `0.11.0` 或更高版本后，将每个代理上的 `log.message.format.version` 更改为 `1.0` 并一一重启。 如果您从 `0.11.0` 升级并且 `log.message.format.version` 设置为 `0.11.0`，您可以更新配置并跳过滚动重启。 请注意，旧的 Scala 消费者不支持 0.11 中引入的新消息格式，因此为了避免下转换的性能成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用较新的 Java 消费者。
+
+其他升级说明：
+
+. 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并重新启动它们。 默认情况下，它们将从新协议开始。
+. 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。 对于消息格式版本也是如此。
+
+[[kafka-upgrade-102-notable]]
+== 1.0.2 中的变化
+
+* 添加了新的 Kafka Streams 配置参数 upgrade.from，允许从版本 `0.10.0.x` 滚动反弹升级
+* 有关此新配置的详细信息， {kafka-docs}/documentation/streams/upgrade-guide.html[请参阅 Kafka Streams 升级指南]。
+
+[[kafka-upgrade-101-notable]]
+== 1.0.1 中的变化
+
+* 恢复了 `AdminClient` 的 `Options` 类（例如 `CreateTopicsOptions`、`DeleteTopicsOptions` 等）与 `0.11.0.x` 的二进制兼容性。 二进制（但不是源代码）兼容性在 ``1.0.0 ``中被无意中破坏。
+
+[[kafka-upgrade-100-notable]]
+== 1.0.0 中的变化
+
+* 现在默认启用主题删除，因为该功能现在很稳定。希望保留以前行为的用户应将代理配置 `delete.topic.enable` 设置为 `false`。请记住，主题删除会删除数据并且该操作是不可逆的（即没有“取消删除”操作）
+* 对于支持时间戳搜索的主题（如果无法找到某个分区的偏移量），该分区现在包含在搜索结果中，且偏移量值为空。以前，分区不包含在映射中。进行此更改是为了使搜索行为与不支持时间戳搜索的主题的情况一致。
+* 如果 `inter.broker.protocol.version` 为 `1.0` 或更高版本，即使存在离线日志目录，代理现在仍将保持在线以提供实时日志目录上的副本。由于硬件故障导致的 `IOException`，日志目录可能会脱机。用户需要监控 per-broker metric offlineLogDirectoryCount 来检查是否有离线日志目录。
+* 添加了 `KafkaStorageException`，这是一个可重试的异常。如果客户端的 `FetchRequest` 或 `ProducerRequest` 的版本不支持 `KafkaStorageException`，`KafkaStorageException` 将在响应中转换为 `NotLeaderForPartitionException`。
+* `-XX:+DisableExplicitGC` 在默认 JVM 设置中被 `-XX:+ExplicitGCInvokesConcurrent` 取代。在某些情况下，这有助于避免在直接缓冲区分配本机内存期间出现内存不足异常。
+* 已从 `kafka.api` 包中以下已弃用的类中删除了覆盖的 `handleError` 方法实现：`FetchRequest`、`GroupCoordinatorRequest`、`OffsetCommitRequest`、`OffsetFetchRequest`、`OffsetRequest`、`ProducerRequest` 和 `TopicMetadataRequest`。这仅适用于代理，但已不再使用，并且尚未维护实现。为了二进制兼容性，保留了存根实现。
+* Java 客户端和工具现在接受任何字符串作为客户端 ID。
+* 已弃用的工具 `kafka-consumer-offset-checker.sh` 已被删除。使用 `kafka-consumer-groups.sh` 获取消费者组详细信息。
+* `SimpleAclAuthorizer` 现在默认将拒绝访问记录到授权日志。
+* 身份验证失败现在作为 `AuthenticationException` 的子类之一报告给客户端。如果客户端连接身份验证失败，则不会重试。
+* 自定义 `SaslServer` 实现可能会抛出 `SaslAuthenticationException` 以提供错误消息以返回给客户端，指示身份验证失败的原因。实施者应注意不要在异常消息中包含任何不应泄露给未经身份验证的客户端的安全关键信息。
+* 向 JMX 注册以提供版本和提交 id 的 app-info mbean 将被弃用并替换为提供这些属性的指标。
+* Kafka 指标现在可能包含非数字值。 `org.apache.kafka.common.Metric#value()` 已被弃用，在这种情况下将返回 0.0 以最小化破坏读取每个客户端指标值的用户的可能性（通过 `MetricsReporter` 实现或通过调用 ``metrics()``方法）。 `org.apache.kafka.common.Metric#metricValue()` 可用于检索数字和非数字度量值。
+* 现在，每个 Kafka 速率指标都有一个相应的累积计数指标，其后缀为 `-total`，以简化下游处理。例如，`records-consumed-rate` 有一个名为 `records-consumed-total` 的相应指标。
+* 只有当系统属性 `kafka_mx4jenable` 设置为 true 时，才会启用 Mx4j。由于逻辑反转错误，它以前默认启用，如果 `kafka_mx4jenable` 设置为 `true`，则禁用。
+* 客户端 jar 中的包 `org.apache.kafka.common.security.auth` 已公开并添加到 javadocs。以前位于此包中的内部类已移至其他地方。
+* 当使用授权者并且用户对主题没有所需的权限时，无论代理上是否存在主题，代理都会向请求返回 `TOPIC_AUTHORIZATION_FAILED` 错误。如果用户拥有所需权限且主题不存在，则返回 `UNKNOWN_TOPIC_OR_PARTITION` 错误码。
+* `config/consumer.properties` 文件更新为使用新的消费者配置属性。
+
+[[kafka-upgrade-100-new-protocols]]
+== 新协议版本
+
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-112%3A+Handle+disk+failure+for+JBOD[KIP-112]：LeaderAndIsrRequest v1 引入了分区级 is_new 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-112%3A+Handle+disk+failure+for+JBOD[KIP-112]：UpdateMetadataRequest v4 引入了一个分区级的 offline_replicas 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-112%3A+Handle+disk+failure+for+JBOD[KIP-112]：MetadataResponse v5 引入了分区级别的 offline_replicas 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-112%3A+Handle+disk+failure+for+JBOD[KIP-112]：ProduceResponse v4 引入了 KafkaStorageException 的错误代码。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-112%3A+Handle+disk+failure+for+JBOD[KIP-112]：FetchResponse v6 引入了 KafkaStorageException 的错误代码。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-152+-+Improve+diagnostics+for+SASL+authentication+failures[KIP-152]：添加了 SaslAuthenticate 请求以启用身份验证失败报告。 如果 SaslHandshake 请求版本大于 0，将使用此请求。
+
+[[kafka-upgrade-100-streams-from-0110]]
+== 升级 0.11.0 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.11.0` 升级到 `1.0` 不需要代理升级。 Kafka Streams 1.0 应用程序可以连接到 `0.11.0`、`0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。 但是，Kafka Streams `1.0` 需要 `0.10` 或更新的消息格式，并且不适用于旧的消息格式。
+* 如果您正在监控流指标，则需要对报告和监控代码中的指标名称进行一些更改，因为指标传感器层次结构已更改。
+* 有一些公共 API，包括 `ProcessorContext#schedule()`、`Processor#punctuate()` 和 `KStreamBuilder`，`TopologyBuilder` 正在被新的 API 弃用。 我们建议在升级时进行相应的代码更改，因为新的 API 看起来非常相似，所以这应该非常小。
+* 有关更多详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_100[请参阅 `1.0.0` 中的 Streams API 更改]。
+
+[[kafka-upgrade-100-streams-from-0102]]
+== 升级 0.10.2 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.10.2` 升级到 `1.0` 不需要代理升级。 Kafka Streams 1.0 应用程序可以连接到 `1.0`、`0.11.0`、`0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。
+* 如果您正在监控流指标，则需要对报告和监控代码中的指标名称进行一些更改，因为指标传感器层次结构已更改。
+* 有一些公共 API，包括 `ProcessorContext#schedule()`、`Processor#punctuate()` 和 `KStreamBuilder`，`TopologyBuilder` 正在被新的 API 弃用。 我们建议在升级时进行相应的代码更改，因为新的 API 看起来非常相似，所以这应该非常小。
+* 如果您在配置中指定自定义的 `key.serde、value.serde` 和 `timestamp.extractor`，建议使用它们替换的配置参数，因为这些配置已被弃用。
+* 有关更多详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0110[请参阅 0.11.0 中的 Streams API 更改]。
+
+[[kafka-upgrade-1100-streams-from-0101]]
+== 升级 0.10.1 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.10.1` 升级到 `1.0` 不需要代理升级。 Kafka Streams 1.0 应用程序可以连接到 `1.0`、`0.11.0`、`0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。
+* 你需要重新编译你的代码。仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 如果您正在监控流指标，则需要对报告和监控代码中的指标名称进行一些更改，因为指标传感器层次结构已更改。
+* 有一些公共 API，包括 `ProcessorContext#schedule()`、`Processor#punctuate()` 和 `KStreamBuilder`，`TopologyBuilder` 正在被新的 API 弃用。我们建议在升级时进行相应的代码更改，因为新的 API 看起来非常相似，所以这应该非常小。
+* 如果您在配置中指定自定义的 `key.serde`、`value.serde` 和 `timestamp.extractor`，建议使用它们替换的配置参数，因为这些配置已被弃用。
+* 如果您使用自定义（即用户实现的）时间戳提取器，则需要更新此代码，因为 `TimestampExtractor` 接口已更改。
+* 如果您注册自定义指标，则需要更新此代码，因为 `StreamsMetric` 接口已更改。
+* 有关详细信息，请  {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_100[参阅 1.0.0 中的 Streams API 更改]、 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0110[0.11.0 中的 Streams API 更改] 和 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0102[0.10.2 中的 Streams API 更改]。
+
+[[kafka-upgrade-100-streams-from-0100]]
+== 升级 0.10.0 Kafka Streams 应用程序
+
+* 将 Streams 应用程序从 `0.10.0` 升级到 `1.0` 确实需要 <<kafka-upgrade-10-1,代理升级>>，因为 Kafka Streams 1.0 应用程序只能连接到 `0.1`、`0.11.0`、`0.10.2` 或 `0.10.1` 代理。
+* 有几个 API 更改不向后兼容（参见 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_100[`1.0.0` 中的 Streams API 更改]、 {kafka-docs}/documentation/streams#streams_api_changes_0110[`0.11.0` 中的 Streams API 更改]、 {kafka-docs}/documentation/streams#streams_api_changes_0102[0.10.2 中的 Streams API 更改] 以及 {kafka-docs}/documentation/streams#streams_api_changes_0101[0.10.1 中的 Streams API 更改] 以了解更多详细信息 )。 因此，您需要更新并重新编译您的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 从 `0.10.0.x` 升级到 `1.0.2` 需要两次滚动反弹，并为第一个升级阶段设置了 config upgrade.from="0.10.0"（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-268%3A+Simplify+Kafka+Streams+Rebalance+Metadata+Upgrade[KIP-268]）。 作为替代方案，也可以进行离线升级。
+** 为滚动反弹准备您的应用程序实例，并确保新版本 `0.11.0.3` 的 `config upgrade.from` 设置为 "0.10.0"
+** 将应用程序的每个实例反弹一次
+** 为第二轮滚动反弹准备新部署的 `1.0.2` 应用程序实例； 确保删除 config upgrade.from 的值
+** 再次反弹应用程序的每个实例以完成升级
+* 从 `0.10.0.x` 升级到 `1.0.0` 或 `1.0.1` 需要离线升级（不支持滚动反弹升级）
+* 停止所有旧 (`0.10.0.x`) 应用程序实例
+* 更新您的代码并用新代码和新 jar 文件交换旧代码和 jar 文件
+* 重新启动所有新的（`1.0.0` 或 `1.0.1`）应用程序实例
+
+[[kafka-upgrade-11-0-0]]
+== 从 0.8.x、0.9.x、0.10.0.x、0.10.1.x 或 0.10.2.x 升级到 0.11.0.0
+
+Kafka `0.11.0.0` 引入了新的消息格式版本以及有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前查看 `0.11.0.0` 中的显着变化。
+
+从版本 `0.10.2` 开始，Java 客户端（生产者和消费者）已经获得了与旧代理进行通信的能力。 `0.11.0` 版客户端可以与 `0.10.0` 版或更高版本的代理通信。 但是，如果您的代理早于 `0.10.0`，则必须先升级 Kafka 集群中的所有代理，然后再升级您的客户端。 `0.11.0` 版代理支持 `0.8.x` 和更新的客户端。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 并添加以下属性。 `CURRENT_KAFKA_VERSION` 是指您要升级的版本。 `CURRENT_MESSAGE_FORMAT_VERSION` 是指当前使用的当前消息格式版本。 如果您之前没有覆盖消息格式，则应设置 `CURRENT_MESSAGE_FORMAT_VERSION` 以匹配 `CURRENT_KAFKA_VERSION`。
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2`、`0.9.0`、`0.10.0`、`0.10.1` 或 `0.10.2`）。
+** `log.message.format.version=CURRENT_MESSAGE_FORMAT_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 整个集群升级后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `0.11.0` 来提升协议版本，但不要更改 log.message.format.version。
+. 一个个重启 broker，让新的协议版本生效。
+. 一旦所有（或大多数）消费者都升级到 0.11.0 或更高版本，然后在每个代理上将 `log.message.format.version` 更改为 `0.11.0` 并一一重启。 请注意，旧的 Scala 消费者不支持新的消息格式，因此为了避免下转换的性能成本（或 使用 <<kafka-upgrade-11-exactly-once-semantics,一次语义>>），必须使用新的 Java 消费者。
+
+其他升级说明：
+
+. 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并重新启动它们。 默认情况下，它们将从新协议开始。
+. 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。 对于消息格式版本也是如此。
+. 在更新全局设置 `log.message.format.version` 之前，还可以使用主题管理工具 (`bin/kafka-topics.sh`) 对单个主题启用 `0.11.0` 消息格式。
+. 如果您是从 `0.10.0` 之前的版本升级，则无需在切换到 `0.11.0` 之前先将消息格式更新为 `0.10.0`。
+
+[[kafka-upgrade-1100-streams-from-0102]]
+== 升级 0.10.2 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.10.2` 升级到 `0.11.0` 不需要代理升级。 Kafka Streams `0.11.0` 应用程序可以连接到 `0.11.0`、`0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。
+* 如果您在配置中指定自定义的 `key.serde`、`value.serde` 和 `timestamp.extractor`，建议使用它们替换的配置参数，因为这些配置已被弃用。
+* 有关更多详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0110[请参阅 0.11.0 中的 Streams API 更改]。
+
+[[kafka-upgrade-1100-streams-from-0101]]
+== 升级 0.10.1 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.10.1` 升级到 `0.11.0` 不需要代理升级。 Kafka Streams `0.11.0` 应用程序可以连接到 `0.11.0`、`0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。
+* 你需要重新编译你的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 如果您在配置中指定自定义的 `key.serde`、`value.serde` 和 `timestamp.extractor`，建议使用它们替换的配置参数，因为这些配置已被弃用。
+* 如果您使用自定义（即用户实现的）时间戳提取器，则需要更新此代码，因为 `TimestampExtractor` 接口已更改。
+* 如果您注册自定义指标，则需要更新此代码，因为 `StreamsMetric` 接口已更改。
+* 有关详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0110[请参阅 0.11.0 中的 Streams API 更改] 和 {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0102[0.10.2 中的 Streams API 更改]。
+
+[[kafka-upgrade-1100-streams-from-0100]]
+== 升级 0.10.0 Kafka Streams 应用程序
+
+* 将 Streams 应用程序从 `0.10.0` 升级到 `0.11.0` 确实需要 <<kafka-upgrade-10-1,代理升级>>，因为 Kafka Streams 0.11.0 应用程序只能连接到 `0.11.0`、`0.10.2` 或 `0.10.1` 代理。
+* 有几个 API 更改不向后兼容（参见 {kafka-docs}/documentation/streams#streams_api_changes_0110[0.11.0 中的 Streams API 更改]、 {KAFKA-DOCS}/documentation/streams#streams_api_changes_0102[0.10.2 中的 Streams API 更改] 以及 {KAFKA-DOCS}/documentation/streams#streams_api_changes_0101[0.10.1 中的 Streams API 更改] 以了解更多详细信息）。 因此，您需要更新并重新编译您的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 从 `0.10.0.x` 升级到 `0.11.0.3` 需要两次滚动反弹，并为第一个升级阶段设置了 config upgrade.from="0.10.0"（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-268%3A+Simplify+Kafka+Streams+Rebalance+Metadata+Upgrade[KIP-268]）。 作为替代方案，也可以进行离线升级。
+** 为滚动反弹准备您的应用程序实例，并确保新版本 0.11.0.3 的 config upgrade.from 设置为 "0.10.0"
+** 将应用程序的每个实例反弹一次
+** 为第二轮滚动反弹准备新部署的 `0.11.0.3` 应用程序实例； 确保删除 config `upgrade.from` 的值
+** 再次反弹应用程序的每个实例以完成升级
+* 从 `0.10.0.x` 升级到 `0.11.0.0`、`0.11.0.1` 或 `0.11.0.2` 需要离线升级（不支持滚动反弹升级）
+** 停止所有旧 (`0.10.0.x`) 应用程序实例
+** 更新您的代码并用新代码和新 jar 文件交换旧代码和 jar 文件
+** 重新启动所有新的（`0.11.0.0`、`0.11.0.1` 或 `0.11.0.2`）应用程序实例
+
+[[kafka-upgrade-1103-notable]]
+== 0.11.0.3 中的变化
+
+* 添加了新的 Kafka Streams 配置参数 `upgrade.from`，允许从版本 `0.10.0.x` 滚动反弹升级
+* 有关此新配置的详细信息， {KAFKA-DOCS}/documentation/streams/upgrade-guide.html[请参阅 Kafka Streams 升级指南]。
+
+[[kafka-upgrade-upgrade-1100-notable]]
+== 0.11.0.0 中的变化
+
+* 现在默认禁用不干净的领导者选举。新的默认设置有利于持久性而不是可用性。希望保留以前行为的用户应将代理配置 `unclean.leader.election.enable` 设置为 `true`。
+* 生产者配置 `block.on.buffer.full`、`metadata.fetch.timeout.ms` 和 `timeout.ms` 已被删除。它们最初在 Kafka `0.9.0.0` 中被弃用。
+* `offsets.topic.replication.factor` 代理配置现在在自动主题创建时强制执行。在集群大小满足此复制因子要求之前，内部自动主题创建将失败并出现 `GROUP_COORDINATOR_NOT_AVAILABLE` 错误。
+* 使用 `snappy` 压缩数据时，生产者和代理将使用压缩方案的默认块大小（2 x 32 KB）而不是 1 KB，以提高压缩率。有报道称，使用较小块大小压缩的数据比使用较大块大小压缩时大 50%。对于 snappy 案例，具有 5000 个分区的生产者将需要额外的 315 MB JVM 堆。
+* 同样，当使用 gzip 压缩数据时，生产者和代理将使用 8 KB 而不是 1 KB 作为缓冲区大小。 gzip 的默认值过低（512 字节）。
+* 代理配置 `max.message.bytes` 现在适用于一批消息的总大小。以前，该设置应用于成批的压缩消息，或单独应用于非压缩消息。一个消息批处理可能仅包含一条消息，因此在大多数情况下，对单个消息大小的限制仅通过批处理格式的开销来减少。但是，对于消息格式转换有一些微妙的影响（有关详细信息，请 <<KAFKA-upgrade-11-message-format,参见下文>>）。另请注意，虽然以前代理将确保在每个获取请求中至少返回一条消息（无论总和分区级别的获取大小如何），但现在相同的行为适用于一个消息批次。
+* 默认情况下启用 GC 日志轮换，有关详细信息，请参阅 KAFKA-3754。
+* `RecordMetadata`、`MetricName` 和 `Cluster` 类的弃用构造函数已被删除。
+* 通过提供用户标头读写访问的新标头接口添加了用户标头支持。
+* `ProducerRecord` 和 `ConsumerRecord` 通过 Headers `headers()` 方法调用公开新的 Headers API。
+* 引入 `ExtendedSerializer` 和 `ExtendedDeserializer` 接口以支持标头的序列化和反序列化。如果配置的序列化器和反序列化器不是上述类，标头将被忽略。
+* 引入了一个新配置 `group.initial.rebalance.delay.ms`。此配置指定 `GroupCoordinator` 将延迟初始消费者重新平衡的时间（以毫秒为单位）。当新成员加入组时，再平衡将进一步延迟 `group.initial.rebalance.delay.ms` 的值，最大为 m``ax.poll.interval.ms``。其默认值为 `3` 秒。在开发和测试期间，可能需要将其设置为 `0`，以免延迟测试执行时间。
+* 如果所需主题的元数据不存在，`org.apache.kafka.common.Cluster#partitionsForTopic`、`partitionsForNode` 和 `availablePartitionsForTopic` 方法将返回一个空列表而不是 `null`（这被认为是一种不好的做法）。
+* Streams API 配置参数 `timestamp.extractor`、`key.serde` 和 `value.serde` 已弃用，并分别替换为 `default.timestamp.extractor`、`default.key.serde` 和 `default.value.serde`。
+* 对于 Java 使用者的 `commitAsync` API 中的偏移提交失败，当 `RetriableCommitFailedException` 的实例传递给提交回调时，我们不再公开根本原因。有关详细信息，请参阅 https://issues.apache.org/jira/browse/KAFKA-5052[KAFKA-5052]。
+
+[[kafka-upgrade-1100-new-protocols]]
+== 新协议版本
+
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-107%3A+Add+purgeDataBefore()+API+in+AdminClient[KIP-107]：FetchRequest v5 引入了分区级 `log_start_offset` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-107%3A+Add+purgeDataBefore()+API+in+AdminClient[KIP-107]：FetchResponse v5 引入了分区级 `log_start_offset` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-82+-+Add+Record+Headers[KIP-82]：ProduceRequest v3 在消息协议中引入了一个 `header` 数组，包含 `key` 字段和 `value` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-82+-+Add+Record+Headers[KIP-82]：FetchResponse v5 在消息协议中引入了一个 `header` 数组，包含 `key` 字段和 `value` 字段。
+
+[[kafka-upgrade-11-exactly-once-semantics]]
+== 关于 Exactly Once 语义的注释
+
+Kafka 0.11.0 包括对生产者中的幂等和事务功能的支持。 幂等传递确保消息在单个生产者的生命周期内仅传递一次到特定主题分区。 事务传递允许生产者将数据发送到多个分区，以便所有消息都成功传递，或者一个都没有传递。 总之，这些功能在 Kafka 中启用了 "exactly once semantics"。 用户指南中提供了有关这些功能的更多详细信息，但下面我们添加了一些关于在升级的集群中启用它们的具体说明。 请注意，不需要启用 EoS，如果未使用，对代理的行为没有影响。
++
+. 只有新的 Java 生产者和消费者支持完全一次语义。
+. 这些功能主要取决于 <<kafka-upgrade-11-message-format,0.11.0 消息格式>>。 尝试在较旧的格式上使用它们将导致不支持的版本错误。
+. 事务状态存储在一个新的内部主题 `__transaction_state` 中。 在第一次尝试使用事务请求 API 之前，不会创建此主题。 与消费者偏移主题类似，有几个设置可以控制主题的配置。 例如，`transaction.state.log.min.isr` 控制该主题的最小 ISR。 有关选项的完整列表，请参阅用户指南中的配置部分。
+. 对于安全集群，事务性 API 需要新的 ACL，可以使用 `bin/kafka-acls.sh` 打开。 工具。
+. Kafka 中的 EoS 引入了新的请求 API 并修改了几个现有的。 有关完整详细信息，请参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging#KIP-98-ExactlyOnceDeliveryandTransactionalMessaging-RPCProtocolSummary[KIP-98]
+
+[[kafka-upgrade-11-message-format]]
+== 关于 0.11.0 中新消息格式的说明
+
+`0.11.0` 消息格式包括几个主要增强功能，以支持生产者更好的交付语义（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging[KIP-98]）和改进的复制容错（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-101+-+Alter+Replication+Protocol+to+use+Leader+Epoch+rather+than+High+Watermark+for+Truncation[KIP-101]）。尽管新格式包含使这些改进成为可能的更多信息，但我们使批处理格式更加高效。只要每批消息的数量超过 2，您就可以预期较低的总体开销。但是，对于较小的批次，可能会对性能产生很小的影响。有关我们对新消息格式的初始性能分析的结果，请参见此处。您还可以在 https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging#KIP-98-ExactlyOnceDeliveryandTransactionalMessaging-MessageFormat[KIP-98] 提案中找到有关消息格式的更多详细信息。
+
+新消息格式的显着差异之一是即使未压缩的消息也作为单个批次存储在一起。这对代理配置 `max.message.bytes` 有一些影响，它限制了单个批次的大小。首先，如果旧客户端使用旧格式向主题分区生成消息，并且消息单独小于 `max.message.bytes`，则在上转换过程中将它们合并为单个批次后，代理可能仍会拒绝它们.通常，当单个消息的总大小大于 max.message.bytes 时，可能会发生这种情况。对于阅读从新格式下转换的消息的年长消费者来说，也有类似的效果：如果 fetch size 没有设置为至少与 max.message.bytes 一样大，那么即使个人未压缩，消费者也可能无法取得进展消息小于配置的提取大小。此行为不会影响 0.10.1.0 及更高版本的 Java 客户端，因为它使用更新的 fetch 协议，确保即使超过 fetch 大小也可以返回至少一条消息。要解决这些问题，您应该确保 1) 生产者的批量大小设置不大于 `max.message.bytes`，以及 2) 消费者的获取大小设置至少与 `max.message.bytes` 一样大。
+
+大多数关于升级到 `0.10.0` 消息格式的性能影响的讨论仍然与 `0.11.0` 升级相关。这主要影响未使用 TLS 保护的集群，因为在这种情况下已经不可能进行 "零拷贝" 传输。为了避免下转换的成本，您应该确保消费者应用程序升级到最新的 `0.11.0` 客户端。值得注意的是，由于旧的消费者在 0.11.0.0 中已被弃用，它不支持新的消息格式。您必须升级以使用新的消费者来使用新的消息格式，而无需下转换成本。请注意，0.11.0 消费者支持向后兼容 0.10.0 及更高版本的代理，因此可以在代理之前先升级客户端。
+
+[[kafka-upgrade-10-2-0]]
+== 从 0.8.x、0.9.x、0.10.0.x 或 0.10.1.x 升级到 0.10.2.0
+
+`0.10.2.0` 有有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前 <<kafka-upgrade-1020-notable,查看 `0.10.2.0` 中的变化>>。
+
+从版本 `0.10.2` 开始，Java 客户端（生产者和消费者）已经获得了与旧代理进行通信的能力。 版本 `0.10.2` 的客户端可以与版本 `0.10.0` 或更新的代理通信。 但是，如果您的代理早于 `0.10.0`，则必须在升级客户端之前升级 Kafka 集群中的所有代理。 `0.10.2` 版代理支持 0.8.x 和更新的客户端。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 文件并添加以下属性：
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2`、`0.9.0`、`0.10.0` 或 `0.10.1`）。
+** `log.message.format.version=CURRENT_KAFKA_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 升级整个集群后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `0.10.2` 来提升协议版本。
+. 如果您之前的消息格式是 `0.10.0`，请将 `log.message.format.version` 更改为 `0.10.2`（这是一个无操作，因为 `0.10.0`、`0.10.1` 和 `0.10.2` 的消息格式相同）。 如果您之前的消息格式版本低于 `0.10.0`，请不要更改 `log.message.format.version` - 此参数仅应在所有消费者升级到 `0.10.0.0` 或更高版本后更改。
+. 一个个重启broker，让新的协议版本生效。
+. 如果此时 `log.message.format.version` 仍然低于 `0.10.0`，请等到所有消费者都升级到 `0.10.0` 或更高版本，然后在每个 broker 上将 `log.message.format.version` 更改为 `0.10.2`，然后 一个一个地重新启动它们。
+
+NOTE: 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并启动所有代理。 默认情况下，它们将从新协议开始。
+
+NOTE: 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。
+
+[[kafka-upgrade-1020-streams-from-0101]]
+== 升级 0.10.1 Kafka Streams 应用程序
+
+* 将您的 Streams 应用程序从 `0.10.1` 升级到 `0.10.2` 不需要代理升级。 Kafka Streams `0.10.2` 应用程序可以连接到 `0.10.2` 和 `0.10.1` 代理（虽然不能连接到 `0.10.0` 代理）。
+* 你需要重新编译你的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 如果您使用自定义（即用户实现的）时间戳提取器，则需要更新此代码，因为 `TimestampExtractor` 接口已更改。
+* 如果您注册自定义指标，则需要更新此代码，因为 `StreamsMetric` 接口已更改。
+* 有关更多详细信息， {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0102[请参阅 0.10.2 中的 Streams API 更改]。
+
+[[kafka-upgrade-1020-streams-from-0100]]
+== 升级 0.10.0 Kafka Streams 应用程序
+
+* 将 Streams 应用程序从 `0.10.0` 升级到 `0.10.2` 确实需要 <<kafka-upgrade-10-1,代理升级>>，因为 Kafka Streams `0.10.2` 应用程序只能连接到 `0.10.2` 或 `0.10.1` 代理。
+* 有几个 API 更改不向后兼容（请  {kafka-docs}/documentation/streams#streams_api_changes_0102[参阅 `0.10.2` 中的 Streams API 更改]  以了解更多详细信息）。 因此，您需要更新并重新编译您的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 从 `0.10.0.x` 升级到 `0.10.2.2` 需要两次滚动反弹，并为第一个升级阶段设置了 config `upgrade.from="0.10.0"`（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-268%3A+Simplify+Kafka+Streams+Rebalance+Metadata+Upgrade[KIP-268]）。 作为替代方案，也可以进行离线升级。
+** 为滚动反弹准备您的应用程序实例，并确保新版本 `0.10.2.2` 的 config upgrade.from 设置为“0.10.0”
+** 将应用程序的每个实例反弹一次
+** 为第二轮滚动反弹准备新部署的 `0.10.2.2` 应用程序实例； 确保删除 config `upgrade.from` 的值
+** 再次反弹应用程序的每个实例以完成升级
+* 从 `0.10.0.x` 升级到 `0.10.2.0` 或 `0.10.2.1` 需要离线升级（不支持滚动反弹升级）
+** 停止所有旧 (`0.10.0.x`) 应用程序实例
+** 更新您的代码并用新代码和新 jar 文件交换旧代码和 jar 文件
+** 重新启动所有新的（`0.10.2.0` 或 `0.10.2.1`）应用程序实例
+
+[[kafka-upgrade-10202-notable]]
+== 0.10.2.2 中的变化
+
+* 添加了新的配置参数 `upgrade.from`，允许从版本 `0.10.0.x` 进行滚动反弹升级
+
+[[kafka-upgrade-10201-notable]]
+== 0.10.2.1 中的变化
+
+* `StreamsConfig` 类的两个配置的默认值已更改，以提高 Kafka Streams 应用程序的弹性。 内部 Kafka Streams 生产者重试默认值从 `0` 更改为 `10`。内部 Kafka Streams 消费者 `max.poll.interval.ms` 默认值从 `300000` 更改为 `Integer.MAX_VALUE`。
+
+[[kafka-upgrade-1020-notable]]
+== 0.10.2.0 中的变化
+
+* Java 客户端（生产者和消费者）已经获得了与旧代理进行通信的能力。版本 `0.10.2` 的客户端可以与版本 `0.10.0` 或更新的代理通信。请注意，当使用较旧的代理时，某些功能不可用或受到限制。
+* 如果调用线程被中断，Java 使用者上的几个方法现在可能会抛出 `InterruptException`。请参阅 `KafkaConsumer` Javadoc 以更深入地了解此更改。
+* Java 使用者现在可以正常关闭。默认情况下，消费者最多等待 30 秒来完成挂起的请求。 `KafkaConsumer` 添加了一个新的带超时关闭 API 来控制最大等待时间。
+* 多个用逗号分隔的正则表达式可以通过 `--whitelist` 选项与新的 Java 使用者一起传递给 `MirrorMaker`。这使得使用旧 Scala 消费者时的行为与 MirrorMaker 一致。
+* 将您的 Streams 应用程序从 `0.10.1` 升级到 `0.10.2` 不需要代理升级。 Kafka Streams `0.10.2` 应用程序可以连接到 `0.10.2` 和 `0.10.1` 代理（尽管无法连接到 `0.10.0` 代理）。
+* 从 Streams API 中删除了 Zookeeper 依赖项。 Streams API 现在使用 Kafka 协议来管理内部主题，而不是直接修改 Zookeeper。这消除了直接访问 Zookeeper 的权限需求，并且不应再在 Streams 应用程序中设置“StreamsConfig.ZOOKEEPER_CONFIG”。如果 Kafka 集群是安全的，Streams 应用程序必须具有创建新主题所需的安全权限。
+* `StreamsConfig` 类中添加了几个新字段，包括 "security.protocol", "connections.max.idle.ms", "retry.backoff.ms", "reconnect.backoff.ms" 和 "request.timeout.ms"。用户应注意默认值并在需要时设置这些值。更多细节请 <<kafka-streamsconfigs,参考 Kafka Streams 配置>>。
+
+[[kafka-upgrade-1020-new-protocols]]
+== 新协议版本
+
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-88%3A+OffsetFetch+Protocol+Update[KIP-88]：如果主题数组设置为 null，OffsetFetchRequest v2 支持检索所有主题的偏移量。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-88%3A+OffsetFetch+Protocol+Update[KIP-88]：OffsetFetchResponse v2 引入了顶级 `error_code` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-103%3A+Separation+of+Internal+and+External+traffic[KIP-103]：UpdateMetadataRequest v3 为 `end_points` 数组的元素引入了 `listener_name` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-108%3A+Create+Topic+Policy[KIP-108]：CreateTopicsRequest v1 引入了 `validate_only` 字段。
+* https://cwiki.apache.org/confluence/display/KAFKA/KIP-108%3A+Create+Topic+Policy[KIP-108]：CreateTopicsResponse v1 将 `error_message` 字段引入到 `topic_errors` 数组的元素中。
+
+[[kafka-upgrade-10-1]]
+== 从 0.8.x、0.9.x 或 0.10.0.X 升级到 0.10.1.0
+
+`0.10.1.0` 有有线协议更改。 通过遵循以下推荐的滚动升级计划，您可以保证升级期间不会出现停机。 但是，请在升级前注意 `0.10.1.0` 中的潜在重大更改。
+注意：由于引入了新协议，因此在升级客户端之前升级 Kafka 集群很重要（即 `0.10.1.x` 客户端仅支持 `0.10.1.x` 或更高版本的代理，而 `0.10.1.x` 代理也支持旧客户端） .
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 文件并添加以下属性：
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2.0`、`0.9.0.0` 或 `0.10.0.0`）。
+** `log.message.format.version=CURRENT_KAFKA_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
+. 一次升级一个代理：关闭代理，更新代码，然后重新启动。
+. 升级整个集群后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `0.10.1.0` 来提升协议版本。
+. 如果您之前的消息格式是 `0.10.0`，请将 `log.message.format.version` 更改为 `0.10.1`（这是一个无操作，因为 `0.10.0` 和 `0.10.1` 的消息格式相同）。 如果您之前的消息格式版本低于 `0.10.0`，请不要更改 `log.message.format.version` - 此参数仅应在所有消费者升级到 0.10.0.0 或更高版本后更改。
+. 一个个重启 broker，让新的协议版本生效。
+. 如果此时 `log.message.format.version` 仍然低于 `0.10.0`，请等到所有消费者都升级到 `0.10.0` 或更高版本，然后在每个 broker 上将 `log.message.format.version` 更改为 `0.10.1`，然后 一个一个地重新启动它们。
+
+NOTE: 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并启动所有代理。 默认情况下，它们将从新协议开始。
+
+NOTE: 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。
+
+[[kafka-upgrade-10-1-breaking]]
+== 0.10.1.0 中的潜在重大变化
+
+* 日志保留时间不再基于日志段的最后修改时间。相反，它将基于日志段中消息的最大时间戳。
+* 日志滚动时间不再取决于日志段创建时间。相反，它现在基于消息中的时间戳。进一步来说。如果 segment 中第一条消息的时间戳为T，则当一条新消息的时间戳大于等于 T + `log.roll.ms` 时，将滚出日志
+* 由于为每个段添加了时间索引文件，`0.10.0` 的打开文件处理程序将增加约 `33%`。
+* 时间索引和偏移索引共享相同的索引大小配置。由于每个时间索引条目是偏移索引条目大小的 `1.5` 倍。用户可能需要增加 `log.index.size.max.bytes` 以避免潜在的频繁日志滚动。
+* 由于索引文件数量的增加，在一些日志段数较大（例如>15K）的 broker 上，broker 启动过程中的日志加载过程可能会更长。根据我们的实验，将 `num.recovery.threads.per.data.dir` 设置为 `1` 可以减少日志加载时间。
+
+[[kafka-upgrade-1010-streams-from-0100]]
+== 升级 0.10.0 Kafka Streams 应用程序
+
+* 将 Streams 应用程序从 `0.10.0` 升级到 `0.10.1` 确实需要 <<kafka-upgrade-10-1,代理升级>>，因为 Kafka Streams `0.10.1` 应用程序只能连接到 `0.10.1` 代理。
+* 有几个 API 更改不向后兼容（ {kafka-docs}/documentation/streams/upgrade-guide#streams_api_changes_0101[请参阅 `0.10.1` 中的 Streams API 更改] 以了解更多详细信息）。 因此，您需要更新并重新编译您的代码。 仅交换 Kafka Streams 库 jar 文件将不起作用，并且会破坏您的应用程序。
+* 从 `0.10.0.x` 升级到 `0.10.1.2` 需要两次滚动反弹，并为第一个升级阶段设置了 config upgrade.from="0.10.0"（参见 https://cwiki.apache.org/confluence/display/KAFKA/KIP-268%3A+Simplify+Kafka+Streams+Rebalance+Metadata+Upgrade[KIP-268]）。 作为替代方案，也可以进行离线升级。
+** 为滚动反弹准备您的应用程序实例，并确保新版本 `0.10.1.2` 的 config `upgrade.from` 设置为 "0.10.0"
+** 将应用程序的每个实例反弹一次
+** 为第二轮滚动反弹准备新部署的 `0.10.1.2` 应用程序实例； 确保删除 config upgrade.from 的值
+** 再次反弹应用程序的每个实例以完成升级
+* 从 `0.10.0.x` 升级到 `0.10.1.0` 或 `0.10.1.1` 需要离线升级（不支持滚动反弹升级）
+** 停止所有旧 (`0.10.0.x`) 应用程序实例
+** 更新您的代码并用新代码和新 jar 文件交换旧代码和 jar 文件
+** 重新启动所有新的（`0.10.1.0` 或 `0.10.1.1`）应用程序实例
+
+[[kafka-upgrade-1010-notable]]
+== 0.10.1.0 中的变化
+
+* 新的 Java 使用者不再处于测试阶段，我们建议将其用于所有新开发。旧的 Scala 消费者仍受支持，但它们将在下一个版本中被弃用，并将在未来的主要版本中删除。
+* 不再需要 `--new-consumer` / `--new.consumer` 开关来将 `MirrorMaker` 和 Console Consumer 等工具与新消费者一起使用；只需传递一个 Kafka 代理即可连接，而不是 ZooKeeper 集成。此外，控制台消费者与旧消费者的使用已被弃用，并将在未来的主要版本中删除。
+* Kafka 集群现在可以由集群 ID 唯一标识。代理升级到 0.10.1.0 时会自动生成。集群 ID 可通过 `kafka.server:type=KafkaServer`,`name=ClusterId` 指标获得，它是元数据响应的一部分。序列化器、客户端拦截器和度量报告器可以通过实现 `ClusterResourceListener` 接口来接收集群 ID。
+* BrokerState "RunningAsController"（值 4）已被删除。由于存在错误，代理在退出之前只会短暂处于此状态，因此删除的影响应该是最小的。检测给定代理是否是控制器的推荐方法是通过 `kafka.controller:type=KafkaController`,`name=ActiveControllerCount` 指标。
+* 新的 Java Consumer 现在允许用户按分区上的时间戳搜索偏移量。
+* 新的 Java Consumer 现在支持来自后台线程的心跳。有一个新的配置 `max.poll.interval.ms` 控制在消费者主动离开组之前轮询调用之间的最长时间（默认为 5 分钟）。配置 `request.timeout.ms` 的值必须始终大于 `max.poll.interval.ms` 因为这是消费者重新平衡时 JoinGroup 请求可以在服务器上阻塞的最长时间，所以我们更改了它的默认值到刚刚超过 5 分钟。最后将 session.timeout.ms 的默认值调整为 10 秒，将 max.poll.records 的默认值改为 500。
+* 当使用授权者并且用户没有对主题的描述授权时，代理将不再向请求返回 `TOPIC_AUTHORIZATION_FAILED` 错误，因为这会泄漏主题名称。相反，将返回 `UNKNOWN_TOPIC_OR_PARTITION` 错误代码。这可能会在使用生产者和消费者时导致意外超时或延迟，因为 Kafka 客户端通常会在未知主题错误时自动重试。如果您怀疑这可能发生，您应该查阅客户端日志。
+* 默认情况下，获取响应具有大小限制（消费者为 50 MB，复制为 10 MB）。现有的每个分区限制也适用（消费者和复制为 1 MB）。请注意，这些限制都不是绝对最大值，如下一点所述。
+* 如果发现大于响应/分区大小限制的消息，消费者和副本可以取得进展。更具体地说，如果 fetch 的第一个非空分区中的第一条消息大于其中一个或两个限制，则仍将返回该消息。
+* 重载的构造函数被添加到 `kafka.api.FetchRequest` 和 `kafka.javaapi.FetchRequest` 以允许调用者指定分区的顺序（因为顺序在 v3 中很重要）。先前存在的构造函数已被弃用，并且在发送请求之前对分区进行了洗牌以避免饥饿问题。
+
+[[kafka-upgrade-1010-new-protocols]]
+== 新协议版本
+
+* ListOffsetRequest v1 支持基于时间戳的精确偏移搜索。
+* MetadataResponse v2 引入了一个新字段："cluster_id"。
+* FetchRequest v3 支持限制响应大小（除了现有的每个分区限制），如果需要取得进展，它会返回大于限制的消息，并且请求中的分区顺序现在很重要。
+* JoinGroup v1 引入了一个新字段："rebalance_timeout"。
+
+[[kafka-upgrade-10]]
+== 从 0.8.x 或 0.9.x 升级到 0.10.0.0
+
+`0.10.0.0` 具有潜在的重大更改（请在升级前查看）以及升级后可能的性能影响。 通过遵循以下推荐的滚动升级计划，您可以保证在升级期间和升级之后不会出现停机和性能影响。
+注意：由于引入了新协议，因此在升级客户端之前升级 Kafka 集群非常重要。
+
+`0.9.0.0` 版本客户端注意事项：由于 `0.9.0.0` 中引入的错误，依赖 ZooKeeper（旧 Scala 高级消费者和 `MirrorMaker`，如果与旧消费者一起使用）的客户端将无法与 `0.10.0.x` 代理一起使用 . 因此，`0.9.0.0` 客户端应该在代理升级到 `0.10.0.x` 之前升级到 `0.9.0.1`。 对于 `0.8.X` 或 `0.9.0.1` 客户端，此步骤不是必需的。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 文件并添加以下属性：
+** `inter.broker.protocol.version=CURRENT_KAFKA_VERSION`（例如 `0.8.2` 或 `0.9.0.0`）。
+** `log.message.format.version=CURRENT_KAFKA_VERSION`（有关此配置的详细信息，请参阅 <<kafka-upgrade-10-performance-impact,升级后的潜在性能影响>>。）
+. 升级 brokers。 这可以通过简单地关闭代理、更新代码并重新启动它来一次完成。
+. 整个集群升级后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `0.10.0.0` 来提升协议版本。 注意：您不应该触摸 log.message.format.version - 此参数仅应在所有消费者升级到 `0.10.0.0` 后更改
+. 一个个重启broker，让新的协议版本生效。
+. 一旦所有消费者都升级到 `0.10.0`，在每个代理上将 `log.message.format.version` 更改为 `0.10.0` 并一一重启。
+
+NOTE: 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并启动所有代理。 默认情况下，它们将从新协议开始。
+
+NOTE: 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。
+
+[[kafka-upgrade-10-performance-impact]]
+== 升级到 0.10.0.0 后的潜在性能影响
+
+`0.10.0` 中的消息格式包括一个新的时间戳字段，并使用压缩消息的相对偏移量。可以通过 `server.properties` 文件中的 `log.message.format.version` 配置磁盘消息格式。默认的磁盘消息格式为 `0.10.0`。如果消费者客户端在 `0.10.0.0` 之前的版本上，它只能理解 `0.10.0` 之前的消息格式。
+在这种情况下，代理能够将消息从 `0.10.0` 格式转换为更早的格式，然后再将响应发送给旧版本的消费者。但是，在这种情况下，brokers 不能使用零拷贝传输。 Kafka 社区关于性能影响的报告显示，升级后 CPU 利用率从之前的 20% 变为 100%，这迫使所有客户端立即升级以使性能恢复正常。
+为了避免在消费者升级到 `0.10.0.0` 之前发生这种消息转换，可以在将代理升级到 `0.10.0.0` 时将 `log.message.format.version` 设置为 `0.8.2` 或 `0.9.0`。这样，broker 仍然可以使用零拷贝传输将数据发送给旧的消费者。
+一旦消费者升级，可以在代理上将消息格式更改为 `0.10.0`，并享受包含新时间戳和改进压缩的新消息格式。支持转换以确保兼容性，并且对于支持一些尚未更新到较新客户端的应用程序很有用，但即使在过度配置的集群上支持所有消费者流量也是不切实际的。
+因此，当代理已经升级但大多数客户端还没有升级时，尽可能避免消息转换至关重要。
+
+对于升级到 `0.10.0.0` 的客户端，没有性能影响。
+
+NOTE: 通过设置消息格式版本，可以证明所有现有消息都在该消息格式版本之上或之下。否则 `0.10.0.0` 之前的消费者可能会中断。特别是，在消息格式设置为 `0.10.0` 之后，不应将其更改回早期格式，因为它可能会破坏 `0.10.0.0` 之前版本的消费者。
+
+NOTE: 由于在每条消息中引入了额外的时间戳，发送小消息的生产者可能会因为开销增加而看到消息吞吐量下降。同样，复制现在每条消息额外传输 `8` 个字节。如果您的运行接近集群的网络容量，您可能会不堪重负网卡并看到由于过载而导致的故障和性能问题。
+
+NOTE: 如果您在生产者上启用了压缩，您可能会注意到在某些情况下生产者吞吐量降低和/或代理上的压缩率降低。在接收压缩消息时，`0.10.0` 代理会避免重新压缩消息，这通常会减少延迟并提高吞吐量。
+但是，在某些情况下，这可能会减少生产者的批处理大小，从而导致吞吐量下降。如果发生这种情况，用户可以调整生产者的 `linger.ms` 和 `batch.size` 以获得更好的吞吐量。
+另外，使用 `snappy` 压缩消息的生产者缓冲区小于代理使用的缓冲区，这可能会对磁盘上消息的压缩率产生负面影响。我们打算在未来的 Kafka 版本中使其可配置。
+
+[[kafka-upgrade-10-breaking]]
+== 0.10.0.0 中的潜在重大变化
+
+* 从 Kafka `0.10.0.0` 开始，Kafka 中的消息格式版本表示为 Kafka 版本。例如，消息格式 `0.9.0` 是指 Kafka `0.9.0` 支持的最高消息版本。
+* 消息格式 `0.10.0` 已引入，默认使用。它在消息中包含一个时间戳字段，并且相对偏移量用于压缩消息。
+* `ProduceRequest`/`Response` v2 已引入，默认使用支持消息格式 `0.10.0`
+* 引入了 `FetchRequest`/`Response` v2，默认支持消息格式 `0.10.0`
+* `MessageFormatter` 接口从 `def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream)` 更改为 `def writeTo(consumerRecord: ConsumerRecord[Array[Byte], Array[Byte]], output: PrintStream)`
+* `MessageReader` 接口从 `def readMessage(): KeyedMessage[Array[Byte], Array[Byte]]` 更改为 `def readMessage(): ProducerRecord[Array[Byte], Array[Byte]]`
+* `MessageFormatter` 的包从 `kafka.tools` 更改为 `kafka.common`
+* `MessageReader` 的包从 `kafka.tools` 更改为 `kafka.common`
+* `MirrorMakerMessageHandler` 不再公开 `handle(record: MessageAndMetadata[Array[Byte], Array[Byte]])` 方法，因为它从未被调用过。
+* `0.7` `KafkaMigrationTool` 不再与 Kafka 打包。如果您需要从 `0.7` 迁移到 `0.10.0`，请先迁移到 `0.8`，然后按照文档中的升级过程从 `0.8` 升级到 `0.10.0`。
+* 新的消费者已经标准化了它的 API 来接受 `java.util.Collection` 作为方法参数的序列类型。现有代码可能需要更新才能与 `0.10.0` 客户端库一起使用。
+* LZ4 压缩消息处理已更改为使用可互操作的帧规范 (LZ4f v1.5.1)。为了保持与旧客户端的兼容性，此更改仅适用于消息格式 `0.10.0` 及更高版本。使用 v0/v1（消息格式 `0.9.0`）生成/获取 LZ4 压缩消息的客户端应继续使用 `0.9.0` 框架实现。使用 Produce/Fetch 协议 v2 或更高版本的客户端应使用可互操作的 LZ4f 框架。可互操作的 LZ4 库列表可在 http://www.lz4.org/ 获得
+
+[[kafka-upgrade-10-notable]]
+== 0.10.0.0 中的变化
+
+* 从 Kafka `0.10.0.0` 开始，一个名为 Kafka Streams 的新客户端库可用于对存储在 Kafka 主题中的数据进行流处理。 由于上面提到的消息格式更改，这个新的客户端库仅适用于 `0.10.x` 和更高版本的代理。 有关更多信息，请阅读 Streams 文档。
+* 对于新的消费者，配置参数 `receive.buffer.bytes` 的默认值现在是 `64K`。
+* 新消费者现在公开配置参数 `exclude.internal.topics` 以限制内部主题（例如消费者偏移主题）意外包含在正则表达式订阅中。 默认情况下，它已启用。
+* 旧的 Scala 生产者已被弃用。 用户应尽快将其代码迁移到 kafka-clients JAR 中包含的 Java 生产者。
+* 新的消费者 API 已被标记为稳定。
+
+[[kafka-upgrade-9]]
+== 从 0.8.0、0.8.1.X 或 0.8.2.X 升级到 0.9.0.0
+
+`0.9.0.0` 具有潜在的重大更改（请在升级前查看）以及与以前版本相比的代理间协议更改。 这意味着升级后的代理和客户端可能与旧版本不兼容。 在升级客户端之前升级 Kafka 集群非常重要。 如果您使用的是 MirrorMaker，则还应先升级下游集群。
+
+对于滚动升级：
+
+. 更新所有代理上的 `server.properties` 文件并添加以下属性：`inter.broker.protocol.version=0.8.2.X`
+. 升级 brokers。 这可以通过简单地关闭代理、更新代码并重新启动来一次完成。
+. 升级整个集群后，通过编辑 `inter.broker.protocol.version` 并将其设置为 `0.9.0.0` 来提升协议版本。
+. 一个个重启 broker，新协议版本生效
+
+NOTE: 如果您愿意接受停机，您可以简单地关闭所有代理，更新代码并启动所有代理。 默认情况下，它们将从新协议开始。
+
+NOTE: 升级代理后，可以随时更新协议版本并重新启动。 它不必紧随其后。
+
+[[kafka-upgrade-9-breaking]]
+== 0.9.0.0 中的潜在重大变化
+
+* 不再支持 Java `1.6`。
+* 不再支持 Scala `2.9`。
+* 超过 `1000` 的代理 ID 现在默认保留为自动分配的代理 ID。如果您的集群的现有代理 ID 高于该阈值，请确保相应地增加 `reserved.broker.max.id` 代理配置属性。
+* 配置参数 `replica.lag.max.messages` 已删除。分区领导者在决定哪些副本同步时将不再考虑滞后消息的数量。
+* 配置参数 `replica.lag.time.max.ms` 现在不仅指自上次从副本获取请求以来经过的时间，还指自上次从副本赶上以来的时间。仍在从领导者那里获取消息但没有赶上 `replica.lag.time.max.ms` 中的最新消息的副本将被视为不同步。
+* 压缩主题不再接受没有密钥的消息，如果尝试这样做，生产者会抛出异常。在 `0.8.x` 中，没有 `key` 的消息会导致日志压缩线程随后抱怨并退出（并停止压缩所有压缩主题）。
+* `MirrorMaker` 不再支持多个目标集群。因此，它只接受一个 `--consumer.config` 参数。要镜像多个源集群，每个源集群至少需要一个 MirrorMaker 实例，每个实例都有自己的使用者配置。
+* `org.apache.kafka.clients.tools.*` 下打包的工具已移至 `org.apache.kafka.tools.*`。所有包含的脚本仍将照常运行，只有直接导入这些类的自定义代码会受到影响。
+* `kafka-run-class.sh` 中的默认 Kafka JVM 性能选项 (KAFKA_JVM_PERFORMANCE_OPTS) 已更改。
+* `kafka-topics.sh` 脚本 (kafka.admin.TopicCommand) 现在在失败时以非零退出代码退出。
+* `kafka-topics.sh` 脚本 (kafka.admin.TopicCommand) 现在将在主题名称因使用“.”而导致度量冲突时打印警告。或主题名称中的 "_"，如果发生实际冲突，则会出错。
+* `kafka-console-producer.sh` 脚本 (`kafka.tools.ConsoleProducer`) 将默认使用 Java 生产者而不是旧的 Scala 生产者，用户必须指定“旧生产者”才能使用旧生产者。
+* 默认情况下，所有命令行工具都会将所有日志消息打印到 stderr 而不是 stdout。
+
+[[kafka-upgrade-901-notable]]
+== 0.9.0.1 中的变化
+
+* 可以通过将 `broker.id.generation.enable` 设置为 `false` 来禁用新的代理 ID 生成功能。
+* 配置参数 `log.cleaner.enable` 现在默认为 `true`。 这意味着具有 `cleanup.policy=compact` 的主题现在将被默认压缩，并且 `128 MB` 的堆将通过 `log.cleaner.dedupe.buffer.size` 分配给清理进程。 您可能需要根据您对压缩主题的使用情况查看 `log.cleaner.dedupe.buffer.size` 和其他 `log.cleaner` 配置值。
+* 新消费者的配置参数 `fetch.min.bytes` 的默认值现在默认为 `1`。
+
+[[kafka-upgrade-901-deprecations]]
+== 0.9.0.0 中的弃用
+
+* 从 `kafka-topics.sh` 脚本 (`kafka.admin.TopicCommand`) 更改主题配置已被弃用。今后，请使用 `kafka-configs.sh` 脚本 (`kafka.admin.ConfigCommand`) 来实现此功能。
+* `kafka-consumer-offset-checker.sh` (kafka.tools.ConsumerOffsetChecker) 已被弃用。今后，请使用 `kafka-consumer-groups.sh` (kafka.admin.ConsumerGroupCommand) 来实现此功能。
+* `kafka.tools.ProducerPerformance` 类已被弃用。今后，请为此功能使用 `org.apache.kafka.tools.ProducerPerformance`（kafka-producer-perf-test.sh 也将更改为使用新类）。
+* 生产者配置 `block.on.buffer.full` 已被弃用，并将在未来版本中删除。目前其默认值已更改为 `false`。 `KafkaProducer` 将不再抛出 `BufferExhaustedException`，而是使用 `max.block.ms` 值进行阻塞，之后它将抛出 TimeoutException。如果 block.on.buffer.full 属性显式设置为 true，它会将 max.block.ms 设置为 Long.MAX_VALUE 并且 metadata.fetch.timeout.ms 将不被遵守
+
+[[kafka-upgrade-82]]
+== 从 0.8.1 升级到 0.8.2
+
+`0.8.2` 与 `0.8.1` 完全兼容。 升级可以一次完成一个代理，只需将其关闭、更新代码并重新启动它。
+
+[[kafka-upgrade-81]]
+== 从 0.8.0 升级到 0.8.1
+
+`0.8.1` 与 `0.8` 完全兼容。 升级可以一次完成一个代理，只需将其关闭、更新代码并重新启动它。
+
+[[kafka-upgrade-7]]
+== 从 0.7 升级
+
+`0.7` 版与较新的版本不兼容。 对 API、ZooKeeper 数据结构、协议和配置进行了重大更改，以添加复制（`0.7` 中缺少这些）。 从 `0.7` 升级到更高版本需要特殊的迁移工具。 无需停机即可完成此迁移。
