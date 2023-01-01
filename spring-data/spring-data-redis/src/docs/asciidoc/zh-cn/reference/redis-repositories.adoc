@@ -121,7 +121,7 @@ address.country = andor
 
 下表描述了默认映射规则:
 
-[cols="1,2,3", options="header"]
+[cols="1,2,3",options="header"]
 .默认映射规则
 |===
 | Type
@@ -132,6 +132,10 @@ address.country = andor
 (for example, String)
 | String firstname = "rand";
 | firstname = "rand"
+
+| Byte array (`byte[]`)
+| byte[] image = "rand".getBytes();
+| image = "rand"
 
 | Complex Type +
 (for example, Address)
@@ -154,13 +158,13 @@ atts.[hair-color] = "...
 of Complex Type
 | List<Address> addresses = asList(new Address("em...
 | addresses.[0].city = "emond's field", +
-addresses.[1].city  = "...
+addresses.[1].city = "...
 
 | Map +
 of Complex Type
 | Map<String, Address> addresses = asMap({"home", new Address("em...
 | addresses.[home].city = "emond's field", +
-addresses.[work].city  = "...
+addresses.[work].city = "...
 |===
 
 CAUTION: 由于采用平面表示结构,因此 `Map` 的 key 必须是简单的类型,例如 `String` 或 `Number`.
@@ -593,7 +597,8 @@ NOTE: 使用 `@TimeToLive` 显式注解属性会从 Redis 中读取实际的 `TT
 
 NOTE: 延迟或禁用到期事件监听器的启动会影响 `RedisKeyExpiredEvent` 发布.禁用的事件监听器不会发布到期事件.由于延迟的监听器初始化,延迟的启动可能导致事件丢失.
 
-NOTE: keyspace notification 消息监听器会更改 Redis 中的 `notify-keyspace-events` 设置(如果尚未设置). 现有设置不会被覆盖,因此您必须正确设置这些设置(或将其保留为空). 请注意,在 AWS `ElastiCache` 上禁用了 `CONFIG`,并且启用监听器会导致错误.
+NOTE: keyspace notification 消息监听器会更改 Redis 中的 `notify-keyspace-events` 设置(如果尚未设置). 现有设置不会被覆盖,因此您必须正确设置这些设置(或将其保留为空).
+请注意,在 AWS `ElastiCache` 上禁用了 `CONFIG`,并且启用监听器会导致错误. 要解决此问题，请将 `keyspaceNotificationsConfigParameter` 参数设置为空字符串。 这可以防止 `CONFIG` 命令的使用。
 
 NOTE: Redis Pub/Sub messages 消息不是持久性的.如果在应用程序关闭时密钥过期,则不会处理过期事件,这可能会导致二级索引包含对过期对象的引用.
 
@@ -711,6 +716,27 @@ List<RedisSession> sessionsByUser = template.find(new RedisCallback<Set<byte[]>>
 |===============
 ====
 
+[[redis.repositories.queries.sort]]
+=== Sorting Query Method results
+
+Redis 存储库允许使用各种方法来定义排序顺序。 Redis 本身在检索哈希或集合时不支持动态排序。 因此，Redis 存储库查询方法构造了一个 `Comparator`，在将结果作为 `List` 返回结果之前将其应用于结果。 让我们看一下下面的例子：
+
+.Sorting Query Results
+====
+[source,java]
+----
+interface PersonRepository extends RedisRepository<Person, String> {
+
+  List<Person> findByFirstnameOrderByAgeDesc(String firstname); <1>
+
+  List<Person> findByFirstname(String firstname, Sort sort);   <2>
+}
+----
+
+<1> Static sorting derived from method name.
+<2> Dynamic sorting using a method argument.
+====
+
 [[redis.repositories.cluster]]
 == 在集群上运行的 Redis 存储库
 
@@ -750,7 +776,7 @@ TIP: 使用Redis集群时,通过使用 `@RedisHash("{yourkeyspace}")` 将 keyspa
 
 然后,您可以通过为 `RedisConnectionFactory` 和 `RedisOperations` 实现CDI生产者来设置基础结构,如以下示例所示:
 
-[source, java]
+[source,java]
 ----
 class RedisOperationsProducer {
 
@@ -789,7 +815,7 @@ class RedisOperationsProducer {
 
 每当容器请求存储库类型的bean时,Spring Data Redis CDI 扩展都将所有可用的存储库用作 CDI bean,并为 Spring Data 存储库创建代理. 因此,获取 Spring Data 存储库的实例只需声明一个 `@Injected` 属性即可,如以下示例所示:
 
-[source, java]
+[source,java]
 ----
 class RepositoryClient {
 
@@ -835,7 +861,7 @@ public class Address {
 === 插入新值
 
 ====
-[source, java]
+[source,java]
 ----
 repository.save(new Person("rand", "al'thor"));
 ----
@@ -857,7 +883,7 @@ SADD  "people:19315449-cda2-4f5c-b696-9cb8018fa1f9:idx" "people:firstname:rand" 
 === 替换存在的
 
 ====
-[source, java]
+[source,java]
 ----
 repository.save(new Person("e82908cf-e7d3-47c2-9eec-b4e0967ad0c9", "Dragon Reborn", "al'thor"));
 ----
@@ -904,7 +930,7 @@ SADD   "people:76900e94-b057-44bc-abcf-8126d51a621b:idx" "people:hometown:locati
 === 使用简单索引查找
 
 ====
-[source, java]
+[source,java]
 ----
 repository.findByFirstname("egwene");
 ----
@@ -923,7 +949,7 @@ HGETALL ...
 === 使用地理位置索引查找
 
 ====
-[source, java]
+[source,java]
 ----
 repository.findByHometownLocationNear(new Point(15, 37), new Distance(200, KILOMETERS));
 ----

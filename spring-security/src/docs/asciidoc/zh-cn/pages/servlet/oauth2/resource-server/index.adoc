@@ -1,0 +1,62 @@
+[[oauth2resourceserver]]
+= OAuth 2.0 资源服务器
+:figures: {image-resource}/servlet/oauth2
+
+Spring Security 支持使用两种形式的 OAuth 2.0 https://tools.ietf.org/html/rfc6750.html[Bearer Tokens] 来保护端点:
+
+* https://tools.ietf.org/html/rfc7519[JWT]
+* Opaque Tokens
+
+在应用程序将其权限管理委派给 https://tools.ietf.org/html/rfc6749[授权服务器]  (例如 Okta 或 Ping Identity) 的情况下,这很方便.  资源服务器可以咨询该授权服务器以授权请求.
+
+本节详细介绍了 Spring Security 如何提供对 OAuth 2.0 的支持 https://tools.ietf.org/html/rfc6750.html[Bearer Tokens].
+
+[NOTE]
+====
+Spring Security {gh-samples-url}[Spring Security repository] 中提供了  {gh-samples-url}/servlet/spring-boot/java/oauth2/resource-server/jwe[JWTs] 和 {gh-samples-url}/servlet/spring-boot/java/oauth2/resource-server/opaque[Opaque Tokens] 的示例.
+====
+
+让我们看一下 Bearer Token Authentication 在 Spring Security 中的工作方式. 首先， 我们看到， 与 <<servlet-authentication-basic,Basic Authentication>> 一样， https://tools.ietf.org/html/rfc7235#section-4.1[WWW-Authenticate] 头被发送回未经身份验证的客户端.
+
+.Sending WWW-Authenticate Header
+image::{figures}/bearerauthenticationentrypoint.png[]
+
+上图基于我们的 <<servlet-securityfilterchain,`SecurityFilterChain`>>  图.
+
+image:{image-resource}/icons/number_1.png[] 首先， 用户向 `/private` 资源请求未经身份验证的请求.
+
+image:{image-resource}/icons/number_2.png[] Spring Security 的 <<servlet-authorization-filtersecurityinterceptor,`FilterSecurityInterceptor`>> 通过抛出 `AccessDeniedException` 异常来表示未经身份验证的请求被拒绝. .
+
+image:{image-resource}/icons/number_3.png[] 由于用户未经身份验证, <<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>> 启动身份验证.配置的 <<servlet-authentication-authenticationentrypoint,`AuthenticationEntryPoint`>> 是 {security-api-url}org/springframework/security/oauth2/server/resource/web/BearerTokenAuthenticationEntryPoint.html[`BearerTokenAuthenticationEntryPoint`] 的实例 它发送了一个 WWW-Authenticate header.
+`RequestCache` 通常是 `NullRequestCache` 它不保存请求， 因为客户端能够重播最初请求的请求.
+
+当客户端收到 `WWW-Authenticate: Bearer` header 时， 它知道如何重新处理 bearer token.  下面是处理的承 bearer token 的流程.
+
+[[oauth2resourceserver-authentication-bearertokenauthenticationfilter]]
+.Authenticating Bearer Token
+image::{figures}/bearertokenauthenticationfilter.png[]
+
+The figure builds off our <<servlet-securityfilterchain,`SecurityFilterChain`>> diagram.
+
+image:{image-resource}/icons/number_1.png[] 当用户提交他们的 bearer token 时, `BearerTokenAuthenticationFilter` 会创建一个 `BearerTokenAuthenticationToken` .它是通过从 `HttpServletRequest`  中提取令牌的一种 <<servlet-authentication-authentication,`Authentication`>> .
+
+image:{image-resource}/icons/number_2.png[] 接下来, `HttpServletRequest` 将传递给 `AuthenticationManagerResolver`, 用于选择 `AuthenticationManager`.  `BearerTokenAuthenticationToken` 将被传递到已验证的 `AuthenticationManager` 中.
+`AuthenticationManager` 看起来依赖与您配置的是 <<oauth2resourceserver-jwt-minimalconfiguration,JWT>> 或 <<oauth2resourceserver-opaque-minimalconfiguration,opaque token>>.
+
+image:{image-resource}/icons/number_3.png[] 如果身份验证失败， 则失败
+
+* <<servlet-authentication-securitycontextholder>> 被清除.
+* 调用 `AuthenticationEntryPoint` 以触发再次发送的 WWW-Authenticate header.
+
+image:{image-resource}/icons/number_4.png[] 如果身份验证成功， 则成功.
+
+* 在 <<servlet-authentication-securitycontextholder>> 设置 <<servlet-authentication-authentication>>.
+* `BearerTokenAuthenticationFilter` 调用 `FilterChain.doFilter(request,response)` 继续应用程序逻辑的其余部分.
+
+include::jwt.adoc[leveloffset=+1]
+
+include::opaque-token.adoc[leveloffset=+1]
+
+include::multitenancy.adoc[leveloffset=+1]
+
+include::bearer-tokens.adoc[leveloffset=+1]

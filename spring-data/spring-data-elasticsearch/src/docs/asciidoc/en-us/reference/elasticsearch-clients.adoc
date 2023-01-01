@@ -3,13 +3,14 @@
 
 This chapter illustrates configuration and usage of supported Elasticsearch client implementations.
 
-Spring Data Elasticsearch operates upon an Elasticsearch client that is connected to a single Elasticsearch node or a cluster. Although the Elasticsearch Client can be used to work with the cluster, applications using Spring Data Elasticsearch normally use the higher level abstractions of <<elasticsearch.operations>> and <<elasticsearch.repositories>>.
+Spring Data Elasticsearch operates upon an Elasticsearch client that is connected to a single Elasticsearch node or a cluster.
+Although the Elasticsearch Client can be used to work with the cluster, applications using Spring Data Elasticsearch normally use the higher level abstractions of <<elasticsearch.operations>> and <<elasticsearch.repositories>>.
 
 [[elasticsearch.clients.transport]]
 == Transport Client
 
-WARNING: The well known `TransportClient` is deprecated as of Elasticsearch 7 and will be removed in Elasticsearch 8. (https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/transport-client.html[see the Elasticsearch documentation]). Spring Data Elasticsearch will support the `TransportClient` as long as it is available in the used
-Elasticsearch <<elasticsearch.versions,version>> but has deprecated the classes using it since version 4.0.
+WARNING: The `TransportClient` is deprecated as of Elasticsearch 7 and will be removed in Elasticsearch 8. (https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/transport-client.html[see the Elasticsearch documentation]).
+Spring Data Elasticsearch will support the `TransportClient` as long as it is available in the used Elasticsearch <<elasticsearch.versions,version>> but has deprecated the classes using it since version 4.0.
 
 We strongly recommend to use the <<elasticsearch.clients.rest>> instead of the `TransportClient`.
 
@@ -22,35 +23,40 @@ public class TransportClientConfig extends ElasticsearchConfigurationSupport {
 
     @Bean
     public Client elasticsearchClient() throws UnknownHostException {
-        Settings settings = Settings.builder().put("cluster.name", "elasticsearch").build();        <1>
+        Settings settings = Settings.builder().put("cluster.name", "elasticsearch").build();        <.>
         TransportClient client = new PreBuiltTransportClient(settings);
-        client.addTransportAddress(new TransportAddress(InetAddress.getByName("127.0.0.1"), 9300)); <2>
+        client.addTransportAddress(new TransportAddress(InetAddress.getByName("127.0.0.1"), 9300)); <.>
         return client;
     }
 
     @Bean(name = { "elasticsearchOperations", "elasticsearchTemplate" })
     public ElasticsearchTemplate elasticsearchTemplate() throws UnknownHostException {
-        return new ElasticsearchTemplate(elasticsearchClient());
+
+		ElasticsearchTemplate template = new ElasticsearchTemplate(elasticsearchClient, elasticsearchConverter);
+		template.setRefreshPolicy(refreshPolicy());                                                 <.>
+
+		return template;
     }
 }
 
 // ...
 
-IndexRequest request = new IndexRequest("spring-data", "elasticsearch", randomID())
- .source(someObject)
- .setRefreshPolicy(IMMEDIATE);
+IndexRequest request = new IndexRequest("spring-data")
+ .id(randomID())
+ .source(someObject);
 
 IndexResponse response = client.index(request);
 ----
-<1> The `TransportClient` must be configured with the cluster name.
-<2> The host and port to connect the client to.
+
+<.> The `TransportClient` must be configured with the cluster name.
+<.> The host and port to connect the client to.
+<.> the RefreshPolicy must be set in the `ElasticsearchTemplate` (override `refreshPolicy()` to not use the default)
 ====
 
 [[elasticsearch.clients.rest]]
 == High Level REST Client
 
-The Java High Level REST Client is the default client of Elasticsearch, it provides a straight forward replacement for the `TransportClient` as it accepts and returns
-the very same request/response objects and therefore depends on the Elasticsearch core project.
+The Java High Level REST Client is the default client of Elasticsearch, it provides a straight forward replacement for the `TransportClient` as it accepts and returns the very same request/response objects and therefore depends on the Elasticsearch core project.
 Asynchronous calls are operated upon a client managed thread pool and require a callback to be notified when the request is done.
 
 .High Level REST Client
@@ -81,12 +87,14 @@ public class RestClientConfig extends AbstractElasticsearchConfiguration {
 
 // ...
 
-IndexRequest request = new IndexRequest("spring-data", "elasticsearch", randomID())
+IndexRequest request = new IndexRequest("spring-data")
+  .id(randomID())
   .source(singletonMap("feature", "high-level-rest-client"))
   .setRefreshPolicy(IMMEDIATE);
 
-IndexResponse response = highLevelClient.index(request);
+IndexResponse response = highLevelClient.index(request,RequestOptions.DEFAULT);
 ----
+
 <1> Use the builder to provide cluster addresses, set default `HttpHeaders` or enable SSL.
 <2> Create the RestHighLevelClient.
 <3> It is also possible to obtain the `lowLevelRest()` client.
@@ -103,39 +111,30 @@ Calls are directly operated on the reactive stack, **not** wrapping async (threa
 ====
 [source,java]
 ----
-static class Config {
+@Configuration
+public class ReactiveRestClientConfig extends AbstractReactiveElasticsearchConfiguration {
 
-  @Bean
-  ReactiveElasticsearchClient client() {
-
-    ClientConfiguration clientConfiguration = ClientConfiguration.builder()   <1>
-      .connectedTo("localhost:9200", "localhost:9291")
-      .withWebClientConfigurer(webClient -> {                                 <2>
-        ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
-            .codecs(configurer -> configurer.defaultCodecs()
-                .maxInMemorySize(-1))
+    @Override
+    @Bean
+    public ReactiveElasticsearchClient reactiveElasticsearchClient() {
+        final ClientConfiguration clientConfiguration = ClientConfiguration.builder() <.>
+            .connectedTo("localhost:9200") //
             .build();
-        return webClient.mutate().exchangeStrategies(exchangeStrategies).build();
-       })
-      .build();
+        return ReactiveRestClients.create(clientConfiguration);
 
-    return ReactiveRestClients.create(clientConfiguration);
-  }
+    }
 }
-
 // ...
 
 Mono<IndexResponse> response = client.index(request ->
 
   request.index("spring-data")
-    .type("elasticsearch")
     .id(randomID())
-    .source(singletonMap("feature", "reactive-client"))
-    .setRefreshPolicy(IMMEDIATE);
+    .source(singletonMap("feature", "reactive-client"));
 );
 ----
-<1> Use the builder to provide cluster addresses, set default `HttpHeaders` or enable SSL.
-<2> when configuring a reactive client, the `withWebClientConfigurer` hook can be used to customize the WebClient.
+
+<.> Use the builder to provide cluster addresses, set default `HttpHeaders` or enable SSL.
 ====
 
 NOTE: The ReactiveClient response, especially for search operations, is bound to the `from` (offset) & `size` (limit) options of the request.
@@ -150,45 +149,83 @@ Client behaviour can be changed via the `ClientConfiguration` that allows to set
 [source,java]
 ----
 HttpHeaders httpHeaders = new HttpHeaders();
-httpHeaders.add("some-header", "on every request")                      <1>
+httpHeaders.add("some-header", "on every request")                      <.>
 
 ClientConfiguration clientConfiguration = ClientConfiguration.builder()
-  .connectedTo("localhost:9200", "localhost:9291")                      <2>
-  .usingSsl()                                                           <3>
-  .withProxy("localhost:8888")                                          <4>
-  .withPathPrefix("ela")                                                <5>
-  .withConnectTimeout(Duration.ofSeconds(5))                            <6>
-  .withSocketTimeout(Duration.ofSeconds(3))                             <7>
-  .withDefaultHeaders(defaultHeaders)                                   <8>
-  .withBasicAuth(username, password)                                    <9>
-  .withHeaders(() -> {                                                  <10>
+  .connectedTo("localhost:9200", "localhost:9291")                      <.>
+  .usingSsl()                                                           <.>
+  .withProxy("localhost:8888")                                          <.>
+  .withPathPrefix("ela")                                                <.>
+  .withConnectTimeout(Duration.ofSeconds(5))                            <.>
+  .withSocketTimeout(Duration.ofSeconds(3))                             <.>
+  .withDefaultHeaders(defaultHeaders)                                   <.>
+  .withBasicAuth(username, password)                                    <.>
+  .withHeaders(() -> {                                                  <.>
     HttpHeaders headers = new HttpHeaders();
     headers.add("currentTime", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
     return headers;
   })
+  .withClientConfigurer(                                                <.>
+    ReactiveRestClients.WebClientConfigurationCallback.from(webClient -> {
+  	  // ...
+      return webClient;
+  	}))
+  .withClientConfigurer(                                                <.>
+    RestClients.RestClientConfigurationCallback.from(clientBuilder -> {
+  	  // ...
+      return clientBuilder;
+  	}))
   . // ... other options
   .build();
 
 ----
-<1> Define default headers, if they need to be customized
-<2> Use the builder to provide cluster addresses, set default `HttpHeaders` or enable SSL.
-<3> Optionally enable SSL.
-<4> Optionally set a proxy.
-<5> Optionally set a path prefix, mostly used when different clusters a behind some reverse proxy.
-<6> Set the connection timeout. Default is 10 sec.
-<7> Set the socket timeout. Default is 5 sec.
-<8> Optionally set headers.
-<9> Add basic authentication.
-<10> A `Supplier<Header>` function can be specified which is called every time before a request is sent to Elasticsearch - here, as an example, the current time is written in a header.
+
+<.> Define default headers, if they need to be customized
+<.> Use the builder to provide cluster addresses, set default `HttpHeaders` or enable SSL.
+<.> Optionally enable SSL.
+<.> Optionally set a proxy.
+<.> Optionally set a path prefix, mostly used when different clusters a behind some reverse proxy.
+<.> Set the connection timeout.
+Default is 10 sec.
+<.> Set the socket timeout.
+Default is 5 sec.
+<.> Optionally set headers.
+<.> Add basic authentication.
+<.> A `Supplier<Header>` function can be specified which is called every time before a request is sent to Elasticsearch - here, as an example, the current time is written in a header.
+<.> for reactive setup a function configuring the `WebClient`
+<.> for non-reactive setup a function configuring the REST client
 ====
 
-IMPORTANT: Adding a Header supplier as shown in above example allows to inject headers that may change over the time, like authentication JWT tokens. If this is used in the reactive setup, the supplier function *must not* block!
+IMPORTANT: Adding a Header supplier as shown in above example allows to inject headers that may change over the time, like authentication JWT tokens.
+If this is used in the reactive setup, the supplier function *must not* block!
+
+=== Elasticsearch 7 compatibility headers
+
+When using Spring Data Elasticsearch 4 - which uses the Elasticsearch 7 client libraries - and accessing an Elasticsearch cluster that is running on version 8, it is necessary to set the compatibility headers
+https://www.elastic.co/guide/en/elasticsearch/reference/8.0/rest-api-compatibility.html[see Elasticserach documentation].
+This should be done using a header supplier like shown above:
+
+====
+[source,java]
+----
+ClientConfigurationBuilder configurationBuilder = new ClientConfigurationBuilder();
+    configurationBuilder //
+		// ...
+		.withHeaders(() -> {
+			HttpHeaders defaultCompatibilityHeaders = new HttpHeaders();
+			defaultCompatibilityHeaders.add("Accept",
+                          "application/vnd.elasticsearch+json;compatible-with=7");
+			defaultCompatibilityHeaders.add("Content-Type",
+                          "application/vnd.elasticsearch+json;compatible-with=7");
+			return defaultCompatibilityHeaders;
+		});
+----
+====
 
 [[elasticsearch.clients.logging]]
 == Client Logging
 
-To see what is actually sent to and received from the server `Request` / `Response` logging on the transport level needs
-to be turned on as outlined in the snippet below.
+To see what is actually sent to and received from the server `Request` / `Response` logging on the transport level needs to be turned on as outlined in the snippet below.
 
 .Enable transport layer logging
 [source,xml]

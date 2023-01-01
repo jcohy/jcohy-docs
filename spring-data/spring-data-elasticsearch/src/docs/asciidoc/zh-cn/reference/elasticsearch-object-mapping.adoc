@@ -27,29 +27,120 @@ Spring Data Elasticsearch Object Mapping 是将 Java 对象 (domain entity)和�
 
 * `@Document`: 类级别注解,表示此类是映射到数据库的候选对象.以下为最重要的属性.:
 ** `indexName`: 此实体的索引名称
-** `type`: [line-through]#映射类型. 如果未设置,则使用类的简单小写名称.# (从版本4.0开始不推荐使用)
-** `shards`: 索引分片的数量
-** `replicas`: 索引副本数量
-** `refreshIntervall`: 索引刷新间隔.用于创建索引. 默认为 _"1s"_.
-** `indexStoreType`:  索引的索引存储类型.用于创建索引. 默认为 _"fs"_.
+// ** `type`: [line-through]#映射类型. 如果未设置,则使用类的简单小写名称.# (从版本4.0开始不推荐使用)
+// ** `shards`: 索引分片的数量
+// ** `replicas`: 索引副本数量
+// ** `refreshIntervall`: 索引刷新间隔.用于创建索引. 默认为 _"1s"_.
+// ** `indexStoreType`:  索引的索引存储类型.用于创建索引. 默认为 _"fs"_.
 ** `createIndex`: 配置是否在 repository 加载时创建索引. 默认为 _true_.
 ** `versionType`: 版本管理配置. 默认为 _EXTERNAL_.
-
 * `@Id`: 字段级注解,标记字段本身的意图.
 * `@Transient`: 默认情况下,存储或检索文档时,所有的字段都映射到文档中,此字段可以标识不映射该字段
 * `@PersistenceConstructor`: 标记已有的构造函数 - 可以是一个 protected package - 当从数据库实例化对象时使用.按照构造函数参数名称映射到检索到的文档中的键值.
 * `@Field`: 字段级注解,可以定义字段的属性, 大多数属性映射到各自的 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html[Elasticsearch Mapping] 定义 (以下列表不完整,请查看注解的 Javadoc 以获取完整的参考) :
 ** `name`: 将在 Elasticsearch 文档中表示的字段名称,如果未设置,则使用 Java 字段名称.
 ** `type`: 字段类型,可以是 _Text, Keyword, Long, Integer, Short, Byte, Double, Float, Half_Float, Scaled_Float, Date, Date_Nanos, Boolean, Binary, Integer_Range, Float_Range, Long_Range, Double_Range, Date_Range, Ip_Range, Object, Nested, Ip, TokenCount, Percolator, Flattened, Search_As_You_Type_. 请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html[Elasticsearch 映射类型]
-** 为 _Date_ 类型声明 `format` 和 `pattern` . 日期类型必须指定 `format` .
+如果未指定字段类型，则默认为 `FieldType.Auto`。 这意味着，不会为该属性写入任何映射条目，并且 Elasticsearch 将在存储该属性的第一个数据时动态添加一个映射条目（查看 Elasticsearch 文档以了解动态映射规则）。
+** `format`: 一种或多种内置日期格式，请参阅下一节 <<elasticsearch.mapping.meta-model.date-formats>>。
+** `pattern`: 一种或多种自定义日期格式，请参阅下一节 <<elasticsearch.mapping.meta-model.date-formats>>。
 ** `store`: 标记是否将原始字段值存储在 Elasticsearch 中, 默认为 _false_.
 ** `analyzer`, `searchAnalyzer`, `normalizer` 指定自定义 analyzers 和 normalizer.
 * `@GeoPoint`: 将字段标记为 _geo_point_ 数据类型. 如果字段是 `GeoPoint` 类的实例,则可以省略.
+* `@ValueConverter` 定义了一个用于转换给定属性的类。 与已注册的 Spring `Converter` 不同，它只转换带注释的属性，而不是给定类型的每个属性。
 
-NOTE: 从 `TemporalAccessor` 扩展 的属性必须具有类型为 `FieldType.Date` 的 `@Field` 注解,或必须为此类型注册自定义转换器. +
-如果使用自定义日期格式,则需要使用 _uuuu_ 作为年份而不是 _yyyy_. 这是 https://www.elastic.co/guide/en/elasticsearch/reference/current/migrate-to-java-time.html#java-time-migration-incompatible-date-formats[Elasticsearch 7 中的变化].
+映射元数据基础设施在一个独立的 spring-data-commons 项目中定义，该项目与技术无关。
 
-映射元数据基础架构是在 spring-data-commons 项目中定义的,该项目与技术无关..
+[[elasticsearch.mapping.meta-model.date-formats]]
+==== 日期格式映射
+
+从 `TemporalAccessor` 属于 `java.util.Date` 类型的属性必须具有 `FieldType.Date` 类型的 `@Field` 注解，或者必须为此类型注册自定义转换器。
+本段描述了使用`FieldType.Date`。
+
+`@Field` 注解的两个属性定义了将哪些日期格式信息写入映射（另请参阅 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format .html#built-in-date-formats[Elasticsearch 内置格式] 和 https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html#custom-date-formats [Elasticsearch 自定义日期格式])
+
+`format` 属性用于定义至少一种预定义格式。 如果未定义，则使用默认值 __date_optional_time_ 和 _epoch_millis_。
+
+`pattern` 属性可用于添加额外的自定义格式字符串。 如果您只想使用自定义日期格式，则必须将 `format` 属性设置为空 `{}`。
+
+下表显示了不同的属性以及从它们的值创建的映射：
+
+[cols=2*,options=header]
+|===
+| annotation
+| format string in Elasticsearch mapping
+
+| @Field(type=FieldType.Date)
+| "date_optional_time\|\|epoch_millis",
+
+| @Field(type=FieldType.Date, format=DateFormat.basic_date)
+| "basic_date"
+
+| @Field(type=FieldType.Date, format={DateFormat.basic_date, DateFormat.basic_time})
+| "basic_date\|\|basic_time"
+
+| @Field(type=FieldType.Date, pattern="dd.MM.uuuu")
+| "date_optional_time\|\|epoch_millis\|\|dd.MM.uuuu",
+
+| @Field(type=FieldType.Date, format={}, pattern="dd.MM.uuuu")
+| "dd.MM.uuuu"
+
+|===
+
+NOTE: 如果您使用自定义日期格式，则需要使用 _uuuu_ 来表示年份，而不是 _yyyy_。
+这是由于 https://www.elastic.co/guide/en/elasticsearch/reference/current/migrate-to-java-time.html#java-time-migration-incompatible-date-formats [Elasticsearch 中的变化 7]。 _uuuu_ for the year instead of _yyyy_.
+
+==== Range 类型
+
+当字段被注解为 _Integer_Range、Float_Range、Long_Range、Double_Range、Date_Range、_ 或 _Ip_Range_ 类型之一时，该字段必须是将映射到 Elasticsearch 范围的类的实例，例如：
+
+====
+[source,java]
+----
+class SomePersonData {
+
+    @Field(type = FieldType.Integer_Range)
+    private ValidAge validAge;
+
+    // getter and setter
+}
+
+class ValidAge {
+    @Field(name="gte")
+    private Integer from;
+
+    @Field(name="lte")
+    private Integer to;
+
+    // getter and setter
+}
+----
+====
+
+作为替代方案，Spring Data Elasticsearch 提供了一个 `Range<T>` 类，因此前面的示例可以写成：
+
+====
+[source,java]
+----
+class SomePersonData {
+
+    @Field(type = FieldType.Integer_Range)
+    private Range<Integer> validAge;
+
+    // getter and setter
+}
+----
+====
+
+`<T>` 类型支持的类是 `Integer`、`Long`、`Float`、`Double`、`Date` 和实现 `TemporalAccessor` 接口。
+
+==== 映射字段名称
+
+无需进一步配置，Spring Data Elasticsearch 将使用对象的属性名称作为 Elasticsearch 中的字段名称。
+这可以通过在该属性上使用 `@Field` 注解来更改单个字段。
+
+也可以在客户端 (<<elasticsearch.clients>>) 的配置中定义一个 `FieldNamingStrategy`。
+例如，如果配置了 `SnakeCaseFieldNamingStrategy`，则对象的属性 _sampleProperty_ 将映射到 Elasticsearch 中的 _sample_property_。
+`FieldNamingStrategy` 适用于所有实体； 可以通过在属性上使用 `@Field` 设置特定名称来覆盖它。
 
 [[elasticsearch.mapping.meta-model.rules]]
 === 映射规则
@@ -107,6 +198,25 @@ public class Person {
 ====
 
 NOTE: 除非属性类型为 `Object`, 接口或实际值类型与属性声明不匹配,否则不会为嵌套对象编写类型提示.
+
+===== 禁用类型提示
+
+当应该使用的索引已经存在而没有在其映射中定义类型提示并且映射模式设置为严格时，可能需要禁用类型提示的写入。
+在这种情况下，写入类型提示会产生错误，因为该字段无法自动添加。
+
+通过覆盖派生自 `AbstractElasticsearchConfiguration` 的配置类中的方法 `writeTypeHints()`，可以为整个应用程序禁用类型提示（请参阅 <<elasticsearch.clients>>）。
+
+作为替代方案，可以使用 `@Document` 注解为单个索引禁用它们：
+
+====
+[source,java]
+----
+@Document(indexName = "index", writeTypeHint = WriteTypeHint.FALSE)
+----
+====
+
+WARNING: 我们强烈建议不要禁用类型提示。 只有在被迫时才这样做。
+禁用类型提示可能会导致无法从 Elasticsearch 正确检索文档，以防多态数据或文档检索可能完全失败。
 
 ==== Geospatial 类型
 

@@ -1,0 +1,111 @@
+= OAuth 2.0 Resource Server Multitenancy
+
+[[webflux-oauth2resourceserver-multitenancy]]
+== 多租户
+
+当存在多种验证承载令牌的策略时,资源服务器被视为多租户,并以某些租户标识符为关键字.
+
+例如,您的资源服务器可能接受来自两个不同授权服务器的承载令牌.  或者,您的授权服务器可能代表多个发行者.
+
+在每种情况下,都需要完成两件事,并且要与选择的方式进行权衡:
+
+1. 解析租户
+2. 传播租户
+
+=== 通过 Claim 解析租户
+
+区分租户的一种方法是通过 issuer claim.  由于签发者的声明伴随着已签名的 JWT,因此可以通过 `JwtIssuerReactiveAuthenticationManagerResolver` 来完成,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+JwtIssuerReactiveAuthenticationManagerResolver authenticationManagerResolver = new JwtIssuerReactiveAuthenticationManagerResolver
+    ("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo");
+
+http
+    .authorizeExchange(exchanges -> exchanges
+        .anyExchange().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val customAuthenticationManagerResolver = JwtIssuerReactiveAuthenticationManagerResolver("https://idp.example.org/issuerOne", "https://idp.example.org/issuerTwo")
+
+return http {
+    authorizeExchange {
+        authorize(anyExchange, authenticated)
+    }
+    oauth2ResourceServer {
+        authenticationManagerResolver = customAuthenticationManagerResolver
+    }
+}
+----
+====
+
+这很好,因为发布者端点是延迟加载的.  实际上,仅当发送带有相应发行者的第一个请求时,才会实例化相应的 `JwtReactiveAuthenticationManager`.  这样就可以启动应用程序,而与启动并可用的那些授权服务器无关.
+
+==== 动态租户
+
+当然,您可能不想在每次添加新租户时都重新启动应用程序.  在这种情况下,可以使用 `ReactiveAuthenticationManager` 实例的仓库配置 `JwtIssuerReactiveAuthenticationManagerResolver`,您可以在运行时对其进行编辑,如下所示:
+
+====
+.Java
+[source,java,role="primary"]
+----
+private Mono<ReactiveAuthenticationManager> addManager(
+		Map<String, ReactiveAuthenticationManager> authenticationManagers, String issuer) {
+
+	return Mono.fromCallable(() -> ReactiveJwtDecoders.fromIssuerLocation(issuer))
+            .subscribeOn(Schedulers.boundedElastic())
+            .map(JwtReactiveAuthenticationManager::new)
+            .doOnNext(authenticationManager -> authenticationManagers.put(issuer, authenticationManager));
+}
+
+// ...
+
+JwtIssuerReactiveAuthenticationManagerResolver authenticationManagerResolver =
+        new JwtIssuerReactiveAuthenticationManagerResolver(authenticationManagers::get);
+
+http
+    .authorizeExchange(exchanges -> exchanges
+        .anyExchange().authenticated()
+    )
+    .oauth2ResourceServer(oauth2 -> oauth2
+        .authenticationManagerResolver(authenticationManagerResolver)
+    );
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+private fun addManager(
+        authenticationManagers: MutableMap<String, ReactiveAuthenticationManager>, issuer: String): Mono<JwtReactiveAuthenticationManager> {
+    return Mono.fromCallable { ReactiveJwtDecoders.fromIssuerLocation(issuer) }
+            .subscribeOn(Schedulers.boundedElastic())
+            .map { jwtDecoder: ReactiveJwtDecoder -> JwtReactiveAuthenticationManager(jwtDecoder) }
+            .doOnNext { authenticationManager: JwtReactiveAuthenticationManager -> authenticationManagers[issuer] = authenticationManager }
+}
+
+// ...
+
+var customAuthenticationManagerResolver = JwtIssuerReactiveAuthenticationManagerResolver(authenticationManagers::get)
+return http {
+    authorizeExchange {
+        authorize(anyExchange, authenticated)
+    }
+    oauth2ResourceServer {
+        authenticationManagerResolver = customAuthenticationManagerResolver
+    }
+}
+----
+====
+
+在这种情况下,您可以使用给定 issuer 的策略来构造 `JwtIssuerReactiveAuthenticationManagerResolver`,以获取 `ReactiveAuthenticationManager`.  这种方法使我们可以在运行时从仓库中添加和删除元素 (如片段中的 `Map` 所示) .
+
+NOTE: 仅选择任何 issuer 并从中构造 `ReactiveAuthenticationManager` 是不安全的.  issuer 应该是代码可以从允许的 issuers 列表之类的受信任来源进行验证的发行者.

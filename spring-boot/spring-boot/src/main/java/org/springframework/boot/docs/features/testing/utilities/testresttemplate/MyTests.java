@@ -25,10 +25,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MyTests {
 
-	private final TestRestTemplate template = new TestRestTemplate();
+	private TestRestTemplate template = new TestRestTemplate();
 
 	@Test
-	void testRequest() throws Exception {
+	void testRequest() {
 		ResponseEntity<String> headers = this.template.getForEntity("https://myhost.example.com/example", String.class);
 		assertThat(headers.getHeaders().getLocation()).hasHost("other.example.com");
 	}

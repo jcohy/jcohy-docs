@@ -85,63 +85,58 @@ include::{snippets-dir}/dependencyManagement/troubleshooting-cache-changing/kotl
 ====
 
 [[sec:controlling_dependency_caching_command_line]]
-== Controlling dependency caching from the command line
+== 从命令行控制依赖缓存
 
 [[sec:offline-mode]]
-=== Avoiding network access with offline mode
+=== 使用离线模式避免网络访问
 
-The `--offline` command line switch tells Gradle to always use dependency modules from the cache, regardless if they are due to be checked again. When running with offline, Gradle will never attempt to access the network to perform dependency resolution. If required modules are not present in the dependency cache, build execution will fail.
+`--offline` 命令告诉 Gradle 始终使用缓存中的依赖模块，无论它们是否需要再次检查。 当离线运行时，Gradle 永远不会尝试访问网络来执行依赖解析。 如果依赖缓存中不存在所需的模块，则构建执行将失败。
 
 [[sec:refreshing-dependencies]]
-=== Refreshing dependencies
+=== 刷新依赖
 
-You can control the behavior of dependency caching for a distinct build invocation from the command line.
-Command line options are helpful for making a selective, ad-hoc choice for a single execution of the build.
+您可以从命令行控制各种构建调用的依赖缓存行为。 命令行选项有助于为单次构建的执行做出选择性的、临时的选择。
 
 
-At times, the Gradle Dependency Cache can become out of sync with the actual state of the configured repositories.
-Perhaps a repository was initially misconfigured, or perhaps a "non-changing" module was published incorrectly.
-To refresh all dependencies in the dependency cache, use the `--refresh-dependencies` option on the command line.
+有时，Gradle 依赖缓存可能与已配置存储库的实际状态不同步。 也许一个存储库最初配置错误，或者一个 "non-changing" 的模块发布不正确。
+要刷新依赖项缓存中的所有依赖项，请在命令行上使用 `--refresh-dependencies` 选项。
 
-The `--refresh-dependencies` option tells Gradle to ignore all cached entries for resolved modules and artifacts.
-A fresh resolve will be performed against all configured repositories, with dynamic versions recalculated, modules refreshed, and artifacts downloaded.
-However, where possible Gradle will check if the previously downloaded artifacts are valid before downloading again.
-This is done by comparing published SHA1 values in the repository with the SHA1 values for existing downloaded artifacts.
+`--refresh-dependencies` 选项告诉 Gradle 忽略已解析模块和工件的所有缓存条目。 将对所有配置的存储库执行新的解析，重新计算动态版本，刷新模块并下载工件。 但是，在有的情况下，Gradle 将在再次下载之前检查先前下载的工件是否有效。
+这是通过将存储库中发布的 SHA1 值与现有下载工件的 SHA1 值进行比较来完成的。
 
-- new versions of dynamic dependencies
-- new versions of changing modules (modules which use the same version string but can have different contents)
+- 新版本的动态依赖
+- 更改模块的新版本 （使用相同版本字符串但可以具有不同内容的模块）
 
 [NOTE]
 ====
-Refreshing dependencies will cause Gradle to invalidate its listing caches.
-However:
+刷新依赖将导致 Gradle 使其列表缓存无效。
+然而：
 
-- it will perform HTTP HEAD requests on metadata files but _will not re-download them_ if they are identical
-- it will perform HTTP HEAD requests on artifact files but _will not re-download them_ if they are identical
+- 它将对元数据文件执行 HTTP HEAD 请求，如果它们相同， _不会重新下载它们_
+- 它将对工件文件执行 HTTP HEAD 请求，如果它们相同， _不会重新下载它们_
 
-In other words, refreshing dependencies _only_ has an impact if you actually use dynamic dependencies _or_ that you have changing dependencies that you were not aware of (in which case it is your responsibility to declare them correctly to Gradle as changing dependencies).
+换句话说，刷新依赖 _只会对_ 您实际使用动态依赖 _或_ 您有更改的依赖而您不知道（在这种情况下，您有责任将它们正确地声明为 Gradle 作为更改的依赖）有影响。
 
-It's a common misconception to think that using `--refresh-dependencies` will force download of dependencies.
-This is **not** the case: Gradle will only perform what is strictly required to refresh the dynamic dependencies.
-This _may_ involve downloading new listing or metadata files, or even artifacts, but if nothing changed, the impact is minimal.
+认为使用 `--refresh-dependencies` 会强制下载依赖项是一个常见的误解。**不是** 这种情况：Gradle 只会执行刷新动态依赖严格要求的操作。
+这 _可能_ 涉及下载新的列表或元数据文件，甚至是工件，但如果没有任何改变，影响是最小的。
 ====
 
 [[sec:component_selection_rules]]
-== Using component selection rules
+== 使用组件选择规则
 
-Component selection rules may influence which component instance should be selected when multiple versions are available that match a version selector.
-Rules are applied against every available version and allow the version to be explicitly rejected by rule.
-This allows Gradle to ignore any component instance that does not satisfy conditions set by the rule.
-Examples include:
+当多个版本与版本选择器匹配时，组件选择规则可能会影响应该选择哪个组件实例。
+规则适用于每个可用版本，并允许该版本被规则明确拒绝。
+这允许 Gradle 忽略任何不满足规则设置的条件的组件实例。
+例如：
 
-* For a dynamic version like `1.+` certain versions may be explicitly rejected from selection.
-* For a static version like `1.4` an instance may be rejected based on extra component metadata such as the Ivy branch attribute, allowing an instance from a subsequent repository to be used.
+* 对于像 `1.+` 这样的动态版本，某些版本可能会被明确拒绝。
+* 对于像 `1.4` 这样的静态版本，可能会根据额外的组件元数据（例如 Ivy 分支属性）拒绝实例，从而允许使用后续存储库的实例。
 
-Rules are configured via the link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelectionRules.html[ComponentSelectionRules] object.
-Each rule configured will be called with a link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] object as an argument which contains information about the candidate version being considered.
-Calling link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html#org.gradle.api.artifacts.ComponentSelection:reject(java.lang.String)[ComponentSelection.reject(java.lang.String)] causes the given candidate version to be explicitly rejected, in which case the candidate will not be considered for the selector.
+规则可以通过 link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelectionRules.html[ComponentSelectionRules]  对象配置.
+每个配置的规则都会调用 link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] 对象作为参数，其中包含有关正在考虑的候选版本的信息。
+调用 link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html#org.gradle.api.artifacts.ComponentSelection:reject(java.lang.String)[ComponentSelection.reject(java.lang.String)] 原因 要明确拒绝的给定候选版本，在这种情况下，将不会考虑候选版本。
 
-The following example shows a rule that disallows a particular version of a module but allows the dynamic version to choose the next best candidate.
+以下示例显示了一个规则，该规则不允许模块的特定版本，但允许动态版本选择下一个最佳候选者。
 
 .Component selection rule
 ====
@@ -149,12 +144,9 @@ include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule
 include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=reject-version-1-1]
 ====
 
-Note that version selection is applied starting with the highest version first.
-The version selected will be the first version found that all component selection rules accept.
-A version is considered accepted if no rule explicitly rejects it.
+请注意，首先应用版本选择，从最高版本开始。选择的版本将是找到所有组件选择规则都接受的第一个版本。 如果没有规则明确拒绝某个版本，则认为该版本已被接受。
 
-Similarly, rules can be targeted at specific modules.
-Modules must be specified in the form of `group:module`.
+同样，规则可以针对特定模块。 模块必须以 `group:module` 的形式指定。
 
 .Component selection rule with module target
 ====
@@ -162,9 +154,9 @@ include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule
 include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=targeted-component-selection]
 ====
 
-Component selection rules can also consider component metadata when selecting a version.
-Possible additional metadata that can be considered are link:{javadocPath}/org/gradle/api/artifacts/ComponentMetadata.html[ComponentMetadata] and link:{javadocPath}/org/gradle/api/artifacts/ivy/IvyModuleDescriptor.html[IvyModuleDescriptor].
-Note that this extra information may not always be available and thus should be checked for `null` values.
+组件选择规则在选择版本时也可以考虑组件元数据。
+可能考虑其他元数据 link:{javadocPath}/org/gradle/api/artifacts/ComponentMetadata.html[ComponentMetadata] 和 link:{javadocPath}/org/gradle/api/artifacts/ivy/IvyModuleDescriptor.html[IvyModuleDescriptor].
+请注意，这些额外信息可能并不总是可用，因此应检查 `null` 值。
 
 .Component selection rule with metadata
 ====
@@ -172,4 +164,4 @@ include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule
 include::{snippets-dir}/dependencyManagement/customizingResolution-selectionRule/kotlin/build.gradle.kts[tags=component-selection-with-metadata]
 ====
 
-Note that a link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] argument is _always_ required as parameter when declaring a component selection rule.
+请注意，在声明组件选择规则时， link:{groovyDslPath}/org.gradle.api.artifacts.ComponentSelection.html[ComponentSelection] 参数始终是必需的参数。

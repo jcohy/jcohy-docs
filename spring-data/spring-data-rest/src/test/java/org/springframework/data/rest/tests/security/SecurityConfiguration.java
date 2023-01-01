@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 the original author or authors.
+ * Copyright 2014-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package java.org.springframework.data.rest.tests.security;
+package org.springframework.data.rest.tests.security;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -28,10 +28,10 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 @Configuration // <1>
 @EnableWebSecurity
 @EnableGlobalMethodSecurity(securedEnabled = true, prePostEnabled = true) // <2>
-public class SecurityConfiguration extends WebSecurityConfigurerAdapter { // <3>
+class SecurityConfiguration extends WebSecurityConfigurerAdapter { // <3>
 // end::code[]
 	@Autowired
-	public void configureAuth(AuthenticationManagerBuilder auth) throws Exception {
+	void configureAuth(AuthenticationManagerBuilder auth) throws Exception {
 
 		auth.inMemoryAuthentication()
 			.withUser("user").password("user").roles("USER").and()

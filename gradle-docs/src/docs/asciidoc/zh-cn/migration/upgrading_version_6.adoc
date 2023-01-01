@@ -1,5 +1,3 @@
-
-
 [[upgrading_version_6]]
 = 从 Gradle 6.x 升级到最新版本
 
@@ -21,6 +19,88 @@ image::{image-dir}/deprecations.png[Deprecations View of a Gradle Build Scan]
 . 运行 `gradle wrapper --gradle-version {gradleVersion}` 讲项目更新到 {gradleVersion}.
 . 尝试使用 <<troubleshooting.adoc#troubleshooting,故障排除指南>>.
 
+[[changes_6.9]]
+== 从 6.8 升级
+
+[[jcenter_deprecation]]
+=== `jcenter()` 方法已经弃用
+
+JFrog link:https://jfrog.com/blog/into-the-sunset-bintray-jcenter-gocenter-and-chartcenter[宣告] 2021 年 2 月 JCenter 存储库宣布不再维护。 https://blog.gradle.org/jcenter-shutdown[目前有许多 Gradle 构建] 依赖于 JCenter 来获得项目依赖。
+
+没有新的软件包或版本发布到 JCenter，但 JFrog 表示他们将让 JCenter 无限期地以只读状态运行。
+我们建议您考虑 <<declaring_repositories.adoc#declaring-repositories,使用>> `mavenCentral()`、`google()` 或私有 `maven` 存储库。
+
+当 `jcenter()` 用作存储库时，Gradle 会发出弃用警告，并且计划在 Gradle 8.0 中删除此方法。
+
+[[changes_6.8]]
+== 从 6.7 升级
+
+=== 潜在的重大变化
+
+==== Toolchain API 现在标记为 @NonNull
+
+`org.gradle.jvm.toolchain` 中支持 Java Toolchain 特性的 API 现在标记为 `@NonNull`。
+
+这可能会影响到 API 的返回类型不再可为空的 Kotlin 消费者。
+
+==== 更新默认工具集成版本
+
+- JaCoCo 更新为 http://www.jacoco.org/jacoco/trunk/doc/changes.html[0.8.6].
+- Checkstyle 更新为 https://checkstyle.sourceforge.io/releasenotes.html#Release_8.37[Checkstyle 8.37].
+- CodeNarc 更新为 https://github.com/CodeNarc/CodeNarc/blob/v2.0.0/CHANGELOG.md[CodeNarc 2.0.0].
+
+==== 更新绑定 Gradle 依赖
+
+- Kotlin 更新为 https://blog.jetbrains.com/kotlin/2020/08/kotlin-1-4-released-with-a-focus-on-quality-and-performance/[Kotlin 1.4.20].
+请注意，Gradle 脚本仍在使用 Kotlin 1.3 语言特性。
+- Apache Ant 更新为 1.10.9 ，解决了 https://github.com/gradle/gradle/security/advisories/GHSA-j45w-qrgf-25vm[CVE-2020-11979]
+
+==== 导入 Eclipse 的项目现在包括自定义源集类路径
+
+以前，由 Eclipse 导入的项目仅包含 main 和 test 源集的依赖项。 自定义源集的编译和运行时类路径被忽略。
+
+从 Gradle 6.8 开始，导入 Eclipse 的项目包括构建定义的每个源集的编译和运行时类路径。
+
+==== SourceTask 不再对空目录敏感
+
+以前，在 up-to-date 期间会考虑空目录，并为 `SourceTask` 中声明的源构建缓存键进行计算。 这意味着包含空目录的源树和不包含空目录的其他相同的源树将被视为不同的源，即使任务会产生相同的输出。
+在 Gradle 6.8 中，`SourceTask` 现在在进行 up-to-date 和构建缓存键计算期间会忽略空目录。 在绝大多数情况下，这是用户期望的行为，但是当源中存在空目录时，任务可能会扩展 `SourceTask` 但也会产生不同的输出。
+对于需要关注的任务，您可以公开一个不带 `@IgnoreEmptyDirectories` 注解的单独属性，以捕获这些更改:
+
+```
+@InputFiles
+@SkipWhenEmpty
+@PathSensitive(PathSensitivity.ABSOLUTE)
+public FileTree getSourcesWithEmptyDirectories() {
+    return super.getSource()
+}
+```
+
+=== 弃用
+
+[[referencing_tasks_from_included_builds]]
+==== 从构建中引用任务
+
+`mustRunAfter`、`shouldRunAfter` 和 `finalizedBy` 任务方法中的包含构建对任务的直接引用已被弃用。
+使用 `mustRunAfter` 和 `shouldRunAfter` 的任务排序以及由 `finalizedBy` 指定的 finalizers 应该用于构建中的任务排序。
+如果您碰巧使用上述方法定义了交叉构建任务顺序，请考虑重组此类构建并将它们彼此分离。
+
+[[master_subdirectory_root_build]]
+==== 在 'master' 目录中搜索文件
+
+当您的构建依赖于在同级目录中名为“master”的目录中查找设置文件时，Gradle 将发出弃用警告。
+
+如果您的构建使用此功能，请考虑重构构建以使根目录与项目层次结构的物理根目录匹配。
+
+或者，您可以使用 <<intro_multi_project_builds.adoc#sec:executing_tasks_by_fully_qualified_name,任务的全限定路径>> 从 `master` 目录调用构建。
+
+[[using_NamedDomainObjectContainer_invoke_kotlin_Function1]]
+==== 使用 `NamedDomainObjectContainer<T>.invoke(kotlin.Function1)` 方法
+
+Gradle Kotlin DSL 扩展已更改为支持 Gradle 的 `Action<T>` 类型而不是 Kotlin 函数类型。
+
+虽然这些更改对 Kotlin 客户端应该是透明的，但调用 Kotlin DSL 扩展的 Java 客户端需要更新以使用 `Action<T>` API。
+
 [[changes_6.7]]
 == 从 Gradle 6.6 升级
 
@@ -28,7 +108,7 @@ image::{image-dir}/deprecations.png[Deprecations View of a Gradle Build Scan]
 
 ==== buildSrc 现在可以从根目录查看包含的构建
 
-以前,`buildSrc` 的构建方式是从根构建中忽略其包含的构建.
+以前,`buildSrc` 的构建方式是从根目录构建中忽略其包含的构建.
 
 从 Gradle 6.7 开始,`buildSrc` 可以从根构建中看到任何包含的版本. 这可能导致依赖从 `buildSrc` 中包含的内部版本中替换. 如果 `buildSrc` 需要包含的构建,这也可能会更改某些构建的执行顺序.
 
@@ -74,12 +154,12 @@ configurations.implementation.extendsFrom(configurations.myConfiguration)
 - Ant 更新至 https://downloads.apache.org/ant/RELEASE-NOTES-1.10.8.html[1.10.8].
 - Groovy 更新至 https://groovy-lang.org/changelogs/changelog-2.5.12.html[Groovy 2.5.12].
 
-==== 依赖替换和变量感知依赖解析
+==== 依赖替换和变体感知依赖解析
 
-在依赖替换中的添加 <<resolution_rules#sec:variant_aware_substitutions,表达变量支持>>的同时,错误修复可能引入了某些构建依赖的行为更改.
+在依赖替换中的添加 <<resolution_rules#sec:variant_aware_substitutions,表达变体支持>>的同时,错误修复可能引入了某些构建依赖的行为更改.
 以前,替换的依赖仍将使用原始 selector  的 <<variant_attributes#,属性>>,而不是替换 selector  的属性.
 
-有了这一更改,用更丰富的 selectors 围绕依赖进行的现有替换(例如平台依赖)将不再像以前那样起作用.必须在目标 selectors 中定义变量识别部分.
+有了这一更改,用更丰富的 selectors 围绕依赖进行的现有替换(例如平台依赖)将不再像以前那样起作用.必须在目标 selectors 中定义变体识别部分.
 
 如果发生以下情况,您可能会受到此更改的影响:
 
