@@ -105,6 +105,33 @@ include::{docs-java}/features/testing/springbootapplications/detectingwebapptype
 
 NOTE: Spring 的测试框架在测试之间缓存应用程序上下文.  因此,只要您的测试共享相同的配置 (无论如何发现) ,加载上下文的潜在耗时过程就只会发生一次.
 
+[[features.testing.spring-boot-applications.using-main]]
+==== 使用测试配置主方法
+通常， `@SpringBootTest` 发现的测试配置将是您的主要  `@SpringBootApplication`。 在大多数的应用程序中，此配置类还将包括用于启动应用程序的 `main` 方法。
+
+例如，以下是一个典型的 Spring Boot 应用程序非常常见的代码模式：
+
+include::code:typical/MyApplication[]
+
+在上面的示例中，`main` 方法除了委托给 `SpringApplication.run` 之外没有做任何事情。
+但是，可以有一个更复杂的 `main` 方法，在调用 `SpringApplication.run` 之前应用定制。
+
+例如，这是一个更改 banner 模式并设置其他配置文件的应用程序：
+
+include::code:custom/MyApplication[]
+
+由于 `main` 方法中的自定义会影响生成的 `ApplicationContext`，因此您可能还想使用 `main` 方法来创建用于测试的 `ApplicationContext`。
+默认情况下， `@SpringBootTest` 不会调用您的 `main` 方法，而是直接使用类本身来创建 `ApplicationContext`
+
+如果要更改此行为，可以将 `@SpringBootTest` 的 `useMainMethod` 属性更改为 `UseMainMethod.ALWAYS` 或 `UseMainMethod.WHEN_AVAILABLE`。
+当设置为 `ALWAYS` 时，如果找不到 `main` 方法，测试将失败。
+当设置为 `WHEN_AVAILABLE` 时，如果可用，将使用 `main` 方法，否则将使用标准加载机制。
+
+例如，以下测试将调用 `MyApplication` 的 `main` 方法来创建 `ApplicationContext`。
+如果 main 方法设置了额外的配置文件，那么这些配置文件将在 `ApplicationContext` 启动时处于活动状态。
+
+include::code:always/MyApplicationTests[]
+
 [[features.testing.spring-boot-applications.excluding-configuration]]
 ==== 排除测试配置
 如果您的应用程序使用了组件扫描 (例如,如果使用 `@SpringBootApplication` 或 `@ComponentScan` ) ,则可能会发现偶然为各地创建的仅为特定测试创建的顶级配置类.
@@ -193,6 +220,12 @@ include::{docs-java}/features/testing/springbootapplications/jmx/MyJmxTests.java
 无论您的类路径是什么，在使用 `@SpringBootTest` 时，meter 注册表(内存中支持的除外)都不会自动配置。
 
 如果您需要将指标作为集成测试的一部分导出到不同的后端，请使用 `@AutoConfigureMetrics` 注解它。
+
+[[features.testing.spring-boot-applications.tracing]]
+==== Using Tracing
+无论您的类路径如何，使用 `@SpringBootTest` 时都不会自动配置追踪。
+
+如果您需要将跟踪作为集成测试的一部分，请使用 `@AutoConfigureObservability` 对其进行注解。
 
 [[features.testing.spring-boot-applications.mocking-beans]]
 ==== Mocking（模拟） 和 Spying（检测） Beans
@@ -337,9 +370,45 @@ NOTE: `@WebFluxTest` 无法检测通过 `SecurityWebFilterChain` 类型的 `@Bea
 
 TIP: 有时编写 Spring WebFlux 测试是不够的.  Spring Boot可以帮助您在 <<features#features.testing.spring-boot-applications.with-running-server, 实际服务器上运行完整的端到端测试>>.
 
+[[features.testing.spring-boot-applications.spring-graphql-tests]]
+==== Spring GraphQL 测试自动配置
+Spring GraphQL 提供了专门的测试支持模块； 你需要将它添加到你的项目中：
+
+.Maven
+[source,xml,indent=0,subs="verbatim"]
+----
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.graphql</groupId>
+      <artifactId>spring-graphql-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Unless already present in the compile scope -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+----
+
+.Gradle
+[source,gradle,indent=0,subs="verbatim"]
+----
+  dependencies {
+    testImplementation("org.springframework.graphql:spring-graphql-test")
+    // Unless already present in the implementation configuration
+    testImplementation("org.springframework.boot:spring-boot-starter-webflux")
+  }
+----
+
+这个测试模块附带了 {spring-graphql-docs}/#testing-graphqltester[GraphQlTester].
+spring-boot-project/spring-boot-docs/src/docs/asciidoc/features/testing.adoc
+
 [[features.testing.spring-boot-applications.autoconfigured-spring-data-cassandra]]
 ==== 自动配置 Cassandra 测试
-您可以使用 `@DataCassandraTest` 注解来测试 Cassandra 应用程序.  默认情况下,它将配置一个 `CassandraTemplate` 来扫描 `@Table` 类并配置 Spring Data Cassandra 存储库. 使用 `@DataCassandraTest` 注解时,不扫描常规 `@Component` 和 `@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean（有关在 Spring Boot 中使用 Cassandra 的更多信息，请参阅本章前面的 "<<data#data.nosql.cassandra>>"）
+您可以使用 `@DataCassandraTest` 注解来测试 Cassandra 应用程序.  默认情况下,它将配置一个 `CassandraTemplate` 来扫描 `@Table` 类并配置 Spring Data Cassandra 存储库.
+使用 `@DataCassandraTest` 注解时,不扫描常规 `@Component` 和 `@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean（有关在 Spring Boot 中使用 Cassandra 的更多信息，请参阅本章前面的 "<<data#data.nosql.cassandra>>"）
 
 TIP: 可以在 <<test-auto-configuration#appendix.test-auto-configuration,附录中>> 找到由 `@DataCassandraTest` 启用的自动配置设置的列表.
 
@@ -349,6 +418,30 @@ TIP: 可以在 <<test-auto-configuration#appendix.test-auto-configuration,附录
 ----
 include::{docs-java}/features/testing/springbootapplications/autoconfiguredspringdatacassandra/MyDataCassandraTests.java[]
 ----
+
+[[features.testing.spring-boot-applications.autoconfigured-spring-data-couchbase]]
+==== 自动配置 Data Couchbase 测试
+您可以使用 `@DataCouchbaseTest` 注解来测试 Couchbase 应用程序.
+默认情况下,它将配置一个 `CouchbaseTemplate` 或 `ReactiveCouchbaseTemplate`, 来扫描 `@Document` 类并配置 Spring Data Couchbase 存储库.
+使用 `@DataCouchbaseTest` 注解时,不扫描常规 `@Component` 和 `@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean（有关在 Spring Boot 中使用 Cassandra 的更多信息，请参阅本章前面的 "<<data#data.nosql.couchbase>>"）
+
+TIP: 可以在 <<test-auto-configuration#appendix.test-auto-configuration,附录中>> 找到由 `@DataCouchbaseTest` 启用的自动配置设置的列表.
+
+以下示例显示了在 Spring Boot 中使用 Couchbase 测试的典型设置:
+
+include::code:MyDataCouchbaseTests[]
+
+[[features.testing.spring-boot-applications.autoconfigured-spring-data-elasticsearch]]
+==== 自动配置 Data Elasticsearch 测试
+您可以使用 `@DataElasticsearchTest` 注解来测试 Elasticsearch 应用程序.
+默认情况下,它将配置一个 `ElasticsearchRestTemplate`, 来扫描 `@Document` 类并配置 Spring Data Elasticsearch 存储库.
+使用 `@DataElasticsearchTest` 注解时,不扫描常规 `@Component` 和 `@ConfigurationProperties` bean.`@EnableConfigurationProperties` 可用于包含 `@ConfigurationProperties` 的 bean（有关在 Spring Boot 中使用 Elasticsearch 的更多信息，请参阅本章前面的 "<<data#data.nosql.elasticsearch>>"）
+
+TIP: 可以在 <<test-auto-configuration#appendix.test-auto-configuration,附录中>> 找到由 `@DataElasticsearchTest` 启用的自动配置设置的列表.
+
+以下示例显示了在 Spring Boot 中使用 Elasticsearch 测试的典型设置:
+
+include::code:MyDataElasticsearchTests[]
 
 [[features.testing.spring-boot-applications.autoconfigured-spring-data-jpa]]
 ==== 自动配置的 Data JPA 测试
@@ -439,13 +532,6 @@ TIP: 可以在 <<test-auto-configuration#appendix.test-auto-configuration,附录
 [source,java,indent=0,subs="verbatim"]
 ----
 include::{docs-java}/features/testing/springbootapplications/autoconfiguredspringdatamongodb/withoutdb/MyDataMongoDbTests.java[]
-----
-
-内存嵌入式 MongoDB 通常运行良好,并且不需要任何开发人员安装,因此通常可以很好地用于测试.  但是,如果您希望对真实的 MongoDB 服务器运行测试,则应排除嵌入式 MongoDB 自动配置,如以下示例所示:
-
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/features/testing/springbootapplications/autoconfiguredspringdatamongodb/withdb/MyDataMongoDbTests.java[]
 ----
 
 [[features.testing.spring-boot-applications.autoconfigured-spring-data-neo4j]]
@@ -633,10 +719,15 @@ NOTE: 确保不要使用常规的 `@Import` 注解导入自动配置,因为它�
 
 或者,可以通过在 `META-INF/spring.factories` 中注册切片注解的任何使用来添加其他自动配置,如以下示例所示:
 
+.META-INF/spring/org.springframework.boot.test.autoconfigure.jdbc.JdbcTest.imports
 [indent=0]
 ----
-	org.springframework.boot.test.autoconfigure.jdbc.JdbcTest=com.example.IntegrationAutoConfiguration
+	com.example.IntegrationAutoConfiguration
 ----
+
+在此示例中，在每个用 `@JdbcTest` 注解的测试上启用了 `com.example.IntegrationAutoConfiguration`。
+
+TIP: 您可以在此文件中通过 `#` 使用注释。
 
 TIP: 切片或 `@AutoConfigure...` 注解可以通过这种方式自定义,只要使用 `@ImportAutoConfiguration` 对其进行元注解即可.
 
@@ -689,8 +780,8 @@ TIP: 如果这不是您的选择,则可以在测试层次结构中的某个位�
 
 [[features.testing.spring-boot-applications.spock]]
 ==== 使用 Spock 测试 Spring Boot 应用程序
-如果您希望使用 Spock 2.x 来测试 Spring Boot 应用程序,则应在应用程序的构建中添加对 Spock 的 `spock-spring` 模块的依赖.  `spock-spring` 将 Spring 的测试框架集成到了 Spock 中.
-有关更多详细信息,请参见 https://spockframework.org/spock/docs/2.0/modules.html#_spring_module[Spock 的 Spring 模块的文档]..
+如果您希望使用 Spock 2.x 来测试 Spring Boot 应用程序,则应在应用程序的构建中添加对 Spock 的 `spock-spring` 模块的 `-groovy-4.0` 版本依赖.  `spock-spring` 将 Spring 的测试框架集成到了 Spock 中.
+有关更多详细信息,请参见 https://spockframework.org/spock/docs/2.2-M1/modules.html#_spring_module[Spock 的 Spring 模块的文档]..
 
 [[features.testing.utilities]]
 === 测试实用工具

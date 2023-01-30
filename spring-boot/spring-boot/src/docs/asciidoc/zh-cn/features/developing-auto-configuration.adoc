@@ -4,30 +4,33 @@
 
 自动配置可以与提供自动配置代码的 starter 以及您将使用的类库库相关联. 我们首先介绍构建自己的自动配置需要了解的内容,然后我们将继续介绍创建 <<features#features.developing-auto-configuration.custom-starter,自定义 starter 所需的步骤>>.
 
-TIP: 这里有一个 https://github.com/snicoll-demos/spring-boot-master-auto-configuratio[演示项目] 展示了如何逐步创建 starter.
-
 [[features.developing-auto-configuration.understanding-auto-configured-beans]]
 === 理解自动配置的 Beans
-在内部,自动配置是通过标准的 `@Configuration` 注解实现的， `@Conditional` 注解用于约束何时应用自动配置。 通常，自动配置类使用 `@ConditionalOnClass` 和 `@ConditionalOnMissingBean` 注解。
+实现自动配置的类用 `@AutoConfiguration` 注解。 此注解本身使用 `@Configuration` 进行元注解，使自动配置成为标准的 `@Configuration` 类。
+`@Conditional` 注解用于约束何时应用自动配置。 通常，自动配置类使用 `@ConditionalOnClass` 和 `@ConditionalOnMissingBean` 注解。
 这可确保仅在找到相关类时以及未声明您自己的 `@Configuration` 时才应用自动配置.
 
-您可以浏览  {spring-boot-autoconfigure-module-code}[`spring-boot-autoconfigure`] 的源代码,以查看 Spring 提供的 `@Configuration`  类 (请参阅  {spring-boot-code}/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/spring.factories[`META-INF/spring.factories`] 文件).
+您可以浏览  {spring-boot-autoconfigure-module-code}[`spring-boot-autoconfigure`] 的源代码,以查看 Spring 提供的 `@AutoConfiguration`  类 (请参阅 {spring-boot-code}/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports[`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`]  文件).
 
 [[features.developing-auto-configuration.locating-auto-configuration-candidates]]
 === 找到候选的自动配置
 
-Spring Boot 会检查已发布 jar 中是否存在 `META-INF/spring.factories` 文件. 该文件在 key 为 `EnableAutoConfiguration` 下列出配置类,如下所示:
+Spring Boot 会检查已发布 jar 中是否存在  `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`  文件.
+该文件列出您的配置类，每行一个类名，如以下示例所示：,如下所示:
 
 [indent=0]
 ----
-	org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-	com.mycorp.libx.autoconfigure.LibXAutoConfiguration,\
-	com.mycorp.libx.autoconfigure.LibXWebAutoConfiguration
+    com.mycorp.libx.autoconfigure.LibXAutoConfiguration
+    com.mycorp.libx.autoconfigure.LibXWebAutoConfiguration
 ----
+
+TIP:: 您可以使用 `#` 号添加注释.
 
 NOTE: 必须以这种方式加载自动配置. 确保它们在特定的包空间中定义,并且它们不能是组件扫描的目标. 此外,自动配置类不应启用组件扫描以查找其他组件. 应该使用特定的 `@Imports` 来代替.
 
-如果需要按特定顺序应用配置,则可以使用 {spring-boot-autoconfigure-module-code}/AutoConfigureAfter.java[`@AutoConfigureAfter`] 或 {spring-boot-autoconfigure-module-code}/AutoConfigureBefore.java[`@AutoConfigureBefore`]  注解. 例如,如果您提供特定于 Web 的配置,则可能需要在 `WebMvcAutoConfiguration` 之后应用您的类.
+如果需要按特定顺序应用配置,则可以使用 {spring-boot-autoconfigure-module-code}/AutoConfiguration.java[`@AutoConfiguration`] 的 `before`, `beforeName`, `after` 和 `afterName` 属性。
+或使用 {spring-boot-autoconfigure-module-code}/AutoConfigureAfter.java[`@AutoConfigureAfter`] 或 {spring-boot-autoconfigure-module-code}/AutoConfigureBefore.java[`@AutoConfigureBefore`] 注解.
+例如,如果您提供特定于 Web 的配置,则可能需要在 `WebMvcAutoConfiguration` 之后应用您的类.
 
 如果您想排序某些不应该彼此直接了解的自动配置,您也可以使用 `@AutoConfigureOrder`. 该注解与常规 `@Order` 注解有相同的语义,但它为自动配置类提供了专用顺序.
 
@@ -202,7 +205,9 @@ NOTE: 您仅应将简单文本与 `@ConfigurationProperties` 字段 Javadoc 一�
 
 TIP: 您应该将类库的依赖标记为可选,以便您可以更轻松地在项目中包含 `autoconfigure` 模块. 如果以这种方式执行,则不提供类库,默认情况下,Spring Boot 将会退出.
 
-Spring Boot 使用注解处理器来收集元数据文件  (`META-INF/spring-autoconfigure-metadata.properties`) 中自动配置的条件. 如果该文件存在,则用于快速过滤不匹配的自动配置,缩短启动时间. 建议在包含自动配置的模块中添加以下依赖:
+Spring Boot 使用注解处理器来收集元数据文件  (`META-INF/spring-autoconfigure-metadata.properties`) 中自动配置的条件.如果该文件存在,则用于快速过滤不匹配的自动配置,缩短启动时间.
+
+当使用 Maven 构件，建议在包含自动配置的模块中添加以下依赖:
 
 [source,xml,indent=0,subs="verbatim"]
 ----
@@ -237,16 +242,7 @@ Spring Boot 使用注解处理器来收集元数据文件  (`META-INF/spring-aut
 	</project>
 ----
 
-使用 Gradle 4.5 及更早版本时,应在 `compileOnly` 配置中声明依赖,如下所示:
-
-[source,gradle,indent=0,subs="verbatim"]
-----
-	dependencies {
-		compileOnly "org.springframework.boot:spring-boot-autoconfigure-processor"
-	}
-----
-
-使用 Gradle 4.6 或者更高的版本,应在  `annotationProcessor` 配置中声明依赖,如下所示:
+使用 Gradle ,应在  `annotationProcessor` 配置中声明依赖,如下所示:
 
 [source,gradle,indent=0,subs="verbatim"]
 ----
