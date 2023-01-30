@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MyTests {
 
-	private TestRestTemplate template = new TestRestTemplate();
+	private final TestRestTemplate template = new TestRestTemplate();
 
 	@Test
 	void testRequest() {
