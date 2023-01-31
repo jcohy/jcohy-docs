@@ -34,13 +34,14 @@ TIP: 还可以透明地从缓存中 {spring-framework-docs}/integration.html#cac
 . <<io#io.caching.provider.couchbase,Couchbase>>
 . <<io#io.caching.provider.redis,Redis>>
 . <<io#io.caching.provider.caffeine,Caffeine>>
+. <<io#io.caching.provider.cache2k,Cache2k>>
 . <<io#io.caching.provider.simple,Simple>>
 
 此外，{spring-boot-for-apache-geode}[Spring Boot for Apache Geode] 提供了 {spring-boot-for-apache-geode-docs}#geode-caching-provider[使用 Apache Geode 作为自动配置缓存提供者]。
 
 TIP: 也可以通过设置 `spring.cache.type` 属性来强制指定缓存提供者. 如果您需要在某些环境 (比如测试) 中 <<io#io.caching.provider.none,完全禁用缓存>>,请使用此属性.
 
-TIP: 使用 `spring-boot-starter-cache` "`Starter`" 快速添加基本的缓存依赖. starter 引入了 `spring-context-support`. 如果手动添加依赖,则必须包含 `spring-context-support` 才能使用 JCache、EhCache 2.x 或 Caffeine 支持.
+TIP: 使用 `spring-boot-starter-cache` "`Starter`" 快速添加基本的缓存依赖. starter 引入了 `spring-context-support`. 如果手动添加依赖,则必须包含 `spring-context-support` 才能使用 JCache 或 Caffeine 支持.
 
 如果通过 Spring Boot 自动配置 `CacheManager`,则可以通过暴露一个实现了 `CacheManagerCustomizer` 接口的 bean,在完全初始化之前进一步调整其配置. 以下示例设置了一个 flag,表示应将 `null` 值传递给底层 map:
 
@@ -82,21 +83,14 @@ TIP: Spring Boot 对 <<io#io.hazelcast,Hazelcast 的支持一般>>. 如果有一
 
 TIP: 如果定义了一个标准的 `javax.cache.CacheManager` bean,它将自动包装进一个抽象所需的 `org.springframework.cache.CacheManager` 实现中,而不会应用自定义配置.
 
-[[io.caching.provider.ehcache2]]
-==== EhCache 2.x
-如果可以在 classpath 的根目录中找到名为 `ehcache.xml` 的文件,则使用 https://www.ehcache.org/[EhCache] 2.x. 如果找到 EhCache 2.x,则使用 `spring-boot-starter-cache` starter 提供的 `EhCacheCacheManager` 来启动缓存管理器. 还可以提供其他配置文件,如下所示:
-
-[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
-----
-	spring:
-	  cache:
-	    ehcache:
-	      config: "classpath:config/another-config.xml"
-----
-
 [[io.caching.provider.hazelcast]]
 ==== Hazelcast
-Spring Boot 对 <<io#io.hazelcast,Hazelcast 的支持一般>>. 如果自动配置了一个 `HazelcastInstance`,它将自动包装进 `CacheManager` 中.
+Spring Boot 对 <<io#io.hazelcast,Hazelcast 的支持一般>>. 如果自动配置了一个 `HazelcastInstance` 并且 `com.hazelcast:hazelcast-spring` 存在于类路径,它将自动包装进 `CacheManager` 中.
+
+NOTE: Hazelcast 可以用作 JCache 兼容缓存或 Spring `CacheManager` 兼容缓存。
+当将 `spring.cache.type` 设置为  `hazelcast` 时，Spring Boot 将使用基于 `CacheManager` 的实现。
+如果要将 Hazelcast 用作符合 JCache 的缓存，请将 `spring.cache.type` 设置为 `jcache`。
+如果你有多个符合 JCache 的缓存提供程序，并且想要强制使用 Hazelcast，则必须 <<io#io.caching.provider.jcache，显式设置 JCache 提供程序>>。
 
 [[io.caching.provider.infinispan]]
 ==== Infinispan
@@ -112,7 +106,8 @@ https://infinispan.org/[Infinispan] 没有默认的配置文件位置,因此必�
 
 可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存. 如果定义了自定义 `ConfigurationBuilder` bean,则它将用于自定义缓存.
 
-NOTE: Infinispan 在 Spring Boot 中的支持仅限于内嵌模式,非常简单. 如果你想要更多选项,你应该使用官方的 Infinispan Spring Boot starter. 有关更多详细信息,请参阅 https://github.com/infinispan/infinispan-spring-boot[Infinispan 文档] .
+为了与 Spring Boot 的 Jakarta EE 9 基线兼容，必须使用 Infinispan 的 `-jakarta` 模块。 对于每个带有 `-jakarta` 的模块，必须使用该模块代替标准模块。
+例如，`infinispan-core-jakarta` 和 `infinispan-commons-jakarta` 必须分别代替 `infinispan-core` 和 `infinispan-commons`。
 
 [[io.caching.provider.couchbase]]
 ==== Couchbase
@@ -180,6 +175,15 @@ https://github.com/ben-manes/caffeine[Caffeine]  是一个使用了 Java 8 重�
 ----
 
 如果定义了 `com.github.benmanes.caffeine.cache.CacheLoader` bean,它将自动与 `CaffeineCacheManager` 关联. 由于 `CacheLoader` 将与缓存管理器管理的所有缓存相关联,因此必须将其定义为 `CacheLoader<Object, Object>`. 自动配置会忽略所有其他泛型类型.
+
+[[io.caching.provider.cache2k]]
+==== Cache2k
+https://cache2k.org/[Cache2k] 是内存缓存。 如果存在 Cache2k Spring 集成，则会自动配置 `SpringCache2kCacheManager`。
+
+可以通过设置 `spring.cache.cache-names` 属性在启动时创建缓存。 缓存默认值可以使用 `Cache2kBuilderCustomizer` bean 进行自定义。
+以下示例显示了一个自定义，缓存的容量配置为 200 个，过期时间为 5 分钟：
+
+include::code:MyCache2kDefaultsConfiguration[]
 
 [[io.caching.provider.simple]]
 ==== Simple
