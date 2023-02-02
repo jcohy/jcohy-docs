@@ -3,8 +3,10 @@ plugins {
 	id("org.springframework.boot") version "{gradle-project-version}"
 }
 
-// tag::build-info[]
+// tag::exclude-time[]
 springBoot {
-	buildInfo()
+	buildInfo {
+		excludes.set(setOf("time"))
+	}
 }
-// end::build-info[]
+// end::exclude-time[]
