@@ -25,34 +25,41 @@ Typeahead建议使用户能够搜索已知的和经常搜索的术语。
 *非功能性需求:* 推荐的查询术语应该是即时的出现，用户应该能够在200ms内看到系统提供的建议的内容。
 
 [[basic_system_design_and_algorithm]]
-=== 3.	Basic System Design and Algorithm
+=== 3. 基本系统设计和算法
 
-The problem we are solving is that we have a lot of ‘strings’ that we need to store in such a way that users can search with any prefix.
-Our service will suggest next terms that will match the given prefix.
-For example, if our database contains the following terms: cap, cat, captain, or capital and the user has typed in ‘cap’, our system should suggest ‘cap’, ‘captain’ and ‘capital’.
+我们将要解决的问题是，要存储大量的字符串，以至于用户可以使用任意前缀进行搜索。我们的服务将会根据给到的前缀进行匹配，建议下一条搜索用的术语。
+例如，如果我们的数据包含以下术语：‘cap‘，’cat‘，’captain‘，或 ’captial‘，当用户输入‘cap’时，我们的系统应该建议使用‘cap‘，’captain‘，和 ’captial‘。
 
-Since we’ve got to serve a lot of queries with minimum latency, we need to come up with a scheme that can efficiently store our data such that it can be queried quickly.
-We can’t depend upon some database for this; we need to store our index in memory in a highly efficient data structure.
+由于我们必须以最小的延迟处理大量查询，因此我们需要提出一种可以有效存储数据的方案，以便可以快速查询数据。
+因此我们不能依赖某些数据库；我们需要将索引以高效的数据结构存储在内存中。
 
-One of the most appropriate data structures that can serve our purpose is the Trie (pronounced “try”).
-A trie is a tree-like data structure used to store phrases where each node stores a character of the phrase in a sequential manner.
-For example, if we need to store ‘cap, cat, caption, captain, capital’ in the trie, it would look like:
+可以满足我们目的的最合适的数据结构之一是Trie（发音为“try”）。
+trie 是一种树状数据结构，用于存储短语，其中每个节点以顺序方式存储短语的字符。
+例如，如果我们需要以trie型数据结构存储数据：“cap，cat，caption，captain，capital”，它看起来如下所示：
 
-Now if the user has typed ‘cap’, our service can traverse the trie to go to the node ‘P’ to find all the terms that start with this prefix (e.g., cap-tion, cap-ital etc).
+image::D:/OneDrive/桌面/system design/Typeahead/tire_structure.png[]
 
-We can merge nodes that have only one branch to save storage space.
-The above trie can be stored like this:
+现在如果用户已经输入 'cap'，我们的服务会遍历trie型数据结构到节点'p'，找到以'cap'为前缀的所有术语。（例如，'cap-tion'，'cap-ital'等）
+
+我们可以合并只有一个分支的节点来节约存储空间。此时存储数据的trie型数据结构如下：
+
+image::D:/OneDrive/桌面/system design/Typeahead/trie_merge_node.png[]
+
+*我们应该在tire型数据结构中区分大小写吗？* 为了搜索简单，在此假定我们不区分大小写。
 
 *Should we have case insensitive trie?* For simplicity and search use-case, let’s assume our data is case insensitive.
 
-*How to find top suggestion?* Now that we can find all the terms given a prefix, how can we know what the top 10 terms are that we should suggest?
-One simple solution could be to store the count of searches that terminated at each node, e.g., if users have searched about ‘CAPTAIN’ 100 times and ‘CAPTION’ 500 times, we can store this number with the last character of the phrase.
-So now if the user has typed ‘CAP’ we know the top most searched word under the prefix ‘CAP’ is ‘CAPTION’.
-So, given a prefix, we can traverse the sub-tree under it to find the top suggestions.
+*如何查找顶层建议？* 现在我们可以找到所有给定前缀的术语，我们如何知道应该建议的前 10 个术语是什么？
+一个简单的解决方案是在每个尾节点保存搜索次数，例如，如果用户搜索了 “CAPTAIN” 100 次，搜索了 “CAPTION” 500次，我们可以将此数字与短语的最后一个字符保存在一起。
+因此，现在如果用户输入了“CAP”，我们知道前缀“CAP”下搜索最多的单词是“CAPTION”。
+因此，给定一个前缀，我们可以遍历其下的子树以找到最适合的建议。
 
-*Given a prefix, how much time will it take to traverse its sub-tree?* Given the amount of data we need to index, we should expect a huge tree.
-Even traversing a sub-tree would take really long, e.g., the phrase ‘system design interview questions’ is 30 levels deep.
-Since we have very strict latency requirements we do need to improve the efficiency of our solution.
+*给定一个前缀，遍历其子树需要多少时间？* 考虑到我们需要索引的数据量，我们应该期望一棵巨大的树。
+即使遍历子树也需要很长时间，例如，短语“system design interview questions”的深度是30。
+由于我们有非常严格的延迟要求，因此我们需要提高查询效率。
+
+*我们可以存储每个节点的热门推荐吗？* 这肯定可以加快我们的搜索速度，但需要大量额外的存储空间。
+我们可以在每个节点上存储前 10 个推荐，可以将其返回给用户。我们必须承受存储容量的大幅增加才能达到所需的效率。
 
 *Can we store top suggestions with each node?* This can surely speed up our searches but will require a lot of extra storage.
 We can store top 10 suggestions at each node that we can return to the user.
