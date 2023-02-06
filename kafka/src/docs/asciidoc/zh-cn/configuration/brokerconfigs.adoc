@@ -1,0 +1,5595 @@
+[[kafka-brokerconfigs]]
+= 代理配置
+
+基本配置如下：
+
+* `broker.id`
+* `log.dirs`
+* `zookeeper.connect`
+
+主题级别的配置和默认值在下面会进行详细地讨论
+
+
+== advertised.listeners
+
+发布到 ZooKeeper 以供客户端使用的监听器（如果与监听器配置属性不同）。 在 IaaS 环境中，这可能需要与 broker 绑定的接口不同。 如果未设置，则将使用监听器的值。 与监听器不同， 广播 0.0.0.0 元地址是无效的。
+与监听器不同的是，此属性中可以有重复的端口，因此可以将一个监听器器配置为通告另一个监听器的地址。 这在使用外部负载平衡器的某些情况下很有用。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| per-broker
+|===
+
+== auto.create.topics.enable
+
+在服务器上启用自动创建主题
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== auto.leader.rebalance.enable
+
+启用 leader 自动平衡。 后台线程定期检查分区 leader 的分布，可通过 `leader.imbalance.check.interval.seconds` 进行配置。 如果 leader  不平衡超过 `leader.imbalance.per.broker.percentage`，则会触发 leader  重新平衡到分区的首选 leader 。
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+| high
+
+| 重要性
+|
+
+| 更新模式
+| read-only
+|===
+
+== background.threads
+
+用于各种后台处理任务的线程数
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== broker.id
+
+此服务器的代理 ID。 如果未设置，将生成一个唯一的代理 id。为避免 zookeeper 生成的代理 id 和用户配置的代理 id 之间的冲突，生成的代理 id 从 `reserved.broker.max.id + 1` 开始。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== compression.type
+
+指定给定主题的压缩类型。 此配置接受标准压缩编解码器（'gzip'、'snappy'、'lz4'、'zstd'）。 它还接受 'uncompressed'，这相当于没有压缩； 这意味着保留生产者设置的原始压缩编解码器。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| producer
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== control.plane.listener.name
+
+用于控制器和代理之间通信的监听器名称。 Broker 将使用 `control.plane.listener.name` 来定位监听器列表中的端点，以监听来自控制器的连接。例如，如果 broker 的配置是：
+
+listeners = INTERNAL://192.1.1.8:9092, EXTERNAL://10.1.1.5:9093, CONTROLLER://192.1.1.8:9094
+listener.security.protocol.map = INTERNAL:PLAINTEXT, EXTERNAL:SSL, CONTROLLER:SSL
+control.plane.listener.name = CONTROLLER
+
+启动时，broker 将开始使用安全协议  "SSL" 监听 "192.1.1.8:9094"。
+在控制器端，当它通过 zookeeper 发现代理的已发布端点时，它将使用 `control.plane.listener.name` 查找端点，它将用于建立与代理的连接。
+
+例如，如果代理在 zookeeper 上发布的端点是：
+
+"endpoints" : ["INTERNAL://broker1.example.com:9092","EXTERNAL://broker1.example.com:9093","CONTROLLER://broker1.example.com:9094"]
+
+控制器的配置是:
+
+listener.security.protocol.map = INTERNAL:PLAINTEXT, EXTERNAL:SSL, CONTROLLER:SSL
+control.plane.listener.name = CONTROLLER
+
+然后控制器将使用带有安全协议  "SSL"  的 "broker1.example.com:9094" 连接到代理。
+如果未显式配置，则默认值为 null，并且没有用于控制器连接的专用端点。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== controller.listener.names
+
+控制器使用的监听器名称的逗号分隔列表。 如果在 KRaft 模式下运行，这是必需的。 基于 ZK 的控制器不会使用此配置。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.election.backoff.max.ms
+
+开始新选举之前的最长时间（以毫秒为单位）。 这用于有助于防止选举陷入僵局的二进制指数退避机制
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000 (1 second)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.election.timeout.ms
+
+在触发新选举之前无法从 leader 那里获取数据的等待时间（以毫秒为单位）
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000 (1 second)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.fetch.timeout.ms
+
+在成为候选人并触发选民选举之前，没有从当前 leader 那里成功获取的最长时间； 在四处询问是否有 leader 的新纪元之前，没有从大多数仲裁中接收获取的最长时间
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2000 (2 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.voters
+
+以逗号分隔的 `{id}@{host}:{port}` 条目列表中的一组选民的 `id/endpoint`  信息映射。 例如：`1@localhost:9092,2@localhost:9093,3@localhost:9094`
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| ""
+
+| 有效值
+| non-empty list
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== delete.topic.enable
+
+启用删除主题。 如果关闭此配置，通过管理工具删除主题将无效
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== leader.imbalance.check.interval.seconds
+
+控制器触发分区重新平衡检查的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 300
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== leader.imbalance.per.broker.percentage
+
+每个 broker 允许的 leader 不平衡比率。 如果每个 broker 超过此值，控制器将触发剩下的 leader。 该值以百分比指定。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== listeners
+
+监听器集合 - 我们将监听的 URI 的逗号分隔列表和监听器名称。 如果监听器名称不是安全协议，还必须设置 `listener.security.protocol.map`。
+监听器名称和端口号必须是唯一的。
+
+将主机名指定为 `0.0.0.0` 以绑定到所有接口。
+
+将主机名留空以绑定到默认接口。
+
+合法的例子：
+
+[source,text]
+----
+PLAINTEXT://myhost:9092,SSL://:9091
+CLIENT://0.0.0.0:9092,REPLICATION://localhost:9093
+----
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| PLAINTEXT://:9092
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| per-broker
+|===
+
+== log.dir
+
+保存日志数据的目录（`log.dirs` 属性的补充）
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| /tmp/kafka-logs
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.dirs
+
+保存日志数据的目录。 如果未设置，则使用 `log.dir` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.flush.interval.messages
+
+消息刷新到磁盘之前在日志分区上累积的消息数
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 9223372036854775807
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.flush.interval.ms
+
+任何主题中的消息在刷新到磁盘之前保留在内存中的最长时间（以毫秒为单位）。 如果未设置，则使用 `log.flush.scheduler.interval.ms` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.flush.offset.checkpoint.interval.ms
+
+我们更新作为日志恢复点的最后一次刷新的持久记录的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 60000 (1 minute)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.flush.scheduler.interval.ms
+
+日志刷新器检查是否有任何日志需要刷新到磁盘的频率（以毫秒为单位）
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 9223372036854775807
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.flush.start.offset.checkpoint.interval.ms
+
+我们更新日志开始偏移的持久记录的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 60000 (1 minute)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.retention.bytes
+
+删除前日志的最大大小
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.retention.hours
+
+在删除之前保留日志文件的小时数（以小时为单位），第三至 `log.retention.ms` 属性
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 168
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.retention.minutes
+
+删除之前保留日志文件的分钟数（以分钟为单位），次要于 `log.retention.ms` 属性。 如果未设置，则使用 `log.retention.hours` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.retention.ms
+
+删除之前保留日志文件的毫秒数（以毫秒为单位），如果未设置，则使用 `log.retention.minutes` 中的值。 如果设置为 `-1`，则不应用时间限制。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.roll.hours
+
+推出新日志段之前的最长时间（以小时为单位），次要于 `log.roll.ms` 属性
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 168
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.roll.jitter.hours
+
+从 logRollTimeMillis 中减去的最大抖动（以小时为单位），次要于 `log.roll.jitter.ms` 属性
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 0
+
+| 有效值
+| [0,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== log.roll.jitter.ms
+
+从 logRollTimeMillis 中减去的最大抖动（以毫秒为单位）。 如果未设置，则使用 `log.roll.jitter.hours` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.roll.ms
+
+推出新日志段之前的最长时间（以毫秒为单位）。 如果未设置，则使用 `log.roll.hours` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.segment.bytes
+
+单个日志文件的最大大小
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1073741824 (1 gibibyte)
+
+| 有效值
+| [14,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.segment.delete.delay.ms
+
+从文件系统中删除文件之前等待的时间
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 60000 (1 minute)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== message.max.bytes
+
+Kafka 允许的最大记录批量大小（如果启用压缩，则在压缩之后）。 如果增加了这个值并且有超过 `0.10.2` 的消费者，那么消费者的获取大小也必须增加，以便他们可以获取这么大的记录批次。
+在最新的消息格式版本中，为了提高效率，记录总是被分组为批次。 在以前的消息格式版本中，未压缩的记录不会分组，并且此限制仅适用于在这种情况下的单个记录。可以使用主题级别 `max.message.bytes` 配置为每个主题设置。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1048588
+
+| 有效值
+| [0,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== metadata.log.dir
+
+这个配置决定了我们在 KRaft 模式下将集群的元数据日志放在哪里。 如果未设置，则元数据日志将放置在 `log.dirs` 中的第一个日志目录中。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== metadata.log.max.record.bytes.between.snapshots
+
+这是日志中最新快照和生成新快照之前所需的高水位线之间的最大字节数。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 20971520
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== metadata.log.segment.bytes
+
+单个元数据日志文件的最大大小。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1073741824 (1 gibibyte)
+
+| 有效值
+| [12,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== metadata.log.segment.ms
+
+推出新的元数据日志文件之前的最长时间（以毫秒为单位）。
+
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 604800000 (7 days)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== metadata.max.retention.bytes
+
+删除旧快照和日志文件之前元数据日志和快照的最大组合大小。 由于必须至少存在一个快照才能删除任何日志，因此这是一个软限制。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== metadata.max.retention.ms
+
+在删除元数据日志文件或快照之前保留它的毫秒数。 由于必须至少存在一个快照才能删除任何日志，因此这是一个软限制。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 604800000 (7 days)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== min.insync.replicas
+
+当生产者将 acks 设置为 "all" （或 "-1"）时，`min.insync.replicas` 指定必须确认写入才能被视为成功的最小副本数。 如果无法满足此最小值，则生产者将引发异常（`NotEnoughReplicas` 或 `NotEnoughReplicasAfterAppend`）。
+当一起使用时， `min.insync.replicas` 和 acks 允许您强制执行更大的持久性保证。 一个典型的场景是创建一个副本因子为 3 的主题，将 `min.insync.replicas` 设置为 `2`，并使用 "all" 的 acks 生成。 如果大多数副本没有收到写入，这将确保生产者引发异常。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== node.id
+
+当 `process.roles` 为非空时，与此进程正在扮演的角色相关联的节点 ID。 在 KRaft 模式下运行时，这是必需的配置。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== num.io.threads
+
+服务器用于处理请求的线程数，可能包括磁盘 I/O
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 8
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== num.network.threads
+
+服务器用于接收来自网络的请求并向网络发送响应的线程数
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 3
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== num.recovery.threads.per.data.dir
+
+每个数据目录的线程数，用于启动时的日志恢复和关闭时的刷新
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== num.replica.alter.log.dirs.threads
+
+可以在日志目录之间移动副本的线程数，可能包括磁盘 I/O
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== num.replica.fetchers
+
+用于从源代理复制消息的 fetcher 线程数。 增加这个值可以增加 follower broker 中的I/O并行度。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== offset.metadata.max.bytes
+
+与偏移提交关联的元数据条目的最大大小
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 4096 (4 kibibytes)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.commit.required.acks
+
+可以接受提交之前所需的确认。 通常，不应覆盖默认值 (-1)
+
+|===
+| 名称 | 值
+
+| 类型
+| short
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.commit.timeout.ms
+
+偏移量提交将被延迟，直到偏移量主题的所有副本都收到提交或达到此超时。 这类似于生产者请求超时。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 5000 (5 seconds)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.load.buffer.size
+
+将偏移量加载到缓存中时从偏移量段读取的批量大小（软限制，如果记录太大则覆盖）。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 5242880
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.retention.check.interval.ms
+
+检查过时偏移的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 600000 (10 minutes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.retention.minutes
+
+在消费者组失去其所有消费者（即变为空）后，其偏移量将在此保留期内保留，然后被丢弃。 对于独立消费者（使用手动分配），偏移量将在最后一次提交时间加上此保留期之后过期。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10080
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.retention.check.interval.ms
+
+检查过时偏移的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 600000 (10 minutes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.retention.minutes
+
+在消费者组失去其所有消费者（即变为空）后，其偏移量将在此保留期内保留，然后被丢弃。 对于独立消费者（使用手动分配），偏移量将在最后一次提交时间加上此保留期之后过期。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10080
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.topic.compression.codec
+
+偏移量主题的压缩编解码器 - 压缩可用于实现 "atomic" 提交
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 0
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.topic.num.partitions
+
+偏移提交主题的分区数（部署后不应更改）
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 50
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.topic.replication.factor
+
+偏移主题的复制因子（设置更高以确保可用性）。 在集群大小满足此复制因子要求之前，内部主题创建将失败。
+
+|===
+| 名称 | 值
+
+| 类型
+| short
+
+| 默认值
+| 3
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== offsets.topic.segment.bytes
+
+偏移量主题段字节应保持相对较小，以促进更快的日志压缩和缓存加载
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 104857600 (100 mebibytes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== process.roles
+
+此进程扮演的角色： 'broker'、 'controller' 或 'broker,controller' （如果两者兼有）。 此配置仅适用于 KRaft（Kafka Raft）模式（而非 ZooKeeper）的集群。 对于 Zookeeper 集群，将此配置保留为未定义或为空。
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| ""
+
+| 有效值
+| [broker, controller]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== queued.max.requests
+
+在阻塞网络线程之前，数据平面允许的排队请求数
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 500
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.fetch.min.bytes
+
+每个获取响应的最小字节数。 如果没有足够的字节，请等待 `replica.fetch.wait.max.ms`（代理配置）。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.fetch.wait.max.ms
+
+跟随者副本发出的每个 fetcher 请求的最大等待时间。 此值应始终小于 `replica.lag.time.max.ms` 以防止 ISR 频繁收缩低吞吐量主题
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 500
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.high.watermark.checkpoint.interval.ms
+
+将高水位线保存到磁盘的频率
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 5000 (5 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.lag.time.max.ms
+
+如果一个 follower 没有发送任何 fetch 请求或者至少在这个时间内没有消耗到 leader log end offset，leader 将从 isr 中删除 follower
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.socket.receive.buffer.bytes
+
+网络请求的套接字接收缓冲区
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 65536 (64 kibibytes)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== replica.socket.timeout.ms
+
+网络请求的套接字超时。 它的值至少应该是 `replica.fetch.wait.max.ms`
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== request.timeout.ms
+
+配置控制客户端等待请求响应的最长时间。 如果在超时之前没有收到响应，客户端将在必要时重新发送请求，或者如果重试次数用尽，则请求失败。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== sasl.mechanism.controller.protocol
+
+用于与控制器通信的 SASL 机制。 默认为 GSSAPI。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| GSSAPI
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== socket.receive.buffer.bytes
+
+套接字服务器套接字的 SO_RCVBUF 缓冲区。 如果值为 `-1`，将使用操作系统默认值。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 102400 (100 kibibytes)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== socket.request.max.bytes
+
+套接字请求中的最大字节数
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 104857600 (100 mebibytes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== socket.send.buffer.bytes
+
+套接字服务器套接字的 SO_SNDBUF 缓冲区。 如果值为 `-1`，将使用操作系统默认值。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 102400 (100 kibibytes)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.max.timeout.ms
+
+事务允许的最大超时。 如果客户端请求的事务时间超过此时间，则代理将在 `InitProducerIdRequest` 中返回错误。 这可以防止客户端超时时间过长，这可能会阻止消费者从事务中包含的主题中读取。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 900000 (15 minutes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.state.log.load.buffer.size
+
+将生产者 ID 和事务加载到缓存中时从事务日志段读取的批量大小（软限制，如果记录太大则覆盖）。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 5242880
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.state.log.min.isr
+
+覆盖事务主题的 `min.insync.replicas` 配置。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.state.log.num.partitions
+
+事务主题的分区数（部署后不应更改）。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 50
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.state.log.replication.factor
+
+事务主题的副本因子（设置更高以确保可用性）。 在集群大小满足此副本因子要求之前，内部主题创建将失败。
+
+|===
+| 名称 | 值
+
+| 类型
+| short
+
+| 默认值
+| 3
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transaction.state.log.segment.bytes
+
+事务主题段字节应保持相对较小，以促进更快的日志压缩和缓存加载
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 104857600 (100 mebibytes)
+
+| 有效值
+| 104857600 (100 mebibytes)
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== transactional.id.expiration.ms
+
+事务协调器在其事务 id 过期之前将等待而不接收当前事务的任何事务状态更新的时间（以毫秒为单位）。 此设置也会影响生产者 ID 过期 - 在使用给定生产者 ID 的最后一次写入之后，一旦此时间过去，生产者 ID 就会过期。 请注意，如果由于主题的保留设置而删除了生产者 ID 的最后一次写入，则生产者 ID 可能会更快过期。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 604800000 (7 days)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== unclean.leader.election.enable
+
+指示是否启用不在 ISR 集中的副本作为最后的选择作为领导者，即使这样做可能会导致数据丢失
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| cluster-wide
+|===
+
+== zookeeper.connect
+
+以 `hostname:port` 形式指定 ZooKeeper 连接字符串，其中 host 和 port 是 ZooKeeper 服务器的主机和端口。 要在 ZooKeeper 机器关闭时允许通过其他 ZooKeeper 节点进行连接，您还可以以 `hostname1:port1,hostname2:port2,hostname3:port3` 的形式指定多个主机。
+服务器还可以将 ZooKeeper chroot 路径作为其 ZooKeeper 连接字符串的一部分，将其数据放在全局 ZooKeeper 命名空间中的某个路径下。 例如，要给出 `/chroot/path` 的 chroot 路径，您可以将连接字符串指定为 `hostname1:port1,hostname2:port2,hostname3:port3/chroot/path`。
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.connection.timeout.ms
+
+客户端等待与 Zookeeper 建立连接的最长时间。 如果未设置，则使用 `zookeeper.session.timeout.ms` 中的值
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.max.in.flight.requests
+
+客户端在阻塞之前将发送给 Zookeeper 的未确认请求的最大数量。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10
+
+| 有效值
+| [1,...]
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.session.timeout.ms
+
+Zookeeper 会话超时
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 18000 (18 seconds)
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.set.acl
+
+将客户端设置为使用安全 ACL
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| high
+
+| 更新模式
+| read-only
+|===
+
+== broker.heartbeat.interval.ms
+
+代理心跳之间的时间长度（以毫秒为单位）。 在 KRaft 模式下运行时使用。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2000 (2 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== broker.id.generation.enable
+
+在服务器上启用自动代理 ID 生成。 启用时，应查看为 `reserved.broker.max.id` 配置的值。
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== broker.rack
+
+broker 的 rack。 这将用于 rack 感知复制分配以实现容错。 示例：`RACK1`、`us-east-1d`
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== broker.session.timeout.ms
+
+如果没有检测信号，代理租约持续的时间长度（以毫秒为单位）。 在 KRaft 模式下运行时使用。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 9000 (9 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== connections.max.idle.ms
+
+空闲连接超时：服务器套接字处理器线程关闭空闲超过此时间的连接
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 600000 (10 minutes)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== connections.max.reauth.ms
+
+当显式设置为正数（默认为 0，不是正数）时，不会超过配置值的会话生命周期将在 v2.2.0 或更高版本的客户端进行身份验证时进行通信。 代理将断开在会话生命周期内未重新验证的任何此类连接，然后将其用于重新验证以外的任何目的。
+配置名称可以选择使用小写的监听器前缀和 SASL 机制名称作为前缀。 例如 listener.name.sasl_ssl.oauthbearer.connections.max.reauth.ms=3600000
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 0
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controlled.shutdown.enable
+
+启用服务器的受控关闭
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controlled.shutdown.max.retries
+
+受控关闭可能因多种原因而失败。 这决定了发生此类故障时的重试次数
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 3
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controlled.shutdown.retry.backoff.ms
+
+在每次重试之前，系统需要时间从导致先前故障的状态（控制器故障转移、副本延迟等）中恢复。 此配置确定重试之前要等待的时间。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 5000 (5 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.append.linger.ms
+
+leader 在将写入刷新到磁盘之前等待写入累积的持续时间（以毫秒为单位）。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 25
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.request.timeout.ms
+
+配置控制客户端等待请求响应的最长时间。 如果在超时之前没有收到响应，客户端将在必要时重新发送请求，或者如果重试次数用尽，则请求失败。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2000 (2 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== controller.socket.timeout.ms
+
+控制器到代理通道的套接字超时
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== default.replication.factor
+
+自动创建主题的默认副本因子
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== delegation.token.expiry.time.ms
+
+需要更新令牌之前的令牌有效时间（以毫秒为单位）。 默认值 1 天。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 86400000 (1 day)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== delegation.token.master.key
+
+已弃用：`delegation.token.secret.key` 的别名，应该使用它来代替此配置。
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== delegation.token.max.lifetime.ms
+
+令牌有一个最长的生命周期，超过这个生命周期就不能再更新了。 默认值 `7` 天。
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 604800000 (7 days)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== delegation.token.secret.key
+
+生成和验证委托令牌的密钥。 必须在所有代理之间配置相同的密钥。 如果密钥未设置或设置为空字符串，代理将禁用委托令牌支持。
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== delete.records.purgatory.purge.interval.requests
+
+删除记录请求炼狱的清除间隔（请求数）
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== fetch.max.bytes
+
+我们将为获取请求返回的最大字节数。 必须至少为 `1024`。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 57671680 (55 mebibytes)
+
+| 有效值
+| [1024,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== fetch.purgatory.purge.interval.requests
+
+提取请求 purgatory 的清除间隔（以请求数计）
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== group.initial.rebalance.delay.ms
+
+组协调器在执行第一次重新平衡之前等待更多消费者加入新组的时间。 更长的延迟意味着可能更少的重新平衡，但会增加处理开始之前的时间。
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 3000 (3 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== group.max.session.timeout.ms
+
+The maximum allowed session timeout for registered consumers. Longer timeouts give consumers more time to process messages in between heartbeats at the cost of a longer time to detect failures.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1800000 (30 minutes)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== group.max.size
+
+The maximum number of consumers that a single consumer group can accommodate.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2147483647
+
+| 有效值
+| [1,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== group.min.session.timeout.ms
+
+The minimum allowed session timeout for registered consumers. Shorter timeouts result in quicker failure detection at the cost of more frequent consumer heartbeating, which can overwhelm broker resources.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 6000 (6 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== initial.broker.registration.timeout.ms
+
+When initially registering with the controller quorum, the number of milliseconds to wait before declaring failure and exiting the broker process.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 60000 (1 minute)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== inter.broker.listener.name
+
+Name of listener used for communication between brokers. If this is unset, the listener name is defined by security.inter.broker.protocol. It is an error to set this and security.inter.broker.protocol properties at the same time.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== inter.broker.protocol.version
+
+Specify which version of the inter-broker protocol will be used.
+This is typically bumped after all brokers were upgraded to a new version.
+Example of some valid values are: 0.8.0, 0.8.1, 0.8.1.1, 0.8.2, 0.8.2.0, 0.8.2.1, 0.9.0.0, 0.9.0.1 Check ApiVersion for the full list.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| 3.0-IV1
+
+| 有效值
+| [0.8.0, 0.8.1, 0.8.2, 0.9.0, 0.10.0-IV0, 0.10.0-IV1, 0.10.1-IV0, 0.10.1-IV1, 0.10.1-IV2, 0.10.2-IV0, 0.11.0-IV0, 0.11.0-IV1, 0.11.0-IV2, 1.0-IV0, 1.1-IV0, 2.0-IV0, 2.0-IV1, 2.1-IV0, 2.1-IV1, 2.1-IV2, 2.2-IV0, 2.2-IV1, 2.3-IV0, 2.3-IV1, 2.4-IV0, 2.4-IV1, 2.5-IV0, 2.6-IV0, 2.7-IV0, 2.7-IV1, 2.7-IV2, 2.8-IV0, 2.8-IV1, 3.0-IV0, 3.0-IV1]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== log.cleaner.backoff.ms
+
+The amount of time to sleep when there are no logs to clean
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 15000 (15 seconds)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.dedupe.buffer.size
+
+The total memory used for log deduplication across all cleaner threads
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 134217728
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.delete.retention.ms
+
+How long are delete records retained?
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 86400000 (1 day)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.enable
+
+Enable the log cleaner process to run on the server. Should be enabled if using any topics with a cleanup.policy=compact including the internal offsets topic. If disabled those topics will not be compacted and continually grow in size.
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== log.cleaner.io.buffer.load.factor
+
+Log cleaner dedupe buffer load factor. The percentage full the dedupe buffer can become. A higher value will allow more log to be cleaned at once but will lead to more hash collisions
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.9
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.io.buffer.size
+
+The total memory used for log cleaner I/O buffers across all cleaner threads
+
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 524288
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.io.max.bytes.per.second
+
+The log cleaner will be throttled so that the sum of its read and write i/o will be less than this value on average
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 1.7976931348623157E308
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.max.compaction.lag.ms
+
+The maximum time a message will remain ineligible for compaction in the log. Only applicable for logs that are being compacted.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 9223372036854775807
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.min.cleanable.ratio
+
+The minimum ratio of dirty log to total log for a log to eligible for cleaning. If the log.cleaner.max.compaction.lag.ms or the log.cleaner.min.compaction.lag.ms configurations are also specified, then the log compactor considers the log eligible for compaction as soon as either: (i) the dirty ratio threshold has been met and the log has had dirty (uncompacted) records for at least the log.cleaner.min.compaction.lag.ms duration, or (ii) if the log has had dirty (uncompacted) records for at most the log.cleaner.max.compaction.lag.ms period.
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.5
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.min.compaction.lag.ms
+
+The minimum time a message will remain uncompacted in the log. Only applicable for logs that are being compacted.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 0
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleaner.threads
+
+The number of background threads to use for log cleaning
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.cleanup.policy
+
+The default cleanup policy for segments beyond the retention window. A comma separated list of valid policies. Valid policies are: "delete" and "compact"
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| delete
+
+| 有效值
+| [compact, delete]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.index.interval.bytes
+
+The interval with which we add an entry to the offset index
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 4096 (4 kibibytes)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.index.size.max.bytes
+
+The maximum size in bytes of the offset index
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10485760 (10 mebibytes)
+
+| 有效值
+| [4,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.message.format.version
+
+Specify the message format version the broker will use to append messages to the logs. The value should be a valid ApiVersion. Some examples are: 0.8.2, 0.9.0.0, 0.10.0, check ApiVersion for more details. By setting a particular message format version, the user is certifying that all the existing messages on disk are smaller or equal than the specified version. Setting this value incorrectly will cause consumers with older versions to break as they will receive messages with a format that they don't understand.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| 3.0-IV1
+
+| 有效值
+| [0.8.0, 0.8.1, 0.8.2, 0.9.0, 0.10.0-IV0, 0.10.0-IV1, 0.10.1-IV0, 0.10.1-IV1, 0.10.1-IV2, 0.10.2-IV0, 0.11.0-IV0, 0.11.0-IV1, 0.11.0-IV2, 1.0-IV0, 1.1-IV0, 2.0-IV0, 2.0-IV1, 2.1-IV0, 2.1-IV1, 2.1-IV2, 2.2-IV0, 2.2-IV1, 2.3-IV0, 2.3-IV1, 2.4-IV0, 2.4-IV1, 2.5-IV0, 2.6-IV0, 2.7-IV0, 2.7-IV1, 2.7-IV2, 2.8-IV0, 2.8-IV1, 3.0-IV0, 3.0-IV1]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== log.message.timestamp.difference.max.ms
+
+The maximum difference allowed between the timestamp when a broker receives a message and the timestamp specified in the message. If log.message.timestamp.type=CreateTime, a message will be rejected if the difference in timestamp exceeds this threshold. This configuration is ignored if log.message.timestamp.type=LogAppendTime.The maximum timestamp difference allowed should be no greater than log.retention.ms to avoid unnecessarily frequent log rolling.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 9223372036854775807
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.message.timestamp.type
+
+Define whether the timestamp in the message is message create time or log append time. The value should be either `CreateTime` or `LogAppendTime`
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| CreateTime
+
+| 有效值
+| [CreateTime, LogAppendTime]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.preallocate
+
+Should pre allocate file when create new segment? If you are using Kafka on Windows, you probably need to set it to true.
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== log.retention.check.interval.ms
+
+The frequency in milliseconds that the log cleaner checks whether any log is eligible for deletion
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 300000 (5 minutes)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== max.connection.creation.rate
+
+The maximum connection creation rate we allow in the broker at any time. Listener-level limits may also be configured by prefixing the config name with the listener prefix, for example, listener.name.internal.max.connection.creation.rate.Broker-wide connection rate limit should be configured based on broker capacity while listener limits should be configured based on application requirements. New connections will be throttled if either the listener or the broker limit is reached, with the exception of inter-broker listener. Connections on the inter-broker listener will be throttled only when the listener-level rate limit is reached.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2147483647
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== max.connections
+
+The maximum number of connections we allow in the broker at any time. This limit is applied in addition to any per-ip limits configured using max.connections.per.ip. Listener-level limits may also be configured by prefixing the config name with the listener prefix, for example, listener.name.internal.max.connections. Broker-wide limit should be configured based on broker capacity while listener limits should be configured based on application requirements. New connections are blocked if either the listener or broker limit is reached. Connections on the inter-broker listener are permitted even if broker-wide limit is reached. The least recently used connection on another listener will be closed in this case.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2147483647
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== max.connections.per.ip
+
+The maximum number of connections we allow from each ip address. This can be set to 0 if there are overrides configured using max.connections.per.ip.overrides property. New connections from the ip address are dropped if the limit is reached.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2147483647
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== max.connections.per.ip.overrides
+
+A comma-separated list of per-ip or hostname overrides to the default maximum number of connections. An example value is "hostName:100,127.0.0.1:200"
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| ""
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| cluster-wide
+|===
+
+== max.incremental.fetch.session.cache.slots
+
+The maximum number of incremental fetch sessions that we will maintain.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== num.partitions
+
+The default number of log partitions per topic
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.old.secret
+
+The old secret that was used for encoding dynamically configured passwords. This is required only when the secret is updated. If specified, all dynamically encoded passwords are decoded using this old secret and re-encoded using password.encoder.secret when broker starts up.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.secret
+
+The secret used for encoding dynamically configured passwords for this broker.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== principal.builder.class
+
+The fully qualified name of a class that implements the KafkaPrincipalBuilder interface, which is used to build the KafkaPrincipal object used during authorization. If no principal builder is defined, the default behavior depends on the security protocol in use. For SSL authentication, the principal will be derived using the rules defined by ssl.principal.mapping.rules applied on the distinguished name from the client certificate if one is provided; otherwise, if client authentication is not required, the principal name will be ANONYMOUS. For SASL authentication, the principal will be derived using the rules defined by sasl.kerberos.principal.to.local.rules if GSSAPI is in use, and the SASL authentication ID for other mechanisms. For PLAINTEXT, the principal will be ANONYMOUS.
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== producer.purgatory.purge.interval.requests
+
+The purge interval (in number of requests) of the producer request purgatory
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== queued.max.request.bytes
+
+The number of queued bytes allowed before no more requests are read
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| -1
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== replica.fetch.backoff.ms
+
+The amount of time to sleep when fetch partition error occurs.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000 (1 second)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== replica.fetch.max.bytes
+
+The number of bytes of messages to attempt to fetch for each partition. This is not an absolute maximum, if the first record batch in the first non-empty partition of the fetch is larger than this value, the record batch will still be returned to ensure that progress can be made. The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config) or max.message.bytes (topic config).
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1048576 (1 mebibyte)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== replica.fetch.response.max.bytes
+
+Maximum bytes expected for the entire fetch response. Records are fetched in batches, and if the first record batch in the first non-empty partition of the fetch is larger than this value, the record batch will still be returned to ensure that progress can be made. As such, this is not an absolute maximum. The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config) or max.message.bytes (topic config).
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10485760 (10 mebibytes)
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== replica.selector.class
+
+The fully qualified class name that implements ReplicaSelector. This is used by the broker to find the preferred read replica. By default, we use an implementation that returns the leader.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== reserved.broker.max.id
+
+Max number that can be used for a broker.id
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1000
+
+| 有效值
+| [0,...]
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== sasl.client.callback.handler.class
+
+The fully qualified name of a SASL client callback handler class that implements the AuthenticateCallbackHandler interface.
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== sasl.enabled.mechanisms
+
+The list of SASL mechanisms enabled in the Kafka server. The list may contain any mechanism for which a security provider is available. Only GSSAPI is enabled by default.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| GSSAPI
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.jaas.config
+
+JAAS login context parameters for SASL connections in the format used by JAAS configuration files. JAAS configuration file format is described here. The format for the value is: loginModuleClass controlFlag (optionName=optionValue)*;. For brokers, the config must be prefixed with listener prefix and SASL mechanism name in lower-case. For example, listener.name.sasl_ssl.scram-sha-256.sasl.jaas.config=com.example.ScramLoginModule required;
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.kinit.cmd
+
+Kerberos kinit command path.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| /usr/bin/kinit
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.min.time.before.relogin
+
+Login thread sleep time between refresh attempts.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 60000
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.principal.to.local.rules
+
+A list of rules for mapping from principal names to short names (typically operating system usernames). The rules are evaluated in order and the first rule that matches a principal name is used to map it to a short name. Any later rules in the list are ignored. By default, principal names of the form {username}/{hostname}@{REALM} are mapped to {username}. For more details on the format please see security authorization and acls. Note that this configuration is ignored if an extension of KafkaPrincipalBuilder is provided by the principal.builder.class configuration.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| DEFAULT
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.service.name
+
+The Kerberos principal name that Kafka runs as. This can be defined either in Kafka's JAAS config or in Kafka's config.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.ticket.renew.jitter
+
+Percentage of random jitter added to the renewal time.
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.05
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.kerberos.ticket.renew.window.factor
+
+Login thread will sleep until the specified window factor of time from last refresh to ticket's expiry has been reached, at which time it will try to renew the ticket.
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.8
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.login.callback.handler.class
+
+The fully qualified name of a SASL login callback handler class that implements the AuthenticateCallbackHandler interface. For brokers, login callback handler config must be prefixed with listener prefix and SASL mechanism name in lower-case. For example, listener.name.sasl_ssl.scram-sha-256.sasl.login.callback.handler.class=com.example.CustomScramLoginCallbackHandler
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== sasl.login.class
+
+The fully qualified name of a class that implements the Login interface. For brokers, login config must be prefixed with listener prefix and SASL mechanism name in lower-case. For example, listener.name.sasl_ssl.scram-sha-256.sasl.login.class=com.example.CustomScramLogin
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+|
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== sasl.login.refresh.buffer.seconds
+
+The amount of buffer time before credential expiration to maintain when refreshing a credential, in seconds. If a refresh would otherwise occur closer to expiration than the number of buffer seconds then the refresh will be moved up to maintain as much of the buffer time as possible. Legal values are between 0 and 3600 (1 hour); a default value of 300 (5 minutes) is used if no value is specified. This value and sasl.login.refresh.min.period.seconds are both ignored if their sum exceeds the remaining lifetime of a credential. Currently applies only to OAUTHBEARER.
+
+|===
+| 名称 | 值
+
+| 类型
+| short
+
+| 默认值
+| 300
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.login.refresh.min.period.seconds
+
+The desired minimum time for the login refresh thread to wait before refreshing a credential, in seconds. Legal values are between 0 and 900 (15 minutes); a default value of 60 (1 minute) is used if no value is specified. This value and sasl.login.refresh.buffer.seconds are both ignored if their sum exceeds the remaining lifetime of a credential. Currently applies only to OAUTHBEARER.
+
+|===
+| 名称 | 值
+
+| 类型
+| short
+
+| 默认值
+| 60
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.login.refresh.window.factor
+
+Login refresh thread will sleep until the specified window factor relative to the credential's lifetime has been reached, at which time it will try to refresh the credential. Legal values are between 0.5 (50%) and 1.0 (100%) inclusive; a default value of 0.8 (80%) is used if no value is specified. Currently applies only to OAUTHBEARER.
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.8
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.login.refresh.window.jitter
+
+The maximum amount of random jitter relative to the credential's lifetime that is added to the login refresh thread's sleep time. Legal values are between 0 and 0.25 (25%) inclusive; a default value of 0.05 (5%) is used if no value is specified. Currently applies only to OAUTHBEARER.
+
+|===
+| 名称 | 值
+
+| 类型
+| double
+
+| 默认值
+| 0.05
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.mechanism.inter.broker.protocol
+
+SASL mechanism used for inter-broker communication. Default is GSSAPI.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| GSSAPI
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== sasl.server.callback.handler.class
+
+The fully qualified name of a SASL server callback handler class that implements the AuthenticateCallbackHandler interface. Server callback handlers must be prefixed with listener prefix and SASL mechanism name in lower-case. For example, listener.name.sasl_ssl.plain.sasl.server.callback.handler.class=com.example.CustomPlainCallba
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== security.inter.broker.protocol
+
+Security protocol used to communicate between brokers. Valid values are: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL. It is an error to set this and inter.broker.listener.name properties at the same time.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| PLAINTEXT
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== socket.connection.setup.timeout.max.ms
+
+The maximum amount of time the client will wait for the socket connection to be established. The connection setup timeout will increase exponentially for each consecutive connection failure up to this maximum. To avoid connection storms, a randomization factor of 0.2 will be applied to the timeout resulting in a random range between 20% below and 20% above the computed value.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== socket.connection.setup.timeout.ms
+
+The amount of time the client will wait for the socket connection to be established. If the connection is not built before the timeout elapses, clients will close the socket channel.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 10000 (10 seconds)
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== ssl.cipher.suites
+
+A list of cipher suites. This is a named combination of authentication, encryption, MAC and key exchange algorithm used to negotiate the security settings for a network connection using TLS or SSL network protocol. By default all the available cipher suites are supported.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| ""
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.client.auth
+
+Configures kafka broker to request client authentication. The following settings are common:
+
+* ssl.client.auth=required If set to required client authentication is required.
+* ssl.client.auth=requested This means client authentication is optional. unlike required, if this option is set client can choose not to provide authentication information about itself
+* ssl.client.auth=none This means client authentication is not needed.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| none
+
+| 有效值
+| [required, requested, none]
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.enabled.protocols
+
+The list of protocols enabled for SSL connections. The default is 'TLSv1.2,TLSv1.3' when running with Java 11 or newer, 'TLSv1.2' otherwise. With the default value for Java 11, clients and servers will prefer TLSv1.3 if both support it and fallback to TLSv1.2 otherwise (assuming both support at least TLSv1.2). This default should be fine for most cases. Also see the config documentation for `ssl.protocol`.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| TLSv1.2
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.key.password
+
+The password of the private key in the key store file orthe PEM key specified in `ssl.keystore.key'. This is required for clients only if two-way authentication is configured.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keymanager.algorithm
+
+The algorithm used by key manager factory for SSL connections. Default value is the key manager factory algorithm configured for the Java Virtual Machine.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| SunX509
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keystore.certificate.chain
+
+Certificate chain in the format specified by 'ssl.keystore.type'. Default SSL engine factory supports only PEM format with a list of X.509 certificates
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+|
+
+| 有效值
+| null
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keystore.key
+
+Private key in the format specified by 'ssl.keystore.type'. Default SSL engine factory supports only PEM format with PKCS#8 keys. If the key is encrypted, key password must be specified using 'ssl.key.password'
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keystore.location
+
+The location of the key store file. This is optional for client and can be used for two-way authentication for client.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keystore.password
+
+The store password for the key store file. This is optional for client and only needed if 'ssl.keystore.location' is configured. Key store password is not supported for PEM format.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.keystore.type
+
+The file format of the key store file. This is optional for client.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| JKS
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.protocol
+
+The SSL protocol used to generate the SSLContext. The default is 'TLSv1.3' when running with Java 11 or newer, 'TLSv1.2' otherwise. This value should be fine for most use cases. Allowed values in recent JVMs are 'TLSv1.2' and 'TLSv1.3'. 'TLS', 'TLSv1.1', 'SSL', 'SSLv2' and 'SSLv3' may be supported in older JVMs, but their usage is discouraged due to known security vulnerabilities. With the default value for this config and 'ssl.enabled.protocols', clients will downgrade to 'TLSv1.2' if the server does not support 'TLSv1.3'. If this config is set to 'TLSv1.2', clients will not use 'TLSv1.3' even if it is one of the values in ssl.enabled.protocols and the server only supports 'TLSv1.3'.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| TLSv1.2
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.provider
+
+The name of the security provider used for SSL connections. Default value is the default security provider of the JVM.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.trustmanager.algorithm
+
+The algorithm used by trust manager factory for SSL connections. Default value is the trust manager factory algorithm configured for the Java Virtual Machine.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| PKIX
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.truststore.certificates
+
+Trusted certificates in the format specified by 'ssl.truststore.type'. Default SSL engine factory supports only PEM format with X.509 certificates.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.truststore.location
+
+The location of the trust store file.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.truststore.password
+
+The password for the trust store file. If a password is not set, trust store file configured will still be used, but integrity checking is disabled. Trust store password is not supported for PEM format.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.truststore.type
+
+The file format of the trust store file.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| JKS
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| per-broker
+|===
+
+== zookeeper.clientCnxnSocket
+
+Typically set to org.apache.zookeeper.ClientCnxnSocketNetty when using TLS connectivity to ZooKeeper. Overrides any explicit value set via the same-named zookeeper.clientCnxnSocket system property.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.client.enable
+
+Set client to use TLS when connecting to ZooKeeper. An explicit value overrides any value set via the zookeeper.client.secure system property (note the different name). Defaults to false if neither is set; when true, zookeeper.clientCnxnSocket must be set (typically to org.apache.zookeeper.ClientCnxnSocketNetty); other values to set may include zookeeper.ssl.cipher.suites, zookeeper.ssl.crl.enable, zookeeper.ssl.enabled.protocols, zookeeper.ssl.endpoint.identification.algorithm, zookeeper.ssl.keystore.location, zookeeper.ssl.keystore.password, zookeeper.ssl.keystore.type, zookeeper.ssl.ocsp.enable, zookeeper.ssl.protocol, zookeeper.ssl.truststore.location, zookeeper.ssl.truststore.password, zookeeper.ssl.truststore.type
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.keystore.location
+
+Keystore location when using a client-side certificate with TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.keyStore.location system property (note the camelCase).
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.keystore.password
+
+Keystore password when using a client-side certificate with TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.keyStore.password system property (note the camelCase). Note that ZooKeeper does not support a key password different from the keystore password, so be sure to set the key password in the keystore to be identical to the keystore password; otherwise the connection attempt to Zookeeper will fail.
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.keystore.type
+
+Keystore type when using a client-side certificate with TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.keyStore.type system property (note the camelCase). The default value of null means the type will be auto-detected based on the filename extension of the keystore.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.truststore.location
+
+Truststore location when using TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.trustStore.location system property (note the camelCase).
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.truststore.password
+
+Truststore password when using TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.trustStore.password system property (note the camelCase).
+
+|===
+| 名称 | 值
+
+| 类型
+| password
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.truststore.type
+
+Truststore type when using TLS connectivity to ZooKeeper. Overrides any explicit value set via the zookeeper.ssl.trustStore.type system property (note the camelCase). The default value of null means the type will be auto-detected based on the filename extension of the truststore.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| medium
+
+| 更新模式
+| read-only
+|===
+
+== alter.config.policy.class.name
+
+The alter configs policy class that should be used for validation. The class should implement the org.apache.kafka.server.policy.AlterConfigPolicy interface.
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== alter.log.dirs.replication.quota.window.num
+
+The number of samples to retain in memory for alter log dirs replication quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 11
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== alter.log.dirs.replication.quota.window.size.seconds
+
+The time span of each sample for alter log dirs replication quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== authorizer.class.name
+
+The fully qualified name of a class that implements sorg.apache.kafka.server.authorizer.Authorizer interface, which is used by the broker for authorization.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| ""
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== client.quota.callback.class
+
+The fully qualified name of a class that implements the ClientQuotaCallback interface, which is used to determine quota limits applied to client requests. By default, , or quotas stored in ZooKeeper are applied. For any given request, the most specific quota that matches the user principal of the session and the client-id of the request is applied.
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== connection.failed.authentication.delay.ms
+
+Connection close delay on failed authentication: this is the time (in milliseconds) by which connection close will be delayed on authentication failure. This must be configured to be less than connections.max.idle.ms to prevent connection timeout.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 100
+
+| 有效值
+| [0,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== controller.quorum.retry.backoff.ms
+
+The amount of time to wait before attempting to retry a failed request to a given topic partition. This avoids repeatedly sending requests in a tight loop under some failure scenarios.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 20
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== controller.quota.window.num
+
+The number of samples to retain in memory for controller mutation quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 11
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== controller.quota.window.size.seconds
+
+The time span of each sample for controller mutations quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== create.topic.policy.class.name
+
+The create topic policy class that should be used for validation. The class should implement the org.apache.kafka.server.policy.CreateTopicPolicy interface.
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== delegation.token.expiry.check.interval.ms
+
+Scan interval to remove expired delegation tokens.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 3600000 (1 hour)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== kafka.metrics.polling.interval.secs
+
+The metrics polling interval (in seconds) which can be used in kafka.metrics.reporters implementations.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== kafka.metrics.reporters
+
+A list of classes to use as Yammer metrics custom reporters. The reporters should implement kafka.metrics.KafkaMetricsReporter trait. If a client wants to expose JMX operations on a custom reporter, the custom reporter needs to additionally implement an MBean trait that extends kafka.metrics.KafkaMetricsReporterMBean trait so that the registered MBean is compliant with the standard MBean convention.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| ""
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== listener.security.protocol.map
+
+Map between listener names and security protocols. This must be defined for the same security protocol to be usable in more than one port or IP. For example, internal and external traffic can be separated even if SSL is required for both. Concretely, the user could define listeners with names INTERNAL and EXTERNAL and this property as: `INTERNAL:SSL,EXTERNAL:SSL`. As shown, key and value are separated by a colon and map entries are separated by commas. Each listener name should only appear once in the map. Different security (SSL and SASL) settings can be configured for each listener by adding a normalised prefix (the listener name is lowercased) to the config name. For example, to set a different keystore for the INTERNAL listener, a config with name listener.name.internal.ssl.keystore.location would be set. If the config for the listener name is not set, the config will fallback to the generic config (i.e. ssl.keystore.location).
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| PLAINTEXT:PLAINTEXT,SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SAS
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| per-broker
+|===
+
+== log.message.downconversion.enable
+
+This configuration controls whether down-conversion of message formats is enabled to satisfy consume requests. When set to false, broker will not perform down-conversion for consumers expecting an older message format. The broker responds with UNSUPPORTED_VERSION error for consume requests from such older clients. This configurationdoes not apply to any message format conversion that might be required for replication to followers.
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| true
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| cluster-wide
+|===
+
+== metric.reporters
+
+A list of classes to use as metrics reporters. Implementing the org.apache.kafka.common.metrics.MetricsReporter interface allows plugging in classes that will be notified of new metric creation. The JmxReporter is always included to register JMX statistics.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| ""
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| cluster-wide
+|===
+
+== metrics.num.samples
+
+The number of samples maintained to compute metrics.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== metrics.recording.level
+
+The highest recording level for metrics.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| INFO
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== metrics.sample.window.ms
+
+The window of time a metrics sample is computed over.
+
+|===
+| 名称 | 值
+
+| 类型
+| long
+
+| 默认值
+| 30000 (30 seconds)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.cipher.algorithm
+
+The Cipher algorithm used for encoding dynamically configured passwords.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| AES/CBC/PKCS5Padding
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.iterations
+
+The iteration count used for encoding dynamically configured passwords.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 4096
+
+| 有效值
+| [1024,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.key.length
+
+The key length used for encoding dynamically configured passwords.
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 128
+
+| 有效值
+| [8,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== password.encoder.keyfactory.algorithm
+
+The SecretKeyFactory algorithm used for encoding dynamically configured passwords. Default is PBKDF2WithHmacSHA512 if available and PBKDF2WithHmacSHA1 otherwise.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== quota.window.num
+
+The number of samples to retain in memory for client quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 11
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== quota.window.size.seconds
+
+The time span of each sample for client quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== replication.quota.window.num
+
+The number of samples to retain in memory for replication quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 11
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== replication.quota.window.size.seconds
+
+The time span of each sample for replication quotas
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 1
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== security.providers
+
+A list of configurable creator classes each returning a provider implementing security algorithms. These classes should implement the org.apache.kafka.common.security.auth.SecurityProviderCreator interface.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== ssl.endpoint.identification.algorithm
+
+The endpoint identification algorithm to validate server hostname using server certificate.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| https
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.engine.factory.class
+
+The class of type org.apache.kafka.common.security.auth.SslEngineFactory to provide SSLEngine objects. Default value is org.apache.kafka.common.security.ssl.DefaultSslEngineFactory
+
+|===
+| 名称 | 值
+
+| 类型
+| class
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| per-broker
+|===
+
+== ssl.principal.mapping.rules
+
+A list of rules for mapping from distinguished name from the client certificate to short name. The rules are evaluated in order and the first rule that matches a principal name is used to map it to a short name. Any later rules in the list are ignored. By default, distinguished name of the X.500 certificate will be the principal. For more details on the format please see security authorization and acls. Note that this configuration is ignored if an extension of KafkaPrincipalBuilder is provided by the principal.builder.class configuration.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| DEFAULT
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== ssl.secure.random.implementation
+
+The SecureRandom PRNG implementation to use for SSL cryptography operations.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| per-broker
+|===
+
+== transaction.abort.timed.out.transaction.cleanup.interval.ms
+
+The interval at which to rollback transactions that have timed out
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 10000 (10 seconds)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== transaction.remove.expired.transaction.cleanup.interval.ms
+
+The interval at which to remove transactions that have expired due to transactional.id.expiration.ms passing
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 3600000 (1 hour)
+
+| 有效值
+| [1,...]
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.cipher.suites
+
+Specifies the enabled cipher suites to be used in ZooKeeper TLS negotiation (csv). Overrides any explicit value set via the zookeeper.ssl.ciphersuites system property (note the single word "ciphersuites"). The default value of null means the list of enabled cipher suites is determined by the Java runtime being used.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.crl.enable
+
+Specifies whether to enable Certificate Revocation List in the ZooKeeper TLS protocols. Overrides any explicit value set via the zookeeper.ssl.crl system property (note the shorter name).
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.enabled.protocols
+
+Specifies the enabled protocol(s) in ZooKeeper TLS negotiation (csv). Overrides any explicit value set via the zookeeper.ssl.enabledProtocols system property (note the camelCase). The default value of null means the enabled protocol will be the value of the zookeeper.ssl.protocol configuration property.
+
+|===
+| 名称 | 值
+
+| 类型
+| list
+
+| 默认值
+| null
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.endpoint.identification.algorithm
+
+Specifies whether to enable hostname verification in the ZooKeeper TLS negotiation process, with (case-insensitively) "https" meaning ZooKeeper hostname verification is enabled and an explicit blank value meaning it is disabled (disabling it is only recommended for testing purposes). An explicit value overrides any "true" or "false" value set via the zookeeper.ssl.hostnameVerification system property (note the different name and values; true implies https and false implies blank).
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| HTTPS
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.ocsp.enable
+
+Specifies whether to enable Online Certificate Status Protocol in the ZooKeeper TLS protocols. Overrides any explicit value set via the zookeeper.ssl.ocsp system property (note the shorter name).
+
+|===
+| 名称 | 值
+
+| 类型
+| boolean
+
+| 默认值
+| false
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.ssl.protocol
+
+Specifies the protocol to be used in ZooKeeper TLS negotiation. An explicit value overrides any value set via the same-named zookeeper.ssl.protocol system property.
+
+|===
+| 名称 | 值
+
+| 类型
+| string
+
+| 默认值
+| TLSv1.2
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+== zookeeper.sync.time.ms
+
+How far a ZK follower can be behind a ZK leader
+
+|===
+| 名称 | 值
+
+| 类型
+| int
+
+| 默认值
+| 2000 (2 seconds)
+
+| 有效值
+|
+
+| 重要性
+| low
+
+| 更新模式
+| read-only
+|===
+
+有关代理配置的更多详细信息可以在 scala   `kafka.server.KafkaConfig` 类找到.
+
+== 更新 Broker 配置
+
+从 Kafka 1.1 版开始，一些代理配置可以在不重新启动代理的情况下更新。 有关每个代理配置的更新模式，请参阅代理配置中的动态更新模式列。
+
+* read-only: 需要重新启动代理才能更新
+* per-broker: 可以为每个 broker 动态更新
+* cluster-wide: 可以作为集群范围的默认值动态更新。 也可以为每个 broker 的更新测试值。
+
+要更改代理 id 0 的当前代理配置（例如，日志清理线程的数量）：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-name 0 --alter --add-config log.cleaner.threads=2
+----
+
+要描述代理 id 0 的当前动态代理配置：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-name 0 --describe
+----
+
+要删除配置覆盖并恢复为代理 id 0 的静态配置或默认值（例如，日志清理线程的数量）：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-name 0 --alter --delete-config log.cleaner.threads
+----
+
+一些配置可以配置为集群范围的默认值，以在整个集群中保持一致的值。 集群中的所有代理都会处理集群默认更新。 例如，要更新所有代理上的日志清理线程：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-default --alter --add-config log.cleaner.threads=2
+----
+
+描述当前配置的动态集群范围的默认配置：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-default --describe
+----
+
+所有可在集群级别配置的配置也可以在每个代理级别配置（例如，用于测试）。 如果在不同级别定义配置值，则使用以下优先顺序：
+
+* Dynamic per-broker config stored in ZooKeeper
+* Dynamic cluster-wide default config stored in ZooKeeper
+* Static broker config from server.properties
+* Kafka default, see broker configs
+
+=== 动态更新密码配置
+
+动态更新的密码配置值在存储到 ZooKeeper 之前被加密。 代理配置 `password.encoder.secret` 必须在 `server.properties` 中配置以启用密码配置的动态更新。 不同经纪人的秘密可能不同。
+
+用于密码编码的秘密可以随着代理的滚动重启而轮换。 当前在 ZooKeeper 中用于编码密码的旧密码必须在静态代理配置 `password.encoder.old.secret` 中提供，新密码必须在 `password.encoder.secret` 中提供。 当代理启动时，存储在 ZooKeeper 中的所有动态密码配置都将使用新密码重新编码。
+
+在 Kafka 1.1.x 中，使用 `kafka-configs.sh` 更新配置时，必须在每个更改请求中提供所有动态更新的密码配置，即使密码配置没有被更改。 此约束将在未来的版本中删除。
+
+=== 在启动代理之前更新 ZooKeeper 中的密码配置
+
+从 Kafka 2.0.0 开始，kafka-configs.sh 允许在启动代理进行引导之前使用 ZooKeeper 更新动态代理配置。 这使得所有密码配置都可以以加密形式存储，避免在 `server.properties` 中需要明确的密码。
+如果 alter 命令中包含任何密码配置，还必须指定代理配置 `password.encoder.secret`。 也可以指定附加的加密参数。 密码编码器配置不会保留在 ZooKeeper 中。 例如，要在代理 0 上存储监听器 INTERNAL 的 SSL 密钥密码：
+
+[source,shell]
+----
+> bin/kafka-configs.sh --zookeeper localhost:2182 --zk-tls-config-file zk_tls_config.properties --entity-type brokers --entity-name 0 --alter --add-config
+    'listener.name.internal.ssl.key.password=key-password,password.encoder.secret=secret,password.encoder.iterations=8192'
+----
+
+配置 `listener.name.internal.ssl.key.password` 将使用提供的编码器配置以加密形式保存在 ZooKeeper 中。 ZooKeeper 中不保留编码器密码和迭代。
+
+=== 更新现有监听器的 SSL 密钥库
+
+可以为代理配置具有较短有效期的 SSL 密钥库，以降低证书受损的风险。 密钥库可以动态更新而无需重新启动代理。 配置名称必须以监听器前缀 listener.name.{listenerName} 为前缀。 以便仅更新特定监听器的密钥库配置。 以下配置可以在每个代理级别的单个更改请求中更新：
+
+* ssl.keystore.type
+* ssl.keystore.location
+* ssl.keystore.password
+* ssl.key.password
+
+如果监听器是代理间监听器，则仅当为该监听器配置的信任库信任新密钥库时才允许更新。 对于其他监听器，代理不会对密钥库执行信任验证。 证书必须由签署旧证书的同一证书颁发机构签署，以避免任何客户端身份验证失败。
+
+=== 更新现有监听器的 SSL 信任库
+
+代理信任库可以动态更新，而无需重新启动代理以添加或删除证书。 更新的信任库将用于验证新的客户端连接。 配置名称必须以监听器前缀 `listener.name.{listenerName}` 为前缀。 以便仅更新特定监听器的信任库配置。
+以下配置可以在每个代理级别的单个更改请求中更新：
+
+* ssl.truststore.type
+* ssl.truststore.location
+* ssl.truststore.password
+
+如果监听器是代理间监听器，则仅当该监听器的现有密钥库受新信任库信任时才允许更新。 对于其他监听器，代理在更新之前不执行信任验证。 从新信任库中删除用于签署客户端证书的 CA 证书可能会导致客户端身份验证失败。
+
+=== 更新默认主题配置
+
+代理使用的默认主题配置选项可以在没有代理重启的情况下更新。 配置应用于主题，而没有等效的每个主题配置的主题配置覆盖。 这些配置中的一个或多个可能会在所有代理使用的集群默认级别上被覆盖。
+
+* log.segment.bytes
+* log.roll.ms
+* log.roll.hours
+* log.roll.jitter.ms
+* log.roll.jitter.hours
+* log.index.size.max.bytes
+* log.flush.interval.messages
+* log.flush.interval.ms
+* log.retention.bytes
+* log.retention.ms
+* log.retention.minutes
+* log.retention.hours
+* log.index.interval.bytes
+* log.cleaner.delete.retention.ms
+* log.cleaner.min.compaction.lag.ms
+* log.cleaner.max.compaction.lag.ms
+* log.cleaner.min.cleanable.ratio
+* log.cleanup.policy
+* log.segment.delete.delay.ms
+* unclean.leader.election.enable
+* min.insync.replicas
+* max.message.bytes
+* compression.type
+* log.preallocate
+* log.message.timestamp.type
+* log.message.timestamp.difference.max.ms
+
+从 Kafka 版本 2.0.0 开始，当配置 `unclean.leader.election.enable` 动态更新时，控制器会自动启用不干净的领导者选举。 在 Kafka 版本 1.1.x 中，对 `unclean.leader.election.enable` 的更改仅在选举新控制器时生效。 控制器重新选举可以通过运行来强制：
+
+
+[source,shell]
+----
+> bin/zookeeper-shell.sh localhost
+  rmr /controller
+----
+
+=== 更新日志清理器配置
+
+日志清理器配置可以在所有代理使用的集群默认级别动态更新。 这些更改在下一次日志清理迭代中生效。 这些配置中的一个或多个可能会更新：
+
+* log.cleaner.threads
+* log.cleaner.io.max.bytes.per.second
+* log.cleaner.dedupe.buffer.size
+* log.cleaner.io.buffer.size
+* log.cleaner.io.buffer.load.factor
+* log.cleaner.backoff.ms
+
+=== 更新线程配置
+
+代理使用的各种线程池的大小可以在所有代理使用的集群默认级别动态更新。 更新限制在 `currentSize / 2` 到 `currentSize * 2` 的范围内，以确保优雅地处理配置更新。
+
+* num.network.threads
+* num.io.threads
+* num.replica.fetchers
+* num.recovery.threads.per.data.dir
+* log.cleaner.threads
+* background.threads
+
+=== 更新 ConnectionQuota 配置
+
+代理允许的给定 IP/主机的最大连接数可以在所有代理使用的集群默认级别动态更新。 这些更改将适用于新的连接创建，并且现有连接数将被新限制考虑在内。
+
+* max.connections.per.ip
+* max.connections.per.ip.overrides
+
+=== 添加和删除监听器
+
+监听器可以动态添加或删除。 添加新监听器时，监听器的安全配置必须作为监听器配置提供监听器前缀 `listener.name.{listenerName}`. 如果新监听器使用 SASL，则必须使用 JAAS 提供监听器的 JAAS 配置 带有监听器和机制前缀的配置属性 `sasl.jaas.config`。
+有关详细信息，<<kafka-security-jaas-broker,请参阅 Kafka 代理的 JAAS 配置>>。
+
+在 Kafka 版本 1.1.x 中，inter-broker 监听器使用的监听器可能不会动态更新。 要将代理间监听器更新为新监听器，可以在所有代理上添加新监听器，而无需重新启动代理。 然后需要滚动重启来更新 `inter.broker.listener.name`。
+
+除了新监听器的所有安全配置之外，以下配置可能会在每个代理级别动态更新：
+
+* listeners
+* advertised.listeners
+* listener.security.protocol.map
+
+必须使用静态代理配置 `inter.broker.listener.name` 或 `inter.broker.security.protocol` 配置 inter-broker 监听器。
+
