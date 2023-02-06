@@ -65,21 +65,44 @@ image::D:/OneDrive/桌面/system design/Typeahead/trie_merge_node.png[]
 We can store top 10 suggestions at each node that we can return to the user.
 We have to bear the big increase in our storage capacity to achieve the required efficiency.
 
+我们可以通过存储终端节点的引用而不是存储整个短语来优化存储。要找到推荐项，我们需要使用终端节点中的父引用进行后置遍历。
+我们还需要存储每个引用的频率，以跟踪热门推荐。
+
+
 We can optimize our storage by storing only references of the terminal nodes rather than storing the entire phrase.
 To find the suggested terms we need to traverse back using the parent reference from the terminal node.
 We will also need to store the frequency with each reference to keep track of top suggestions.
+
+*将如何构建这个trie型数据结构？* 我们可以有效地自下而上地构建我们的trie。每个父节点将以递归方式调用所有子节点，以计算其热门推荐和计数。
+父节点将组合来自其所有子节点的热门推荐，以确定最终的热门推荐。
 
 *How would we build this trie?* We can efficiently build our trie bottom up.
 Each parent node will recursively call all the child nodes to calculate their top suggestions and their counts.
 Parent nodes will combine top suggestions from all of their children to determine their top suggestions.
 
+*如何更新trie型数据结构？* 假设每天有50亿次搜索，这将会有每秒大约60K的查询。
+如果我们尝试为每个查询更新我们的trie，它将是非常消耗资源，这也可能会阻塞我们的读取请求。
+处理此问题的一种解决方案是在一定间隔后离线更新我们的 trie 型数据结构。
+
 *How to update the trie?* Assuming five billion searches every day, which would give us approximately 60K queries per second.
 If we try to update our trie for every query it’ll be extremely resource intensive and this can hamper our read requests, too.
 One solution to handle this could be to update our trie offline after a certain interval.
 
+当新查询进来时，我们可以记录它们并跟踪它们的查询频率。
+我们可以记录每个查询，也可以进行采样并记录每第 1000 个查询。
+例如，如果我们不想显示搜索次数少于 1000 次的术语，则每记录第 1000 个搜索的术语是安全的。
+
 As the new queries come in we can log them and also track their frequencies.
 Either we can log every query or do sampling and log every 1000th query.
 For example, if we don’t want to show a term which is searched for less than 1000 times, it’s safe to log every 1000th searched term.
+
+
+我们可以设置一个 https://en.wikipedia.org/wiki/MapReduce[Map-Reduce (MR)]来定期处理所有日志中记录的数据，比如每小时一次。
+这些 MR 作业将计算过去一小时内所有搜索词的频率。然后，我们可以用这些新数据更新 tire 数据结构。
+我们可以拍摄 trie 的当前快照，并使用所有新术语及其频率对其进行更新。
+我们应该离线执行此操作，因为我们不希望更新 trie 树结构的操作阻塞读取查询。
+我们可以有两种选择：
+
 
 We can have a https://en.wikipedia.org/wiki/MapReduce[Map-Reduce (MR)] set-up to process all the logging data periodically say every hour.
 These MR jobs will calculate frequencies of all searched terms in the past hour.
@@ -87,6 +110,10 @@ We can then update our trie with this new data.
 We can take the current snapshot of the trie and update it with all the new terms and their frequencies.
 We should do this offline as we don’t want our read queries to be blocked by update trie requests.
 We can have two options:
+
+. 我们可以在每台服务器上复制一份 trie 数据以离线更新它。更新完成后，我们可以使用新的数据并丢弃旧数据。
+. 另一种选择是我们可以为每个trie服务器配置主从服务。我们可以使用master为流量提供服务的同时，更新slave上的数据。
+更新完成后，我们可以使slave服务器成为我们的新的master服务器。我们稍后可以更新旧master，然后它又开始为流量提供服务。
 
 . We can make a copy of the trie on each server to update it offline.
 Once done we can switch to start using it and discard the old one.
