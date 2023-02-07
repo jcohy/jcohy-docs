@@ -47,8 +47,6 @@ image::D:/OneDrive/桌面/system design/Typeahead/trie_merge_node.png[]
 
 *我们应该在tire型数据结构中区分大小写吗？* 为了搜索简单，在此假定我们不区分大小写。
 
-*Should we have case insensitive trie?* For simplicity and search use-case, let’s assume our data is case insensitive.
-
 *如何查找顶层建议？* 现在我们可以找到所有给定前缀的术语，我们如何知道应该建议的前 10 个术语是什么？
 一个简单的解决方案是在每个尾节点保存搜索次数，例如，如果用户搜索了 “CAPTAIN” 100 次，搜索了 “CAPTION” 500次，我们可以将此数字与短语的最后一个字符保存在一起。
 因此，现在如果用户输入了“CAP”，我们知道前缀“CAP”下搜索最多的单词是“CAPTION”。
@@ -61,41 +59,19 @@ image::D:/OneDrive/桌面/system design/Typeahead/trie_merge_node.png[]
 *我们可以存储每个节点的热门推荐吗？* 这肯定可以加快我们的搜索速度，但需要大量额外的存储空间。
 我们可以在每个节点上存储前 10 个推荐，可以将其返回给用户。我们必须承受存储容量的大幅增加才能达到所需的效率。
 
-*Can we store top suggestions with each node?* This can surely speed up our searches but will require a lot of extra storage.
-We can store top 10 suggestions at each node that we can return to the user.
-We have to bear the big increase in our storage capacity to achieve the required efficiency.
-
 我们可以通过存储终端节点的引用而不是存储整个短语来优化存储。要找到推荐项，我们需要使用终端节点中的父引用进行后置遍历。
 我们还需要存储每个引用的频率，以跟踪热门推荐。
 
-
-We can optimize our storage by storing only references of the terminal nodes rather than storing the entire phrase.
-To find the suggested terms we need to traverse back using the parent reference from the terminal node.
-We will also need to store the frequency with each reference to keep track of top suggestions.
-
 *将如何构建这个trie型数据结构？* 我们可以有效地自下而上地构建我们的trie。每个父节点将以递归方式调用所有子节点，以计算其热门推荐和计数。
 父节点将组合来自其所有子节点的热门推荐，以确定最终的热门推荐。
-
-*How would we build this trie?* We can efficiently build our trie bottom up.
-Each parent node will recursively call all the child nodes to calculate their top suggestions and their counts.
-Parent nodes will combine top suggestions from all of their children to determine their top suggestions.
 
 *如何更新trie型数据结构？* 假设每天有50亿次搜索，这将会有每秒大约60K的查询。
 如果我们尝试为每个查询更新我们的trie，它将是非常消耗资源，这也可能会阻塞我们的读取请求。
 处理此问题的一种解决方案是在一定间隔后离线更新我们的 trie 型数据结构。
 
-*How to update the trie?* Assuming five billion searches every day, which would give us approximately 60K queries per second.
-If we try to update our trie for every query it’ll be extremely resource intensive and this can hamper our read requests, too.
-One solution to handle this could be to update our trie offline after a certain interval.
-
 当新查询进来时，我们可以记录它们并跟踪它们的查询频率。
 我们可以记录每个查询，也可以进行采样并记录每第 1000 个查询。
 例如，如果我们不想显示搜索次数少于 1000 次的术语，则每记录第 1000 个搜索的术语是安全的。
-
-As the new queries come in we can log them and also track their frequencies.
-Either we can log every query or do sampling and log every 1000th query.
-For example, if we don’t want to show a term which is searched for less than 1000 times, it’s safe to log every 1000th searched term.
-
 
 我们可以设置一个 https://en.wikipedia.org/wiki/MapReduce[Map-Reduce (MR)]来定期处理所有日志中记录的数据，比如每小时一次。
 这些 MR 作业将计算过去一小时内所有搜索词的频率。然后，我们可以用这些新数据更新 tire 数据结构。
@@ -103,44 +79,31 @@ For example, if we don’t want to show a term which is searched for less than 1
 我们应该离线执行此操作，因为我们不希望更新 trie 树结构的操作阻塞读取查询。
 我们可以有两种选择：
 
-
-We can have a https://en.wikipedia.org/wiki/MapReduce[Map-Reduce (MR)] set-up to process all the logging data periodically say every hour.
-These MR jobs will calculate frequencies of all searched terms in the past hour.
-We can then update our trie with this new data.
-We can take the current snapshot of the trie and update it with all the new terms and their frequencies.
-We should do this offline as we don’t want our read queries to be blocked by update trie requests.
-We can have two options:
-
 . 我们可以在每台服务器上复制一份 trie 数据以离线更新它。更新完成后，我们可以使用新的数据并丢弃旧数据。
 . 另一种选择是我们可以为每个trie服务器配置主从服务。我们可以使用master为流量提供服务的同时，更新slave上的数据。
 更新完成后，我们可以使slave服务器成为我们的新的master服务器。我们稍后可以更新旧master，然后它又开始为流量提供服务。
 
-. We can make a copy of the trie on each server to update it offline.
-Once done we can switch to start using it and discard the old one.
-. Another option is we can have a master-slave configuration for each trie server.
-We can update slave while the master is serving traffic.
-Once the update is complete, we can make the slave our new master.
-We can later update our old master, which can then start serving traffic, too.
 
-How can we update the frequencies of typeahead suggestions?
-Since we are storing frequencies of our typeahead suggestions with each node, we need to update them too.
-We can update only differences in frequencies rather than recounting all search terms from scratch.
-If we’re keeping count of all the terms searched in last 10 days, we’ll need to subtract the counts from the time period no longer included and add the counts for the new time period being included.
-We can add and subtract frequencies based on https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average[ Exponential MovingAverage (EMA)] of each term.
-In EMA, we give more weight to the latest data.
-It’s also known as the exponentially weighted moving average.
+如何更新typeahead推荐的频率？因为我们保存了每个节点推荐的频率，因此我们也需要更新它们。
+我们只需更新频率的差异，而不是从头开始重新计算所有搜索词的搜索次数。
+如果我们保留过去 10 天内搜索的所有字词的计数，则需要从不再包含的时间段中减去计数，并将包含的新时间段的计数相加。
+我们可以根据每个项的 https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average[指数移动平均值（EMA）]来加减频率。
+在EMA中，我们更加重视最新数据。它也被称为指数加权移动平均值。
 
-After inserting a new term in the trie, we’ll go to the terminal node of the phrase and increase its frequency.
-Since we’re storing the top 10 queries in each node, it is possible that this particular search term jumped into the top 10 queries of a few other nodes.
-So, we need to update the top 10 queries of those nodes then.
-We have to traverse back from the node to all the way up to the root.
-For every parent, we check if the current query is part of the top 10. If so, we update the corresponding frequency.
-If not, we check if the current query’s frequency is high enough to be a part of the top 10. If so, we insert this new term and remove the term with the lowest frequency.
 
-*How can we remove a term from the trie?* Let’s say we have to remove a term from the trie because of some legal issue or hate or piracy etc.
-We can completely remove such terms from the trie when the regular update happens, meanwhile, we can add a filtering layer on each server which will remove any such term before sending them to users.
 
-*What could be different ranking criteria for suggestions?* In addition to a simple count, for terms ranking, we have to consider other factors too, e.g., freshness, user location, language, demographics, personal history etc.
+在trie数据结构中插入一个新术语后，我们将转到短语的终端节点并增加其频率。
+由于我们在每个节点中存储前 10 个查询，因此此特定搜索词可能会跳入其他几个节点的前 10 个查询。
+因此，我们需要更新这些节点的前 10 个查询。
+我们必须从节点遍历到根节点。对于每个父查询，我们检查当前查询是否属于前 10 名的一部分。如果是这样，我们会更新相应的频率。
+如果不是，我们会检查当前查询的频率是否足够大，可以成为前 10 名的一部分。如果是这样，我们将插入此新术语并删除频率最低的术语。
+
+
+*我们如何从trie中删除一个术语？* 假设由于一些法律或仇恨或盗版等问题，我们必须从trie结构中删除一个术语。当定期更新发生时，
+我们可以从 trie 结构中完全删除这些术语，同时，我们可以在每个服务器中添加一个过滤层，该过滤层将在此类术语发送给用户之前将其删除。
+
+*推荐的排名标准可能有所不同？*  除了简单的计数之外，对于术语排名，我们还必须考虑其他因素，例如新鲜度、用户位置、语言、人口统计、个人历史等。
+
 
 [[permanent_storage_of_the_trie]]
 === 4.	Permanent Storage of the Trie
