@@ -1,0 +1,1550 @@
+[[spring-mvc-test-framework]]
+= MockMvc
+
+Spring MVC 测试框架 (也称为 MockMvc) 为测试 Spring MVC 应用程序提供支持.  它通过模拟请求和响应对象而不是正在运行的服务器执行完整的 Spring MVC 请求处理.
+
+MockMvc 可以单独用于执行请求和验证响应.  也可以通过 <<webtestclient>> 来使用它， 在该 `WebTestClient` 中插入 MockMvc 作为服务器来处理请求.  `WebTestClient` 的优点是可以处理更高级别的对象而不是原始数据， 并且可以切换到针对实时服务器的完整端到端 HTTP 测试并使用相同的测试 API.
+
+[[spring-mvc-test-server]]
+== 概述
+
+您可以通过实例化控制器， 向其注入依赖项并调用其方法来为 Spring MVC 编写普通的单元测试.  但是， 此类测试不会验证请求映射， 数据绑定， 消息转换， 类型转换， 验证， 也不会涉及任何支持的  `@InitBinder`, `@ModelAttribute` 或 `@ExceptionHandler` 方法.
+
+Spring MVC Test 框架 (也称为 `MockMvc`) 旨在在没有运行服务器的情况下为 Spring MVC 控制器提供更完整的测试.  它通过调用 `DispatcherServlet` 并从 `spring-test` 模块传递了 <<mock-objects-servlet, Servlet API "`mock`" 实现 >>来实现， 该模块在没有运行服务器的情况下复制了完整的 Spring MVC 请求处理.
+
+MockMvc 是一个服务器端测试框架， 使您可以使用轻量级的针对性测试来验证 Spring MVC 应用程序的大多数功能.  您可以单独使用它来执行请求和验证响应， 也可以通过 <<webtestclient>> API (带有作为服务器处理请求的服务器插入的 MockMvc) 来使用它.
+
+[[spring-mvc-test-server-static-imports]]
+== 静态导入
+
+直接使用 MockMvc 执行请求时， 您需要静态导入才能实现:
+
+- `MockMvcBuilders.{asterisk}`
+- `MockMvcRequestBuilders.{asterisk}`
+- `MockMvcResultMatchers.{asterisk}`
+- `MockMvcResultHandlers.{asterisk}`
+
+一种简单的记住方法是搜索 `MockMvc*`.  如果使用 Eclipse， 请确保还要在 Eclipse 首选项中将上述内容添加为  "`favorite static members`".
+
+通过 <<webtestclient>> 使用 MockMvc 时， 不需要静态导入.  `WebTestClient` 提供了一个流式的 API， 而没有静态导入.
+
+[[spring-mvc-test-server-setup-options]]
+== 设置选择
+
+MockMvc 可以通过以下两种方式之一进行设置.  一种是直接指向要测试的控制器， 并以编程方式配置 Spring MVC 基础结构.  第二个是指向其中装有 Spring MVC 和控制器基础结构的 Spring 配置.
+
+要设置 MockMvc 以测试特定的控制器， 请使用以下命令:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	class MyWebTests {
+
+		MockMvc mockMvc;
+
+		@BeforeEach
+		void setup() {
+			this.mockMvc = MockMvcBuilders.standaloneSetup(new AccountController()).build();
+		}
+
+		// ...
+
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class MyWebTests {
+
+		lateinit var mockMvc : MockMvc
+
+		@BeforeEach
+		fun setup() {
+			mockMvc = MockMvcBuilders.standaloneSetup(AccountController()).build()
+		}
+
+		// ...
+
+	}
+----
+
+或者， 您也可以在通过 <<webtestclient-controller-config, WebTestClient>>  进行测试时使用此设置， 该测试委托给如上所述的同一构建器.
+
+要通过 Spring 配置设置 MockMvc， 请使用以下命令:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig(locations = "my-servlet-context.xml")
+	class MyWebTests {
+
+		MockMvc mockMvc;
+
+		@BeforeEach
+		void setup(WebApplicationContext wac) {
+			this.mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
+		}
+
+		// ...
+
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig(locations = ["my-servlet-context.xml"])
+	class MyWebTests {
+
+		lateinit var mockMvc: MockMvc
+
+		@BeforeEach
+		fun setup(wac: WebApplicationContext) {
+			mockMvc = MockMvcBuilders.webAppContextSetup(wac).build()
+		}
+
+		// ...
+
+	}
+----
+
+或者， 您也可以在通过 <<webtestclient-context-config, WebTestClient>> 进行测试时使用此设置， 该测试委托给如上所述的同一构建器.
+
+您应该使用哪个设置选项?
+
+`webAppContextSetup` 加载实际的 Spring MVC 配置,从而进行更完整的集成测试.  由于 TestContext 框架缓存了已加载的 Spring 配置,因此即使您在测试套件中引入了更多测试,它也有助于保持测试的快速运行.  此外,您可以通过 Spring 配置将模拟服务注入控制器中,以继续专注于测试 Web 层.  下面的示例使用 Mockito 声明一个模拟服务:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<bean id="accountService" class="org.mockito.Mockito" factory-method="mock">
+		<constructor-arg value="org.example.AccountService"/>
+	</bean>
+----
+
+然后,您可以将模拟服务注入测试中,以设置和验证您的期望,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig(locations = "test-servlet-context.xml")
+	class AccountTests {
+
+		@Autowired
+		AccountService accountService;
+
+		MockMvc mockMvc;
+
+		@BeforeEach
+		void setup(WebApplicationContext wac) {
+			this.mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
+		}
+
+		// ...
+
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig(locations = ["test-servlet-context.xml"])
+	class AccountTests {
+
+		@Autowired
+		lateinit var accountService: AccountService
+
+		lateinit mockMvc: MockMvc
+
+		@BeforeEach
+		fun setup(wac: WebApplicationContext) {
+			mockMvc = MockMvcBuilders.webAppContextSetup(wac).build()
+		}
+
+		// ...
+
+	}
+----
+
+另一方面,`standaloneSetup` 更接近于单元测试.  它一次测试一个控制器.  您可以手动注入具有模拟依赖的控制器,并且不涉及加载 Spring 配置.  这样的测试更多地集中在样式上,使查看被测试的控制器,是否需要任何特定的 Spring MVC 配置等工作变得更加容易.
+`standaloneSetup` 还是编写临时测试以验证特定行为或调试问题的一种非常方便的方法.
+
+与大多数 "集成与单元测试" 辩论一样,没有正确或错误的答案.  但是,使用 `standaloneSetup` 确实意味着需要其他 `webAppContextSetup` 测试,以验证您的 Spring MVC 配置.  另外,您可以使用 `webAppContextSetup` 编写所有测试,以便始终针对实际的Spring MVC配置进行测试.
+
+[[spring-mvc-test-server-setup-steps]]
+== 设定功能
+
+无论使用哪种 MockMvc 构建器,所有 `MockMvcBuilder` 实现都提供一些常见且非常有用的功能.  例如,您可以为所有请求声明一个 `Accept` 请求头,并且期望所有响应中的状态为 200 以及 `Content-Type` 请求头,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcBuilders.standaloneSetup
+
+	MockMvc mockMvc = standaloneSetup(new MusicController())
+		.defaultRequest(get("/").accept(MediaType.APPLICATION_JSON))
+		.alwaysExpect(status().isOk())
+		.alwaysExpect(content().contentType("application/json;charset=UTF-8"))
+		.build();
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+此外,第三方框架 (和应用程序) 可以预先打包安装说明,例如 `MockMvcConfigurer` 中的安装说明.  Spring 框架具有一个这样的内置实现,可帮助保存和重用跨请求的 HTTP 会话.  您可以按以下方式使用它:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of SharedHttpSessionConfigurer.sharedHttpSession
+
+	MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new TestController())
+			.apply(sharedHttpSession())
+			.build();
+
+	// Use mockMvc to perform requests...
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+有关所有 MockMvc 构建器功能的列表,请参阅 {api-spring-framework}/test/web/servlet/setup/ConfigurableMockMvcBuilder.html[`ConfigurableMockMvcBuilder`] 的 javadoc,或使用 IDE 探索可用选项.
+
+[[spring-mvc-test-server-performing-requests]]
+== 执行请求
+
+本节说明如何独自使用 MockMvc 来执行请求和验证响应.  如果通过 `WebTestClient` 使用 MockMvc， 请参见 <<webtestclient-tests>>.
+
+您可以使用任何 HTTP 方法执行请求,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcRequestBuilders.*
+
+	mockMvc.perform(post("/hotels/{id}", 42).accept(MediaType.APPLICATION_JSON));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.post
+
+	mockMvc.post("/hotels/{id}", 42) {
+		accept = MediaType.APPLICATION_JSON
+	}
+----
+
+您还可以执行内部使用 `MockMultipartHttpServletRequest` 的文件上载请求,以便不对多部分请求进行实际解析.  相反,您必须将其设置为类似于以下示例:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(multipart("/doc").file("a1", "ABC".getBytes("UTF-8")));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.multipart
+
+	mockMvc.multipart("/doc") {
+		file("a1", "ABC".toByteArray(charset("UTF8")))
+	}
+----
+
+您可以使用 URI 模板样式指定查询参数,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(get("/hotels?thing={thing}", "somewhere"));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	mockMvc.get("/hotels?thing={thing}", "somewhere")
+----
+
+您还可以添加代表查询或表单参数的 Servlet 请求参数,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(get("/hotels").param("thing", "somewhere"));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.get
+
+	mockMvc.get("/hotels") {
+		param("thing", "somewhere")
+	}
+----
+
+如果应用程序代码依赖 Servlet 请求参数,并且没有显式检查查询字符串 (通常是这种情况) ,则使用哪个选项都没有关系.  但是请记住,URI 模板提供的查询参数已被解码,而通过 `param(...)`  方法提供的请求参数预计已被解码.
+
+在大多数情况下,最好将上下文路径和 Servlet 路径保留在请求URI之外.  如果必须使用完整的请求 URI 进行测试,请确保相应地设置 `contextPath` 和 `servletPath`,以便请求映射起作用,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(get("/app/main/hotels/{id}").contextPath("/app").servletPath("/main"))
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.get
+
+	mockMvc.get("/app/main/hotels/{id}") {
+		contextPath = "/app"
+		servletPath = "/main"
+	}
+----
+
+在前面的示例中,为每个执行的请求设置 `contextPath` 和 `servletPath` 将很麻烦.  相反,您可以设置默认请求属性,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	class MyWebTests {
+
+		MockMvc mockMvc;
+
+		@BeforeEach
+		void setup() {
+			mockMvc = standaloneSetup(new AccountController())
+				.defaultRequest(get("/")
+				.contextPath("/app").servletPath("/main")
+				.accept(MediaType.APPLICATION_JSON)).build();
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+前述属性会影响通过 `MockMvc` 实例执行的每个请求.  如果在给定请求上也指定了相同的属性,则它将覆盖默认值.  这就是默认请求中的 HTTP 方法和 URI 无关紧要的原因,因为必须在每个请求中都指定它们.
+
+[[spring-mvc-test-server-defining-expectations]]
+== 定义期望
+
+您可以通过在执行请求后追加一个或多个  `.andExpect(..)`  调用来定义期望,如以下示例所示，如果一个失败，则不会执行其他的:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcRequestBuilders.* and MockMvcResultMatchers.*
+
+	mockMvc.perform(get("/accounts/1")).andExpect(status().isOk());
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.get
+
+	mockMvc.get("/accounts/1").andExpect {
+		status { isOk() }
+	}
+----
+
+您可以通过在执行后附加 `andExpectAll(..)` 来定义多个期望请求，如下例所示。 与 `andExpect(..)` 相比，
+`andExpectAll(..)` 保证所有提供的期望都将被断言，并且所有故障都将被跟踪和报告。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcRequestBuilders.* and MockMvcResultMatchers.*
+
+	mockMvc.perform(get("/accounts/1")).andExpectAll(
+		status().isOk(),
+		content().contentType("application/json;charset=UTF-8"));
+----
+
+`MockMvcResultMatchers.*`  提供了许多期望,其中一些期望与更详细的期望进一步嵌套.
+
+期望分为两大类.  第一类断言验证响应的属性 (例如,响应状态,header 和内容) .  这些是要断言的最重要的结果.
+
+第二类断言超出了响应范围.  这些断言使您可以检查 Spring MVC 的特定方面,例如哪种控制器方法处理了请求,是否引发和处理了异常,模型的内容是什么,选择了哪种视图,添加了哪些闪存属性,等等.  它们还使您可以检查 Servlet 的特定方面,例如请求和会话属性.
+
+以下测试断言绑定或验证失败:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(post("/persons"))
+		.andExpect(status().isOk())
+		.andExpect(model().attributeHasErrors("person"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.post
+
+	mockMvc.post("/persons").andExpect {
+		status { isOk() }
+		model {
+			attributeHasErrors("person")
+		}
+	}
+----
+
+很多时候,编写测试时,转储已执行请求的结果很有用.  您可以按照以下方式进行操作,其中 `print()` 是从 `MockMvcResultHandlers` 静态导入的:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(post("/persons"))
+		.andDo(print())
+		.andExpect(status().isOk())
+		.andExpect(model().attributeHasErrors("person"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	import org.springframework.test.web.servlet.post
+
+	mockMvc.post("/persons").andDo {
+			print()
+		}.andExpect {
+			status { isOk() }
+			model {
+				attributeHasErrors("person")
+			}
+		}
+----
+
+只要请求处理不会引起未处理的异常, `print()` 方法会将所有可用的结果数据打印到  `System.out`.  还有一个 `log()` 方法和 `print()` 方法的两个其他变体,一个变体接受 `OutputStream`,另一个变体接受 `Writer`.
+例如,调用 `print(System.err)` 将结果数据打印到 `System.err`,而调用 `print(myWriter)` 将结果数据打印到自定义编写器.  如果要记录结果数据而不是打印结果,则可以调用 `log()` 方法,
+该方法将结果数据记录为 `org.springframework.test.web.servlet.result` 记录类别下的单个 `DEBUG` 消息.
+
+在某些情况下,您可能需要直接访问结果并验证否则无法验证的内容.  可以通过在所有其他期望之后附加 `.andReturn()` 来实现,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	MvcResult mvcResult = mockMvc.perform(post("/persons")).andExpect(status().isOk()).andReturn();
+	// ...
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	var mvcResult = mockMvc.post("/persons").andExpect { status { isOk() } }.andReturn()
+	// ...
+----
+
+如果所有测试都重复相同的期望,则在构建 `MockMvc` 实例时可以一次设置通用期望,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	standaloneSetup(new SimpleController())
+		.alwaysExpect(status().isOk())
+		.alwaysExpect(content().contentType("application/json;charset=UTF-8"))
+		.build()
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+请注意,通常会应用共同的期望,并且在不创建单独的 MockMvc 实例的情况下不能将其覆盖.
+
+当 JSON 响应内容包含使用 https://github.com/spring-projects/spring-hateoas[Spring HATEOAS]创建的超媒体链接时,可以使用 `JsonPath` 表达式来验证结果链接,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(get("/people").accept(MediaType.APPLICATION_JSON))
+		.andExpect(jsonPath("$.links[?(@.rel == 'self')].href").value("http://localhost:8080/people"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	mockMvc.get("/people") {
+		accept(MediaType.APPLICATION_JSON)
+	}.andExpect {
+		jsonPath("$.links[?(@.rel == 'self')].href") {
+			value("http://localhost:8080/people")
+		}
+	}
+----
+
+当 XML 响应内容包含使用 https://github.com/spring-projects/spring-hateoas[Spring HATEOAS] 创建的超媒体链接时,可以使用 XPath 表达式来验证生成的链接:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	Map<String, String> ns = Collections.singletonMap("ns", "http://www.w3.org/2005/Atom");
+	mockMvc.perform(get("/handle").accept(MediaType.APPLICATION_XML))
+		.andExpect(xpath("/person/ns:link[@rel='self']/@href", ns).string("http://localhost:8080/people"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val ns = mapOf("ns" to "http://www.w3.org/2005/Atom")
+	mockMvc.get("/handle") {
+		accept(MediaType.APPLICATION_XML)
+	}.andExpect {
+		xpath("/person/ns:link[@rel='self']/@href", ns) {
+			string("http://localhost:8080/people")
+		}
+	}
+----
+
+[[spring-mvc-test-async-requests]]
+== 异步请求
+
+本节说明如何独自使用 MockMvc 来测试异步请求处理.  如果通过 <<webtestclient>> 使用 MockMvc， 则没有什么特别的事情可以使异步请求正常工作， 因为 `WebTestClient` 会自动执行本节中介绍的操作.
+
+
+<<web.adoc#mvc-ann-async,Spring MVC 支持>>的 Servlet 异步请求通过退出 Servlet 容器线程并允许应用程序异步计算响应来工作,然后进行异步调度以完成对 Servlet 容器线程的处理.
+
+在 Spring MVC Test 中,可以通过以下方法测试异步请求: 首先声明产生的异步值,然后手动执行异步分派,最后验证响应.  以下是针对返回 `DeferredResult`,`Callable` 或 `Reactor` `Mono` 等响应类型的控制器方法的示例测试:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// static import of MockMvcRequestBuilders.* and MockMvcResultMatchers.*
+
+	@Test
+	void test() throws Exception {
+        MvcResult mvcResult = this.mockMvc.perform(get("/path"))
+                .andExpect(status().isOk()) <1>
+                .andExpect(request().asyncStarted()) <2>
+                .andExpect(request().asyncResult("body")) <3>
+                .andReturn();
+
+        this.mockMvc.perform(asyncDispatch(mvcResult)) <4>
+                .andExpect(status().isOk()) <5>
+                .andExpect(content().string("body"));
+    }
+----
+<1> 检查响应状态仍然不变
+<2> 异步处理必须已经开始
+<3> 等待并声明异步结果
+<4> 手动执行 ASYNC 调度 (因为没有正在运行的容器)
+<5> 验证最终响应
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Test
+	fun test() {
+		var mvcResult = mockMvc.get("/path").andExpect {
+			status { isOk() } // <1>
+			request { asyncStarted() } // <2>
+			// TODO Remove unused generic parameter
+			request { asyncResult<Nothing>("body") } // <3>
+		}.andReturn()
+
+
+		mockMvc.perform(asyncDispatch(mvcResult)) // <4>
+				.andExpect {
+					status { isOk() } // <5>
+					content().string("body")
+				}
+	}
+----
+<1> 检查响应状态仍然不变
+<2> 异步处理必须已经开始
+<3> 等待并声明异步结果
+<4> 手动执行 ASYNC 调度 (因为没有正在运行的容器)
+<5> 验证最终响应
+
+
+[[spring-mvc-test-vs-streaming-response]]
+== 流式响应
+
+测试诸如服务器发送事件之类的流响应的最佳方法是通过 <<WebTestClient>>， 它可以用作测试客户端以连接到 `MockMvc` 实例， 以在不运行服务器的情况下在 Spring MVC 控制器上执行测试.  例如:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebTestClient client = MockMvcWebTestClient.bindToController(new SseController()).build();
+
+	FluxExchangeResult<Person> exchangeResult = client.get()
+			.uri("/persons")
+			.exchange()
+			.expectStatus().isOk()
+			.expectHeader().contentType("text/event-stream")
+			.returnResult(Person.class);
+
+	// Use StepVerifier from Project Reactor to test the streaming response
+
+	StepVerifier.create(exchangeResult.getResponseBody())
+			.expectNext(new Person("N0"), new Person("N1"), new Person("N2"))
+			.expectNextCount(4)
+			.consumeNextWith(person -> assertThat(person.getName()).endsWith("7"))
+			.thenCancel()
+			.verify();
+----
+
+`WebTestClient` 还可以连接到实时服务器并执行完整的端到端集成测试.  Spring Boot 也支持此功能， 您可以在其中测试 {doc-spring-boot}/html/spring-boot-features.html#boot-features-testing-spring-boot-applications-testing-with-running-server[测试正在运行的服务器].
+
+[[spring-mvc-test-server-filters]]
+== 过滤器注册
+
+设置 `MockMvc` 实例时,可以注册一个或多个Servlet `Filter` 实例,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc = standaloneSetup(new PersonController()).addFilters(new CharacterEncodingFilter()).build();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+注册的过滤器通过 `spring-test` 中的 `MockFilterChain` 调用,最后一个过滤器委托给 `DispatcherServlet`.
+
+
+[[spring-mvc-test-vs-end-to-end-integration-tests]]
+== MockMVc VS 端到端测试
+
+MockMVc 基于 `spring-test` 模块的 Servlet API 模拟实现而构建,并且不依赖于运行中的容器.  因此,与使用实际客户端和实时服务器运行的完整端到端集成测试相比,存在一些差异.
+
+考虑这一点的最简单方法是从空白的 `MockHttpServletRequest` 开始.  您添加到其中的内容就是请求的内容.  可能令您感到惊讶的是,默认情况下没有上下文路径.  没有 `jsessionid` cookie;  没有转发,错误或异步调度;  因此,没有实际的JSP呈现.  而是将 "`forwarded`" 和 "`redirected`" URL 保存在 `MockHttpServletResponse` 中,并且可以按预期进行声明.
+
+这意味着,如果您使用 JSP,则可以验证将请求转发到的 JSP 页面,但不会呈现 HTML.  换句话说,不调用JSP.  但是请注意,不依赖转发的所有其他渲染技术 (例如 Thymeleaf 和  Freemarker) 都可以按预期将 HTML 渲染到响应主体.  通过 `@ResponseBody` 方法呈现 JSON,XML 和其他格式时也是如此.
+
+另外,您可以考虑使用 `@SpringBootTest` 从 Spring Boot 获得完整的端到端集成测试支持.  请参阅 {docs-spring-boot}/html/spring-boot-features.html#boot-features-testing[Spring Boot Reference Guide].
+
+每种方法都各有利弊.  从经典的单元测试到全面的集成测试,Spring MVC Test 中提供的选项在规模上是不同的.  可以肯定的是,Spring MVC Test 中的所有选项都不属于经典单元测试的范畴,但与之接近.  例如,您可以通过将模拟服务注入到控制器中来隔离 Web 层,在这种情况下,您仅通过 `DispatcherServlet` 并使用实际的 Spring 配置来测试 Web 层,因为您可能会与上一层隔离地测试数据访问层 .  另外,您可以使用独立设置,一次只关注一个控制器,然后手动提供使其工作所需的配置.
+
+使用 Spring MVC Test 时的另一个重要区别是,从概念上讲,此类测试是服务器端的,因此您可以检查使用了哪个处理程序,如果使用 HandlerExceptionResolver 处理了异常,则模型的内容是什么,绑定错误是什么? 还有其他细节.  这意味着编写期望值更容易,因为服务器不是一个透明的盒子,就像通过实际的 HTTP 客户端对其进行测试时那样.  通常,这是经典单元测试的一个优势: 编写,推理和调试更容易,但不能代替完全集成测试的需要.  同时,重要的是不要忽略响应是最重要的检查事实.  简而言之,即使在同一项目中,这里也有多种样式和测试策略的空间.
+
+[[spring-mvc-test-server-resources]]
+== 进一步的例子
+
+测试框架包括 {spring-framework-main-code}/spring-test/src/test/java/org/springframework/test/web/servlet/samples[许多示例测试],旨在展示如何使用 MockMvc 或通过 {spring-framework-main-code}/spring-test/src/test/java/org/springframework/test/web/servlet/samples/client[WebTestClient] 使用 MockMvc .  您可以浏览这些示例以获取进一步的想法.
+
+[[spring-mvc-test-server-htmlunit]]
+== HtmlUnit 集成
+
+Spring 提供了<<spring-mvc-test-server, MockMvc>> 和 http://htmlunit.sourceforge.net/[HtmlUnit]之间的集成.  使用基于 HTML 的视图时,这简化了执行端到端测试的过程.  通过此集成,您可以:
+
+* 使用 http://htmlunit.sourceforge.net/[HtmlUnit], https://www.seleniumhq.org[WebDriver] 和 http://www.gebish.org/manual/current/#spock-junit-testng[Geb]  等工具可以轻松测试HTML页面,而无需部署到 Servlet 容器.
+* 在页面中测试 JavaScript.
+* (可选) 使用模拟服务进行测试以加快测试速度.
+* 在容器内端到端测试和容器外集成测试之间共享逻辑.
+
+NOTE: MockMvc 使用不依赖 Servlet 容器的模板技术 (例如 Thymeleaf,FreeMarker 等) ,但不适用于 JSP,因为它们依赖 Servlet 容器.
+
+[[spring-mvc-test-server-htmlunit-why]]
+=== 为什么要进行 HtmlUnit 集成?
+
+想到的最明显的问题是 "我为什么需要这个? " 最好的答案是通过探索一个非常基本的示例应用程序来找到的.  假设您有一个 Spring MVC Web 应用程序,该应用程序支持对 `Message` 对象的 CRUD 操作.  该应用程序还支持所有消息的分页.  您将如何进行测试?
+
+使用Spring MVC Test,我们可以轻松地测试是否能够创建 `Message`,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	MockHttpServletRequestBuilder createMessage = post("/messages/")
+			.param("summary", "Spring Rocks")
+			.param("text", "In case you didn't know, Spring Rocks!");
+
+	mockMvc.perform(createMessage)
+			.andExpect(status().is3xxRedirection())
+			.andExpect(redirectedUrl("/messages/123"));
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Test
+	fun test() {
+		mockMvc.post("/messages/") {
+			param("summary", "Spring Rocks")
+			param("text", "In case you didn't know, Spring Rocks!")
+		}.andExpect {
+			status().is3xxRedirection()
+			redirectedUrl("/messages/123")
+		}
+	}
+----
+
+如果我们要测试允许我们创建消息的表单视图怎么办? 例如,假设我们的表单类似于以下代码段:
+
+[source,xml,indent=0]
+----
+	<form id="messageForm" action="/messages/" method="post">
+		<div class="pull-right"><a href="/messages/">Messages</a></div>
+
+		<label for="summary">Summary</label>
+		<input type="text" class="required" id="summary" name="summary" value="" />
+
+		<label for="text">Message</label>
+		<textarea id="text" name="text"></textarea>
+
+		<div class="form-actions">
+			<input type="submit" value="Create" />
+		</div>
+	</form>
+----
+
+我们如何确保表单产生正确的请求以创建新消息? 天真的尝试可能类似于以下内容:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	mockMvc.perform(get("/messages/form"))
+			.andExpect(xpath("//input[@name='summary']").exists())
+			.andExpect(xpath("//textarea[@name='text']").exists());
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	mockMvc.get("/messages/form").andExpect {
+		xpath("//input[@name='summary']") { exists() }
+		xpath("//textarea[@name='text']") { exists() }
+	}
+----
+
+此测试有一些明显的缺点.  如果我们更新控制器以使用 `message` 而不是  `text`,则即使 HTML 表单与控制器不同步,我们的表单测试也会继续通过.  为了解决这个问题,我们可以结合以下两个测试:
+
+[[spring-mvc-test-server-htmlunit-mock-mvc-test]]
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	String summaryParamName = "summary";
+	String textParamName = "text";
+	mockMvc.perform(get("/messages/form"))
+			.andExpect(xpath("//input[@name='" + summaryParamName + "']").exists())
+			.andExpect(xpath("//textarea[@name='" + textParamName + "']").exists());
+
+	MockHttpServletRequestBuilder createMessage = post("/messages/")
+			.param(summaryParamName, "Spring Rocks")
+			.param(textParamName, "In case you didn't know, Spring Rocks!");
+
+	mockMvc.perform(createMessage)
+			.andExpect(status().is3xxRedirection())
+			.andExpect(redirectedUrl("/messages/123"));
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val summaryParamName = "summary";
+	val textParamName = "text";
+	mockMvc.get("/messages/form").andExpect {
+		xpath("//input[@name='$summaryParamName']") { exists() }
+		xpath("//textarea[@name='$textParamName']") { exists() }
+	}
+	mockMvc.post("/messages/") {
+		param(summaryParamName, "Spring Rocks")
+		param(textParamName, "In case you didn't know, Spring Rocks!")
+	}.andExpect {
+		status().is3xxRedirection()
+		redirectedUrl("/messages/123")
+	}
+----
+
+这样可以减少测试不正确通过的风险,但是仍然存在一些问题:
+
+* 如果页面上有多个表单怎么办? 诚然,我们可以更新 XPath 表达式,但是由于我们考虑了更多因素,它们变得更加复杂: 字段是正确的类型吗? 是否启用了字段? 等等.
+* 另一个问题是我们正在做我们期望的两倍的工作.  我们必须首先验证视图,然后使用刚刚验证的相同参数提交视图.  理想情况下,可以一次完成所有操作.
+* 最后,我们仍然无法解释某些事情.  例如,如果表单也具有我们希望测试的 JavaScript 验证,该怎么办?
+
+总体问题是,测试网页不涉及单个交互.  相反,它是用户如何与网页交互以及该网页与其他资源交互的组合.  例如,表单视图的结果用作用户创建消息的输入.  另外,我们的表单视图可以潜在地使用影响页面行为的其他资源,例如 JavaScript 验证.
+
+[[spring-mvc-test-server-htmlunit-why-integration]]
+==== 集成测试补救
+
+为了解决前面提到的问题,我们可以执行端到端集成测试,但这有一些缺点.  考虑测试允许我们翻阅消息的视图.  我们可能需要以下测试:
+
+* 我们的页面是否向用户显示通知,以指示消息为空时没有可用结果?
+* 我们的页面是否正确显示一条消息?
+* 我们的页面是否正确支持分页?
+
+要设置这些测试,我们需要确保我们的数据库包含正确的消息.  这带来了许多其他挑战:
+
+* 确保数据库中包含正确的消息可能很繁琐.   (考虑外键约束. )
+* 测试可能会变慢,因为每次测试都需要确保数据库处于正确的状态.
+* 由于我们的数据库需要处于特定状态,因此我们无法并行运行测试.
+* 对诸如自动生成的 ID,时间戳等项目进行断言可能很困难.
+
+这些挑战并不意味着我们应该完全放弃端到端集成测试.  相反,我们可以通过重构我们的详细测试以使用运行速度更快,更可靠且没有副作用的模拟服务来减少端到端集成测试的数量.  然后,我们可以实施少量真正的端到端集成测试,以验证简单的工作流程,以确保一切正常工作.
+
+[[spring-mvc-test-server-htmlunit-why-mockmvc]]
+==== 进入 HtmlUnit 集成
+
+那么，我们如何才能在测试页面交互和在测试套件中保持良好性能之间取得平衡呢？ 答案是："`通过将 MockMvc 与 HtmlUnit 集成。`"
+
+[[spring-mvc-test-server-htmlunit-options]]
+==== HtmlUnit 集成选项
+
+要将 MockMvc 与 HtmlUnit 集成时,有很多选择:
+
+* <<spring-mvc-test-server-htmlunit-mah,MockMvc 和 HtmlUnit>>: 如果要使用原始的 HtmlUnit 库,请使用此选项.
+* <<spring-mvc-test-server-htmlunit-webdriver,MockMvc 和 WebDriver>>: 使用此选项可简化集成和端到端测试之间的开发和重用代码.
+* <<spring-mvc-test-server-htmlunit-geb,MockMvc 和 Geb>>: 如果要使用 Groovy 进行测试,简化开发并在集成和端到端测试之间重用代码,请使用此选项.
+
+[[spring-mvc-test-server-htmlunit-mah]]
+=== MockMvc 和 HtmlUnit
+
+本节介绍如何集成 MockMvc 和 HtmlUnit.  如果要使用原始的 HtmlUnit 库,请使用此选项.
+
+[[spring-mvc-test-server-htmlunit-mah-setup]]
+==== MockMvc 和 HtmlUnit 设置
+
+首先,请确保您已包含对 `net.sourceforge.htmlunit:htmlunit` 的测试依赖.  为了将 HtmlUnit 与 Apache HttpComponents 4.5+ 一起使用,您需要使用 HtmlUnit 2.18 或更高版本.
+
+我们可以使用 `MockMvcWebClientBuilder` 轻松创建一个与 `MockMvc` 集成的 HtmlUnit `WebClient`,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebClient webClient;
+
+	@BeforeEach
+	void setup(WebApplicationContext context) {
+		webClient = MockMvcWebClientBuilder
+				.webAppContextSetup(context)
+				.build();
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var webClient: WebClient
+
+	@BeforeEach
+	fun setup(context: WebApplicationContext) {
+		webClient = MockMvcWebClientBuilder
+				.webAppContextSetup(context)
+				.build()
+	}
+----
+
+NOTE: 这是使用 `MockMvcWebClientBuilder` 的简单示例.  有关高级用法,请参阅<<spring-mvc-test-server-htmlunit-mah-advanced-builder,高级 `MockMvcWebClientBuilder`>>.
+
+这样可以确保将引用 `localhost` 作为服务器的所有 URL 定向到我们的 `MockMvc` 实例,而无需真正的 HTTP 连接.  通常,通过使用网络连接来请求其他任何 URL.  这使我们可以轻松测试 CDN 的使用.
+
+[[spring-mvc-test-server-htmlunit-mah-usage]]
+==== MockMvc 和 HtmlUnit 使用
+
+现在,我们可以像往常一样使用 HtmlUnit,而无需将应用程序部署到 Servlet 容器.  例如,我们可以请求视图创建以下消息:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	HtmlPage createMsgFormPage = webClient.getPage("http://localhost/messages/form");
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val createMsgFormPage = webClient.getPage("http://localhost/messages/form")
+----
+
+NOTE: 默认上下文路径为 `""`.  或者,我们可以指定上下文路径,如<<spring-mvc-test-server-htmlunit-mah-advanced-builder>>中所述.
+
+一旦有了对 `HtmlPage` 的引用,我们就可以填写该表单并提交以创建一条消息,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	HtmlForm form = createMsgFormPage.getHtmlElementById("messageForm");
+	HtmlTextInput summaryInput = createMsgFormPage.getHtmlElementById("summary");
+	summaryInput.setValueAttribute("Spring Rocks");
+	HtmlTextArea textInput = createMsgFormPage.getHtmlElementById("text");
+	textInput.setText("In case you didn't know, Spring Rocks!");
+	HtmlSubmitInput submit = form.getOneHtmlElementByAttribute("input", "type", "submit");
+	HtmlPage newMessagePage = submit.click();
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val form = createMsgFormPage.getHtmlElementById("messageForm")
+	val summaryInput = createMsgFormPage.getHtmlElementById("summary")
+	summaryInput.setValueAttribute("Spring Rocks")
+	val textInput = createMsgFormPage.getHtmlElementById("text")
+	textInput.setText("In case you didn't know, Spring Rocks!")
+	val submit = form.getOneHtmlElementByAttribute("input", "type", "submit")
+	val newMessagePage = submit.click()
+----
+
+最后,我们可以验证是否成功创建了新消息.  以下断言使用 https://assertj.github.io/doc/[AssertJ] 库:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	assertThat(newMessagePage.getUrl().toString()).endsWith("/messages/123");
+	String id = newMessagePage.getHtmlElementById("id").getTextContent();
+	assertThat(id).isEqualTo("123");
+	String summary = newMessagePage.getHtmlElementById("summary").getTextContent();
+	assertThat(summary).isEqualTo("Spring Rocks");
+	String text = newMessagePage.getHtmlElementById("text").getTextContent();
+	assertThat(text).isEqualTo("In case you didn't know, Spring Rocks!");
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	assertThat(newMessagePage.getUrl().toString()).endsWith("/messages/123")
+	val id = newMessagePage.getHtmlElementById("id").getTextContent()
+	assertThat(id).isEqualTo("123")
+	val summary = newMessagePage.getHtmlElementById("summary").getTextContent()
+	assertThat(summary).isEqualTo("Spring Rocks")
+	val text = newMessagePage.getHtmlElementById("text").getTextContent()
+	assertThat(text).isEqualTo("In case you didn't know, Spring Rocks!")
+----
+
+前面的代码以多种方式改进了我们的<<spring-mvc-test-server-htmlunit-mock-mvc-test, MockMvc 测试>> .  首先,我们不再需要显式验证表单,然后创建类似于表单的请求.  相反,我们要求表单,将其填写并提交,从而大大减少了开销.
+
+另一个重要因素是 http://htmlunit.sourceforge.net/javascript.html[HtmlUnit 使用 Mozilla Rhino 引擎] 来评估 JavaScript.  这意味着我们还可以在页面内测试 JavaScript 的行为.
+
+有关使用 HtmlUnit 的其他信息,请参见 http://htmlunit.sourceforge.net/gettingStarted.html[HtmlUnit 文档].
+
+[[spring-mvc-test-server-htmlunit-mah-advanced-builder]]
+==== 高级 `MockMvcWebClientBuilder`
+
+在到目前为止的示例中,我们已经通过 Spring TestContext Framework 为我们加载的 `WebApplicationContext` 构建了一个 `WebClient`,从而以最简单的方式使用了 `MockMvcWebClientBuilder`.  在以下示例中重复此方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebClient webClient;
+
+	@BeforeEach
+	void setup(WebApplicationContext context) {
+		webClient = MockMvcWebClientBuilder
+				.webAppContextSetup(context)
+				.build();
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var webClient: WebClient
+
+	@BeforeEach
+	fun setup(context: WebApplicationContext) {
+		webClient = MockMvcWebClientBuilder
+				.webAppContextSetup(context)
+				.build()
+	}
+----
+
+我们还可以指定其他配置选项,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebClient webClient;
+
+	@BeforeEach
+	void setup() {
+		webClient = MockMvcWebClientBuilder
+			// demonstrates applying a MockMvcConfigurer (Spring Security)
+			.webAppContextSetup(context, springSecurity())
+			// for illustration only - defaults to ""
+			.contextPath("")
+			// By default MockMvc is used for localhost only;
+			// the following will use MockMvc for example.com and example.org as well
+			.useMockMvcForHosts("example.com","example.org")
+			.build();
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var webClient: WebClient
+
+	@BeforeEach
+	fun setup() {
+		webClient = MockMvcWebClientBuilder
+			// demonstrates applying a MockMvcConfigurer (Spring Security)
+			.webAppContextSetup(context, springSecurity())
+			// for illustration only - defaults to ""
+			.contextPath("")
+			// By default MockMvc is used for localhost only;
+			// the following will use MockMvc for example.com and example.org as well
+			.useMockMvcForHosts("example.com","example.org")
+			.build()
+	}
+----
+
+或者,我们可以通过分别配置 `MockMvc` 实例并将其提供给 `MockMvcWebClientBuilder` 来执行完全相同的设置,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	MockMvc mockMvc = MockMvcBuilders
+			.webAppContextSetup(context)
+			.apply(springSecurity())
+			.build();
+
+	webClient = MockMvcWebClientBuilder
+			.mockMvcSetup(mockMvc)
+			// for illustration only - defaults to ""
+			.contextPath("")
+			// By default MockMvc is used for localhost only;
+			// the following will use MockMvc for example.com and example.org as well
+			.useMockMvcForHosts("example.com","example.org")
+			.build();
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+这比较繁琐,但是,通过使用 `MockMvc` 实例构建 `WebClient`,我们可以轻而易举地拥有 `MockMvc` 的全部功能.
+
+TIP: 有关创建 `MockMvc` 实例的其他信息,请参见<<spring-mvc-test-server-setup-options>>.
+
+[[spring-mvc-test-server-htmlunit-webdriver]]
+=== MockMvc 和 WebDriver
+
+在前面的部分中,我们已经了解了如何将 MockMvc 与原始 HtmlUnit API 结合使用.  在本节中,我们在 Selenium https://docs.seleniumhq.org/projects/webdriver/[WebDriver] 中使用其他抽象使事情变得更加容易.
+
+[[spring-mvc-test-server-htmlunit-webdriver-why]]
+==== 为什么要使用 WebDriver 和 MockMvc?
+
+我们已经可以使用 HtmlUnit 和 MockMvc,那么为什么要使用 WebDriver? Selenium WebDriver 提供了一个非常优雅的 API,使我们可以轻松地组织代码.  为了更好地说明其工作原理,我们在本节中探索一个示例.
+
+NOTE: 尽管是  https://docs.seleniumhq.org/[Selenium] 的一部分,`WebDriver` 并不需要 Selenium Server来运行测试.
+
+假设我们需要确保正确创建一条消息.  测试涉及找到HTML表单输入元素,将其填写并做出各种断言.
+
+这种方法会导致大量单独的测试,因为我们也想测试错误情况.  例如,如果只填写表格的一部分,我们要确保得到一个错误.  如果我们填写整个表格,那么新创建的消息将在之后显示.
+
+如果其中一个字段被命名为 "`summary`",我们可能会在测试中的多个位置重复以下内容:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	HtmlTextInput summaryInput = currentPage.getHtmlElementById("summary");
+	summaryInput.setValueAttribute(summary);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val summaryInput = currentPage.getHtmlElementById("summary")
+	summaryInput.setValueAttribute(summary)
+----
+
+那么,如果我们将  `id`  更改为 `smmry`,会发生什么? 这样做将迫使我们更新所有测试以纳入此更改.  这违反了 DRY 原理,因此理想情况下,我们应将此代码提取到其自己的方法中,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public HtmlPage createMessage(HtmlPage currentPage, String summary, String text) {
+		setSummary(currentPage, summary);
+		// ...
+	}
+
+	public void setSummary(HtmlPage currentPage, String summary) {
+		HtmlTextInput summaryInput = currentPage.getHtmlElementById("summary");
+		summaryInput.setValueAttribute(summary);
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	fun createMessage(currentPage: HtmlPage, summary:String, text:String) :HtmlPage{
+		setSummary(currentPage, summary);
+		// ...
+	}
+
+	fun setSummary(currentPage:HtmlPage , summary: String) {
+		val summaryInput = currentPage.getHtmlElementById("summary")
+		summaryInput.setValueAttribute(summary)
+	}
+----
+
+这样做可以确保在更改 UI 时不必更新所有测试.
+
+我们甚至可以更进一步,将此逻辑放在代表我们当前所在的 `HtmlPage` 的 `Object` 中,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class CreateMessagePage {
+
+		final HtmlPage currentPage;
+
+		final HtmlTextInput summaryInput;
+
+		final HtmlSubmitInput submit;
+
+		public CreateMessagePage(HtmlPage currentPage) {
+			this.currentPage = currentPage;
+			this.summaryInput = currentPage.getHtmlElementById("summary");
+			this.submit = currentPage.getHtmlElementById("submit");
+		}
+
+		public <T> T createMessage(String summary, String text) throws Exception {
+			setSummary(summary);
+
+			HtmlPage result = submit.click();
+			boolean error = CreateMessagePage.at(result);
+
+			return (T) (error ? new CreateMessagePage(result) : new ViewMessagePage(result));
+		}
+
+		public void setSummary(String summary) throws Exception {
+			summaryInput.setValueAttribute(summary);
+		}
+
+		public static boolean at(HtmlPage page) {
+			return "Create Message".equals(page.getTitleText());
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class CreateMessagePage(private val currentPage: HtmlPage) {
+
+		val summaryInput: HtmlTextInput = currentPage.getHtmlElementById("summary")
+
+		val submit: HtmlSubmitInput = currentPage.getHtmlElementById("submit")
+
+		fun <T> createMessage(summary: String, text: String): T {
+			setSummary(summary)
+
+			val result = submit.click()
+			val error = at(result)
+
+			return (if (error) CreateMessagePage(result) else ViewMessagePage(result)) as T
+		}
+
+		fun setSummary(summary: String) {
+			summaryInput.setValueAttribute(summary)
+		}
+
+		fun at(page: HtmlPage): Boolean {
+			return "Create Message" == page.getTitleText()
+		}
+	}
+}
+----
+
+以前,此模式称为 https://github.com/SeleniumHQ/selenium/wiki/PageObjects[Page Object Pattern].  虽然我们当然可以使用 HtmlUnit 做到这一点,但 WebDriver 提供了一些我们在以下各节中探讨的工具,以使该模式的实现更加容易.
+
+[[spring-mvc-test-server-htmlunit-webdriver-setup]]
+==== MockMvc 和 WebDriver 设置
+
+要将 Selenium WebDriver 与 Spring MVC Test 框架一起使用,请确保您的项目包含对  `org.seleniumhq.selenium:selenium-htmlunit-driver` 的测试依赖.
+
+我们可以使用 `MockMvcHtmlUnitDriverBuilder` 轻松创建一个与 MockMvc 集成的 Selenium WebDriver,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebDriver driver;
+
+	@BeforeEach
+	void setup(WebApplicationContext context) {
+		driver = MockMvcHtmlUnitDriverBuilder
+				.webAppContextSetup(context)
+				.build();
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var driver: WebDriver
+
+	@BeforeEach
+	fun setup(context: WebApplicationContext) {
+		driver = MockMvcHtmlUnitDriverBuilder
+				.webAppContextSetup(context)
+				.build()
+	}
+----
+
+NOTE: 这是使用 `MockMvcHtmlUnitDriverBuilder` 的简单示例.  有关更多高级用法,请参见 <<spring-mvc-test-server-htmlunit-webdriver-advanced-builder,高级 `MockMvcHtmlUnitDriverBuilder`>>.
+
+前面的示例确保将引用 `localhost` 作为服务器的所有 URL 定向到我们的 `MockMvc` 实例,而无需真正的 HTTP 连接.  通常,通过使用网络连接来请求其他任何 URL.  这使我们可以轻松测试 CDN 的使用.
+
+[[spring-mvc-test-server-htmlunit-webdriver-usage]]
+==== MockMvc 和 WebDriver 的用法
+
+现在,我们可以像往常一样使用 WebDriver,而无需将应用程序部署到 Servlet 容器.  例如,我们可以请求视图创建以下消息:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	CreateMessagePage page = CreateMessagePage.to(driver);
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val page = CreateMessagePage.to(driver)
+----
+
+然后,我们可以填写表格并提交以创建一条消息,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	ViewMessagePage viewMessagePage =
+			page.createMessage(ViewMessagePage.class, expectedSummary, expectedText);
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	val viewMessagePage =
+		page.createMessage(ViewMessagePage::class, expectedSummary, expectedText)
+----
+
+通过利用 Page Object Pattern(页面对象模式),这可以改善我们的<<spring-mvc-test-server-htmlunit-mah-usage, HtmlUnit 测试>>的设计.  正如我们在<<spring-mvc-test-server-htmlunit-webdriver-why>> 中提到的那样,我们可以将页面对象模式与 HtmlUnit 一起使用,但使用 WebDriver 则要容易得多.  考虑以下 `CreateMessagePage` 实现:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class CreateMessagePage
+			extends AbstractPage { // <1>
+
+		// <2>
+		private WebElement summary;
+		private WebElement text;
+
+		// <3>
+		@FindBy(css = "input[type=submit]")
+		private WebElement submit;
+
+		public CreateMessagePage(WebDriver driver) {
+			super(driver);
+		}
+
+		public <T> T createMessage(Class<T> resultPage, String summary, String details) {
+			this.summary.sendKeys(summary);
+			this.text.sendKeys(details);
+			this.submit.click();
+			return PageFactory.initElements(driver, resultPage);
+		}
+
+		public static CreateMessagePage to(WebDriver driver) {
+			driver.get("http://localhost:9990/mail/messages/form");
+			return PageFactory.initElements(driver, CreateMessagePage.class);
+		}
+	}
+----
+<1> `CreateMessagePage` 扩展 `AbstractPage`.  我们没有详细介绍 `AbstractPage`,但是总而言之,它包含了我们所有页面的通用功能.  例如,如果我们的应用程序具有导航栏,全局错误消息和其他功能,则可以将此逻辑放置在共享位置.
+<2> 对于我们感兴趣的 HTML 页面的每个部分,我们都有一个成员变量.  这些是 `WebElement` 类型.  WebDriver的 https://github.com/SeleniumHQ/selenium/wiki/PageFactory[`PageFactory`] 允许我们通过自动解析每个 `WebElement` 从 HtmlUnit 版本的 `CreateMessagePage` 中删除很多代码.
+https://seleniumhq.github.io/selenium/docs/api/java/org/openqa/selenium/support/PageFactory.html#initElements-org.openqa.selenium.WebDriver-java.lang.Class-[`PageFactory#initElements(WebDriver,Class<T>)`]方法通过使用字段名称并通过 HTML 页面中元素的 `id` 或 `name` 查找来自动解析每个 `WebElement`.
+<3> 我们可以使用 https://github.com/SeleniumHQ/selenium/wiki/PageFactory#making-the-example-work-using-annotations[`@FindBy` annotation]注解覆盖默认的查找行为.  我们的示例演示了如何使用 `@FindBy` 注解通过CSS选择器 (*input[type=submit]*) 查找提交按钮.
+
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class CreateMessagePage(private val driver: WebDriver) : AbstractPage(driver) { // <1>
+
+		// <2>
+		private lateinit var summary: WebElement
+		private lateinit var text: WebElement
+
+		// <3>
+		@FindBy(css = "input[type=submit]")
+		private lateinit var submit: WebElement
+
+		fun <T> createMessage(resultPage: Class<T>, summary: String, details: String): T {
+			this.summary.sendKeys(summary)
+			text.sendKeys(details)
+			submit.click()
+			return PageFactory.initElements(driver, resultPage)
+		}
+		companion object {
+			fun to(driver: WebDriver): CreateMessagePage {
+				driver.get("http://localhost:9990/mail/messages/form")
+				return PageFactory.initElements(driver, CreateMessagePage::class.java)
+			}
+		}
+	}
+----
+<1> `CreateMessagePage` 扩展 `AbstractPage`.  我们没有详细介绍 `AbstractPage`,但是总而言之,它包含了我们所有页面的通用功能.  例如,如果我们的应用程序具有导航栏,全局错误消息和其他功能,则可以将此逻辑放置在共享位置.
+<2> 对于我们感兴趣的 HTML 页面的每个部分,我们都有一个成员变量.  这些是 `WebElement` 类型.  WebDriver的 https://github.com/SeleniumHQ/selenium/wiki/PageFactory[`PageFactory`] 允许我们通过自动解析每个 `WebElement` 从 HtmlUnit 版本的 `CreateMessagePage` 中删除很多代码.
+https://seleniumhq.github.io/selenium/docs/api/java/org/openqa/selenium/support/PageFactory.html#initElements-org.openqa.selenium.WebDriver-java.lang.Class-[`PageFactory#initElements(WebDriver,Class<T>)`]方法通过使用字段名称并通过HTML页面中元素的 `id` 或 `name` 查找来自动解析每个 `WebElement`.
+<3> 我们可以使用 https://github.com/SeleniumHQ/selenium/wiki/PageFactory#making-the-example-work-using-annotations[`@FindBy` annotation]注解覆盖默认的查找行为.  我们的示例演示了如何使用 `@FindBy` 注解通过CSS选择器 (*input[type=submit]*) 查找提交按钮.
+
+最后,我们可以验证是否成功创建了新消息.  以下断言使用 https://assertj.github.io/doc/[AssertJ]  断言库:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	assertThat(viewMessagePage.getMessage()).isEqualTo(expectedMessage);
+	assertThat(viewMessagePage.getSuccess()).isEqualTo("Successfully created a new message");
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	assertThat(viewMessagePage.message).isEqualTo(expectedMessage)
+	assertThat(viewMessagePage.success).isEqualTo("Successfully created a new message")
+----
+
+我们可以看到 `ViewMessagePage` 允许我们与自定义 domain 模型进行交互.  例如,它暴露了一个返回 `Message` 对象的方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public Message getMessage() throws ParseException {
+		Message message = new Message();
+		message.setId(getId());
+		message.setCreated(getCreated());
+		message.setSummary(getSummary());
+		message.setText(getText());
+		return message;
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	fun getMessage() = Message(getId(), getCreated(), getSummary(), getText())
+----
+
+然后,我们可以在声明中使用富域对象.
+
+最后,我们一定不要忘记在测试完成后关闭 `WebDriver` 实例,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@AfterEach
+	void destroy() {
+		if (driver != null) {
+			driver.close();
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@AfterEach
+	fun destroy() {
+		if (driver != null) {
+			driver.close()
+		}
+	}
+----
+
+有关使用 WebDriver 的其他信息,请参阅 Selenium https://github.com/SeleniumHQ/selenium/wiki/Getting-Started[WebDriver documentation].
+
+[[spring-mvc-test-server-htmlunit-webdriver-advanced-builder]]
+==== 高级 `MockMvcHtmlUnitDriverBuilder`
+
+在到目前为止的示例中,我们通过基于 Spring TestContext Framework 为我们加载的 `WebApplicationContext` 构建 `WebDriver`,以最简单的方式使用了 `MockMvcHtmlUnitDriverBuilder`.  在此重复此方法,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebDriver driver;
+
+	@BeforeEach
+	void setup(WebApplicationContext context) {
+		driver = MockMvcHtmlUnitDriverBuilder
+				.webAppContextSetup(context)
+				.build();
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var driver: WebDriver
+
+	@BeforeEach
+	fun setup(context: WebApplicationContext) {
+		driver = MockMvcHtmlUnitDriverBuilder
+				.webAppContextSetup(context)
+				.build()
+	}
+----
+
+我们还可以指定其他配置选项,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	WebDriver driver;
+
+	@BeforeEach
+	void setup() {
+		driver = MockMvcHtmlUnitDriverBuilder
+				// demonstrates applying a MockMvcConfigurer (Spring Security)
+				.webAppContextSetup(context, springSecurity())
+				// for illustration only - defaults to ""
+				.contextPath("")
+				// By default MockMvc is used for localhost only;
+				// the following will use MockMvc for example.com and example.org as well
+				.useMockMvcForHosts("example.com","example.org")
+				.build();
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	lateinit var driver: WebDriver
+
+	@BeforeEach
+	fun setup() {
+		driver = MockMvcHtmlUnitDriverBuilder
+				// demonstrates applying a MockMvcConfigurer (Spring Security)
+				.webAppContextSetup(context, springSecurity())
+				// for illustration only - defaults to ""
+				.contextPath("")
+				// By default MockMvc is used for localhost only;
+				// the following will use MockMvc for example.com and example.org as well
+				.useMockMvcForHosts("example.com","example.org")
+				.build()
+	}
+----
+
+或者,我们可以通过分别配置 `MockMvc` 实例并将其提供给 `MockMvcHtmlUnitDriverBuilder` 来执行完全相同的设置,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	MockMvc mockMvc = MockMvcBuilders
+			.webAppContextSetup(context)
+			.apply(springSecurity())
+			.build();
+
+	driver = MockMvcHtmlUnitDriverBuilder
+			.mockMvcSetup(mockMvc)
+			// for illustration only - defaults to ""
+			.contextPath("")
+			// By default MockMvc is used for localhost only;
+			// the following will use MockMvc for example.com and example.org as well
+			.useMockMvcForHosts("example.com","example.org")
+			.build();
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Not possible in Kotlin until https://youtrack.jetbrains.com/issue/KT-22208 is fixed
+----
+
+这比较冗长,但是,通过使用 `MockMvc` 实例构建 `WebDriver`,我们可以轻而易举地拥有 `MockMvc` 的全部功能.
+
+TIP: 有关创建 `MockMvc` 实例的其他信息,请参见<<spring-mvc-test-server-setup-options>>.
+
+[[spring-mvc-test-server-htmlunit-geb]]
+=== MockMvc 和 Geb
+
+在上一节中,我们了解了如何在 WebDriver 中使用 MockMvc.  在本节中,我们将使用 http://www.gebish.org/[Geb] 进行甚至 Groovy-er 的测试.
+
+[[spring-mvc-test-server-htmlunit-geb-why]]
+==== 为什么选择 Geb 和 MockMvc?
+
+Geb 由 WebDriver 支持,因此它提供了许多与 WebDriver <<spring-mvc-test-server-htmlunit-webdriver-why, 相同的好处>> .  但是,Geb 通过为我们处理一些样板代码使事情变得更加轻松.
+
+[[spring-mvc-test-server-htmlunit-geb-setup]]
+==== MockMvc 和 Geb 设置
+
+我们可以轻松地使用使用 MockMvc 的 Selenium WebDriver 初始化 Geb `浏览器`,如下所示:
+
+[source,groovy]
+----
+def setup() {
+	browser.driver = MockMvcHtmlUnitDriverBuilder
+		.webAppContextSetup(context)
+		.build()
+}
+----
+
+NOTE: 这是使用 `MockMvcHtmlUnitDriverBuilder` 的简单示例.  有关更多高级用法,请参见 <<spring-mvc-test-server-htmlunit-webdriver-advanced-builder>>.
+
+这样可以确保在服务器上引用 `localhost`  主机的所有URL都定向到我们的 `MockMvc` 实例,而无需真正的 HTTP 连接.  通常,通过使用网络连接来请求其他任何 URL.  这使我们可以轻松测试 CDN 的使用.
+
+[[spring-mvc-test-server-htmlunit-geb-usage]]
+==== MockMvc 和 Geb 用法
+
+现在,我们可以像往常一样使用 Geb 了,而无需将应用程序部署到 Servlet 容器中.  例如,我们可以请求视图创建以下消息:
+
+[source,groovy]
+----
+to CreateMessagePage
+----
+
+然后,我们可以填写表格并提交以创建一条消息,如下所示:
+
+[source,groovy]
+----
+when:
+form.summary = expectedSummary
+form.text = expectedMessage
+submit.click(ViewMessagePage)
+----
+
+找不到的所有无法识别的方法调用或属性访问或引用都将转发到当前页面对象.  这消除了我们直接使用 WebDriver 时需要的许多样板代码.
+
+与直接使用 WebDriver 一样,这可以通过使用 Page Object Pattern 改进 <<spring-mvc-test-server-htmlunit-mah-usage, HtmlUnit 测试>> 的设计.  如前所述,我们可以将页面对象模式与 HtmlUnit 和 WebDriver 一起使用,但使用Geb则更加容易.  考虑我们新的基于 Groovy 的 `CreateMessagePage` 实现:
+
+[source,groovy]
+----
+class CreateMessagePage extends Page {
+	static url = 'messages/form'
+	static at = { assert title == 'Messages : Create'; true }
+	static content =  {
+		submit { $('input[type=submit]') }
+		form { $('form') }
+		errors(required:false) { $('label.error, .alert-error')?.text() }
+	}
+}
+----
+
+我们的 `CreateMessagePage` 扩展了 `Page`.  我们不会详细介绍 `Page`,但是总而言之,它包含所有页面的通用功能.  我们定义一个可在其中找到此页面的 URL.  这使我们可以导航到页面,如下所示:
+
+[source,groovy]
+----
+to CreateMessagePage
+----
+
+我们还有一个 `at` 闭包,它确定我们是否在指定页面上.  如果我们在正确的页面上,它应该返回 `true`.  这就是为什么我们可以断言我们在正确的页面上的原因,如下所示:
+
+[source,groovy]
+----
+then:
+at CreateMessagePage
+errors.contains('This field is required.')
+----
+
+NOTE: 我们在闭包中使用一个断言,以便我们可以确定在错误的页面上哪里出错了.
+
+接下来,我们创建一个 `content` 闭包,以指定页面中所有感兴趣的区域.  我们可以使用 http://www.gebish.org/manual/current/#the-jquery-ish-navigator-api[jQuery-ish Navigator API] 来选择我们感兴趣的内容.
+
+最后,我们可以验证是否成功创建了新消息,如下所示:
+
+[source,groovy]
+----
+then:
+at ViewMessagePage
+success == 'Successfully created a new message'
+id
+date
+summary == expectedSummary
+message == expectedMessage
+----
+
+有关如何充分利用 Geb 的更多详细信息,请参见 http://www.gebish.org/manual/current/[The Book of Geb] 用户手册.
