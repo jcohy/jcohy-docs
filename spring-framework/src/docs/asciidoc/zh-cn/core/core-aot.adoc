@@ -1,0 +1,265 @@
+[[core.aot]]
+= 提前编译
+
+本章涵盖 Spring 的提前编译 (AOT) 优化。
+
+对于特定于集成测试的 AOT 支持，请参阅<<testing.adoc#testcontext-aot, Ahead of Time Support for Tests>>。
+
+[[core.aot.introduction]]
+== 提前编译简介
+
+Spring 对 AOT 的支持意味着在构建时检查 `ApplicationContext` 并应用通常在运行时发生的决策和发现逻辑。 这样做允许构建更直接的应用程序启动，并专注于主要基于类路径和环境的一组固定功能。
+
+尽早应用此类优化意味着以下限制：
+
+* 类路径是固定的，并在构建时完全定义。
+* 在您的应用程序中定义的 bean 不能在运行时更改，这意味着：
+** `@Profile`，特别是需要在构建时选择特定于配置文件的配置。
+** 影响 bean 存在的环境属性 (`@Conditional`) 仅在构建时考虑。
+
+当这些限制到位时，就可以在构建时执行提前编译并生成额外的资产。 Spring AOT 处理的应用程序通常会生成：
+
+* Java source code
+* Bytecode (通常用于动态代理)
+* {api-spring-framework}/aot/hint/RuntimeHints.html[`RuntimeHints`] for the use of reflection, resource loading, serialization, and JDK proxies.
+
+NOTE: 目前，AOT 允许使用 GraalVM 将 Spring 应用程序部署为本地镜像。 我们打算在后面支持更多基于 JVM 的用例。
+
+[[core.aot.basics]]
+== AOT 引擎概述
+
+AOT 引擎处理 `ApplicationContext` 入口点是 `ApplicationContextAotGenerator`。 它基于应用程序的 `GenericApplicationContext` 和 `GenerationContext` 来处理以下步骤：
+
+* 刷新 AOT 处理的 `ApplicationContext`。 与传统的刷新相反，这个版本只创建 bean 定义，而不是 bean 实例。
+* 调用可用的 `BeanFactoryInitializationAotProcessor` 实现并将它们的 Contributions 应用于 `GenerationContext`。 例如，核心实现遍历所有候选 bean 定义并生成必要的代码来恢复 `BeanFactory` 的状态。
+
+此过程完成后，`GenerationContext` 将更新为生成的代码、资源和应用程序运行所需的类。 `RuntimeHints` 实例还可用于生成相关的 GraalVM 本机镜像配置文件。
+
+`ApplicationContextAotGenerator#processAheadOfTime` 允许返回使用 AOT 优化启动上下文的 `ApplicationContextInitializer` 入口点的类名。
+
+这些步骤在以下部分中有更详细的介绍。
+
+[[core.aot.refresh]]
+== 刷新 AOT 处理
+
+所有 `GenericApplicationContext` 实现都支持 AOT 处理的刷新。 使用任意数量的入口点创建应用程序上下文，通常以 `@Configuration` 注解类的形式。
+
+让我们看一个基本的例子:
+
+include::code:AotProcessingSample[tag=myapplication]
+
+使用常规运行时启动此应用程序涉及许多步骤，包括类路径扫描、配置类解析、bean 实例化和生命周期回调处理。 AOT 处理的刷新仅应用  <<beans-introduction,regular `refresh`>> 的一部分。 可以通过以下方式触发 AOT 处理：
+
+include::code:AotProcessingSample[tag=aotcontext]
+
+在这种模式下， <<beans-factory-extension-factory-postprocessors,`BeanFactoryPostProcessor` 实现>> 像往常一样被调用。 这包括配置类解析、导入选择器、类路径扫描等。
+这些步骤确保 `BeanRegistry` 包含应用程序的相关 bean 定义。 如果 bean 定义有条件(conditions)（例如 `@Profile`），则这些定义将在这个阶段被丢弃。
+
+因为这种模式实际上并不创建 bean 实例，所以不会调用 `BeanPostProcessor` 实现，与 AOT 处理相关的特定形式除外。 这些都是：
+
+* `MergedBeanDefinitionPostProcessor` 实现 bean 的后置处理器来提取其他设置，例如 `init` 和 `destroy` 方法。
+* `SmartInstantiationAwareBeanPostProcessor` 实现在必要时确定更精确的 bean 类型。 这确保创建运行时需要的任何代理。
+
+此部分完成后，`BeanFactory` 包含应用程序运行所需的 bean 定义。 它不会触发 bean 实例化，但允许 AOT 引擎检查将在运行时创建的 bean。
+
+[[core.aot.bean-factory-initialization-contributions]]
+== Bean Factory 初始化 AOT Contributions
+
+想要参与这一步的组件可以实现  {api-spring-framework}/beans/factory/aot/BeanFactoryInitializationAotProcessor.html[`BeanFactoryInitializationAotProcessor`]  接口。 每个实现都可以根据 bean 工厂的状态返回一个 AOT Contributions。
+
+AOT Contributions 是一个组件，它生成的代码来重现特定的行为。 它还可以提供 `RuntimeHints` 以指示需要反射、资源加载、序列化或 JDK 代理。
+
+`BeanFactoryInitializationAotProcessor` 实现可以在 `META-INF/spring/aot.factories` 中注册，其键等于接口的完全限定名称。
+
+`BeanFactoryInitializationAotProcessor` 也可以直接由 bean 实现。 在这种模式下，bean 提供的 AOT 贡献等同于它在常规运行时提供的功能。 因此，这样的 bean 会自动从 AOT 优化的上下文中排除。
+
+[NOTE]
+====
+如果一个 bean 实现了 `BeanFactoryInitializationAotProcessor` 接口，那么这个 bean 和它的所有依赖将在 AOT 处理期间被初始化。
+我们通常建议此接口仅由 `BeanFactoryPostProcessor` 等基础设施 bean 实现，它们具有有限的依赖关系并且已经在 bean 工厂生命周期的早期初始化。
+如果这样的 bean 是使用 `@Bean` 工厂方法注册的，请确保该方法是静态的，以便不必初始化其封闭的 `@Configuration` 类。
+====
+
+
+[[core.aot.bean-registration-contributions]]
+=== Bean 注册 AOT Contributions
+
+核心 `BeanFactoryInitializationAotProcessor` 实现负责为每个候选 `BeanDefinition` 收集必要的 contributions。 它使用专用的 `BeanRegistrationAotProcessor` 来做到这一点。
+
+该接口使用如下：
+
+* 由 `BeanPostProcessor` bean 实现，以替换其运行时行为。 例如，`AutowiredAnnotationBeanPostProcessor` 实现此接口以生成注入注解为 `@Autowired` 的成员的代码。
+
+* 由在 `META-INF/spring/aot.factories` 中注册的类型实现，其键等于接口的完全限定名称。 通常在需要针对核心框架的特定功能调整 bean 定义时使用。
+
+[NOTE]
+====
+如果一个 bean 实现了 `BeanRegistrationAotProcessor` 接口，这个 bean 和它的 **所有** 依赖将在 AOT 处理期间被初始化。
+我们通常建议此接口仅由基础结构 bean 实现，例如 `BeanFactoryPostProcessor`，它们具有有限的依赖关系并且已经在 bean 工厂生命周期的早期初始化。
+如果这样的 bean 是使用 `@Bean` 工厂方法注册的，请确保该方法是 `static` 的，以便不必初始化其封闭的 `@Configuration` 类。
+====
+
+如果没有 `BeanRegistrationAotProcessor` 处理特定的已注册 bean，则默认实现会处理它。 这是默认行为，因为为 bean 定义调整生成的代码应该仅限于极端情况。
+
+以我们之前的例子为例，假设 `DataSourceConfiguration` 如下：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration(proxyBeanMethods = false)
+	public class DataSourceConfiguration {
+
+		@Bean
+		public SimpleDataSource dataSource() {
+			return new SimpleDataSource();
+		}
+
+	}
+----
+
+由于此类没有任何特定条件，因此 `dataSourceConfiguration` 和 `dataSource` 被确定为候选者。 AOT 引擎会把上面的配置类转换成类似下面的代码:
+
+[source,java,indent=0,role="primary"]
+.Java
+----
+	/**
+	 * Bean definitions for {@link DataSourceConfiguration}
+	 */
+	public class DataSourceConfiguration__BeanDefinitions {
+		/**
+		 * Get the bean definition for 'dataSourceConfiguration'
+		 */
+		public static BeanDefinition getDataSourceConfigurationBeanDefinition() {
+			Class<?> beanType = DataSourceConfiguration.class;
+			RootBeanDefinition beanDefinition = new RootBeanDefinition(beanType);
+			beanDefinition.setInstanceSupplier(DataSourceConfiguration::new);
+			return beanDefinition;
+		}
+
+		/**
+		 * Get the bean instance supplier for 'dataSource'.
+		 */
+		private static BeanInstanceSupplier<SimpleDataSource> getDataSourceInstanceSupplier() {
+			return BeanInstanceSupplier.<SimpleDataSource>forFactoryMethod(DataSourceConfiguration.class, "dataSource")
+					.withGenerator((registeredBean) -> registeredBean.getBeanFactory().getBean(DataSourceConfiguration.class).dataSource());
+		}
+
+		/**
+		 * Get the bean definition for 'dataSource'
+		 */
+		public static BeanDefinition getDataSourceBeanDefinition() {
+			Class<?> beanType = SimpleDataSource.class;
+			RootBeanDefinition beanDefinition = new RootBeanDefinition(beanType);
+			beanDefinition.setInstanceSupplier(getDataSourceInstanceSupplier());
+			return beanDefinition;
+		}
+	}
+----
+
+NOTE: 生成的确切代码可能会有所不同，具体取决于您的 bean 定义的确切性质。
+
+上面生成的代码创建了等同于 `@Configuration` 类的 bean 定义，但是以直接的方式并且尽可能不使用反射。 有一个用于 `dataSourceConfiguration` 的 bean 定义和一个用于 `dataSourceBean` 的 bean 定义。
+当需要数据源实例时，将调用 `BeanInstanceSupplier`。 这个将调用 `dataSourceConfiguration` bean 上的 `dataSource()` 方法。
+
+[[core.aot.hints]]
+== Runtime Hints
+
+与常规 JVM 运行时相比，将应用程序作为本机镜像运行需要额外的信息。 例如，GraalVM 需要提前知道组件是否使用反射。 同样，除非明确指定，否则类路径资源不会在原生镜像中提供。
+因此，如果应用程序需要加载资源，则必须从相应的 GraalVM 原生镜像配置文件中引用它。
+
+{api-spring-framework}/aot/hint/RuntimeHints.html[`RuntimeHints`]  API 在运行时收集反射、资源加载、序列化和 JDK 代理的需求。 以下示例确保 `config/app.properties` 可以在运行时从原生镜像中的类路径加载：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	runtimeHints.resources().registerPattern("config/app.properties");
+----
+
+在 AOT 处理过程中会自动处理许多约定。 例如，检查 `@Controller` 方法的返回类型，如果 Spring 检测到该类型应该被序列化（通常为 JSON），则会添加相关的反射提示。
+
+对于核心容器无法推断的情况，您可以通过编程方式注册此类提示。 还为常见用例提供了许多方便的注解。
+
+
+[[core.aot.hints.import-runtime-hints]]
+=== `@ImportRuntimeHints`
+
+`RuntimeHintsRegistrar` 实现允许您获得对 AOT 引擎管理的 `RuntimeHints` 实例的回调。 可以在任何 Spring bean 或 `@Bean` 工厂方法上使用 `@ImportRuntimeHints` 注册此接口的实现。
+在构建时检测并调用 `RuntimeHintsRegistrar` 实现。
+
+include::code:SpellCheckService[]
+
+如果可能的话，`@ImportRuntimeHints` 应该尽可能靠近需要提示的组件使用。 这样，如果组件没有 contributed 给 `BeanFactory`，那么提示也不会被 contributed。
+
+也可以通过在 `META-INF/spring/aot.factories` 中添加一条来静态注册一个实现，该条目的键等于 `RuntimeHintsRegistrar` 接口的完全限定名称。
+
+[[core.aot.hints.reflective]]
+=== `@Reflective`
+
+{api-spring-framework}/aot/hint/annotation/Reflective.html[`@Reflective`]  提供了一种惯用的方式来标记对带注解的元素进行反射的需要。 例如，`@EventListener` 使用 `@Reflective` 进行元注解， 因为底层实现使用反射调用注解方法。
+
+默认情况下，只考虑 Spring bean 并为带注解的元素注册调用提示。 这可以通过 `@Reflective` 注解指定自定义 `ReflectiveProcessor` 实现来调整。
+
+库作者可以出于自己的目的重用此注解。 如果需要处理除 Spring beans 之外的组件，`BeanFactoryInitializationAotProcessor` 可以检测到相关类型，并使用 `ReflectiveRuntimeHintsRegistrar` 进行处理。
+
+[[core.aot.hints.register-reflection-for-binding]]
+=== `@RegisterReflectionForBinding`
+
+{api-spring-framework}/aot/hint/annotation/RegisterReflectionForBinding.html[`@RegisterReflectionForBinding`] 是 `@Reflective` 的一个特例，它注册了序列化任意类型的需要。
+一个典型的用例是使用容器无法推断的 DTO，例如在方法体内使用 Web 客户端。
+
+`@RegisterReflectionForBinding` 可以应用于类级别的任何 Spring bean，但也可以直接应用于方法、字段或构造函数，以更好地指示实际需要提示的位置。 以下示例注册 Account 以进行序列化。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Component
+	public class OrderService {
+
+		@RegisterReflectionForBinding(Account.class)
+		public void process(Order order) {
+			// ...
+		}
+
+	}
+----
+
+[[core.aot.hints.testing]]
+=== 测试 Runtime Hints
+
+Spring Core 还提供了 `RuntimeHintsPredicates`，这是一种用于检查现有提示是否与特定用例匹配的实用程序。 这可用于您自己的测试以验证 `RuntimeHintsRegistrar` 是否包含预期结果。
+我们可以为我们的 `SpellCheckService` 编写一个测试，并确保我们能够在运行时加载字典：
+
+include::code:SpellCheckServiceTests[tag=hintspredicates]
+
+使用 `RuntimeHintsPredicates`，我们可以检查反射、资源、序列化或代理生成提示。 这种方法适用于单元测试，但意味着组件的运行时行为是众所周知的。
+
+您可以通过使用 {docs-graalvm}/native-image/metadata/AutomaticMetadataCollection/[GraalVM tracing agent] 运行其测试套件（或应用程序本身）来了解有关应用程序全局运行时行为的更多信息。 该代理将在运行时记录所有需要 GraalVM 提示的相关调用，并将它们作为 JSON 配置文件写出。
+
+为了更有针对性的发现和测试，Spring Framework 提供了一个带有核心 AOT 测试实用程序的专用模块，`"org.springframework:spring-core-test"`。
+该模块包含 `RuntimeHints` Agent，这是一个 Java 代理，它记录与运行时提示相关的所有方法调用，并帮助您断言给定的 `RuntimeHints` 实例涵盖所有记录的调用。
+让我们考虑一个基础设施，我们想测试我们在 AOT 处理阶段提供的提示。
+
+include::code:SampleReflection[]
+
+然后我们可以编写一个单元测试（不需要本地编译）来检查我们提供的提示：
+
+include::code:SampleReflectionRuntimeHintsTests[]
+
+如果您忘记提供提示，测试将失败并提供有关调用的一些详细信息：
+
+[source,txt,indent=0,subs="verbatim,quotes"]
+----
+org.springframework.docs.core.aot.hints.testing.SampleReflection performReflection
+INFO: Spring version:6.0.0-SNAPSHOT
+
+Missing <"ReflectionHints"> for invocation <java.lang.Class#forName>
+with arguments ["org.springframework.core.SpringVersion",
+    false,
+    jdk.internal.loader.ClassLoaders$AppClassLoader@251a69d7].
+Stacktrace:
+<"org.springframework.util.ClassUtils#forName, Line 284
+io.spring.runtimehintstesting.SampleReflection#performReflection, Line 19
+io.spring.runtimehintstesting.SampleReflectionRuntimeHintsTests#lambda$shouldRegisterReflectionHints$0, Line 25
+----
+
+有多种方法可以在您的构建中配置此 Java 代理，因此请参阅您的构建工具和测试执行插件的文档。 代理本身可以配置为检测特定包（默认情况下，仅检测 `org.springframework`）。 您将在 Spring Framework `buildSrc` README 文件中找到更多详细信息。

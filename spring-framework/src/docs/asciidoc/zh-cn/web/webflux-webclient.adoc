@@ -6,6 +6,7 @@ WebClient 是一个执行 HTTP 请求的非阻塞,响应式的客户端.客户�
 `WebClient` 需要一个 HTTP 客户端库来执行请求。 有内置支持以下内容：
 
 * https://github.com/reactor/reactor-netty[Reactor Netty]
+* https://docs.oracle.com/en/java/javase/11/docs/api/java.net.http/java/net/http/HttpClient.html[JDK HttpClient]
 * https://github.com/jetty-project/jetty-reactive-httpclient[Jetty Reactive HttpClient]
 * https://hc.apache.org/index.html[Apache HttpComponents]
 * Others can be plugged via `ClientHttpConnector`.
@@ -231,7 +232,7 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 			.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000);
 
 	val webClient = WebClient.builder()
-			.clientConnector(new ReactorClientHttpConnector(httpClient))
+			.clientConnector(ReactorClientHttpConnector(httpClient))
 			.build();
 ----
 
@@ -259,8 +260,8 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 
 	val httpClient = HttpClient.create()
 			.doOnConnected { conn -> conn
-					.addHandlerLast(new ReadTimeoutHandler(10))
-					.addHandlerLast(new WriteTimeoutHandler(10))
+					.addHandlerLast(ReadTimeoutHandler(10))
+					.addHandlerLast(WriteTimeoutHandler(10))
 			}
 
 	// Create WebClient...
@@ -312,6 +313,37 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 			.bodyToMono(String::class.java)
 ----
 
+[[webflux-client-builder-jdk-httpclient]]
+=== JDK HttpClient
+
+以下示例显示了如何自定义 JDK `HttpClient`：
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+    HttpClient httpClient = HttpClient.newBuilder()
+        .followRedirects(Redirect.NORMAL)
+        .connectTimeout(Duration.ofSeconds(20))
+        .build();
+
+    ClientHttpConnector connector =
+            new JdkClientHttpConnector(httpClient, new DefaultDataBufferFactory());
+
+    WebClient webClient = WebClient.builder().clientConnector(connector).build();
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+    val httpClient = HttpClient.newBuilder()
+        .followRedirects(Redirect.NORMAL)
+        .connectTimeout(Duration.ofSeconds(20))
+        .build()
+
+    val connector = JdkClientHttpConnector(httpClient, DefaultDataBufferFactory())
+
+    val webClient = WebClient.builder().clientConnector(connector).build()
+----
 
 [[webflux-client-builder-jetty]]
 === Jetty
@@ -335,7 +367,7 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 	httpClient.cookieStore = ...
 
 	val webClient = WebClient.builder()
-			.clientConnector(new JettyClientHttpConnector(httpClient))
+			.clientConnector(JettyClientHttpConnector(httpClient))
 			.build();
 ----
 
@@ -520,7 +552,7 @@ org.springframework.core.io.buffer.DataBufferLimitException: Exceeded limit on m
 				}
 				else {
 					// Turn to error
-					return response.createException().flatMap(Mono::error);
+					return response.createError();
 				}
 			});
 ----
@@ -702,11 +734,11 @@ val entity = client.get()
 ----
 	val builder = MultipartBodyBuilder().apply {
 		part("fieldPart", "fieldValue")
-		part("filePart1", new FileSystemResource("...logo.png"))
-		part("jsonPart", new Person("Jason"))
-		part("myPart", part) // Part from a server request	
+		part("filePart1", FileSystemResource("...logo.png"))
+		part("jsonPart", Person("Jason"))
+		part("myPart", part) // Part from a server request
 	}
-	
+
 	val parts = builder.build()
 ----
 
@@ -764,6 +796,49 @@ val entity = client.get()
 			.awaitBody<Unit>()
 ----
 
+==== `PartEvent`
+
+要按顺序流式传输多部分数据，您可以通过 `PartEvent` 对象提供多部分数据。
+
+- 可以通过 `FormPartEvent::create` 创建表单字段.
+- 可以通过 `FilePartEvent::create` 创建文件上传。.
+
+您可以使用 `Flux::concat` 连接从方法返回的流，并为 `WebClient` 创建一个请求。
+
+例如，这个 POST 请求包含表单字段和文件的多部分表单。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+Resource resource = ...
+Mono<String> result = webClient
+    .post()
+    .uri("https://example.com")
+    .body(Flux.concat(
+            FormPartEvent.create("field", "field value"),
+            FilePartEvent.create("file", resource)
+    ), PartEvent.class)
+    .retrieve()
+    .bodyToMono(String.class);
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+var resource: Resource = ...
+var result: Mono<String> = webClient
+	.post()
+	.uri("https://example.com")
+	.body(
+		Flux.concat(
+			FormPartEvent.create("field", "field value"),
+			FilePartEvent.create("file", resource)
+		)
+	)
+	.retrieve()
+	.bodyToMono()
+----
+
+在服务端, 通过 `@RequestBody` 或 `ServerRequest::bodyToFlux(PartEvent.class)` 接收 `PartEvent` 对象，并且可以通过 `WebClient` 转发到另一个服务。
 
 
 [[webflux-client-filter]]
