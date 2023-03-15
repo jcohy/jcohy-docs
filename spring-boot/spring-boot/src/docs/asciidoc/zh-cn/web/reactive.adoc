@@ -9,22 +9,13 @@ Spring WebFlux 是 Spring Framework 5.0 中新引入的一个响应式 Web 框�
 Spring WebFlux 有两种风格：函数式和基于注解的。
 基于注解的模型与 Spring MVC 模型相似，如下例所示:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/MyRestController.java[]
-----
+include::code:MyRestController[]
 
 "`WebFlux.fn`" 为函数式调用方式,它将路由配置与请求处理分开,如下所示:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/MyRoutingConfiguration.java[]
-----
+include::code:MyRoutingConfiguration[]
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/MyUserHandler.java[]
-----
+include::code:MyUserHandler[]
 
 WebFlux 是 Spring Framework 的一部分,详细信息可查看其 {spring-framework-docs}/web-reactive.html#webflux-fn[参考文档].
 
@@ -56,12 +47,9 @@ Spring Boot 为编解码器提供了专用的配置属性 `+spring.codec.*+`，�
 
 如果需要添加或自定义编解码器,您可以创建一个自定义的 `CodecCustomizer` 组件,如下所示:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/httpcodecs/MyCodecsConfiguration.java[]
-----
+include::code:MyCodecsConfiguration[]
 
-您还可以利用 <<web#web.servlet.spring-mvc.json,Boot 自定义 JSON 序列化器和反序列化器>>.
+您还可以利用<<features#features.json.jackson.custom-serializers-and-deserializers,Boot 自定义 JSON 序列化器和反序列化器>>.
 
 [[web.reactive.webflux.static-content]]
 ==== 静态内容
@@ -78,7 +66,8 @@ include::{docs-java}/web/reactive/webflux/httpcodecs/MyCodecsConfiguration.java[
 
 您还可以使用 `spring.web.resources.static-locations` 属性来自定义静态资源的位置 (使用一个目录位置列表替换默认值) ,如果这样做,默认的欢迎页面检测会切换到您自定义的位置. 因此,如果启动时有任何其中一个位置存在 `index.html`,那么它将是应用程序的主页.
 
-除了上述提到的标准静态资源位置之外,还有一种特殊情况是用于 https://www.webjars.org/[Webjars 内容] . 如果以 Webjar 格式打包,则所有符合  `+/webjars/**+` 的资源都将从 jar 文件中服务.
+除了上述提到的标准静态资源位置之外,还有一种特殊情况是用于 https://www.webjars.org/[Webjars 内容] .
+如果以 Webjar 格式打包,则所有符合  `+/webjars/**+` 的资源都将从 jar 文件中服务.可以使用 `spring.webflux.webjars-path-pattern` 属性自定义路径。
 
 TIP: Spring WebFlux 应用程序并不严格依赖于 Servlet API,因此它们不能作为 war 文件部署,也不能使用 `src/main/webapp` 目录.
 
@@ -102,24 +91,34 @@ Spring Boot 包含了以下的模板引擎的自动配置支持:
 ==== 错误处理
 Spring Boot 提供了一个 `WebExceptionHandler`,它以合理的方式处理所有错误. 它在处理顺序中的位置紧接在 WebFlux 提供的处理程序之前,这些处理器排序是最后的. 对于机器客户端,它会生成一个 JSON 响应,其中包含错误详情、HTTP 状态和异常消息. 对于浏览器客户端,有一个 whitelabel 错误处理程序,它以 HTML 格式呈现同样的数据. 您还可以提供自己的 HTML 模板来显示错误 (请参阅 <<web#web.reactive.webflux.error-handling.error-pages,下一节>>) .
 
+在直接在 Spring Boot 中自定义错误处理之前，您可以利用 Spring WebFlux 中的 {spring-framework-docs}/web-reactive.html#webflux-ann-rest-exceptions[RFC 7807 Problem Details] 支持。
+Spring WebFlux 可以生成具有  `application/problem+json` 媒体类型的自定义错误消息，例如：
+
+[source,json,indent=0,subs="verbatim"]
+----
+{
+  "type": "https://example.org/problems/unknown-project",
+  "title": "Unknown project",
+  "status": 404,
+  "detail": "No project found for id 'spring-unknown'",
+  "instance": "/projects/spring-unknown"
+}
+----
+
+可以通过将 `spring.webflux.problemdetails.enabled` 设置为 `true` 来启用此支持。
+
 自定义此功能的第一步通常会沿用现有机制,但替换或扩充了错误内容. 为此,您可以添加 `ErrorAttributes` 类型的 bean.
 
 想要更改错误处理行为,可以实现 `ErrorWebExceptionHandler` 并注册该类型的 bean. 因为 `WebExceptionHandler` 是一个非常底层的异常处理器,所以 Spring Boot 还提供了一个方便的 `AbstractErrorWebExceptionHandler` 来让你以 WebFlux 的方式处理错误,如下所示:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/errorhandling/MyErrorWebExceptionHandler.java[]
-----
+include::code:MyErrorWebExceptionHandler[]
 
 要获得更完整的功能,您还可以直接继承 `DefaultErrorWebExceptionHandler` 并覆盖相关方法.
 
 在某些情况下，控制器级别处理的错误不会被 <<actuator#actuator.metrics.supported.spring-webflux, metrics infrastructure>> 记录。
 应用程序可以通过将处理的异常设置为请求属性来确保将此类异常与请求指标一起记录:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/web/reactive/webflux/errorhandling/MyExceptionHandlingController.java[]
-----
+include::code:MyExceptionHandlingController[]
 
 [[web.reactive.webflux.error-handling.error-pages]]
 ===== 自定义错误页面
@@ -166,13 +165,10 @@ Spring WebFlux 提供了一个 `WebFilter` 接口,可以通过实现该接口来
 |===
 | Web Filter | Order
 
-| `MetricsWebFilter`
-| `Ordered.HIGHEST_PRECEDENCE + 1`
-
 | `WebFilterChainProxy` (Spring Security)
 | `-100`
 
-| `HttpTraceWebFilter`
+| `HttpExchangesWebFilter`
 | `Ordered.LOWEST_PRECEDENCE - 10`
 |===
 

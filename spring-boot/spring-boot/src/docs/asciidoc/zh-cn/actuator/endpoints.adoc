@@ -39,8 +39,8 @@ TIP: 要了解更对关于 Actuator's 端点和请求响应格式, 请查看单�
 | `health`
 | 显示应用程序健康信息.
 
-| `httptrace`
-| 显示 HTTP 追踪信息 (默认情况下,最后 100 个 HTTP 请求/响应交换) . 需要一个 `HttpTraceRepository` bean.
+| `httpexchanges`
+| 显示 HTTP exchange 信息 (默认情况下,最后 100 个 HTTP 请求/响应交换) . 需要一个 `HttpExchangeRepository` bean.
 
 | `info`
 | 显示应用程序信息.
@@ -89,9 +89,6 @@ TIP: 要了解更对关于 Actuator's 端点和请求响应格式, 请查看单�
 | `heapdump`
 | 返回 heap dump 文件. 在 HotSpot JVM ，返回一个 `HPROF`- 格式化的文件。在 OpenJ9 JVM 上，返回一个 `PHD`- 格式化的文件
 
-| `jolokia`
-| 通过 HTTP 暴露 JMX bean (当 Jolokia 在 classpath 上时,不适用于 WebFlux) . 需要依赖 `jolokia-core`
-
 | `logfile`
 | 返回日志文件的内容 (如果已设置 `logging.file.name` 或 `logging.file.path` 属性) . 支持使用 HTTP `Range` 头来检索部分日志文件的内容.
 
@@ -127,108 +124,10 @@ NOTE: 已完全从应用程序上下文中删除已禁用的端点. 如果只想
 
 [[actuator.endpoints.exposing]]
 === 暴露端点
-由于端点可能包含敏感信息,因此应仔细考虑何时暴露它们. 下表显示了内置端点和默认暴露情况:
 
-[cols="1,1,1"]
-|===
-| ID | JMX | Web
+默认情况下，仅通过 HTTP 和 JMX 来暴露端点。
 
-| `auditevents`
-| Yes
-| No
-
-| `beans`
-| Yes
-| No
-
-| `caches`
-| Yes
-| No
-
-| `conditions`
-| Yes
-| No
-
-| `configprops`
-| Yes
-| No
-
-| `env`
-| Yes
-| No
-
-| `flyway`
-| Yes
-| No
-
-| `health`
-| Yes
-| Yes
-
-| `heapdump`
-| N/A
-| No
-
-| `httptrace`
-| Yes
-| No
-
-| `info`
-| Yes
-| Yes
-
-| `integrationgraph`
-| Yes
-| No
-
-| `jolokia`
-| N/A
-| No
-
-| `logfile`
-| N/A
-| No
-
-| `loggers`
-| Yes
-| No
-
-| `liquibase`
-| Yes
-| No
-
-| `metrics`
-| Yes
-| No
-
-| `mappings`
-| Yes
-| No
-
-| `prometheus`
-| N/A
-| No
-
-| `scheduledtasks`
-| Yes
-| No
-
-| `sessions`
-| Yes
-| No
-
-| `shutdown`
-| Yes
-| No
-
-| `startup`
-| Yes
-| No
-
-| `threaddump`
-| Yes
-| No
-|===
+由于端点可能包含敏感信息,因此应仔细考虑何时暴露它们.
 
 要更改暴露的端点,请使用以下特定的 `include` 和 `exclude` 属性:
 
@@ -240,7 +139,7 @@ NOTE: 已完全从应用程序上下文中删除已禁用的端点. 如果只想
 |
 
 | `management.endpoints.jmx.exposure.include`
-| `*`
+| `healthd`
 
 | `management.endpoints.web.exposure.exclude`
 |
@@ -254,7 +153,7 @@ NOTE: 已完全从应用程序上下文中删除已禁用的端点. 如果只想
 `exclude` 属性优先于 `include` 属性
 可以使用端点 ID 列表配置 `include` 和 `exclude` 属性.
 
-例如,要停止通过 JMX 暴露所有端点并仅暴露 `health` 和 `info` 端点,请使用以下属性:
+例如,要停止通过 JMX 仅暴露 `health` 和 `info` 端点,请使用以下属性:
 
 [source,yaml,indent=0,subs="verbatim",configprops,configblocks]
 ----
@@ -285,19 +184,20 @@ TIP: 如果要在暴露端点时实现自己的策略,可以注册一个 `Endpoi
 
 [[actuator.endpoints.security]]
 === 安全
+
 出于安全考虑，默认情况下，只有 `/health` 端点通过 HTTP 公开。
 您可以使用 `management.endpoints.web.exposure.include` 属性来配置暴露的端点。
 
 NOTE: 在设置 `management.endpoints.web.exposure.include` 之前，确保暴露的执行器不包含敏感信息，通过将它们放置在防火墙后面来保护它们，或者通过 Spring Security 之类的东西来保护它们。
 
+如果在类路径下存在 Spring Security，但并没有提供 `SecurityFilterChain` bean，则除  `/health` 之外的所有 actuators 都由 Spring Boot 自动配置。
+如果你自定义了一个  `SecurityFilterChain` bean，Spring Boot 自动配置可以允许您完全控制 actuator 的访问规则。
+
 如果你希望为 HTTP 端点配置自定义安全策略,只允许具有特定角色身份的用户访问它们,Spring Boot 提供了方便的 `RequestMatcher` 对象,可以与 Spring Security 结合使用.
 
 典型的 Spring Security 配置可能如下:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/security/typical/MySecurityConfiguration.java[]
-----
+include::code:typical/MySecurityConfiguration[]
 
 上面的示例使用 `EndpointRequest.toAnyEndpoint()` 将请求与所有端点进行匹配,然后确保所有端点都具有 `ENDPOINT_ADMIN` 角色. `EndpointRequest` 上还提供了其他几种匹配器方法. 有关详细信息,请参阅 API 文档  ({spring-boot-actuator-restapi-docs}[HTML] 或 {spring-boot-actuator-restapi-pdfdocs}[PDF]).
 
@@ -314,10 +214,7 @@ include::{docs-java}/actuator/endpoints/security/typical/MySecurityConfiguration
 
 此外,如果存在 Spring Security,则需要添加自定义安全配置,以允许对端点进行未经身份验证的访问,如下所示:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/security/exposeall/MySecurityConfiguration.java[]
-----
+include::code:exposeall/MySecurityConfiguration[]
 
 NOTE: 在上面的两个示例中， 配置只适用于 actuator  端点. 由于 Spring Boot 的安全配置在存在任何 `SecurityFilterChain` bean 时完全退出， 因此您将需要配置一个附加的 `SecurityFilterChain` bean， 其中包含应用于应用程序其余部分的规则.
 
@@ -380,7 +277,7 @@ https://en.wikipedia.org/wiki/Cross-origin_resource_sharing[Cross-origin resourc
 	        allowed-methods: "GET,POST"
 ----
 
-TIP: 有关选项的完整列表,请参阅 {spring-boot-actuator-autoconfigure-module-code}/endpoint/web/CorsEndpointProperties.java[CorsEndpointProperties]
+TIP: 有关选项的完整列表,请参阅 {spring-boot-actuator-autoconfigure-module-code}/endpoint/web/CorsEndpointProperties[CorsEndpointProperties]
 
 [[actuator.endpoints.implementing-custom]]
 === 实现自定义端点
@@ -388,10 +285,7 @@ TIP: 有关选项的完整列表,请参阅 {spring-boot-actuator-autoconfigure-m
 
 以下示例暴露了一个 read 操作,该操作返回一个自定义对象:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/implementingcustom/MyEndpoint.java[tag=read]
-----
+include::code:MyEndpoint[tag=read]
 
 你还可以使用 `@JmxEndpoint` 或 `@WebEndpoint` 编写特定技术的端点. 这些端点仅限于各自的技术. 例如,`@WebEndpoint` 仅通过 HTTP 暴露,而不是 JMX.
 
@@ -415,10 +309,7 @@ JSON 请求体中的每个根属性都可以映射到端点的参数. 考虑以�
 
 这可用于调用带有 `String name` 和 `int counter` 参数的写操作.
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/implementingcustom/MyEndpoint.java[tag=write]
-----
+include::code:../MyEndpoint[tag=write]
 
 TIP: 由于端点与技术无关,因此只能在方法签名中指定简单类型. 特别是不支持使用定义一个 `name` 和 `counter` 属性的 `CustomData` 类型声明单个参数.
 
@@ -586,7 +477,7 @@ Spring Boot 会自动配置以下 `HealthIndicators`.您也可以通过配置 `m
 | Checks that a mail server is up.
 
 | `mongo`
-| {spring-boot-actuator-module-code}/mongo/MongoHealthIndicator.java[`MongoHealthIndicator`]
+| {spring-boot-actuator-module-code}/data/mongo/MongoHealthIndicator.java[`MongoHealthIndicator`]
 | Checks that a Mongo database is up.
 
 | `neo4j`
@@ -602,12 +493,8 @@ Spring Boot 会自动配置以下 `HealthIndicators`.您也可以通过配置 `m
 | Checks that a Rabbit server is up.
 
 | `redis`
-| {spring-boot-actuator-module-code}/redis/RedisHealthIndicator.java[`RedisHealthIndicator`]
+| {spring-boot-actuator-module-code}/data/redis/RedisHealthIndicator.java[`RedisHealthIndicator`]
 | Checks that a Redis server is up.
-
-| `solr`
-| {spring-boot-actuator-module-code}/solr/SolrHealthIndicator.java[`SolrHealthIndicator`]
-| Checks that a Solr server is up.
 |===
 
 TIP: 你可以通过设置 `management.health.defaults.enabled` 属性来禁用它们.
@@ -631,10 +518,7 @@ TIP: 你可以通过设置 `management.health.defaults.enabled` 属性来禁用�
 ==== 编写自定义 HealthIndicators
 要提供自定义健康信息,可以注册实现  {spring-boot-actuator-module-code}/health/HealthIndicator.java[`HealthIndicator`] 接口的 Spring bean. 你需要提供 `health()` 方法的实现并返回一个 `Health` 响应. `Health` 响应应包括一个状态,并且可以选择包括要显示的其他详细信息. 以下代码展示了一个 `HealthIndicator` 实现示例:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/health/writingcustomhealthindicators/MyHealthIndicator.java[]
-----
+include::code:MyHealthIndicator[]
 
 NOTE: 给定 `HealthIndicator` 的标识符是没有 `HealthIndicator` 后缀的 bean 的名称 (如果存在) . 在前面的示例中,健康信息在名为 `my` 的条目中可用.
 
@@ -700,10 +584,7 @@ TIP: 在响应式应用程序中,`ReactiveHealthContributorRegistry` 可用于�
 
 要从响应式 API 提供自定义健康信息,可以注册实现 {spring-boot-actuator-module-code}/health/ReactiveHealthIndicator.java[`ReactiveHealthIndicator`]  接口的 Spring bean. 以下代码展示了 `ReactiveHealthIndicator` 实现的示例:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/health/reactivehealthindicators/MyReactiveHealthIndicator.java[]
-----
+include::code:MyReactiveHealthIndicator[]
 
 TIP: 要自动处理错误，请考虑从 `AbstractReactiveHealthIndicator` 扩展。
 
@@ -724,11 +605,11 @@ TIP: 要自动处理错误，请考虑从 `AbstractReactiveHealthIndicator` 扩�
 | 检查 Couchbase 集群是否已启动。
 
 | `elasticsearch`
-| {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchReactiveHealthIndicator.java[`ElasticsearchReactiveHealthIndicator`]
+| {spring-boot-actuator-module-code}/data/elasticsearch/ElasticsearchReactiveHealthIndicator.java[`ElasticsearchReactiveHealthIndicator`]
 | 检查 Elasticsearch 集群是否已启动。
 
 | `mongo`
-| {spring-boot-actuator-module-code}/mongo/MongoReactiveHealthIndicator.java[`MongoReactiveHealthIndicator`]
+| {spring-boot-actuator-module-code}/data/mongo/MongoReactiveHealthIndicator.java[`MongoReactiveHealthIndicator`]
 | 检查 Mongo 数据库是否已启动。
 
 | `neo4j`
@@ -736,7 +617,7 @@ TIP: 要自动处理错误，请考虑从 `AbstractReactiveHealthIndicator` 扩�
 | 检查 Neo4j 数据库是否已启动。
 
 | `redis`
-| {spring-boot-actuator-module-code}/redis/RedisReactiveHealthIndicator.java[`RedisReactiveHealthIndicator`]
+| {spring-boot-actuator-module-code}/data/redis/RedisReactiveHealthIndicator.java[`RedisReactiveHealthIndicator`]
 | 检查 Redis 服务器是否已启动。
 |===
 
@@ -848,7 +729,8 @@ NOTE: `<actuator-port>` 应该设置为 actuator 端点可用的端口.它可以
 
 仅当应用程序 <<deployment#deployment.cloud.kubernetes,在 Kubernetes 环境中运行时>> ,才会自动启用这些运行状况组.您可以使用 `management.endpoint.health.probes.enabled` 配置属性在任何环境中启用它们.
 
-NOTE: 如果应用程序的启动时间比配置的激活时间长,Kubernetes 会提及 `"startupProbe"` 作为可能的解决方案. 由于在所有启动任务完成之前 `"readinessProbe"` 将失败,因此此处不一定需要 `"startupProbe"` ,请参阅  <<actuator#actuator.endpoints.kubernetes-probes.lifecycle,探针在应用程序生命周期中的行为>>.
+NOTE: 如果应用程序的启动时间比配置的激活时间长,Kubernetes 会提及 `"startupProbe"` 作为可能的解决方案. 由于在所有启动任务完成之前 `"readinessProbe"` 将失败,因此此处不一定需要 `"startupProbe"` ,这意味着您的应用程序在准备就绪之前不会接收流量，
+但是，如果您的应用程序需要很长时间才能启动，请考虑使用 `"startupProbe"` 来确保 Kubernetes 在启动过程中不会终止您的应用程序。请参阅  <<actuator#actuator.endpoints.kubernetes-probes.lifecycle,探针在应用程序生命周期中的行为>>.
 
 WARNING: 如果您的 Actuator 端点部署在单独的管理上下文中,请注意,端点将不使用与主应用程序相同的 Web 基础结构 (端口,连接池,框架组件) . 在这种情况下,即使主应用程序无法正常运行 (例如,它不能接受新连接) ,也可能会成功进行探测检查.出于这个原因，在主服务器端口上使  `liveness` 和 `readiness`  健康组可用是一个好主意。 这可以通过设置以下属性来完成：
 
@@ -978,11 +860,16 @@ TIP: 请查看 <<deployment#deployment.cloud.kubernetes.container-lifecycle,Kube
 | {spring-boot-actuator-module-code}/info/JavaInfoContributor.java[`JavaInfoContributor`]
 | 暴露 Java 运行时信息.
 | None.
+
+| `os`
+| {spring-boot-actuator-module-code}/info/OsInfoContributor.java[`OsInfoContributor`]
+| Exposes Operating System information.
+| None.
 |===
 
 单个 contributors 是否启用由其 `management.info.<id>.enabled` 属性控制。 不同的贡献者对此属性有不同的默认值，这取决于他们的先决条件和他们暴露的信息的性质。
 
-没有先决条件表明它们应该被启用，`env`、和 `java` contributors 默认是禁用的。 每个都可以通过将其 `management.info.env.enabled` 属性 或 `management.info.java.enabled` 设置为 `true` 来启用。
+没有先决条件表明它们应该被启用，`env`, `java`, 和 `os` contributors 默认是禁用的。 每个都可以通过将其 `management.info.<id>.enabled` 属性设置为 `true` 来启用。
 
 `build` 和 `git` contributor 默认启用。 每个都可以通过将其 `management.info.<id>.enabled` 属性设置为 `false` 来禁用。
 或者，要禁用通常默认启用的每个 contributor，请将   `management.info.defaults.enabled` 属性设置为 `false`。
@@ -1054,16 +941,17 @@ TIP: Maven 和 Gradle 插件都可以生成该文件. 有关更多详细信息,�
 ==== Java 信息
 `info` 端点发布有关您的 Java 运行时环境的信息，请参阅 {spring-boot-module-api}/info/JavaInfo.html[`JavaInfo`] 了解更多详细信息。
 
+[[actuator.endpoints.info.os-information]]
+==== OS Information
+`info` 端点发布有关操作系统的信息，有关详细信息，请参阅  {spring-boot-module-api}/info/OsInfo.html[`OsInfo`]。
+
 [[actuator.endpoints.info.writing-custom-info-contributors]]
 ==== 编写自定义 InfoContributors
 要提供自定义应用程序信息,可以注册实现 {spring-boot-actuator-module-code}/info/InfoContributor.java[`InfoContributor`]  接口的 Spring bean.
 
 以下示例提供了具有单个值的 `example` entry:
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/actuator/endpoints/info/writingcustominfocontributors/MyInfoContributor.java[]
-----
+include::code:MyInfoContributor[]
 
 如果访问 `info` 端点,你应该能看到包含以下附加条目的响应:
 

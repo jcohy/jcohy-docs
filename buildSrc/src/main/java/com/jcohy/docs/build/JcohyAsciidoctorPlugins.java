@@ -78,5 +78,9 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         attributes.put("doc-root","https://docs.jcohy.com");
         attributes.put("spring-docs-prefix","https://docs.spring.io/spring-framework/docs/");
         attributes.put("gh-samples-url","https://github.com/spring-projects/spring-security/master/");
+
+        if(project.getName().startsWith("spring")) {
+            attributes.put("native-build-tools-version","0.9.18");
+        }
     }
 }

@@ -33,8 +33,8 @@ public class DevProfileSecurityConfiguration {
 	@Bean
 	@Order(Ordered.HIGHEST_PRECEDENCE)
 	SecurityFilterChain h2ConsoleSecurityFilterChain(HttpSecurity http) throws Exception {
-		http.requestMatcher(PathRequest.toH2Console());
-		http.authorizeRequests(yourCustomAuthorization());
+		http.securityMatcher(PathRequest.toH2Console());
+		http.authorizeHttpRequests(yourCustomAuthorization());
 		http.csrf((csrf) -> csrf.disable());
 		http.headers((headers) -> headers.frameOptions().sameOrigin());
 		return http.build();

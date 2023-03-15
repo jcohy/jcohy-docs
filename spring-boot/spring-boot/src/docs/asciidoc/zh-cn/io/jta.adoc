@@ -1,8 +1,17 @@
 [[io.jta]]
 == JTA 分布式事务
-Spring Boot 通过使用  https://www.atomikos.com/[Atomikos] 嵌入式事务管理器来支持跨多个 XA 资源的分布式 JTA 事务, 并弃用了 https://github.com/bitronix/btm[Bitronix] 嵌入式事务管理器的支持,并在未来版本中删除. 部署在某些 Java EE 应用服务器 (Application Server) 上也支持 JTA 事务.
+
+Spring Boot 通过使用从 JNDI 检索的事务管理器来支持跨多个 XA 资源的分布式 JTA 事务,
 
 当检测到 JTA 环境时,Spring 的 `JtaTransactionManager` 将用于管理事务. 自动配置的 JMS、DataSource 和 JPA bean 已升级为支持 XA 事务. 您可以使用标准的 Spring 方式 (例如 `@Transactional`) 来使用分布式事务. 如果您处于 JTA 环境中并且仍想使用本地事务,则可以将 `spring.jta.enabled` 属性设置为 `false` 以禁用 JTA 自动配置.
+
+[[io.jta.jakartaee]]
+=== 使用 Jakarta EE 管理事务管理器
+如果将 Spring Boot 应用程序打包为 `war` 或 `ear` 文件并将其部署到 Jakarta EE 应用程序服务器，则可以使用应用程序服务器的内置事务管理器。
+Spring Boot 尝试通过查看常见的 JNDI 位置（`java:comp/UserTransaction`, `java:comp/TransactionManager` 等）来自动配置事务管理器。
+使用应用程序服务器提供的事务服务时，通常还希望确保所有资源都由服务器管理并通过 JNDI 公开。
+Spring Boot 尝试通过在 JNDI 路径（`java:/JmsXA` 或 `java:/XAConnectionFactory`）中查找 `ConnectionFactory` 来自动配置 JMS，您可以使用 <<data#data.sql.datasource.jndi,`spring.datasource.jndi-name` 属性>>来配置您的 `DataSource`。
+
 
 [[io.jta.atomikos]]
 === 使用 Atomikos 事务管理器
@@ -21,30 +30,18 @@ NOTE: 为确保多个事务管理器可以安全地协调相同的资源管理�
 === 混合使用 XA 与非 XA JMS 连接
 使用 JTA 时,primary （主） JMS `ConnectionFactory` bean 可识别 XA 并参与分布式事务.您可以注入到您的 bean 中，而无需使用任何 `@Qualifier`：
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/io/jta/mixingxaandnonxaconnections/primary/MyBean.java[tag=*]
-----
+include::code:primary/MyBean[tag=*]
 
 在某些情况下,您可能希望使用非 XA `ConnectionFactory` 处理某些 JMS 消息. 例如,您的 JMS 处理逻辑可能需要比 XA 超时时间更长的时间.
 
 如果要使用非 XA `ConnectionFactory`，可以使用 `nonXaJmsConnectionFactory` bean：
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/io/jta/mixingxaandnonxaconnections/nonxa/MyBean.java[tag=*]
-----
+include::code:nonxa/MyBean[tag=*]
 
 为了保持一致性,提供的 `jmsConnectionFactory` bean 还需要使用 `xaJmsConnectionFactory` 别名.
 
-[source,java,indent=0,subs="verbatim"]
-----
-include::{docs-java}/io/jta/mixingxaandnonxaconnections/xa/MyBean.java[tag=*]
-----
+include::code:xa/MyBean[tag=*]
 
-
-[[io.jta.supporting-alternative-embedded-transaction-manager]]
+[[io.jta.supporting-embedded-transaction-manager]]
 === 支持嵌入式事务管理器
 {spring-boot-module-code}/jms/XAConnectionFactoryWrapper.java[`XAConnectionFactoryWrapper`] 和  {spring-boot-module-code}/jdbc/XADataSourceWrapper.java[`XADataSourceWrapper`]  接口可用于支持其他嵌入式事务管理器. 接口负责包装 `XAConnectionFactory` 和 `XADataSource` bean,并将它们暴露为普通的 `ConnectionFactory` 和 `DataSource` bean,它们透明地加入分布式事务. `DataSource` 和 JMS 自动配置使用 JTA 变体,前提是您需要有一个 `JtaTransactionManager` bean 和在 `ApplicationContext` 中注册有的相应 XA 包装器 (wrapper)  bean.
-
-{spring-boot-module-code}/jta/atomikos/AtomikosXAConnectionFactoryWrapper.java[AtomikosXAConnectionFactoryWrapper] 和 {spring-boot-module-code}/jta/atomikos/AtomikosXADataSourceWrapper.java[AtomikosXADataSourceWrapper] 为如何编写 XA 包装器提供了很好示例.
