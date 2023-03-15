@@ -1,0 +1,152 @@
+[[kafka-quickstart]]
+= 入门
+
+[[kafka-quickstart-download]]
+== 第 1 步：获取 Kafka
+
+https://www.apache.org/dyn/closer.cgi?path=/kafka/2.8.0/kafka_2.13-2.8.0.tgz[下载] 最新的 Kafka 版本并解压：
+
+[source,shell]
+----
+$ tar -xzf kafka_2.13-3.0.1.tgz
+$ cd kafka_2.13-3.0.1
+----
+
+[[kafka-quickstart-startserver]]
+== 第 2 步：启动 Kafka
+
+NOTE: 您必须在本地安装 Java 8+
+
+运行以下命令以按正确顺序启动所有服务：
+
+[source,shell]
+----
+# Start the ZooKeeper service
+# Note: Soon, ZooKeeper will no longer be required by Apache Kafka.
+$ bin/zookeeper-server-start.sh config/zookeeper.properties
+----
+
+打开另一个终端会话并运行：
+
+[source,shell]
+----
+# Start the Kafka broker service
+$ bin/kafka-server-start.sh config/server.properties
+----
+
+成功启动所有服务后，您将拥有一个最基本的 Kafka 运行环境并可以使用。
+
+[[kafka-quickstart-createtopic]]
+== 第 3 步：创建一个主题来存储您的事件
+
+Kafka 是一个 `分布式事件流平台`，可以跨多台机器读取、写入、存储和处理 <<kafka-messages,事件>>（在文档中也称为 `records` （记录）或 `messages`（消息））。
+
+示例事件包括支付交易、来自手机的地理位置更新、运输订单、来自物联网设备或医疗设备的传感器测量等等。 这些事件被组织并存储在主题中。 这很容易实现，<<kafka-intro-concepts-and-terms,主题>> 类似于文件系统中的文件夹，事件是该文件夹中的文件。
+
+因此，在您编写您的第一个事件之前，您必须创建一个主题。 打开另一个终端会话并运行：
+
+[source,shell]
+----
+$ bin/kafka-topics.sh --create --partitions 1 --replication-factor 1 --topic quickstart-events --bootstrap-server localhost:9092
+----
+
+Kafka 的所有命令行工具都有其他选项：可以直接运行 `kafka-topics.sh` 命令可以显示帮助信息。 例如，它还可以显示新主题的 <<kafka-intro-concepts-and-terms,分区数等详细信息>>：
+
+[source,shell]
+----
+$ bin/kafka-topics.sh --describe --topic quickstart-events --bootstrap-server localhost:9092
+Topic:quickstart-events  PartitionCount:1    ReplicationFactor:1 Configs:
+    Topic: quickstart-events Partition: 0    Leader: 0   Replicas: 0 Isr: 0
+----
+
+[[kafka-quickstart-send]]
+== 第 4 步：将事件写入主题
+
+Kafka 客户端通过网络与 Kafka brokers 通信写入（或读取）事件。 一旦收到，`brokers` 将以持久和容错的方式存储事件，只要您需要 — 甚至可以永远保存。
+
+运行  console producer 客户端将一些事件写入您的主题。 默认情况下，您输入的每一行都会将一个单独的事件写入主题。
+
+[source,shell]
+----
+$ bin/kafka-console-producer.sh --topic quickstart-events --bootstrap-server localhost:9092
+This is my first event
+This is my second event
+----
+
+您可以随时使用 `Ctrl-C` 停止生产者客户端。
+
+[[kafka-quickstart-consume]]
+== 第 5 步：读取事件
+
+打开另一个终端并运行 console consumer 客户端以读取您刚刚创建的事件：
+
+[source,shell]
+----
+$ bin/kafka-console-consumer.sh --topic quickstart-events --from-beginning --bootstrap-server localhost:9092
+This is my first event
+This is my second event
+----
+
+您可以随时使用 `Ctrl-C` 停止消费者客户端。
+
+随意尝试：例如，切换回您的生产者终端（上一步）以编写其他事件，并查看事件如何立即显示在您的消费者终端中。
+
+因为事件被持久地存储在 Kafka 中，所以它们会被尽可能多的消费者多次读取。您可以通过打开另一个终端会话并再次重新运行上一个命令来轻松验证这一点。
+
+[[kafka-quickstart-kafkaconnect]]
+== 第 6 步：使用 KAFKA CONNECT 将您的数据导入/导出为事件流
+
+您可能在现有系统（如关系数据库或传统消息传递系统）中拥有大量数据，以及许多已经使用这些系统的应用程序。 <<kafka-connect,Kafka Connect>> 允许您不断地将来自外部系统的数据提取到 Kafka 中，反之亦然。
+因此很容易将现有系统与 Kafka 集成。 为了使这个过程更加容易，有数百个这样的现成连接器可用。
+
+查看 <<kafka-connect,Kafka Connect>> 部分，了解有关如何将数据持续导入和导出 Kafka 的更多信息。
+
+[[kafka-quickstart-kafkastreams]]
+== 第 7 步：使用 KAFKA 流处理您的事件
+
+一旦您的数据作为事件存储在 Kafka 中，您就可以使用 Java/Scala 的 {kafka-docs}/documentation/streams[Kafka Streams] 客户端库处理数据。 它允许您实现实时应用程序和微服务的关键任务，其中输入 和/或 输出数据存储在 Kafka 主题中。
+Kafka Streams 将在客户端编写和部署标准 Java 和 Scala 应用程序的简单性与 Kafka 的服务器端集群技术的优势相结合，使这些应用程序具有高度可扩展性、弹性、容错性和分布式性。
+该库支持一次性处理、有状态操作和聚合、窗口化、连接、基于事件时间的处理等等。
+
+为了让您第一次体验，以下是如何实现流行的 WordCount 算法：
+
+[source,shell]
+----
+KStream<String, String> textLines = builder.stream("quickstart-events");
+
+KTable<String, Long> wordCounts = textLines
+            .flatMapValues(line -> Arrays.asList(line.toLowerCase().split(" ")))
+            .groupBy((keyIgnored, word) -> word)
+            .count();
+
+wordCounts.toStream().to("output-topic", Produced.with(Serdes.String(), Serdes.Long()));
+----
+
+{kafka-docs}/25/documentation/streams/quickstart[Kafka Streams demo] 和 {kafka-docs}/25/documentation/streams/tutorial[应用程序开发教程] 演示了如何从头到尾编写和运行这样的流式应用程序。
+
+[[kafka-quickstart-kafkaterminate]]
+== 第 8 步：停止 KAFKA
+
+现在您已经完成了快速入门，您可以停止 Kafka 环境，或者继续使用。
+
+. 如果您还没有这样做，请使用 `Ctrl-C` 停止生产者和消费者客户端。
+. 使用 `Ctrl-C` 停止 Kafka brokers。
+. 最后，使用 `Ctrl-C` 停止 ZooKeeper 服务器。
+
+如果您还想删除本地 Kafka 环境的任何数据，包括您在此过程中创建的任何事件，请运行以下命令：
+
+[source,shell]
+----
+$ rm -rf /tmp/kafka-logs /tmp/zookeeper
+----
+
+[[kafka-quickstart-kafkacongrats]]
+== CONGRATULATIONS!
+
+您已成功完成 Apache Kafka 快速入门。
+
+要了解更多信息，我们建议执行以下后续步骤：
+
+. 通读 <<kafka-intro,简介>>，了解 Kafka 在高层次上的工作原理、主要概念以及与其他技术的比较。 要更详细地了解 Kafka，请 <<kafka,参阅文档>>。
+. 浏览 {kafka-docs}/powered-by[用例]，了解我们全球社区中的其他用户如何从 Kafka 中获得价值。
+. 加入 {kafka-docs}/events[当地的 Kafka 聚会小组]，https://kafka-summit.org/past-events/[观看 Kafka 峰会]（Kafka 社区的主要会议）的演讲。

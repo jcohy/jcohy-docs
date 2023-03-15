@@ -1,6 +1,7 @@
 [[build-image]]
 = 打包 OCI 镜像
-该插件可以使用 https://buildpacks.io[Cloud Native Buildpacks] (CNB) 从可执行 jar 或 war 文件创建 https://github.com/opencontainers/image-spec[OCI image].可以使用 `build-image` 目标来构建镜像.
+该插件可以使用 https://buildpacks.io[Cloud Native Buildpacks] (CNB) 从可执行 jar 或 war 文件创建 https://github.com/opencontainers/image-spec[OCI image].
+可以使用 `build-image` goal 在命令行上来构建镜像.这可确保 package 生命周期在创建映像之前已运行。
 
 NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更多详细信息,请参见 {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification].
 
@@ -11,6 +12,11 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 include::../maven/packaging-oci-image/pom.xml[tags=packaging-oci-image]
 ----
 
+NOTE: 在将 goal 绑定到 package 生命周期时使用 `build-image-no-fork`。
+此 goal 类似于 `build-image` ，但不会 fork 生命周期以确保 `package` 已运行。
+在本节的其余部分中，`build-image` 表示 `build-image` 或 `build-image-no-fork`  goals。
+
+
 TIP: 尽管 buildpack 是从  <<packaging,executable archive>> 运行的,但不必先执行 `repackage` 目标,因为必要时会自动创建可执行存档. 当构建镜像重新打包应用程序时,它将应用与重新打包目标相同的设置,即可以使用 exclude 选项之一排除依赖,并且默认情况下会自动排除 Devtools (您可以使用 `excludeDevtools`  属性进行控制) .
 
 [[build-image.docker-daemon]]
@@ -18,7 +24,7 @@ TIP: 尽管 buildpack 是从  <<packaging,executable archive>> 运行的,但不�
 
 `build-image` 任务需要访问 Docker 守护程序. 默认情况下,它将通过本地连接与 Docker 守护程序通信. 无需配置即可在所有支持的平台上使用 https://docs.docker.com/install/[Docker Engine].
 
-可以设置环境变量来配置 `build-image` 目标以使用 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程]。 . 下表显示了环境变量及其值:
+可以设置环境变量来配置 `build-image` goal 配置为使用备用本地或远程连接。下表显示了环境变量及其值:
 
 |===
 | 环境变量 | 描述
@@ -33,8 +39,6 @@ TIP: 尽管 buildpack 是从  <<packaging,executable archive>> 运行的,但不�
 | HTTPS的证书和密钥文件的路径(如果 `DOCKER_TLS_VERIFY=1` 则需要，否则忽略)
 |===
 
-在 Linux 和 macOS 上，可以在 minikube 启动后使用命令 `eval $(minikube docker-env)` 设置这些环境变量。
-
 也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
 
 |===
@@ -48,6 +52,9 @@ TIP: 尽管 buildpack 是从  <<packaging,executable archive>> 运行的,但不�
 
 | `certPath`
 | HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+
+| `bindHostToBuilder`
+| 当设置为 `true` 时，`host`  属性的值将提供给为 CNB builder 创建的容器（可选）
 |===
 
 更多信息, 请查看 <<build-image.examples.docker,examples>>.
@@ -188,7 +195,7 @@ NOTE: 该插件使用编译器的插件配置或 `maven.compiler.target` 属性�
 有关更多详细信息,另请参见 <<build-image.examples,examples>>.
 
 include::goals/build-image.adoc[leveloffset=+1]
-
+include::goals/build-image-no-fork.adoc[leveloffset=+1]
 
 [[build-image.examples]]
 == 示例
@@ -344,23 +351,46 @@ include::../maven/packaging-oci-image/caches-pom.xml[tags=caches]
 [[build-image.examples.docker]]
 === Docker 配置
 
-如果你需要插件使用远程连接而不是默认的本地连接与 Docker 守护进程通信，连接细节可以使用 `docker` 参数提供，如下例所示:
+[[build-image.examples.docker.minikube]]
+==== Docker minikube 配置
+
+该插件可以与 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程] 通信，而不是默认的本地连接。
+
+在 Linux 和 macOS 上，在 minikube 启动后，可以使用命令  `eval $(minikube docker-env)` 设置环境变量。
+
+还可以通过提供类似于以下示例所示的连接详细信息，将插件配置为使用 minikube 守护进程：
 
 [source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-include::../maven/packaging-oci-image/docker-remote-pom.xml[tags=docker-remote]
+include::../maven/packaging-oci-image/docker-minikube-pom.xml[tags=docker-minikube]
 ----
 
-如果构建器或运行镜像存储在支持用户身份验证的私有 Docker 注册中心中，则可以使用 `docker.builderRegistry` 参数提供身份验证细节，如下例所示:
+[[build-image.examples.docker.podman]]
+==== Docker podman 配置
+
+该插件可以与 https://podman.io/[podman 容器引擎]通信。
+
+通过提供类似于以下示例所示的连接详细信息，可以将插件配置为使用 podman 本地连接：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/packaging-oci-image/docker-podman-pom.xml[tags=docker-podman]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker 配置认证
+
+如果构建器或运行镜像存储在支持用户身份验证的私有 Docker 注册中心中，则可以使用 `docker.builderRegistry` 属性提供身份验证详细信息，如以下示例所示：
 
 [source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
 include::../maven/packaging-oci-image/docker-registry-authentication-pom.xml[tags=docker-registry-authentication]
 ----
 
-如果构建器或运行镜像存储在支持令牌身份验证的私有 Docker 注册中心中，则可以使用`docker.builderRegistry` 参数提供令牌值。如下例所示:
+如果生成器或运行镜像存储在支持令牌身份验证的私有 Docker 注册中心中，则可以使用 `docker.builderRegistry` 提供令牌值，如以下示例所示：
 
 [source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
 include::../maven/packaging-oci-image/docker-token-authentication-pom.xml[tags=docker-token-authentication]
 ----
+

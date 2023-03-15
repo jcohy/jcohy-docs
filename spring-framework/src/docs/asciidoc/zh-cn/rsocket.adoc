@@ -31,7 +31,7 @@ RSocket 有多种语言的 {gh-rsocket}[实现].{gh-rsocket-java}[Java library] 
 [[rsocket-protocol]]
 === 协议
 
-RSocket 的优点之一是,它在线路上具有定义明确的行为,并且易于阅读的 https://rsocket.io/docs/Protocol[规范] 以及某些协议 {gh-rsocket}/rsocket/tree/master/Extensions[扩展].
+RSocket 的优点之一是,它在线路上具有定义明确的行为,并且易于阅读的 https://rsocket.io/about/protocol[规范] 以及某些协议 {gh-rsocket}/rsocket/tree/master/Extensions[扩展].
 
 **Connecting**
 
@@ -719,3 +719,62 @@ class RadarsController {
 			}
 			.build()
 ----
+
+[[rsocket-interface]]
+== RSocket 接口
+
+Spring Framework 允许您将 RSocket 服务定义为带有用于 RSocket 交换的注解方法的 Java 接口。 然后，您可以生成一个实现此接口并执行交换的代理。
+这有助于通过封装底层 <<rsocket-requester>> 的使用来简化 RSocket 远程访问。
+
+第一，用 `@RSocketExchange` 方法声明一个接口：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	interface RadarService {
+
+		@RSocketExchange("radars")
+		Flux<AirportLocation> getRadars(@Payload MapRequest request);
+
+		// more RSocket exchange methods...
+
+	}
+----
+
+第二，创建一个将执行声明的 RSocket 交换的代理：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	RSocketRequester requester = ... ;
+	RSocketServiceProxyFactory factory = RSocketServiceProxyFactory.builder(requester).build();
+
+	RepositoryService service = factory.createClient(RadarService.class);
+----
+
+
+[[rsocket-interface-method-parameters]]
+=== 方法参数
+
+带注解的 RSocket 交换方法支持具有以下方法参数签名：
+
+[cols="1,2", options="header"]
+|===
+| 方法参数 | 描述
+
+| `@DestinationVariable`
+| 添加一个路由变量以与来自 `@RSocketExchange` 注解的路由一起传递给 `RSocketRequester`，以便在路由中扩展模板占位符。 此变量可以是字符串或任何对象，然后通过 `toString()` 对其进行格式化。
+
+| `@Payload`
+| 为请求设置输入负载。 这可以是一个具体的值，或者任何可以通过 `ReactiveAdapterRegistry` 适应 Reactive Streams `Publisher` 的值的生产者
+
+| `Object`, if followed by `MimeType`
+| 输入负载中元数据条目的值。 这可以是任何 `Object`，只要下一个参数是元数据条目 `MimeType`。 该值可以是具体值或单个值的任何生产者，可以通过 `ReactiveAdapterRegistry` 适应 Reactive Streams `Publisher`。
+
+| `MimeType`
+| 元数据条目的 `MimeType`。 前面的方法参数应该是元数据值。
+|===
+
+
+[[rsocket-interface-return-values]]
+=== 返回值
+
+带注解的 RSocket 交换方法支持作为具体值的返回值，或任何可以通过 `ReactiveAdapterRegistry` 适应 Reactive Streams `Publisher` 的值的生产者。

@@ -1,0 +1,109 @@
+[[native-image.introducing-graalvm-native-images]]
+== 介绍 GraalVM 原生镜像
+GraalVM 原生镜像提供了一种部署和运行 Java 应用程序的新方法。 与 Java 虚拟机相比，原生镜像可以以更小的内存占用和更快的启动时间运行。
+
+它们非常适合使用容器镜像部署的应用程序，在与 "Function as a service" (FaaS)  平台结合使用时尤其有趣。
+
+与为 JVM 编写的传统应用程序不同，GraalVM 原生镜像应用程序需要提前处理才能创建可执行文件。 这种提前处理涉及从应用程序代码的主入口点静态分析应用程序代码。
+
+GraalVM 原生镜像是一个完整的、特定于平台的可执行文件。 您无需使用 Java 虚拟机即可运行原生镜像。
+
+TIP: 如果您只想开始使用并尝试使用 GraalVM，您可以跳到 "`<<native-image#native-image.developing-your-first-application>>`"  部分，稍后返回此部分。
+
+[[native-image.introducing-graalvm-native-images.key-differences-with-jvm-deployments]]
+=== 与 JVM 部署的主要区别
+GraalVM 原生镜像是提前生成的，这意味着原生应用程序和基于 JVM 的应用程序之间存在一些关键差异。
+主要区别是：
+
+* 应用程序的静态分析是在构建时从 `main` 入口点执行的。
+* 创建原生镜像时无法访问的代码将被删除，并且不会成为可执行文件的一部分。
+* GraalVM 不会了解代码的动态元素，必须告知反射、资源、序列化和动态代理。
+* 应用程序类路径在构建时是固定的，不能更改。
+* 没有类的懒加载，可执行文件中附带的所有内容都将在启动时加载到内存中。
+* Java 应用程序的某些方面存在一些不完全受支持的限制。
+
+TIP: GraalVM 参考文档的 {graal-native-image-docs}/metadata/Compatibility /[Native Image Compatibility Guide] 部分提供了有关 GraalVM 限制的更多详细信息。
+
+[[native-image.introducing-graalvm-native-images.understanding-aot-processing]]
+=== 了解 Spring Ahead-of-Time 处理
+典型的 Spring Boot 应用程序是动态的，配置是在运行时执行的。 事实上，Spring Boot 自动配置的概念在很大程度上取决于对运行时状态的反应，以便正确配置。
+
+尽管可以告诉 GraalVM 有关应用程序的这些动态方面，但这样做会抵消静态分析的大部分好处。 因此，当使用 Spring Boot 创建原生镜像时，假定为封闭世界，并且应用程序的动态方面受到限制。
+
+封闭世界假设意味着以下限制:
+
+* 类路径是固定的，并且在构建时完全定义
+* 应用程序中定义的 bean 不能在运行时更改，这意味着：
+ - 不支持 Spring  `@Profile` 注解和特定于配置文件的配置
+ - 不支持在创建 Bean 时更改的属性（例如，`@ConditionalOnProperty` 和 `.enable` 属性）。
+
+当这些限制到位时，Spring 可以在构建时执行提前处理，并生成 GraalVM 可以使用的其他资产。 Spring AOT 处理的应用程序通常会生成：
+
+* Java 源代码
+* Bytecode (for dynamic proxies etc)
+* GraalVM JSON hint files:
+ - Resource hints (`resource-config.json`)
+ - Reflection hints (`reflect-config.json`)
+ - Serialization hints (`serialization-config.json`)
+ - Java Proxy Hints (`proxy-config.json`)
+ - JNI Hints (`jni-config.json`)
+
+
+
+[[native-image.introducing-graalvm-native-images.understanding-aot-processing.source-code-generation]]
+==== 源代码生成
+Spring 应用由 Spring Beans 组成。 在内部，Spring 框架使用两个不同的概念来管理 bean。
+有 bean 实例，它们是已创建并可以注入到其他 bean 中的实际实例。 还有一些 Bean 定义用于定义 Bean 的属性以及如何创建其实例。
+
+如果我们采用典型的 `@Configuration` 类：
+
+include::code:MyConfiguration[]
+
+Bean 定义是通过解析  `@Configuration`  类并找到 `@Bean` 方法创建的。 在上面的例子中，我们为一个名为 `myBean` 的单例 Bean 定义了 `BeanDefinition`。 我们还为 `MyConfiguration`  类本身创建了一个 `BeanDefinition`。
+
+当需要 `myBean` 实例时，Spring 知道它必须调用 `myBean()` 方法并使用结果。
+在 JVM 上运行时，应用程序启动时会发生 `@Configuration` 类解析，并使用反射调用 `@Bean` 方法。
+
+在创建原生镜像时，Spring 以不同的方式运行。 它不是在运行时解析 `@Configuration` 类并生成 Bean 定义，而是在构建时执行此操作。
+一旦发现 Bean 定义，它们就会被处理并转换为可由 GraalVM 编译器分析的源代码。
+
+Spring AOT 进程会将上面的配置类转换为如下代码：
+
+include::code:MyConfiguration__BeanDefinitions[]
+
+NOTE: 生成的确切代码可能会有所不同，具体取决于 Bean 定义的性质。
+
+你可以在上面看到，生成的代码创建了与 `@Configuration` 类等效的 bean 定义，但以 GraalVM 可以理解的直接方式。
+
+`myConfiguration` bean 有一个 bean 定义，`myBean` 有一个定义。 当需要 `myBean` 实例时，将调用  `BeanInstanceSupplier` 。 该 supplier 将在 `myConfiguration` bean 上调用 `myBean()` 方法。
+
+NOTE: 在 Spring AOT 处理期间，您的应用程序将启动到可用的 Bean 定义。 Bean 实例不会在 AOT 处理阶段创建。
+
+Spring AOT 将为您的所有 Bean 定义生成这样的代码。
+当需要 Bean 的后置处理器（例如，调用 `@Autowired` 方法）时，它还将生成代码。
+还将生成一个 `ApplicationContextInitializer` ，当 AOT 处理的应用程序实际运行时，Spring Boot 将使用该初始值设定项来初始化 `ApplicationContext`。
+
+TIP: 尽管 AOT 生成的源代码可能很详细，但它非常易读，并且在调试应用程序时会很有帮助。
+当使用 Maven 时，生成的代码在  `target/spring-aot/main/sources` 中可以找到，当使用 Gradle 时, 生成的代码在  `build/generated/aotSources` 中找到。
+
+[[native-image.introducing-graalvm-native-images.understanding-aot-processing.hint-file-generation]]
+==== 生成 Hint File
+除了生成源文件外，Spring AOT 引擎还将生成 GraalVM 使用的提示文件。
+提示文件包含 JSON 数据，这些数据描述了 GraalVM 应如何通过直接检查代码来处理它无法理解的事情。
+
+例如，您可能在私有方法上使用 Spring 注解。 Spring 需要使用反射来调用私有方法，即使在 GraalVM 上也是如此。
+当出现这种情况时，Spring 可以编写反射提示，以便 GraalVM 知道即使不直接调用私有方法，它仍然需要在原生镜像中可用。
+
+提示文件在  `META-INF/native-image` 下生成，由 GraalVM 自动获取。
+
+TIP: 生成的提示文件可以在使用 Mave n时的 `target/spring-aot/main/resources` 和 Gradle 的 `build/generated/aotResources` 中找到。
+
+[[native-image.introducing-graalvm-native-images.understanding-aot-processing.proxy-class-generation]]
+==== 生成代理类
+Spring 有时需要生成代理类来增强你编写的代码，并具有其他功能。 为此，它使用直接生成字节码的 cglib 库。
+
+当应用程序在 JDK 上运行时，代理类会在应用程序运行时动态生成。 创建原生镜像时，需要在构建时创建这些代理，以便 GraalVM 可以包含它们。
+
+NOTE: 与源代码生成不同，生成的字节码在调试应用程序时不是特别有用。
+但是，如果您需要使用 `javap`  之类的工具检查  `.class` 文件的内容，您可以在 Maven 的 `target/spring-aot/main/classes` 和 Gradle 的 `build/generated/aotClasses`  中找到它们。
+

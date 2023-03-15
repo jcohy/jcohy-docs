@@ -11,7 +11,7 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 
 `bootBuildImage` 任务需要访问 Docker 守护程序. 默认情况下,它将通过本地连接与 Docker 守护程序通信. 无需配置即可在所有支持的平台上使用 https://docs.docker.com/install/[Docker Engine].
 
-可以设置环境变量来配置 `build-image` 目标以使用 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程]。 . 下表显示了环境变量及其值:
+可以设置环境变量来配置 `bootBuildImage` 任务以使用 备用本地或远程连接 . 下表显示了环境变量及其值:
 
 |===
 | 环境变量 | 描述
@@ -26,8 +26,6 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 | HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
 |===
 
-在 Linux 和 macOS 上，可以在 minikube 启动后使用命令 `eval $(minikube docker-env)` 设置这些环境变量。
-
 也可以使用插件配置中的 `docker` 参数提供 Docker 守护进程连接信息. 下表汇总了可用参数:
 
 |===
@@ -41,6 +39,9 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 
 | `certPath`
 | HTTPS 的证书和密钥文件的路径 (如果 `tlsVerify` 为 `true` 则需要, 否则将忽略)
+
+| `bindHostToBuilder`
+| 当设置为 `true` 时, `host` 属性的值将提供给为 CNB 生成器创建的容器（可选）
 |===
 
 更多信息, 请查看 <<build-image.examples.docker,examples>>.
@@ -90,7 +91,7 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 | `builder`
 | `--builder`
 | 构建镜像的名称
-| `paketobuildpacks/builder:base`
+| 当使用 {nbt-gradle-plugin}[GraalVM Native Image plugin] 插件时，`paketobuildpacks/builder:base`  或 `paketobuildpacks/builder:tiny`
 
 | `runImage`
 | `--runImage`
@@ -111,7 +112,7 @@ NOTE: 出于安全原因,镜像以非 root 用户身份构建和运行.有关更
 | `environment`
 |
 | 应该传递给 builder 的环境变量.
-|
+| 当使用 {nbt-gradle-plugin}[GraalVM Native Image plugin] 插件时. Empty 或 `['BP_NATIVE_IMAGE': 'true']`
 
 | `buildpacks`
 |
@@ -391,7 +392,14 @@ include::../gradle/packaging/boot-build-image-caches.gradle.kts[tags=caches]
 [[build-image.examples.docker]]
 === Docker 配置
 
-如果你需要插件使用远程连接而不是默认的本地连接与 Docker 守护进程通信，连接细节可以使用 `docker` 参数提供，如下例所示:
+[[build-image.examples.docker.minikube]]
+==== Docker minikube 配置
+
+该插件可以与 https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[minikube 提供的 Docker 守护进程] 通信，而不是默认的本地连接。
+
+在 Linux 和 macOS 上，在 minikube 启动后，可以使用命令  `eval $(minikube docker-env)` 设置环境变量。
+
+还可以通过提供类似于以下示例所示的连接详细信息，将插件配置为使用 minikube 守护进程：
 
 [source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
 .Groovy
@@ -403,4 +411,54 @@ include::../gradle/packaging/boot-build-image-docker-host.gradle[tags=docker-hos
 .Kotlin
 ----
 include::../gradle/packaging/boot-build-image-docker-host.gradle.kts[tags=docker-host]
+----
+
+[[build-image.examples.docker.podman]]
+==== Docker podman 配置
+
+该插件可以与 https://podman.io/[podman 容器引擎]通信。
+
+通过提供类似于以下示例所示的连接详细信息，可以将插件配置为使用 podman 本地连接：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle[tags=docker-host]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-host-podman.gradle.kts[tags=docker-host]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker 配置认证
+
+如果构建器或运行镜像存储在支持用户身份验证的私有 Docker 注册中心中，则可以使用 `docker.builderRegistry` 属性提供身份验证详细信息，如以下示例所示：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle[tags=docker-auth-user]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-user.gradle.kts[tags=docker-auth-user]
+----
+
+如果生成器或运行镜像存储在支持令牌身份验证的私有 Docker 注册中心中，则可以使用 `docker.builderRegistry` 提供令牌值，如以下示例所示：
+
+[source,groovy,indent=0,subs="verbatim,attributes",role="primary"]
+.Groovy
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle[tags=docker-auth-token]
+----
+
+[source,kotlin,indent=0,subs="verbatim,attributes",role="secondary"]
+.Kotlin
+----
+include::../gradle/packaging/boot-build-image-docker-auth-token.gradle.kts[tags=docker-auth-token]
 ----

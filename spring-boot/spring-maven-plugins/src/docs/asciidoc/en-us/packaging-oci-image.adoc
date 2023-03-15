@@ -1,7 +1,8 @@
 [[build-image]]
 = Packaging OCI Images
 The plugin can create an https://github.com/opencontainers/image-spec[OCI image] from a jar or war file using https://buildpacks.io/[Cloud Native Buildpacks] (CNB).
-Images can be built using the `build-image` goal.
+Images can be built on the command-line using the `build-image` goal.
+This makes sure that the package lifecycle has run before the image is created.
 
 NOTE: For security reasons, images build and run as non-root users.
 See the {buildpacks-reference}/reference/spec/platform-api/#users[CNB specification] for more details.
@@ -14,6 +15,10 @@ It is possible to automate the creation of an image whenever the `package` phase
 include::../maven/packaging-oci-image/pom.xml[tags=packaging-oci-image]
 ----
 
+NOTE: Use `build-image-no-fork` when binding the goal to the package lifecycle.
+This goal is similar to `build-image` but does not fork the lifecycle to make sure `package` has run.
+In the rest of this section, `build-image` is used to refer to either the `build-image` or `build-image-no-fork` goals.
+
 TIP: While the buildpack runs from an <<packaging,executable archive>>, it is not necessary to execute the `repackage` goal first as the executable archive is created automatically if necessary.
 When the `build-image` repackages the application, it applies the same settings as the `repackage` goal would, that is dependencies can be excluded using one of the exclude options, and Devtools is automatically excluded by default (you can control that using the `excludeDevtools` property).
 
@@ -25,7 +30,7 @@ The `build-image` goal requires access to a Docker daemon.
 By default, it will communicate with a Docker daemon over a local connection.
 This works with https://docs.docker.com/install/[Docker Engine] on all supported platforms without configuration.
 
-Environment variables can be set to configure the `build-image` goal to use the https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[Docker daemon provided by minikube].
+Environment variables can be set to configure the `build-image` goal to use an alternative local or remote connection.
 The following table shows the environment variables and their values:
 
 |===
@@ -41,8 +46,6 @@ The following table shows the environment variables and their values:
 | Path to certificate and key files for HTTPS (required if `DOCKER_TLS_VERIFY=1`, ignored otherwise)
 |===
 
-On Linux and macOS, these environment variables can be set using the command `eval $(minikube docker-env)` after minikube has been started.
-
 Docker daemon connection information can also be provided using `docker` parameters in the plugin configuration.
 The following table summarizes the available parameters:
 
@@ -57,6 +60,9 @@ The following table summarizes the available parameters:
 
 | `certPath`
 | Path to certificate and key files for HTTPS (required if `tlsVerify` is `true`, ignored otherwise)
+
+| `bindHostToBuilder`
+| When `true`, the value of the `host` property will be provided to the container that is created for the CNB builder (optional)
 |===
 
 For more details, see also <<build-image.examples.docker,examples>>.
@@ -208,6 +214,7 @@ You can override this behaviour as shown in the <<build-image.examples.builder-c
 For more details, see also <<build-image.examples,examples>>.
 
 include::goals/build-image.adoc[leveloffset=+1]
+include::goals/build-image-no-fork.adoc[leveloffset=+1]
 
 
 
@@ -375,12 +382,34 @@ include::../maven/packaging-oci-image/caches-pom.xml[tags=caches]
 [[build-image.examples.docker]]
 === Docker Configuration
 
-If you need the plugin to communicate with the Docker daemon using a remote connection instead of the default local connection, the connection details can be provided using `docker` parameters as shown in the following example:
+[[build-image.examples.docker.minikube]]
+==== Docker Configuration for minikube
+
+The plugin can communicate with the https://minikube.sigs.k8s.io/docs/tasks/docker_daemon/[Docker daemon provided by minikube] instead of the default local connection.
+
+On Linux and macOS, environment variables can be set using the command `eval $(minikube docker-env)` after minikube has been started.
+
+The plugin can also be configured to use the minikube daemon by providing connection details similar to those shown in the following example:
 
 [source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
 ----
-include::../maven/packaging-oci-image/docker-remote-pom.xml[tags=docker-remote]
+include::../maven/packaging-oci-image/docker-minikube-pom.xml[tags=docker-minikube]
 ----
+
+[[build-image.examples.docker.podman]]
+==== Docker Configuration for podman
+
+The plugin can communicate with a https://podman.io/[podman container engine].
+
+The plugin can be configured to use podman local connection by providing connection details similar to those shown in the following example:
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/packaging-oci-image/docker-podman-pom.xml[tags=docker-podman]
+----
+
+[[build-image.examples.docker.auth]]
+==== Docker Configuration for Authentication
 
 If the builder or run image are stored in a private Docker registry that supports user authentication, authentication details can be provided using `docker.builderRegistry` parameters as shown in the following example:
 

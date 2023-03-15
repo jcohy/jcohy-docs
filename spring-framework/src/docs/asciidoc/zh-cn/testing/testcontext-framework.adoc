@@ -1,0 +1,3715 @@
+[[testcontext-framework]]
+= Spring TestContext Framework
+
+Spring TestContext Framework (位于 `org.springframework.test.context` 包中) 提供了通用的,注解驱动的单元和集成测试支持,这些支持与所使用的测试框架无关.  TestContext 框架还非常重视约定优于配置,您可以通过基于注解的配置覆盖合理的默认值.
+
+除了通用测结构之外,TestContext 框架还为 JUnit 4,JUnit Jupiter (AKA JUnit 5) 和 TestNG 提供了显式支持.  对于 JUnit 4 和 TestNG,Spring 提供了抽象支持类.  此外,Spring 为 JUnit 4 提供了自定义 JUnit `Runner` 和自定义 JUnit  `Rules` ,以及 JUnit Jupiter 的自定义扩展,
+可让您编写所谓的 POJO 测试类.  不需要 POJO 测试类来扩展特定的类层次结构,例如抽象支持类.
+
+以下部分概述了 TestContext 框架的内部.  如果您只对使用框架感兴趣,而对使用自己的自定义监听器或自定义加载程序进行扩展不感兴趣,请直接转到配置 (<<testcontext-ctx-management, 上下文管理>>,
+<<testcontext-fixture-di, 依赖注入>>, <<testcontext-tx,事务管理>>) ,<<testcontext-support-classes, 支持类>>和<<integration-testing-annotations, 注解支持>>部分.
+
+[[testcontext-key-abstractions]]
+== Key 抽象
+
+该框架的核心由 `TestContextManager` 类和 `TestContext`,`TestExecutionListener` 和 `SmartContextLoader` 接口组成.  为每个测试类创建一个 `TestContextManager` (例如,用于在 JUnit Jupiter 中的单个测试类中执行所有测试方法) .
+反过来,`TestContextManager` 管理一个 `TestContext`,它保存当前测试的上下文.  随着测试的进行,`TestContextManager` 还更新了 `TestContext` 的状态,并委托给 `TestExecutionListener` 实现,该实现通过提供依赖注入,管理事务等来检测实际的测试执行.
+`SmartContextLoader` 负责为给定的测试类加载 `ApplicationContext`.  有关更多信息和各种实现的示例,请参见 {api-spring-framework}/test/context/package-summary.html[javadoc]和 Spring 测试套件.
+
+=== `TestContext`
+
+`TestContext` 封装了在其中执行测试的上下文 (与使用中的实际测试框架无关) ,并为其负责的测试实例提供了上下文管理和缓存支持.  如果需要,`TestContext` 还委托给 `SmartContextLoader` 来加载 `ApplicationContext`.
+
+=== `TestContextManager`
+
+
+`TestContextManager` 是 Spring `TestContext` Framework 的主要入口点,并负责管理单个 `TestContext` 并在定义良好的测试执行点向每个注册的 `TestExecutionListener` 发出事件信号:
+
+* 在特定测试框架的任何 "`before class`" "`before all`"  方法之前.  测试实例后处理.
+* 测试实例后处理.
+* 在特定测试框架的任何 "`before`" 或 "`before each`" 方法之前.
+* 在执行测试方法之前但在测试设置之后.
+* 在执行测试方法之后但立即将测试拆解.
+* 在特定测试框架的任何 "`after`" 或  "`after each`"  方法之后.
+* 在特定测试框架的任何 "`after class`" 或 "`after all`" 方法之后
+
+=== `TestExecutionListener`
+
+`TestExecutionListener` 定义用于对由注册监听器的 `TestContextManager` 发布的测试执行事件做出响应的 API. 请参阅 <<testcontext-tel-config,TestExecutionListener 配置>>.
+
+=== Context Loaders
+
+`ContextLoader` 是一个策略接口,用于为 Spring TestContext Framework 管理的集成测试加载 `ApplicationContext`.  您应该实现 `SmartContextLoader` 而不是此接口,以提供对组件类, active bean 定义配置文件,测试属性源,上下文层次结构和 `WebApplicationContext` 支持的支持.
+
+`SmartContextLoader` 是 `ContextLoader` 接口的扩展,它取代了原始的最小 `ContextLoader` SPI.  具体来说,`SmartContextLoader` 可以选择处理资源位置,组件类或上下文初始化程序.  此外,`SmartContextLoader` 可以在其加载的上下文中设置 active 的 Bean 定义配置文件并测试属性源.
+
+Spring 提供了以下实现:
+
+* `DelegatingSmartContextLoader`: 这是两个默认加载器之一,它在内部委派给 `AnnotationConfigContextLoader`,`GenericXmlContextLoader` 或 `GenericGroovyXmlContextLoader`,具体取决于为测试类声明的配置或默认位置或默认配置类的存在.  仅当 Groovy 在类路径上时才启用Groovy支持.
+* `WebDelegatingSmartContextLoader`: 这是两个默认加载器之一,它在内部委派给 `AnnotationConfigWebContextLoader`,`GenericXmlWebContextLoader` 或 `GenericGroovyXmlWebContextLoader`,具体取决于为测试类声明的配置或默认位置或默认配置类的存在.  仅当测试类上存在 `@WebAppConfiguration` 时,才使用 Web `ContextLoader`.  仅当 Groovy 在类路径上时才启用 Groovy 支持.
+* `AnnotationConfigContextLoader`: 从组件类加载标准 `ApplicationContext`.
+* `AnnotationConfigWebContextLoader`: 从组件类加载 `WebApplicationContext`.
+* `GenericGroovyXmlContextLoader`: 从 Groovy 脚本或 XML 配置文件的资源位置加载标准 `ApplicationContext`.
+* `GenericGroovyXmlWebContextLoader`: 从 Groovy 脚本或 XML 配置文件的资源位置加载 `WebApplicationContext`.
+* `GenericXmlContextLoader`: 从 XML 资源位置加载标准 `ApplicationContext`.
+* `GenericXmlWebContextLoader`: 从 XML 资源位置加载 `WebApplicationContext`.
+
+[[testcontext-bootstrapping]]
+== Bootstrapping TestContext Framework
+
+
+Spring TestContext Framework 内部的默认配置足以满足所有常见用例.  但是,有时开发团队或第三方框架希望更改默认的 `ContextLoader`,实现自定义的 `TestContext` 或 `ContextCache`,扩展默认的 `ContextCustomizerFactory` 和 `TestExecutionListener` 实现集,等等.
+为了对 TestContext 框架的运行方式进行低级控制,Spring 提供了自举策略.
+
+`TestContextBootstrapper` 定义了用于引导 TestContext 框架的 SPI.  `TestContextManager` 使用 `TestContextBootstrapper` 加载当前测试的 `TestExecutionListener` 实现,并构建它管理的 TestContext.  您可以直接使用 `@BootstrapWith` 或作为元注解,为测试类 (或测试类层次结构) 配置自定义引导策略.  如果没有使用 `@BootstrapWith` 显式配置引导程序,则根据 `@WebAppConfiguration` 的存在,使用 `DefaultTestContextBootstrapper` 或 `WebTestContextBootstrapper`.
+
+由于 `TestContextBootstrapper` SPI 将来可能会更改 (以适应新要求) ,因此我们强烈建议实现者不要直接实现此接口,而应扩展 `AbstractTestContextBootstrapper` 或其具体子类之一.
+
+[[testcontext-tel-config]]
+== `TestExecutionListener` 配置
+
+Spring 提供了以下 `TestExecutionListener` 实现,这些实现默认情况下按以下顺序注册:
+
+* `ServletTestExecutionListener`: 为 `WebApplicationContext` 配置 Servlet API 模拟.
+* `DirtiesContextBeforeModesTestExecutionListener`: 处理 `@DirtiesContext` 注解的 "before" 模式.
+* `ApplicationEventsTestExecutionListener`: 为 <<testcontext-application-events, `ApplicationEvents`>> 提供支持.
+* `DependencyInjectionTestExecutionListener`: 为测试实例提供依赖注入.
+* `DirtiesContextTestExecutionListener`: 处理 "after" 模式的 `@DirtiesContext` 注解.
+* `TransactionalTestExecutionListener`: 提供具有默认回滚语义的事务测试执行.
+* `SqlScriptsTestExecutionListener`: 运行使用 `@Sql` 注解配置的 SQL 脚本.
+* `EventPublishingTestExecutionListener`: 将测试执行事件发布到测试的 `ApplicationContext` 中 (请参阅<<testcontext-test-execution-events,测试执行事件>>) .
+
+[[testcontext-tel-config-registering-tels]]
+=== 注册 `TestExecutionListener` 实现
+
+您可以使用 `@TestExecutionListeners` 注解为测试类及其子类注册 `TestExecutionListener` 实现. 有关详细信息和示例,请参见<<integration-testing-annotations, 注解支持>>和 {api-spring-framework}/test/context/TestExecutionListeners.html[`@TestExecutionListeners`] 的javadoc.
+
+.切换默认的 `TestExecutionListener` 实现
+[NOTE]
+====
+如果您扩展一个用 `@TestExecutionListeners` 注解的类并且您需要切换到使用默认的监听器集，您可以使用以下注解您的类。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Switch to default listeners
+	@TestExecutionListeners(
+		listeners = {},
+		inheritListeners = false,
+		mergeMode = MERGE_WITH_DEFAULTS)
+	class MyTest extends BaseTest {
+		// class body...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Switch to default listeners
+	@TestExecutionListeners(
+		listeners = [],
+		inheritListeners = false,
+		mergeMode = MERGE_WITH_DEFAULTS)
+	class MyTest : BaseTest {
+		// class body...
+	}
+----
+====
+
+[[testcontext-tel-config-automatic-discovery]]
+=== 自动发现默认的 `TestExecutionListener` 实现
+
+通过使用 `@TestExecutionListeners` 注册 `TestExecutionListener` 实现适用于在有限的测试方案中使用的自定义监听器.  但是,如果需要在整个测试套件中使用自定义监听器,则可能会变得很麻烦.
+通过支持通过 `SpringFactoriesLoader` 机制自动发现默认的 `TestExecutionListener` 实现,解决了此问题.
+
+具体来说,`spring-test` 模块在其 `META-INF/spring.factories` 属性文件中的 `org.springframework.test.context.TestExecutionListener` 项下声明所有核心默认 `TestExecutionListener` 实现.
+第三方框架和开发人员可以通过自己的 `META-INF/spring.factories` 属性文件以相同的方式将自己的 `TestExecutionListener` 实现贡献到默认监听器列表中.
+
+[[testcontext-tel-config-ordering]]
+=== `TestExecutionListener` 实现排序
+
+当 TestContext 框架通过<<testcontext-tel-config-automatic-discovery, 上述>> `SpringFactoriesLoader` 机制发现默认的 `TestExecutionListener` 实现时,实例化的监听器将使用 Spring 的 `AnnotationAwareOrderComparator` 进行排序,该类将使用Spring的 `Ordered` 接口和 `@Order` 注解进行排序.
+Spring 提供的 `AbstractTestExecutionListener` 和所有默认的 `TestExecutionListener` 实现以适当的值实现 `Ordered`.  因此,第三方框架和开发人员应通过实施 `Ordered` 或声明 `@Order` 来确保以默认顺序注册其默认的 `TestExecutionListener` 实现.
+请参阅 javadoc 以获取核心默认 `TestExecutionListener` 实现的 `getOrder()` 方法,以获取有关为每个核心监听器分配哪些值的详细信息.
+
+[[testcontext-tel-config-merging]]
+=== `TestExecutionListener` 实现合并
+
+如果通过 `@TestExecutionListeners` 注册了自定义 `TestExecutionListener`,则不会注册默认监听器.  在大多数常见的测试方案中,这有效地迫使开发人员手动声明除任何自定义监听器之外的所有默认监听器.  下面的清单演示了这种配置样式:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	@TestExecutionListeners({
+		MyCustomTestExecutionListener.class,
+		ServletTestExecutionListener.class,
+		DirtiesContextBeforeModesTestExecutionListener.class,
+		DependencyInjectionTestExecutionListener.class,
+		DirtiesContextTestExecutionListener.class,
+		TransactionalTestExecutionListener.class,
+		SqlScriptsTestExecutionListener.class
+	})
+	class MyTest {
+		// class body...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	@TestExecutionListeners(
+		MyCustomTestExecutionListener::class,
+		ServletTestExecutionListener::class,
+		DirtiesContextBeforeModesTestExecutionListener::class,
+		DependencyInjectionTestExecutionListener::class,
+		DirtiesContextTestExecutionListener::class,
+		TransactionalTestExecutionListener::class,
+		SqlScriptsTestExecutionListener::class
+	)
+	class MyTest {
+		// class body...
+	}
+----
+
+这种方法的挑战在于,它要求开发人员确切地知道默认情况下注册了哪些监听器.  此外,默认的监听器集可以随版本的不同而变化-例如,Spring Framework 4.1 中引入了 `SqlScriptsTestExecutionListener`,
+而 Spring Framework 4.2 中引入了 `DirtiesContextBeforeModesTestExecutionListener`.  此外,诸如 Spring Boot 和 Spring Security 之类的第三方框架通过使用上述自动发现机制注册了自己的默认 `TestExecutionListener` 实现.
+
+为避免必须了解并重新声明所有默认监听器,可以将 `@TestExecutionListeners` 的 `mergeMode` 属性设置为 `MergeMode.MERGE_WITH_DEFAULTS`.  MERGE_WITH_DEFAULTS指示应将本地声明的监听器与默认监听器合并.
+合并算法可确保从列表中删除重复项,并确保根据 `AnnotationAwareOrderComparator` 的语义对合并的监听器集进行排序,如  <<testcontext-tel-config-ordering,排序  `TestExecutionListener` 实现>>中所述.  如果监听器实现 `Ordered` 或使用 `@Order` 进行注解,则它可以影响将其与默认值合并的位置.
+否则,合并时,本地声明的监听器将追加到默认监听器列表中.
+
+例如,如果上一个示例中的 `MyCustomTestExecutionListener` 类将其顺序值 (例如 `500`) 配置为小于 `ServletTestExecutionListener` 的顺序 (恰好是 `1000`) ,则可以将 `MyCustomTestExecutionListener` 自动与默认列表合并.
+在 `ServletTestExecutionListener` 前面,并且前面的示例可以替换为以下内容:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	@TestExecutionListeners(
+		listeners = MyCustomTestExecutionListener.class,
+		mergeMode = MERGE_WITH_DEFAULTS
+	)
+	class MyTest {
+		// class body...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	@TestExecutionListeners(
+			listeners = [MyCustomTestExecutionListener::class],
+			mergeMode = MERGE_WITH_DEFAULTS
+	)
+	class MyTest {
+		// class body...
+	}
+----
+
+[[testcontext-application-events]]
+== Application Events
+
+从 Spring Framework 5.3.3 开始,  TestContext 框架提供了对记录在 `ApplicationContext` 中发布的 <<core.adoc#context-functionality-events, application events>>  的支持,  以便可以针对测试中的那些事件执行断言.  可以通过 `ApplicationEvents` API 获得在单个测试执行过程中发布的所有事件,  该事件使您可以将事件作为 `java.util.Stream` 进行处理.
+
+要在测试中使用 `ApplicationEvents`,  请执行以下操作.
+
+* 确保使用 <<spring-testing-annotation-recordapplicationevents>> 对测试类进行注解或进行元注解.
+* 确保已注册 `ApplicationEventsTestExecutionListener`. 但是请注意 `ApplicationEventsTestExecutionListener` 默认情况下已注册,  并且只有通过 `@TestExecutionListeners` 进行自定义配置 (不包括默认监听器) 时,  才需要手动注册.
+* 用  `@Autowired`  注解类型为 `ApplicationEvents` 的字段,  并在测试和生命周期方法 (例如 JUnit Jupiter 中的  `@BeforeEach` 和 `@AfterEach` 方法) 中使用 `ApplicationEvents` 的该实例.
+** 将 <<testcontext-junit-jupiter-extension>> 用于 JUnit Jupiter 时,  可以在测试或生命周期方法中声明 `ApplicationEvents` 类型的方法参数,  以替代测试类中的 `@Autowired` 字段.
+
+下面的测试类使用 JUnit Jupiter 和 https://assertj.github.io/doc/[AssertJ] 的 `SpringExtension` 来断言在调用 spring 管理组件中的方法时发布的应用事件的类型:
+
+// Don't use "quotes" in the "subs" section because of the asterisks in /* ... */
+[source,java,indent=0,subs="verbatim",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(/* ... */)
+	@RecordApplicationEvents // <1>
+	class OrderServiceTests {
+
+		@Autowired
+		OrderService orderService;
+
+		@Autowired
+		ApplicationEvents events; // <2>
+
+		@Test
+		void submitOrder() {
+			// Invoke method in OrderService that publishes an event
+			orderService.submitOrder(new Order(/* ... */));
+			// Verify that an OrderSubmitted event was published
+			long numEvents = events.stream(OrderSubmitted.class).count(); // <3>
+			assertThat(numEvents).isEqualTo(1);
+		}
+	}
+----
+<1> 用 `@RecordApplicationEvents` 注解测试类.
+<2> 为当前测试注入 `ApplicationEvents` 实例.
+<3> 使用 `ApplicationEvents` API 计算发布了多少 `OrderSubmitted` 事件.
+
+// Don't use "quotes" in the "subs" section because of the asterisks in /* ... */
+[source,kotlin,indent=0,subs="verbatim",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(/* ... */)
+	@RecordApplicationEvents // <1>
+	class OrderServiceTests {
+
+		@Autowired
+		lateinit var orderService: OrderService
+
+		@Autowired
+		lateinit var events: ApplicationEvents // <2>
+
+		@Test
+		fun submitOrder() {
+			// Invoke method in OrderService that publishes an event
+			orderService.submitOrder(Order(/* ... */))
+			// Verify that an OrderSubmitted event was published
+			val numEvents = events.stream(OrderSubmitted::class).count() // <3>
+			assertThat(numEvents).isEqualTo(1)
+		}
+	}
+----
+<1> 用 `@RecordApplicationEvents` 注解测试类.
+<2> 为当前测试注入 `ApplicationEvents` 实例.
+<3> 使用 `ApplicationEvents` API 计算发布了多少 `OrderSubmitted` 事件.
+
+有关 `ApplicationEvents` API 的更多详细信息,  请参见 {api-spring-framework}/test/context/event/ApplicationEvents.html[`ApplicationEvents` javadoc].
+
+
+[[testcontext-test-execution-events]]
+== 测试执行事件
+
+Spring Framework 5.2 中引入的 `EventPublishingTestExecutionListener` 提供了一种实现自定义 `TestExecutionListener` 的替代方法.  测试的 `ApplicationContext` 中的组件可以监听 `EventPublishingTestExecutionListener` 发布的以下事件,
+每个事件都与 `TestExecutionListener` API中的方法相对应.
+
+* `BeforeTestClassEvent`
+* `PrepareTestInstanceEvent`
+* `BeforeTestMethodEvent`
+* `BeforeTestExecutionEvent`
+* `AfterTestExecutionEvent`
+* `AfterTestMethodEvent`
+* `AfterTestClassEvent`
+
+这些事件可能由于各种原因而被消耗,例如重置模拟 bean 或跟踪测试执行.  使用测试执行事件而不是实现自定义 `TestExecutionListener` 的一个优点是,测试执行事件可以被测试 `ApplicationContext` 中注册的任何 Spring bean 所消耗,并且此类 bean 可以直接受益于依赖注入和 `ApplicationContext` 的其他功能.  相反,`TestExecutionListener` 不是 `ApplicationContext` 中的 bean.
+
+[NOTE]
+====
+`EventPublishingTestExecutionListener` 默认注册； 但是，它仅在 `ApplicationContext` _已经加载_ 时发布事件。 这可以防止 `ApplicationContext` 被不必要或过早地加载。
+
+因此，在 `ApplicationContext` 被另一个 `TestExecutionListener` 加载之前，不会发布 `BeforeTestClassEvent`。 例如，在注册了默认的 `TestExecutionListener` 实现集后，将不会为使用特定测试 `ApplicationContext` 的第一个测试类发布 `BeforeTestClassEvent`，但会为任何后续测试类发布 `BeforeTestClassEvent` 使用相同测试 `ApplicationContext` 的相同测试套件，因为在后续测试类运行时已经加载了上下文（只要上下文没有通过 `@DirtiesContext` 或 max-size 从 `ContextCache` 中删除 驱逐政策）。
+
+如果您希望确保始终为每个测试类发布 `BeforeTestClassEvent`，则需要在 `beforeTestClass` 回调中注册一个加载 `ApplicationContext` 的 `TestExecutionListener`，并且必须在`EventPublishingTestExecutionListener`   注册之前注册 `TestExecutionListener` 。
+
+同样，如果在给定测试类中的最后一个测试方法之后使用 `@DirtiesContext` 从上下文缓存中删除 `ApplicationContext`，则不会为该测试类发布 `AfterTestClassEvent`。
+====
+
+为了监听测试执行事件,Spring bean 可以选择实现 `org.springframework.context.ApplicationListener` 接口.  另外,可以使用 `@EventListener` 注解监听器方法,并将监听器方法配置为监听上面列出的特定事件类型之一 (请参阅<<core.adoc#context-functionality-events-annotation, 基于注解的事件监听器>>) .  由于这种方法的流行,Spring 提供了以下专用的 `@EventListener` 注解,以简化测试执行事件监听器的注册.  这些注解驻留在 `org.springframework.test.context.event.annotation` 包中.
+
+* `@BeforeTestClass`
+* `@PrepareTestInstance`
+* `@BeforeTestMethod`
+* `@BeforeTestExecution`
+* `@AfterTestExecution`
+* `@AfterTestMethod`
+* `@AfterTestClass`
+
+[[testcontext-test-execution-events-exception-handling]]
+=== 异常处理
+
+默认情况下,如果测试执行事件监听器在使用事件时抛出异常,则该异常将传播到使用中的基础测试框架 (例如 JUnit 或 TestNG) .  例如,如果使用 `BeforeTestMethodEvent` 导致异常,则相应的测试方法将由于异常而失败.  相反,如果异步测试执行事件监听器引发异常,则该异常不会传播到基础测试框架.  有关异步异常处理的更多详细信息,请查阅 `@EventListener` 的类级 javadoc.
+
+[[testcontext-test-execution-events-async]]
+=== 异步监听器
+
+如果您希望特定的测试执行事件监听器异步处理事件,则可以使用 Spring 的常规 `@Async` 支持. 有关更多详细信息,请查阅 `@EventListener` 的类级javadoc.
+
+[[testcontext-ctx-management]]
+== 上下文管理
+
+每个 `TestContext` 为其负责的测试实例提供上下文管理和缓存支持.  测试实例不会自动接收对配置的 `ApplicationContext` 的访问.  但是,如果测试类实现 `ApplicationContextAware` 接口,则将对 `ApplicationContext` 的引用提供给测试实例.
+请注意,`AbstractJUnit4SpringContextTests` 和 `AbstractTestNGSpringContextTests` 实现了 `ApplicationContextAware`,因此可以自动提供对 `ApplicationContext` 的访问.
+
+.@Autowired ApplicationContext
+[TIP]
+=====
+作为实现 `ApplicationContextAware` 接口的替代方法,您可以通过字段或 `setter` 方法上的 `@Autowired` 注解为测试类注入应用程序上下文,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig
+	class MyTest {
+
+		@Autowired // <1>
+		ApplicationContext applicationContext;
+
+		// class body...
+	}
+----
+<1> 注入 `ApplicationContext`.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig
+	class MyTest {
+
+		@Autowired // <1>
+		lateinit var applicationContext: ApplicationContext
+
+		// class body...
+	}
+----
+<1> 注入 `ApplicationContext`.
+
+
+同样,如果将测试配置为加载 `WebApplicationContext`,则可以将 Web 应用程序上下文注入到测试中,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig // <1>
+	class MyWebAppTest {
+
+		@Autowired // <2>
+		WebApplicationContext wac;
+
+		// class body...
+	}
+----
+<1> 配置 `WebApplicationContext`.
+<2> 注入 `WebApplicationContext`.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig // <1>
+	class MyWebAppTest {
+
+		@Autowired // <2>
+		lateinit var wac: WebApplicationContext
+		// class body...
+	}
+----
+<1> 配置 `WebApplicationContext`.
+<2> 注入 `WebApplicationContext`.
+
+
+使用 `@Autowired` 的依赖注入由 `DependencyInjectionTestExecutionListener` 提供,它是默认配置的 (请参阅<<testcontext-fixture-di,测试夹具的依赖注入>>) .
+=====
+
+使用 TestContext 框架的测试类不需要扩展任何特定的类或实现特定的接口来配置其应用程序上下文.  而是通过在类级别声明 `@ContextConfiguration` 注解来实现配置.  如果您的测试类未明确声明应用程序上下文资源位置或组件类,则配置的 `ContextLoader` 决定如何从默认位置或默认配置类加载上下文.  除了上下文资源位置和组件类之外,还可以通过应用程序上下文初始化程序配置应用程序上下文.
+
+以下各节说明如何使用 Spring 的 `@ContextConfiguration` 注解通过XML配置文件,Groovy 脚本,组件类 (通常为 `@Configuration` 类) 或上下文初始化器来配置测试 `ApplicationContext`.  另外,您可以为高级用例实现和配置自己的自定义 `SmartContextLoader`.
+
+* <<testcontext-ctx-management-xml>>
+* <<testcontext-ctx-management-groovy>>
+* <<testcontext-ctx-management-javaconfig>>
+* <<testcontext-ctx-management-mixed-config>>
+* <<testcontext-ctx-management-initializers>>
+* <<testcontext-ctx-management-inheritance>>
+* <<testcontext-ctx-management-env-profiles>>
+* <<testcontext-ctx-management-property-sources>>
+* <<testcontext-ctx-management-dynamic-property-sources>>
+* <<testcontext-ctx-management-web>>
+* <<testcontext-ctx-management-caching>>
+* <<testcontext-ctx-management-ctx-hierarchies>>
+
+[[testcontext-ctx-management-xml]]
+=== 使用 XML 资源进行上下文配置
+
+若要使用 XML 配置文件为测试加载 `ApplicationContext`,请使用 `@ContextConfiguration` 注解测试类,并使用包含XML配置元数据的资源位置的数组配置 `locations` 属性.  普通或相对路径 (例如 `context.xml`) 被视为相对于定义测试类的程序包的类路径资源.
+以斜杠开头的路径被视为绝对类路径位置 (例如, `/org/example/config.xml`) .  照原样使用表示资源URL的路径 (即,以 `classpath:`, `file:`,`http:` 等开头的路径) .
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from "/app-config.xml" and
+	// "/test-config.xml" in the root of the classpath
+	@ContextConfiguration(locations={"/app-config.xml", "/test-config.xml"}) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 将 `locations` 属性设置为 XML 文件列表.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from "/app-config.xml" and
+	// "/test-config.xml" in the root of the classpath
+	@ContextConfiguration("/app-config.xml", "/test-config.xml") // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 将 `locations` 属性设置为 XML 文件列表.
+
+`@ContextConfiguration` 通过标准 Java 值属性为 `locations` 属性支持别名.  因此,如果不需要在 `@ContextConfiguration` 中声明其他属性,则可以使用以下示例中演示的速记格式,省略 `locations` 属性名称的声明并声明资源位置:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@ContextConfiguration({"/app-config.xml", "/test-config.xml"}) <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 在不使用 `location` 属性的情况下指定 XML 文件.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	@ContextConfiguration("/app-config.xml", "/test-config.xml") // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 在不使用 `location` 属性的情况下指定 XML 文件.
+
+如果您从 `@ContextConfiguration` 注解中省略了位置和值属性,则 TestContext 框架将尝试检测默认的 XML 资源位置.  具体来说,`GenericXmlContextLoader` 和 `GenericXmlWebContextLoader` 根据测试类的名称检测默认位置.
+如果您的类名为 `com.example.MyTest`,则 `GenericXmlContextLoader` 将从 `"classpath:com/example/MyTest-context.xml"` 加载应用程序上下文.  以下示例显示了如何执行此操作:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from
+	// "classpath:com/example/MyTest-context.xml"
+	@ContextConfiguration // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 从默认位置加载配置.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from
+	// "classpath:com/example/MyTest-context.xml"
+	@ContextConfiguration // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 从默认位置加载配置.
+
+
+[[testcontext-ctx-management-groovy]]
+=== 使用 Groovy 脚本进行上下文配置
+
+
+要通过使用使用 <<core.adoc#groovy-bean-definition-dsl, Groovy Bean 定义 DSL>>的 Groovy 脚本为测试加载 `ApplicationContext`,可以使用 `@ContextConfiguration` 注解测试类,并使用包含 Groovy 脚本资源位置的数组配置 `location` 或 `value` 属性.  Groovy 脚本的资源查找语义与针对<<testcontext-ctx-management-xml, XML 配置文件>>描述的语义相同.
+
+.启用 Groovy 脚本支持
+TIP: 如果 Groovy 位于类路径上,则会自动启用对使用 Groovy 脚本在 Spring TestContext Framework 中加载 `ApplicationContext` 的支持.
+
+下面的示例显示如何指定 Groovy 配置文件:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from "/AppConfig.groovy" and
+	// "/TestConfig.groovy" in the root of the classpath
+	@ContextConfiguration({"/AppConfig.groovy", "/TestConfig.Groovy"}) <1>
+	class MyTest {
+		// class body...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from "/AppConfig.groovy" and
+	// "/TestConfig.groovy" in the root of the classpath
+	@ContextConfiguration("/AppConfig.groovy", "/TestConfig.Groovy") // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 指定 Groovy 配置文件的位置.
+
+
+如果您从 `@ContextConfiguration` 注解中省略了 `location` 和 `value` 属性,则 TestContext 框架将尝试检测默认的 Groovy 脚本.  具体来说,`GenericGroovyXmlContextLoader` 和 `GenericGroovyXmlWebContextLoader` 根据测试类的名称检测默认位置.
+如果您的类名为 `com.example.MyTest`,则 Groovy 上下文加载器将从 `"classpath:com/example/MyTestContext.groovy"` 加载应用程序上下文.  以下示例显示如何使用默认值:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from
+	// "classpath:com/example/MyTestContext.groovy"
+	@ContextConfiguration // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 从默认位置加载配置.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from
+	// "classpath:com/example/MyTestContext.groovy"
+	@ContextConfiguration // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 从默认位置加载配置.
+
+
+.同时声明 XML 配置和 Groovy 脚本
+[TIP]
+=====
+您可以使用 `@ContextConfiguration` 的 `location` 或 `value` 属性同时声明 XML 配置文件和 Groovy 脚本.  如果到已配置资源位置的路径以 `.xml` 结尾,则使用 `XmlBeanDefinitionReader` 加载该路径.  否则,将使用 `GroovyBeanDefinitionReader` 加载它.
+
+以下清单显示了如何在集成测试中将两者结合在一起:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from
+	// "/app-config.xml" and "/TestConfig.groovy"
+	@ContextConfiguration({ "/app-config.xml", "/TestConfig.groovy" })
+	class MyTest {
+		// class body...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from
+	// "/app-config.xml" and "/TestConfig.groovy"
+	@ContextConfiguration("/app-config.xml", "/TestConfig.groovy")
+	class MyTest {
+		// class body...
+	}
+----
+=====
+
+[[testcontext-ctx-management-javaconfig]]
+=== 使用组件类进行上下文配置
+
+若要使用组件类 (请参见<<core.adoc#beans-java, 基于 Java 的容器配置>>) 为测试加载 `ApplicationContext`,可以使用 `@ContextConfiguration` 注解测试类,并使用包含对组件类的引用的数组来配置 `classes` 属性.  以下示例显示了如何执行此操作:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from AppConfig and TestConfig
+	@ContextConfiguration(classes = {AppConfig.class, TestConfig.class}) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 指定组件类.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from AppConfig and TestConfig
+	@ContextConfiguration(classes = [AppConfig::class, TestConfig::class]) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 指定组件类.
+
+
+[[testcontext-ctx-management-javaconfig-component-classes]]
+.组件类
+[TIP]
+====
+术语 "`组件类`" 可以指以下任何一种:
+
+* 一个带有 `@Configuration` 注解的类.
+* 一个组件(也就是说,一个用 `@Component`, `@Service`, `@Repository`,或者其他 stereotype  注解的类).
+* 一个 JSR-330 兼容的类,用 `jakarta.inject` 注解.
+* 包含 `@bean` -方法的任何类.
+* 打算注册为 Spring 组件的任何其他类 (即 `ApplicationContext` 中的Spring bean) ,可能利用单个自动构造函数的自动自动装配而无需使用Spring注解.
+
+有关组件类的配置和语义的更多信息,请参见 {api-spring-framework}/context/annotation/Configuration.html[`@Configuration`] 和 {api-spring-framework}/context/annotation/Bean.html[`@Bean`] 的javadoc,尤其要注意 `@Bean` Lite Mode 的讨论.
+====
+
+如果从 `@ContextConfiguration` 注解中省略了 `classes` 属性,则 TestContext 框架将尝试检测默认配置类的存在.  具体来说,`AnnotationConfigContextLoader` 和 `AnnotationConfigWebContextLoader` 将检测测试类的所有静态嵌套类,这些静态嵌套类满足配置类实现的要求,
+如 {api-spring-framework}/context/annotation/Configuration.html[`@Configuration`] javadoc 中所指定.  请注意,配置类的名称是任意的.  此外,如果需要,测试类可以包含多个静态嵌套配置类.  在以下示例中,`OrderServiceTest` 类声明一个名为 `Config` 的静态嵌套配置类,该配置类将自动用于为测试类加载 `ApplicationContext`:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig <1>
+	// ApplicationContext will be loaded from the
+	// static nested Config class
+	class OrderServiceTest {
+
+		@Configuration
+		static class Config {
+
+			// this bean will be injected into the OrderServiceTest class
+			@Bean
+			OrderService orderService() {
+				OrderService orderService = new OrderServiceImpl();
+				// set properties, etc.
+				return orderService;
+			}
+		}
+
+		@Autowired
+		OrderService orderService;
+
+		@Test
+		void testOrderService() {
+			// test the orderService
+		}
+
+	}
+----
+<1> 从嵌套的 `Config` 类中加载配置信息.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig <1>
+	// ApplicationContext will be loaded from the nested Config class
+	class OrderServiceTest {
+
+		@Autowired
+		lateinit var orderService: OrderService
+
+		@Configuration
+		class Config {
+
+			// this bean will be injected into the OrderServiceTest class
+			@Bean
+			fun orderService(): OrderService {
+				// set properties, etc.
+				return OrderServiceImpl()
+			}
+		}
+
+		@Test
+		fun testOrderService() {
+			// test the orderService
+		}
+	}
+----
+<1> 从嵌套的 `Config` 类中加载配置信息.
+
+
+[[testcontext-ctx-management-mixed-config]]
+=== 混合 XML,Groovy 脚本和组件类
+
+有时可能需要混合使用 XML 配置文件,Groovy 脚本和组件类 (通常为 `@Configuration` 类) 来为测试配置 `ApplicationContext`.  例如,如果您在生产中使用 XML 配置,则可以决定要使用 `@Configuration` 类为测试配置特定的 Spring 托管组件,反之亦然.
+
+此外,某些第三方框架 (例如 Spring Boot) 提供了一流的支持,可以同时从不同类型的资源 (例如 XML 配置文件,Groovy 脚本和 `@Configuration` 类) 中加载 `ApplicationContext`.  过去,Spring 框架不支持此标准部署.
+因此,Spring 框架在 `spring-test` 模块中提供的大多数 `SmartContextLoader` 实现对于每个测试上下文仅支持一种资源类型.  但是,这并不意味着您不能同时使用两者.  通用规则的一个例外是 `GenericGroovyXmlContextLoader` 和 `GenericGroovyXmlWebContextLoader` 同时支持 XML 配置文件和 Groovy 脚本.
+此外,第三方框架可以选择通过 `@ContextConfiguration` 支持位置和类的声明,并且,借助 TestContext 框架中的标准测试支持,您可以选择以下选项.
+
+如果要使用资源位置 (例如 XML 或 Groovy) 和 `@Configuration` 类来配置测试,则必须选择一个作为入口点,并且其中一个必须包含或导入另一个.  例如,在 XML 或 Groovy 脚本中,可以通过使用组件扫描或将它们定义为普通的 Spring bean 来包括 `@Configuration` 类,而在 `@Configuration` 类中,
+可以使用 `@ImportResource` 导入 XML 配置文件或 Groovy 脚本.  请注意,此行为在语义上等同于您在生产环境中配置应用程序的方式: 在生产配置中,您定义了一组 XML 或 Groovy 资源位置或一组 `@Configuration` 类,
+从中加载了生产 `ApplicationContext`,但是您仍然拥有 包含或导入其他类型配置的自由.
+
+[[testcontext-ctx-management-initializers]]
+=== 使用上下文初始化器进行上下文配置
+
+若要使用上下文初始化程序为测试配置 `ApplicationContext`,请使用 `@ContextConfiguration` 注解测试类,并使用包含对实现 `ApplicationContextInitializer` 的类的引用的数组配置初始化程序属性.
+然后,使用声明的上下文初始值设定项来初始化为测试加载的 `ConfigurableApplicationContext`.
+请注意,每个声明的初始化程序支持的具体 `ConfigurableApplicationContext` 类型必须与使用中的 `SmartContextLoader` 创建的 `ApplicationContext` 类型 (通常是 `GenericApplicationContext`) 兼容.
+此外,初始化程序的调用顺序取决于它们是实现 Spring 的 `Ordered` 接口还是用 Spring 的 `@Order` 注解或标准的 `@Priority` 注解进行注解.  以下示例显示如何使用初始化程序:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from TestConfig
+	// and initialized by TestAppCtxInitializer
+	@ContextConfiguration(
+		classes = TestConfig.class,
+		initializers = TestAppCtxInitializer.class) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 使用配置类和初始化程序指定配置.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from TestConfig
+	// and initialized by TestAppCtxInitializer
+	@ContextConfiguration(
+			classes = [TestConfig::class],
+			initializers = [TestAppCtxInitializer::class]) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 使用配置类和初始化程序指定配置.
+
+您还可以完全省略 `@ContextConfiguration` 中的 XML 配置文件,Groovy 脚本或组件类的声明,而仅声明 `ApplicationContextInitializer` 类,然后这些类负责在上下文中注册Bean (例如,通过编程方式从 XML 文件加载 Bean 定义)  或配置类.  以下示例显示了如何执行此操作:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be initialized by EntireAppInitializer
+	// which presumably registers beans in the context
+	@ContextConfiguration(initializers = EntireAppInitializer.class) <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 仅使用初始化程序来指定配置.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be initialized by EntireAppInitializer
+	// which presumably registers beans in the context
+	@ContextConfiguration(initializers = [EntireAppInitializer::class]) // <1>
+	class MyTest {
+		// class body...
+	}
+----
+<1> 仅使用初始化程序来指定配置.
+
+
+[[testcontext-ctx-management-inheritance]]
+=== 上下文配置继承
+
+
+`@ContextConfiguration` 支持布尔值继承位置和 `InheritInitializers` 属性,这些属性指示是否应继承资源位置或组件类以及超类声明的上下文初始化器.  这两个标志的默认值为 `true`.  这意味着测试类将继承资源位置或组件类以及任何超类声明的上下文初始化器.
+具体地说,将测试类的资源位置或组件类附加到由超类声明的资源位置或带注解的类的列表中.  同样,将给定测试类的初始化程序添加到由测试超类定义的初始化程序集.  因此,子类可以选择扩展资源位置,组件类或上下文初始化程序.
+
+如果 `@ContextConfiguration` 中的 `InheritLocations` 或 `InheritInitializers` 属性设置为 `false`,则测试类的影子的资源位置或组件类以及上下文初始化器分别有效地替换超类定义的配置.
+
+NOTE: 从 Spring Framework 5.3 开始, 测试配置也可以从封闭类继承.  有关详细信息,  请参见 <<testcontext-junit-jupiter-nested-test-configuration>>.
+
+在下一个使用 XML 资源位置的示例中,从 `Base-config.xml` 和 `Extended-config.xml` 依次加载 `ExtendedTest` 的 `ApplicationContext`.  因此,`extended-config.xml` 中定义的 Bean 可以覆盖 (即替换) `base-config.xml` 中定义的 Bean.
+以下示例显示了一个类如何扩展另一个类并使用其自己的配置文件和超类的配置文件:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from "/base-config.xml"
+	// in the root of the classpath
+	@ContextConfiguration("/base-config.xml") <1>
+	class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be loaded from "/base-config.xml" and
+	// "/extended-config.xml" in the root of the classpath
+	@ContextConfiguration("/extended-config.xml") <2>
+	class ExtendedTest extends BaseTest {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from "/base-config.xml"
+	// in the root of the classpath
+	@ContextConfiguration("/base-config.xml") // <1>
+	open class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be loaded from "/base-config.xml" and
+	// "/extended-config.xml" in the root of the classpath
+	@ContextConfiguration("/extended-config.xml") // <2>
+	class ExtendedTest : BaseTest() {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+同样,在下一个使用组件类的示例中,从 `BaseConfig` 和 `ExtendedConfig` 类按该顺序加载 `ExtendedTest` 的 `ApplicationContext`.  因此,`在ExtendedConfig` 中定义的 Bean 可以覆盖 (即替换) 在 `BaseConfig` 中定义的那些.  以下示例显示了一个类如何扩展另一个类并使用其自己的配置类和超类的配置类:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ApplicationContext will be loaded from BaseConfig
+	@SpringJUnitConfig(BaseConfig.class) // <1>
+	class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be loaded from BaseConfig and ExtendedConfig
+	@SpringJUnitConfig(ExtendedConfig.class) // <2>
+	class ExtendedTest extends BaseTest {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ApplicationContext will be loaded from BaseConfig
+	@SpringJUnitConfig(BaseConfig::class) // <1>
+	open class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be loaded from BaseConfig and ExtendedConfig
+	@SpringJUnitConfig(ExtendedConfig::class) // <2>
+	class ExtendedTest : BaseTest() {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+在使用上下文初始化程序的下一个示例中,通过使用 `BaseInitializer` 和 `ExtendedInitializer` 初始化 `ExtendedTest` 的 `ApplicationContext`.  但是请注意,初始化程序的调用顺序取决于它们是实现 Spring 的 `Ordered` 接口还是以 Spring 的 `@Order` 注解或标准的 `@Priority` 注解进行注解.  以下示例显示了一个类如何扩展另一个类并同时使用其自己的初始化程序和超类的初始化程序:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ApplicationContext will be initialized by BaseInitializer
+	@SpringJUnitConfig(initializers = BaseInitializer.class) // <1>
+	class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be initialized by BaseInitializer
+	// and ExtendedInitializer
+	@SpringJUnitConfig(initializers = ExtendedInitializer.class) // <2>
+	class ExtendedTest extends BaseTest {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ApplicationContext will be initialized by BaseInitializer
+	@SpringJUnitConfig(initializers = [BaseInitializer::class]) // <1>
+	open class BaseTest {
+		// class body...
+	}
+
+	// ApplicationContext will be initialized by BaseInitializer
+	// and ExtendedInitializer
+	@SpringJUnitConfig(initializers = [ExtendedInitializer::class]) // <2>
+	class ExtendedTest : BaseTest() {
+		// class body...
+	}
+----
+<1> 在超类中定义的配置文件.
+<2> 子类中定义的配置文件.
+
+
+[[testcontext-ctx-management-env-profiles]]
+=== 使用环境配置文件进行上下文配置
+
+Spring 框架对环境和概要文件 (AKA "bean 定义 profiles") 的概念提供了一流的支持,并且可以将集成测试配置为针对各种测试场景激活特定的 bean 定义概要文件.  这是通过使用 `@ActiveProfiles` 注解测试类并提供在加载测试的 `ApplicationContext` 时应激活的配置文件列表来实现的.
+
+NOTE: 您可以将 `@ActiveProfiles` 与 `SmartContextLoader` SPI的任何实现一起使用,但较早的 `ContextLoader` SPI 的实现不支持 `@ActiveProfiles`.
+
+考虑两个带有 XML 配置和 `@Configuration` 类的示例:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<!-- app-config.xml -->
+	<beans xmlns="http://www.springframework.org/schema/beans"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+		xmlns:jee="http://www.springframework.org/schema/jee"
+		xsi:schemaLocation="...">
+
+		<bean id="transferService"
+				class="com.bank.service.internal.DefaultTransferService">
+			<constructor-arg ref="accountRepository"/>
+			<constructor-arg ref="feePolicy"/>
+		</bean>
+
+		<bean id="accountRepository"
+				class="com.bank.repository.internal.JdbcAccountRepository">
+			<constructor-arg ref="dataSource"/>
+		</bean>
+
+		<bean id="feePolicy"
+			class="com.bank.service.internal.ZeroFeePolicy"/>
+
+		<beans profile="dev">
+			<jdbc:embedded-database id="dataSource">
+				<jdbc:script
+					location="classpath:com/bank/config/sql/schema.sql"/>
+				<jdbc:script
+					location="classpath:com/bank/config/sql/test-data.sql"/>
+			</jdbc:embedded-database>
+		</beans>
+
+		<beans profile="production">
+			<jee:jndi-lookup id="dataSource" jndi-name="java:comp/env/jdbc/datasource"/>
+		</beans>
+
+		<beans profile="default">
+			<jdbc:embedded-database id="dataSource">
+				<jdbc:script
+					location="classpath:com/bank/config/sql/schema.sql"/>
+			</jdbc:embedded-database>
+		</beans>
+
+	</beans>
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// ApplicationContext will be loaded from "classpath:/app-config.xml"
+	@ContextConfiguration("/app-config.xml")
+	@ActiveProfiles("dev")
+	class TransferServiceTest {
+
+		@Autowired
+		TransferService transferService;
+
+		@Test
+		void testTransferService() {
+			// test the transferService
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// ApplicationContext will be loaded from "classpath:/app-config.xml"
+	@ContextConfiguration("/app-config.xml")
+	@ActiveProfiles("dev")
+	class TransferServiceTest {
+
+		@Autowired
+		lateinit var transferService: TransferService
+
+		@Test
+		fun testTransferService() {
+			// test the transferService
+		}
+	}
+----
+
+运行 `TransferServiceTest` 时,会从类路径根目录中的 `app-config.xml` 配置文件中加载其 `ApplicationContext`.  如果检查 `app-config.xml`,可以看到 `accountRepository` bean对 `dataSource` bean有依赖性.
+但是,`dataSource` 没有定义为顶级 bean.相反,`dataSource` 定义了三次: 在生产配置文件中,在开发配置文件中以及在 `default` 配置文件中.
+
+通过使用 `@ActiveProfiles("dev")` 注解 `TransferServiceTest`,我们指示 Spring TestContext Framework 加载具有设置为 `{"dev"}` 的 active 配置文件的 `ApplicationContext`.  结果,创建了一个嵌入式数据库,并用测试数据填充了该数据库,
+并用对开发 `DataSource` 的引用连接了 `accountRepository` bean.  这可能是我们在集成测试中想要的.
+
+有时将 bean 分配给默认概要文件很有用.  仅当没有专门激活其他配置文件时,才包含 `default` profile 中的 Bean.  您可以使用它来定义要在应用程序默认状态下使用的 "`fallback`"  bean.
+例如,您可以显式提供开发和生产配置文件的数据源,但是当两者都不处于 active 状态时,将内存中数据源定义为默认数据源.
+
+以下代码清单演示了如何使用 `@Configuration` 类而不是 XML 实现相同的配置和集成测试:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@Profile("dev")
+	public class StandaloneDataConfig {
+
+		@Bean
+		public DataSource dataSource() {
+			return new EmbeddedDatabaseBuilder()
+				.setType(EmbeddedDatabaseType.HSQL)
+				.addScript("classpath:com/bank/config/sql/schema.sql")
+				.addScript("classpath:com/bank/config/sql/test-data.sql")
+				.build();
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@Profile("dev")
+	class StandaloneDataConfig {
+
+		@Bean
+		fun dataSource(): DataSource {
+			return EmbeddedDatabaseBuilder()
+					.setType(EmbeddedDatabaseType.HSQL)
+					.addScript("classpath:com/bank/config/sql/schema.sql")
+					.addScript("classpath:com/bank/config/sql/test-data.sql")
+					.build()
+		}
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@Profile("production")
+	public class JndiDataConfig {
+
+		@Bean(destroyMethod="")
+		public DataSource dataSource() throws Exception {
+			Context ctx = new InitialContext();
+			return (DataSource) ctx.lookup("java:comp/env/jdbc/datasource");
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@Profile("production")
+	class JndiDataConfig {
+
+		@Bean(destroyMethod = "")
+		fun dataSource(): DataSource {
+			val ctx = InitialContext()
+			return ctx.lookup("java:comp/env/jdbc/datasource") as DataSource
+		}
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	@Profile("default")
+	public class DefaultDataConfig {
+
+		@Bean
+		public DataSource dataSource() {
+			return new EmbeddedDatabaseBuilder()
+				.setType(EmbeddedDatabaseType.HSQL)
+				.addScript("classpath:com/bank/config/sql/schema.sql")
+				.build();
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	@Profile("default")
+	class DefaultDataConfig {
+
+		@Bean
+		fun dataSource(): DataSource {
+			return EmbeddedDatabaseBuilder()
+					.setType(EmbeddedDatabaseType.HSQL)
+					.addScript("classpath:com/bank/config/sql/schema.sql")
+					.build()
+		}
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Configuration
+	public class TransferServiceConfig {
+
+		@Autowired DataSource dataSource;
+
+		@Bean
+		public TransferService transferService() {
+			return new DefaultTransferService(accountRepository(), feePolicy());
+		}
+
+		@Bean
+		public AccountRepository accountRepository() {
+			return new JdbcAccountRepository(dataSource);
+		}
+
+		@Bean
+		public FeePolicy feePolicy() {
+			return new ZeroFeePolicy();
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Configuration
+	class TransferServiceConfig {
+
+		@Autowired
+		lateinit var dataSource: DataSource
+
+		@Bean
+		fun transferService(): TransferService {
+			return DefaultTransferService(accountRepository(), feePolicy())
+		}
+
+		@Bean
+		fun accountRepository(): AccountRepository {
+			return JdbcAccountRepository(dataSource)
+		}
+
+		@Bean
+		fun feePolicy(): FeePolicy {
+			return ZeroFeePolicy()
+		}
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig({
+			TransferServiceConfig.class,
+			StandaloneDataConfig.class,
+			JndiDataConfig.class,
+			DefaultDataConfig.class})
+	@ActiveProfiles("dev")
+	class TransferServiceTest {
+
+		@Autowired
+		TransferService transferService;
+
+		@Test
+		void testTransferService() {
+			// test the transferService
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(
+			TransferServiceConfig::class,
+			StandaloneDataConfig::class,
+			JndiDataConfig::class,
+			DefaultDataConfig::class)
+	@ActiveProfiles("dev")
+	class TransferServiceTest {
+
+		@Autowired
+		lateinit var transferService: TransferService
+
+		@Test
+		fun testTransferService() {
+			// test the transferService
+		}
+	}
+----
+
+在此变体中,我们将 XML 配置分为四个独立的 `@Configuration` 类:
+
+* `TransferServiceConfig`: 使用 `@Autowired` 通过依赖注入获取 `dataSource`.
+* `StandaloneDataConfig`: 为适合开发人员测试的嵌入式数据库定义 `dataSource`.
+* `JndiDataConfig`: 定义在生产环境中从 JNDI 检索的 `dataSource`.
+* `DefaultDataConfig`: 如果没有配置文件处于 active 状态,则为默认的嵌入式数据库定义一个 `dataSource`.
+
+与基于 XML 的配置示例一样,我们仍然使用 `@ActiveProfiles("dev")` 注解 `TransferServiceTest`,但是这次我们使用 `@ContextConfiguration` 注解指定所有四个配置类.  测试类的主体本身保持完全不变.
+
+通常,在给定项目中的多个测试类之间使用一组概要文件.  因此,为避免 `@ActiveProfiles` 注解的重复声明,您可以在基类上声明一次 `@ActiveProfiles`,子类会自动从基类继承 `@ActiveProfiles` 配置.  在以下示例中,`@ActiveProfiles` 的声明 (以及其他注解) 已移至抽象超类 `AbstractIntegrationTest`:
+
+NOTE: 从 Spring Framework 5.3 开始,  测试配置也可以从封闭的类继承.  有关详细信息,  请参见 <<testcontext-junit-jupiter-nested-test-configuration>>.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig({
+			TransferServiceConfig.class,
+			StandaloneDataConfig.class,
+			JndiDataConfig.class,
+			DefaultDataConfig.class})
+	@ActiveProfiles("dev")
+	abstract class AbstractIntegrationTest {
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(
+			TransferServiceConfig::class,
+			StandaloneDataConfig::class,
+			JndiDataConfig::class,
+			DefaultDataConfig::class)
+	@ActiveProfiles("dev")
+	abstract class AbstractIntegrationTest {
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// "dev" profile inherited from superclass
+	class TransferServiceTest extends AbstractIntegrationTest {
+
+		@Autowired
+		TransferService transferService;
+
+		@Test
+		void testTransferService() {
+			// test the transferService
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// "dev" profile inherited from superclass
+	class TransferServiceTest : AbstractIntegrationTest() {
+
+		@Autowired
+		lateinit var transferService: TransferService
+
+		@Test
+		fun testTransferService() {
+			// test the transferService
+		}
+	}
+----
+
+`@ActiveProfiles` 还支持可用于禁用 active 配置文件的继承的 `inheritProfiles` 属性,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// "dev" profile overridden with "production"
+	@ActiveProfiles(profiles = "production", inheritProfiles = false)
+	class ProductionTransferServiceTest extends AbstractIntegrationTest {
+		// test body
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// "dev" profile overridden with "production"
+	@ActiveProfiles("production", inheritProfiles = false)
+	class ProductionTransferServiceTest : AbstractIntegrationTest() {
+		// test body
+	}
+----
+
+[[testcontext-ctx-management-env-profiles-ActiveProfilesResolver]]
+此外,有时有必要以编程方式而不是以声明方式来解析测试的 active 配置文件,例如,基于:
+
+* 当前的操作系统.
+* 是否在持续集成构建服务器上执行测试.
+* 存在某些环境变量.
+* 自定义类级别注解的存在.
+* 其他问题.
+
+要以编程方式解析 active bean 定义概要文件,可以实现自定义 `ActiveProfilesResolver` 并使用 `@ActiveProfiles` 的 `resolver` 属性对其进行注册.  有关更多信息,请参见相应的 {api-spring-framework}/test/context/ActiveProfilesResolver.html[javadoc].  下面的示例演示如何实现和注册自定义 `OperatingSystemActiveProfilesResolver`:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// "dev" profile overridden programmatically via a custom resolver
+	@ActiveProfiles(
+			resolver = OperatingSystemActiveProfilesResolver.class,
+			inheritProfiles = false)
+	class TransferServiceTest extends AbstractIntegrationTest {
+		// test body
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// "dev" profile overridden programmatically via a custom resolver
+	@ActiveProfiles(
+			resolver = OperatingSystemActiveProfilesResolver::class,
+			inheritProfiles = false)
+	class TransferServiceTest : AbstractIntegrationTest() {
+		// test body
+	}
+----
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	public class OperatingSystemActiveProfilesResolver implements ActiveProfilesResolver {
+
+		@Override
+		public String[] resolve(Class<?> testClass) {
+			String profile = ...;
+			// determine the value of profile based on the operating system
+			return new String[] {profile};
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	class OperatingSystemActiveProfilesResolver : ActiveProfilesResolver {
+
+		override fun resolve(testClass: Class<*>): Array<String> {
+			val profile: String = ...
+			// determine the value of profile based on the operating system
+			return arrayOf(profile)
+		}
+	}
+----
+
+[[testcontext-ctx-management-property-sources]]
+=== 具有测试属性源的上下文配置
+
+Spring 框架对具有属性源层次结构的环境的概念提供了一流的支持,您可以使用特定于测试的属性源配置集成测试.  与 `@Configuration` 类上使用的 `@PropertySource` 注解相反,可以在测试类上声明 `@TestPropertySource` 注解,以声明测试属性文件或内联属性的资源位置.
+将这些测试属性源添加到环境中针对为注解集成测试加载的 `ApplicationContext` 的 `PropertySources` 集中.
+
+[NOTE]
+====
+您可以将 `@TestPropertySource` 与 `SmartContextLoader` SPI 的任何实现一起使用,但是较早的 `ContextLoader` SPI的实现不支持 `@TestPropertySource`.
+
+`SmartContextLoader` 的实现可通过 `MergedContextConfiguration` 中的 `getPropertySourceLocations()` 和 `getPropertySourceProperties()` 方法访问合并的测试属性源值.
+====
+
+==== 声明测试属性源
+
+您可以使用 `@TestPropertySource` 的 `location` 或 `value` 属性来配置测试属性文件.
+
+支持传统属性和基于 XML 的属性文件格式,例如 `"classpath:/com/example/test.properties"` 或 `"file:///path/to/file.xml"`.
+
+每个路径都被解释为 Spring 资源.  纯路径 (例如,`"test.properties"`) 被视为相对于定义测试类的程序包的类路径资源.  以斜杠开头的路径被视为绝对类路径资源 (例如:  `"/org/example/test.xml"`) .  通过使用指定的资源协议加载引用 URL 的路径 (例如,以  `classpath:`, `file:`, or `http:` 开头的路径) .  不允许使用资源位置通配符 (例如 `**/*.properties`) : 每个位置都必须精确评估为一个 `.properties` 或 `.xml` 资源.
+
+以下示例使用测试属性文件:
+
+You can configure test properties files by using the `locations` or `value` attribute of
+`@TestPropertySource`.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	@TestPropertySource("/test.properties") // <1>
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+<1> 指定具有绝对路径的属性文件.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	@TestPropertySource("/test.properties") // <1>
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+<1> 指定具有绝对路径的属性文件.
+
+您可以使用 `@TestPropertySource` 的 `properties` 属性以键-值对的形式配置内联属性,如下例所示.  所有键值对都作为优先级最高的单个测试 `PropertySource` 添加到封闭环境中.
+
+键值对支持的语法与为 Java 属性文件中的条目定义的语法相同:
+
+* `key=value`
+* `key:value`
+* `key value`
+
+以下示例设置两个内联属性:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	@TestPropertySource(properties = {"timezone = GMT", "port: 4242"}) // <1>
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+<1> 通过使用键值语法的两种形式来设置两个属性.
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	@TestPropertySource(properties = ["timezone = GMT", "port: 4242"]) // <1>
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+<1> 通过使用键值语法的两种形式来设置两个属性.
+
+[NOTE]
+====
+从 Spring Framework 5.2 开始,`@TestPropertySource` 可以用作可重复注解.  这意味着您可以在单个测试类上具有 `@TestPropertySource` 的多个声明,其后的 `@TestPropertySource` 注解中的位置和属性将覆盖先前的 `@TestPropertySource` 注解中的位置和属性.
+
+另外,您可以在一个测试类上声明多个组成的注解,每个注解都使用 `@TestPropertySource` 进行元注解,所有这些 `@TestPropertySource` 声明都将有助于您的测试属性源.
+
+直接存在的 `@TestPropertySource` 注解始终优先于元存在的 `@TestPropertySource` 注解.  换句话说,直接存在的 `@TestPropertySource` 注解中的位置和属性将覆盖 `@TestPropertySource` 注解中用作元注解的位置和属性.
+====
+
+
+==== 默认属性文件检测
+
+如果 `@TestPropertySource` 声明为空注解 (即,没有位置或属性属性的显式值) ,则尝试检测相对于声明该注解的类的默认属性文件.  例如,如果带注解的测试类是 `com.example.MyTest`,则相应的默认属性文件是 `classpath:com/example/MyTest.properties`.  如果无法检测到默认值,则抛出 `IllegalStateException`.
+
+==== 优先顺序
+
+测试属性的优先级高于操作系统环境,Java 系统属性或应用程序通过使用 `@PropertySource` 以声明式或者编程式的方法添加的属性源中定义的属性. 因此,测试属性源可用于选择性覆盖系统和应用程序属性源中定义的属性.
+此外,内联属性比从资源位置加载的属性具有更高的优先级. 但是请注意,通过 <<testcontext-ctx-management-dynamic-property-sources, `@DynamicPropertySource`>> 注册的属性比通过 `@TestPropertySource` 加载的属性具有更高的优先级.
+
+在下一个示例中, `timezone` 和  `port` 属性以及在 `"/test.properties"` 中定义的任何属性都将覆盖在系统和应用程序属性源中定义的具有相同名称的所有属性.  此外,如果 `"/test.properties"` 文件定义了 `timezone` 和  `port`  属性,则这些条目将被使用 `properties` 属性声明的内联属性所覆盖.  以下示例显示如何在文件和内联中指定属性:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration
+	@TestPropertySource(
+		locations = "/test.properties",
+		properties = {"timezone = GMT", "port: 4242"}
+	)
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration
+	@TestPropertySource("/test.properties",
+			properties = ["timezone = GMT", "port: 4242"]
+	)
+	class MyIntegrationTests {
+		// class body...
+	}
+----
+
+==== 继承和覆盖测试属性源
+
+`@TestPropertySource` 支持 `booleanInheritLocations` 和 `InheritProperties` 属性,这些属性指示是否应继承属性文件和超类声明的内联属性的资源位置.  这两个标志的默认值为 `true`.  这意味着测试类将继承任何超类声明的位置和内联属性.
+具体来说,将测试类的位置和内联属性附加到超类声明的位置和内联属性中.  因此,子类可以选择扩展位置和内联属性.  请注意,稍后出现的属性会阴影 (即,覆盖) 之前出现的相同名称的属性.  此外,上述优先规则也适用于继承的测试属性源.
+
+如果 `@TestPropertySource` 中的 `inheritLocations` 或 `inheritProperties` 属性设置为 `false`,则分别为测试类设置 inlined 或内联属性,并有效替换超类定义的配置.
+
+NOTE: 从 Spring Framework 5.3 开始，测试配置也可以从密封类继承。 有关详细信息，请参阅 <<testcontext-junit-jupiter-nested-test-configuration>>。
+classes. See <<testcontext-junit-jupiter-nested-test-configuration>> for details.
+
+在下一个示例中,仅通过将 `base.properties` 文件用作测试属性源来加载 `BaseTest` 的 `ApplicationContext`.  相反,通过使用 `base.properties` 和 `extended.properties` 文件作为测试属性源位置来加载 `ExtendedContext` 的 `ApplicationContext`.  下面的示例显示如何通过使用属性文件在子类及其父类中定义属性:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@TestPropertySource("base.properties")
+	@ContextConfiguration
+	class BaseTest {
+		// ...
+	}
+
+	@TestPropertySource("extended.properties")
+	@ContextConfiguration
+	class ExtendedTest extends BaseTest {
+		// ...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@TestPropertySource("base.properties")
+	@ContextConfiguration
+	open class BaseTest {
+		// ...
+	}
+
+	@TestPropertySource("extended.properties")
+	@ContextConfiguration
+	class ExtendedTest : BaseTest() {
+		// ...
+	}
+----
+
+在下一个示例中,仅使用内联的 `key1` 属性加载 `BaseTest` 的 `ApplicationContext`.  相反,通过使用内联的 `key1` 和 `key2` 属性来加载 `ExtendedTest` 的 `ApplicationContext`.  下面的示例演示如何通过使用内联属性在子类及其父类中定义属性:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@TestPropertySource(properties = "key1 = value1")
+	@ContextConfiguration
+	class BaseTest {
+		// ...
+	}
+
+	@TestPropertySource(properties = "key2 = value2")
+	@ContextConfiguration
+	class ExtendedTest extends BaseTest {
+		// ...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@TestPropertySource(properties = ["key1 = value1"])
+	@ContextConfiguration
+	open class BaseTest {
+		// ...
+	}
+
+	@TestPropertySource(properties = ["key2 = value2"])
+	@ContextConfiguration
+	class ExtendedTest : BaseTest() {
+		// ...
+	}
+----
+
+[[testcontext-ctx-management-dynamic-property-sources]]
+=== 具有动态属性源的上下文配置
+
+从 Spring Framework 5.2.5 开始,`TestContext` 框架通过 `@DynamicPropertySource` 注解提供对动态属性的支持. 此注解可用于集成测试, 集成测试中加载的 `ApplicationContext` 需要将具有动态属性的值添加到 `Environment` 的 `PropertySources` 集中.
+
+[NOTE]
+====
+`@DynamicPropertySource` 注解及其支持的基础结构涉及之初的目的是使 https://www.testcontainers.org/[Testcontainers] 的测试中的属性易于暴露于 Spring 集成测试.
+但是,此功能也可以 `ApplicationContext` 生命周期之外的外部资源一起使用.
+====
+
+在类级别应用 <<testcontext-ctx-management-property-sources,`@TestPropertySource`>> 注解则相反,必须将 `@DynamicPropertySource` 应用于接受单个 `DynamicPropertyRegistry` 参数的静态方法,该参数用于向环境添加键值对. 值是动态的,并通过 `Supplier` 提供,只有在解析属性后才调用该 `Supplier`.
+通常,方法引用用于提供值,如以下示例所示,该示例使用 `Testcontainers` 项目在 Spring `ApplicationContext` 外部管理 Redis 容器. 通过 `redis.host` 和 `redis.port` 属性,测试的 `ApplicationContext` 中的组件可以使用托管 Redis 容器的IP地址和端口.
+这些属性可以通过 Spring 的环境抽象来访问,也可以直接注入到 Spring 管理的组件中,例如分别通过 `@Value("${redis.host}")` 和 `@Value("${redis.port}")`.
+
+[TIP]
+====
+如果您在基类中使用 `@DynamicPropertySource` 并发现子类中的测试由于动态属性在子类之间变化而失败,  则可能需要使用 <<spring-testing-annotation-dirtiescontext, `@DirtiesContext`>> 注解您的基类,  以确保每个子类获得具有正确动态属性的自己的 `ApplicationContext`.
+====
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(/* ... */)
+	@Testcontainers
+	class ExampleIntegrationTests {
+
+		@Container
+		static RedisContainer redis = new RedisContainer();
+
+		@DynamicPropertySource
+		static void redisProperties(DynamicPropertyRegistry registry) {
+			registry.add("redis.host", redis::getHost);
+			registry.add("redis.port", redis::getMappedPort);
+		}
+
+		// tests ...
+
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(/* ... */)
+	@Testcontainers
+	class ExampleIntegrationTests {
+
+		companion object {
+
+			@Container
+			@JvmStatic
+			val redis: RedisContainer = RedisContainer()
+
+			@DynamicPropertySource
+			@JvmStatic
+			fun redisProperties(registry: DynamicPropertyRegistry) {
+				registry.add("redis.host", redis::getHost)
+				registry.add("redis.port", redis::getMappedPort)
+			}
+		}
+
+		// tests ...
+
+	}
+----
+
+==== 优先顺序
+
+动态属性的优先级高于从 `@TestPropertySource` 加载的属性,操作系统的环境,Java 系统属性或应用程序通过使用 `@PropertySource` 声明性地或以编程方式添加的属性. 因此,动态属性可用于有选择地覆盖通过 `@TestPropertySource`,系统属性源和应用程序属性源加载的属性.
+
+[[testcontext-ctx-management-web]]
+=== 加载 `WebApplicationContext`
+
+若要指示 `TestContext` 框架加载 `WebApplicationContext` 而不是标准 `ApplicationContext`,可以使用 `@WebAppConfiguration` 注解各自的测试类.
+
+测试类上 `@WebAppConfiguration` 的存在指示 TestContext 框架 (TCF) 应该为集成测试加载 `WebApplicationContext` (WAC) .  TCF 在后台确保创建了 `MockServletContext` 并将其提供给测试的 WAC.  默认情况下,您的 `MockServletContext` 的基本资源路径设置为 `src/main/webapp`.
+这被解释为相对于 JVM 根目录的路径 (通常是项目的路径) .  如果您熟悉 Maven 项目中 Web 应用程序的目录结构,则知道 `src/main/webapp` 是 WAR 根目录的默认位置.  如果需要覆盖此默认值,
+则可以提供 `@WebAppConfiguration` 注解的备用路径 (例如, `@WebAppConfiguration("src/test/webapp")`) .  如果您希望从类路径而不是文件系统中引用基本资源路径,则可以使用 Spring 的 `classpath:` 前缀.
+
+请注意,Spring 对 `WebApplicationContext` 实现的测试支持与其对标准 `ApplicationContext` 实现的支持相当.  使用 `WebApplicationContext` 进行测试时,可以使用 `@ContextConfiguration` 声明XML配置文件,Groovy 脚本或 `@Configuration` 类.
+您还可以自由使用任何其他测试注解,例如 `@ActiveProfiles`,`@TestExecutionListeners`,`@Sql`,`@Rollback` 等.
+
+本节中的其余示例显示了用于加载 `WebApplicationContext` 的各种配置选项.  以下示例显示了 TestContext 框架对配置约定的支持:
+
+.Conventions
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+
+	// defaults to "file:src/main/webapp"
+	@WebAppConfiguration
+
+	// detects "WacTests-context.xml" in the same package
+	// or static nested @Configuration classes
+	@ContextConfiguration
+	class WacTests {
+		//...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+
+	// defaults to "file:src/main/webapp"
+	@WebAppConfiguration
+
+	// detects "WacTests-context.xml" in the same package
+	// or static nested @Configuration classes
+	@ContextConfiguration
+	class WacTests {
+		//...
+	}
+----
+
+
+如果使用 `@WebAppConfiguration` 注解测试类而未指定资源基本路径,则资源路径实际上默认为 `file:src/main/webapp`.  同样,如果在声明 `@ContextConfiguration` 时未指定资源位置,组件类或上下文初始化器,则 Spring 会尝试使用约定 (即 `WacTests-context.xml` 与 `WacTests` 类或静态包放在同一包中) 来检测配置的存在.  嵌套的 `@Configuration` 类) .
+
+以下示例显示如何使用 `@WebAppConfiguration` 显式声明资源基础路径和使用 `@ContextConfiguration` 显式声明 XML 资源位置:
+
+.Default resource semantics
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+
+	// file system resource
+	@WebAppConfiguration("webapp")
+
+	// classpath resource
+	@ContextConfiguration("/spring/test-servlet-config.xml")
+	class WacTests {
+		//...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+
+	// file system resource
+	@WebAppConfiguration("webapp")
+
+	// classpath resource
+	@ContextConfiguration("/spring/test-servlet-config.xml")
+	class WacTests {
+		//...
+	}
+----
+
+这里要注意的重要一点是具有这两个注解的路径的语义不同.  默认情况下,`@WebAppConfiguration` 资源路径基于文件系统,而 `@ContextConfiguration` 资源位置基于类路径.
+
+下面的示例显示,我们可以通过指定 Spring 资源前缀来覆盖两个注解的默认资源语义:
+
+.Explicit resource semantics
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+
+	// classpath resource
+	@WebAppConfiguration("classpath:test-web-resources")
+
+	// file system resource
+	@ContextConfiguration("file:src/main/webapp/WEB-INF/servlet-config.xml")
+	class WacTests {
+		//...
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+
+	// classpath resource
+	@WebAppConfiguration("classpath:test-web-resources")
+
+	// file system resource
+	@ContextConfiguration("file:src/main/webapp/WEB-INF/servlet-config.xml")
+	class WacTests {
+		//...
+	}
+----
+
+将本示例中的注解与上一个示例进行对比
+
+[[testcontext-ctx-management-web-mocks]]
+=== Working with Web Mocks
+
+为了提供全面的 Web 测试支持,TestContext 框架具有默认启用的 `ServletTestExecutionListener`.  在针对 `WebApplicationContext` 进行测试时,此  <<testcontext-key-abstractions, `TestExecutionListener`>> 会在每个测试方法之前使用 Spring Web 的 `RequestContextHolder` 来设置默认的线程本地状态,并根据通过 `@WebAppConfiguration` 配置的基本资源路径创建 `MockHttpServletRequest`,`MockHttpServletResponse` 和 `ServletWebRequest`.  `ServletTestExecutionListener` 还确保可以将 `MockHttpServletResponse` 和 `ServletWebRequest` 注入到测试实例中,并且一旦测试完成,它将清除线程本地状态.
+
+一旦为测试加载了 `WebApplicationContext`,您可能会发现您需要与 Web 模拟进行交互,例如,在调用 Web 组件后设置测试夹具或执行断言.  以下示例显示可以将哪些模拟自动连接到您的测试实例.
+请注意,`WebApplicationContext` 和 `MockServletContext` 都缓存在测试套件中,而其他模拟则由 `ServletTestExecutionListener` 针对每个测试方法进行管理.
+
+.Injecting mocks
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig
+	class WacTests {
+
+		@Autowired
+		WebApplicationContext wac; // cached
+
+		@Autowired
+		MockServletContext servletContext; // cached
+
+		@Autowired
+		MockHttpSession session;
+
+		@Autowired
+		MockHttpServletRequest request;
+
+		@Autowired
+		MockHttpServletResponse response;
+
+		@Autowired
+		ServletWebRequest webRequest;
+
+		//...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig
+	class WacTests {
+
+		@Autowired
+		lateinit var wac: WebApplicationContext // cached
+
+		@Autowired
+		lateinit var servletContext: MockServletContext // cached
+
+		@Autowired
+		lateinit var session: MockHttpSession
+
+		@Autowired
+		lateinit var request: MockHttpServletRequest
+
+		@Autowired
+		lateinit var response: MockHttpServletResponse
+
+		@Autowired
+		lateinit var webRequest: ServletWebRequest
+
+		//...
+	}
+----
+
+[[testcontext-ctx-management-caching]]
+=== 上下文缓存
+
+一旦 TestContext 框架为测试加载了 `ApplicationContext` (或 `WebApplicationContext`) ,该上下文将被缓存并重新用于在同一测试套件中声明相同唯一上下文配置的所有后续测试.  要了解缓存的工作原理,重要的是要了解 "唯一" 和 "测试套件" 的含义.
+
+可以通过用于加载它的配置参数的组合来唯一标识 `ApplicationContext`.  因此,配置参数的唯一组合用于生成一个密钥,在该密钥下缓存上下文.  TestContext 框架使用以下配置参数来构建上下文缓存键:
+
+* `locations` (from `@ContextConfiguration`)
+* `classes` (from `@ContextConfiguration`)
+* `contextInitializerClasses` (from `@ContextConfiguration`)
+* `contextCustomizers` (from `ContextCustomizerFactory`)-这包括 `@DynamicPropertySource` 方法以及 Spring Boot 的各种功能测试支持,例如 `@MockBean` 和 `@SpyBean`.
+* `contextLoader` (from `@ContextConfiguration`)
+* `parent` (from `@ContextHierarchy`)
+* `activeProfiles` (from `@ActiveProfiles`)
+* `propertySourceLocations` (from `@TestPropertySource`)
+* `propertySourceProperties` (from `@TestPropertySource`)
+* `resourceBasePath` (from `@WebAppConfiguration`)
+
+例如,如果 `TestClassA` 为 `@ContextConfiguration` 的 `location` (或 `value`) 属性指定 `{"app-config.xml", "test-config.xml"}`,则TestContext框架将加载相应的 `ApplicationContext` 并将其存储在静态上下文缓存中 仅基于那些位置的密钥下.
+因此,如果 `TestClassB` 还为其位置 (通过继承显式或隐式) 定义了 `{"app-config.xml", "test-config.xml"}` ,但未定义 `@WebAppConfiguration`,不同的 `ContextLoader`,不同的 active 配置文件,不同的 上下文初始化程序,不同的测试属性源或不同的父上下文,则两个测试类将共享相同的 `ApplicationContext`.  这意味着加载应用程序上下文的设置成本仅发生一次 (每个测试套件) ,并且随后的测试执行要快得多.
+
+.Test suites and forked processes
+[NOTE]
+====
+Spring TestContext 框架将应用程序上下文存储在静态缓存中.  这意味着上下文实际上是存储在 `static`  变量中的.  换句话说,如果测试是在单独的进程中执行的,则在每次测试执行之间都会清除静态缓存,从而有效地禁用了缓存机制.
+
+为了从缓存机制中受益,所有测试必须在同一进程或测试套件中运行.  这可以通过在 IDE 中以组的形式执行所有测试来实现.  同样,在使用诸如 Ant,Maven 或 Gradle 之类的构建框架执行测试时,确保该构建框架不会在测试之间进行扩展很重要.  例如,如果将 Maven Surefire 插件的 https://maven.apache.org/plugins/maven-surefire-plugin/test-mojo.html#forkMode[`forkMode`]设置为 `always` 或 `pertest`,则 TestContext 框架将无法在测试类之间缓存应用程序上下文,因此,构建过程的运行速度将大大降低.
+====
+
+上下文缓存的大小以默认的最大大小 32 为界. 只要达到最大大小,就会使用最近最少使用 (LRU) 驱逐策略来驱逐和关闭陈旧的上下文.  您可以通过设置名为 `spring.test.context.cache.maxSize` 的JVM系统属性,从命令行或构建脚本中配置最大大小.
+或者,您可以使用 <<appendix.adoc#appendix-spring-properties,`SpringProperties`>>  API 以编程方式设置相同的属性.
+
+由于在给定的测试套件中加载大量应用程序上下文会导致套件花费不必要的长时间执行,因此准确地知道已加载和缓存了多少个上下文通常是有益的.  要查看基础上下文缓存的统计信息,可以将 `org.springframework.test.context.cache` 日志记录类别的日志级别设置为 `DEBUG`.
+
+万一测试破坏了应用程序上下文并需要重新加载 (例如,通过修改 Bean 定义或应用程序对象的状态) ,则可以使用 `@DirtiesContext` 注解测试类或测试方法 (请参阅的讨论 <<spring-testing-annotation-dirtiescontext, Spring Testing Annotations>> 中的 `DirtiesContext`) .  这指示 Spring 在运行下一个需要相同应用程序上下文的测试之前,从缓存中删除上下文并重建应用程序上下文.  请注意,`@DirtiesContext` 注解的支持由 `DirtiesContextBeforeModesTestExecutionListener` 和 `DirtiesContextTestExecutionListener` 默认启用.
+
+.ApplicationContext lifecycle and console logging
+[NOTE]
+====
+当您需要调试使用 Spring TestContext Framework 执行的测试时， 分析控制台输出 (即， 输出到 `SYSOUT` 和 `SYSERR` 流) 可能很有用.  一些构建工具和 IDE 能够将控制台输出与给定的测试相关联.  但是， 某些控制台输出无法轻松地与给定测试关联.
+
+关于由 Spring 框架本身或由 `ApplicationContext` 中注册的组件触发的控制台日志记录， 了解由 Spring TestContext Framework 在测试套件中加载的 `ApplicationContext` 的生命周期非常重要.
+
+通常在准备测试类的实例时加载测试的 `ApplicationContext`， 例如， 将依赖项注入到测试实例的 `@Autowired` 字段中.  这意味着在 `ApplicationContext` 初始化期间触发的任何控制台日志记录通常都不能与单个测试方法相关联.  但是， 如果根据 <<spring-testing-annotation-dirtiescontext>> 语义在执行测试方法之前立即关闭上下文， 则将在执行测试方法之前立即加载该上下文的新实例.  在后一种情况下， IDE 或构建工具可能会将控制台日志记录与单独的测试方法相关联.
+
+可以通过以下方案之一关闭测试的 `ApplicationContext`.
+
+* 根据 `@DirtiesContext` 语义关闭上下文.
+* 上下文已关闭， 因为已根据 LRU 淘汰策略自动将其从缓存中淘汰.
+* 当测试套件的 JVM 终止时， 通过 JVM 关闭钩子关闭上下文. .
+
+如果在特定测试方法之后根据 `@DirtiesContext` 语义关闭了上下文， 则 IDE 或构建工具可能会将控制台日志记录与单个测试方法相关联.  如果在测试类之后根据 `@DirtiesContext` 语义关闭了上下文， 则在 `ApplicationContext` 关闭期间触发的任何控制台日志记录都不能与单个测试方法相关联.  同样， 在关闭阶段通过 JVM 关闭钩子触发的任何控制台日志记录都不能与单独的测试方法相关联.
+
+当通过 JVM 关机钩子关闭 Spring `ApplicationContext` 时， 在关机阶段执行的回调将在名为 `SpringContextShutdownHook` 的线程上执行.  因此， 如果您希望禁用通过 JVM 关闭钩子关闭 `ApplicationContext` 时触发的控制台日志记录， 则可以在日志记录框架中注册自定义过滤器， 从而允许您忽略该线程启动的任何日志记录.
+====
+
+[[testcontext-ctx-management-ctx-hierarchies]]
+=== 上下文层次结构
+
+在编写依赖于已加载的 Spring `ApplicationContext` 的集成测试时,通常足以针对单个上下文进行测试.  但是,有时需要对 `ApplicationContext` 实例的层次结构进行测试是有益的甚至是必要的.  例如,如果您正在开发 Spring MVC Web 应用程序,
+则通常具有由 Spring 的 `ContextLoaderListener` 加载的根 `WebApplicationContext` 和由Spring的 `DispatcherServlet` 加载的子 `WebApplicationContext`.  这导致父子上下文层次结构,其中共享组件和基础结构配置在根上下文中声明,并在特定于 Web 的组件的子上下文中使用.  在 Spring Batch 应用程序中可以找到另一个用例,在该应用程序中,您经常有一个父上下文为共享批处理基础结构提供配置,而子上下文为特定批处理作业的配置提供配置.
+
+您可以通过在单个测试类上或在测试类层次结构中使用 `@ContextHierarchy` 注解声明上下文配置来编写使用上下文层次结构的集成测试.  如果在测试类层次结构中的多个类上声明了上下文层次结构,则还可以合并或覆盖上下文层次结构中特定命名级别的上下文配置.  合并层次结构中给定级别的配置时,配置资源类型 (即XML配置文件或组件类) 必须一致.  否则,在使用不同资源类型配置的上下文层次结构中具有不同级别是完全可以接受的.
+
+本节中其余的基于 JUnit Jupiter 的示例显示了需要使用上下文层次结构的集成测试的常见配置方案.
+
+**具有上下文层次结构的单个测试类**
+--
+`ControllerIntegrationTests` 通过声明一个上下文层次结构来表示 Spring MVC Web 应用程序的典型集成测试场景,该上下文层次结构包含两个级别,一个层次用于根 `WebApplicationContext` (通过使用 `TestAppConfig`  `@Configuration` 类加载) ,一个层次用于调度程序 Servlet `WebApplicationContext` (通过使用 `WebConfig` `@Configuration` 类 加载) .  自动连接到测试实例的  `WebApplicationContext` 是用于子上下文 (即,层次结构中的最低上下文) 的 `WebApplicationContext`.  以下清单显示了此配置方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@WebAppConfiguration
+	@ContextHierarchy({
+		@ContextConfiguration(classes = TestAppConfig.class),
+		@ContextConfiguration(classes = WebConfig.class)
+	})
+	class ControllerIntegrationTests {
+
+		@Autowired
+		WebApplicationContext wac;
+
+		// ...
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	@WebAppConfiguration
+	@ContextHierarchy(
+		ContextConfiguration(classes = [TestAppConfig::class]),
+		ContextConfiguration(classes = [WebConfig::class]))
+	class ControllerIntegrationTests {
+
+		@Autowired
+		lateinit var wac: WebApplicationContext
+
+		// ...
+	}
+----
+--
+
+**具有隐式父上下文的类层次结构**
+--
+本示例中的测试类在测试类层次结构中定义了上下文层次结构.  `AbstractWebTests` 在Spring驱动的Web应用程序中声明根 `WebApplicationContext` 的配置.  但是请注意,`AbstractWebTests` 不会声明 `@ContextHierarchy`.
+因此,`AbstractWebTests` 的子类可以选择参与上下文层次结构或遵循 `@ContextConfiguration` 的标准语义.  `SoapWebServiceTests` 和 `RestWebServiceTests` 都扩展了 `AbstractWebTests` 并使用 `@ContextHierarchy` 定义了上下文层次结构.
+结果是,加载了三个应用程序上下文 (每个 `@ContextConfiguration` 声明一个) ,并且基于 `AbstractWebTests` 中的配置加载的应用程序上下文被设置为为具体子类加载的每个上下文的父上下文.  以下清单显示 了此配置方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@WebAppConfiguration
+	@ContextConfiguration("file:src/main/webapp/WEB-INF/applicationContext.xml")
+	public abstract class AbstractWebTests {}
+
+	@ContextHierarchy(@ContextConfiguration("/spring/soap-ws-config.xml"))
+	public class SoapWebServiceTests extends AbstractWebTests {}
+
+	@ContextHierarchy(@ContextConfiguration("/spring/rest-ws-config.xml"))
+	public class RestWebServiceTests extends AbstractWebTests {}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	@WebAppConfiguration
+	@ContextConfiguration("file:src/main/webapp/WEB-INF/applicationContext.xml")
+	abstract class AbstractWebTests
+
+	@ContextHierarchy(ContextConfiguration("/spring/soap-ws-config.xml"))
+	class SoapWebServiceTests : AbstractWebTests()
+
+	@ContextHierarchy(ContextConfiguration("/spring/rest-ws-config.xml"))
+	class RestWebServiceTests : AbstractWebTests()
+
+----
+--
+
+**具有合并上下文层次结构配置的类层次结构**
+--
+此示例中的类显示了使用命名层次结构级别的目的,以便合并上下文层次结构中特定级别的配置.  `BaseTests` 在层次结构中定义了两个级别,`parent` 级别和 `child` 级别.  `ExtendedTests` 扩展 `BaseTests` 并指示 Spring TestContext Framework 合并子层次结构级别的上下文配置,
+方法是确保在 `@ContextConfiguration` 的 `name` 属性中声明的名称均为 `child` 元素.  结果是加载了三个应用程序上下文: 一个用于 `/app-config.xml`,一个用于 `/user-config.xml`,一个用于 `{"/user-config.xml", "/order-config.xml"}`.
+与前面的示例一样,将从 `/app-config.xml`  加载的应用程序上下文设置为从  `/user-config.xml` 和  `{"/user-config.xml", "/order-config.xml"}`.  以下清单显示了此配置方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@ContextHierarchy({
+		@ContextConfiguration(name = "parent", locations = "/app-config.xml"),
+		@ContextConfiguration(name = "child", locations = "/user-config.xml")
+	})
+	class BaseTests {}
+
+	@ContextHierarchy(
+		@ContextConfiguration(name = "child", locations = "/order-config.xml")
+	)
+	class ExtendedTests extends BaseTests {}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	@ContextHierarchy(
+		ContextConfiguration(name = "parent", locations = ["/app-config.xml"]),
+		ContextConfiguration(name = "child", locations = ["/user-config.xml"]))
+	open class BaseTests {}
+
+	@ContextHierarchy(
+		ContextConfiguration(name = "child", locations = ["/order-config.xml"])
+	)
+	class ExtendedTests : BaseTests() {}
+----
+--
+
+**具有覆盖的上下文层次结构配置的类层次结构**
+--
+与前面的示例相反,此示例演示了如何通过将 `@ContextConfiguration` 中的 `InheritLocations` 标志设置为 `false` 来覆盖上下文层次结构中给定命名级别的配置.
+因此,`ExtendedTests` 的应用程序上下文仅从 `/test-user-config.xml` 加载,并且其父级设置为从 `/app-config.xml` 加载的上下文.  以下清单显示了此配置方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	@ContextHierarchy({
+		@ContextConfiguration(name = "parent", locations = "/app-config.xml"),
+		@ContextConfiguration(name = "child", locations = "/user-config.xml")
+	})
+	class BaseTests {}
+
+	@ContextHierarchy(
+		@ContextConfiguration(
+			name = "child",
+			locations = "/test-user-config.xml",
+			inheritLocations = false
+	))
+	class ExtendedTests extends BaseTests {}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	@ContextHierarchy(
+		ContextConfiguration(name = "parent", locations = ["/app-config.xml"]),
+		ContextConfiguration(name = "child", locations = ["/user-config.xml"]))
+	open class BaseTests {}
+
+	@ContextHierarchy(
+			ContextConfiguration(
+					name = "child",
+					locations = ["/test-user-config.xml"],
+					inheritLocations = false
+			))
+	class ExtendedTests : BaseTests() {}
+----
+
+.污染上下文层次结构中的上下文
+
+NOTE: 如果在上下文被配置为上下文层次结构一部分的测试中使用 `@DirtiesContext`,则可以使用 `hierarchyMode` 标志控制清除上下文缓存的方式.  有关更多详细信息,请参见 <<spring-testing-annotation-dirtiescontext, Spring Testing Annotations>>中的 `@DirtiesContext` 和 {api-spring-framework}/test/annotation/DirtiesContext.html[`@DirtiesContext`]  javadoc 的讨论.
+--
+
+[[testcontext-fixture-di]]
+== 测试夹具的依赖注入
+
+当使用 `DependencyInjectionTestExecutionListener` (默认配置) 时,测试实例的依赖是从使用 `@ContextConfiguration` 或相关注解配置的应用程序上下文中的 bean 注入的. 您可以使用 `setter` 注入,字段注入,或同时使用这两种方法,具体取决于您选择的注解以及是否将它们放置在 setter 方法或字段中.  如果使用的是 JUnit Jupiter,则还可以选择使用构造函数注入 (请参阅<<testcontext-junit-jupiter-di,带有 `SpringExtension` 的依赖注入>>) .
+为了与 Spring 基于注解的注入支持保持一致,您还可以将 Spring 的 `@Autowired` 注解或 JSR-330 中的 `@Inject` 注解用于字段注入和设置器注入.
+
+TIP: 对于 JUnit Jupiter 以外的测试框架,TestContext 框架不参与测试类的实例化.  因此,将 `@Autowired` 或 `@Inject` 用于构造函数对测试类无效.
+
+NOTE: 尽管在生产代码中不鼓励使用字段注入,但是在测试代码中字段注入实际上是很自然的.  区别的理由是,您永远不会直接实例化测试类.  因此,不需要能够在测试类上调用 `public` 构造函数或 setter 方法.
+
+因为 `@Autowired` 用于按类型执行自动装配,所以如果您具有相同类型的多个 bean 定义,那么对于那些特定的 bean,您将不能依靠这种方法.  在这种情况下,您可以将 `@Autowired` 与 `@Qualifier` 结合使用.  您也可以选择将 `@Inject` 与 `@Named` 结合使用.
+另外,如果您的测试类可以访问其 `ApplicationContext`,则可以通过使用 (例如) 对 `applicationContext.getBean("titleRepository", TitleRepository.class)`  的调用来执行显式查找.
+
+如果您不希望将依赖注入应用于测试实例,请不要使用 `@Autowired` 或 `@Inject` 注解字段或设置方法.  另外,您可以通过使用 `@TestExecutionListeners` 显式配置您的类并从监听器列表中省 `略DependencyInjectionTestExecutionListener.class` 来完全禁用依赖注入.
+
+考虑一下<<integration-testing-goals, Goals>>部分概述的测试 `HibernateTitleRepository` 类的场景.  接下来的两个代码清单演示了 `@Autowired` 在字段和setter方法上的用法.  在所有示例代码清单之后显示了应用程序上下文配置.
+
+[NOTE]
+====
+以下代码清单中的依赖注入行为并非特定于 JUnit Jupiter.  相同的DI技术可以与任何受支持的测试框架结合使用.
+
+以下示例对静态断言方法 (例如 `assertNotNull()`) 进行了调用,但没有在声明前添加断言.  在这种情况下,假定该方法是通过示例中未显示的 `import static` 声明正确导入的.
+====
+
+第一个代码清单显示了使用 `@Autowired` 进行字段注入的测试类的基于 JUnit Jupiter 的实现:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// specifies the Spring configuration to load for this test fixture
+	@ContextConfiguration("repository-config.xml")
+	class HibernateTitleRepositoryTests {
+
+		// this instance will be dependency injected by type
+		@Autowired
+		HibernateTitleRepository titleRepository;
+
+		@Test
+		void findById() {
+			Title title = titleRepository.findById(new Long(10));
+			assertNotNull(title);
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// specifies the Spring configuration to load for this test fixture
+	@ContextConfiguration("repository-config.xml")
+	class HibernateTitleRepositoryTests {
+
+		// this instance will be dependency injected by type
+		@Autowired
+		lateinit var titleRepository: HibernateTitleRepository
+
+		@Test
+		fun findById() {
+			val title = titleRepository.findById(10)
+			assertNotNull(title)
+		}
+	}
+----
+
+或者,您可以将类配置为使用 `@Autowired` 进行 setter 注入,如下所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ExtendWith(SpringExtension.class)
+	// specifies the Spring configuration to load for this test fixture
+	@ContextConfiguration("repository-config.xml")
+	class HibernateTitleRepositoryTests {
+
+		// this instance will be dependency injected by type
+		HibernateTitleRepository titleRepository;
+
+		@Autowired
+		void setTitleRepository(HibernateTitleRepository titleRepository) {
+			this.titleRepository = titleRepository;
+		}
+
+		@Test
+		void findById() {
+			Title title = titleRepository.findById(new Long(10));
+			assertNotNull(title);
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ExtendWith(SpringExtension::class)
+	// specifies the Spring configuration to load for this test fixture
+	@ContextConfiguration("repository-config.xml")
+	class HibernateTitleRepositoryTests {
+
+		// this instance will be dependency injected by type
+		lateinit var titleRepository: HibernateTitleRepository
+
+		@Autowired
+		fun setTitleRepository(titleRepository: HibernateTitleRepository) {
+			this.titleRepository = titleRepository
+		}
+
+		@Test
+		fun findById() {
+			val title = titleRepository.findById(10)
+			assertNotNull(title)
+		}
+	}
+----
+
+前面的代码清单使用 `@ContextConfiguration` 注解引用的相同 XML 上下文文件 (即, `repository-config.xml`) .  下面显示了此配置:
+
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<?xml version="1.0" encoding="UTF-8"?>
+	<beans xmlns="http://www.springframework.org/schema/beans"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xsi:schemaLocation="http://www.springframework.org/schema/beans
+			https://www.springframework.org/schema/beans/spring-beans.xsd">
+
+		<!-- this bean will be injected into the HibernateTitleRepositoryTests class -->
+		<bean id="titleRepository" class="com.foo.repository.hibernate.HibernateTitleRepository">
+			<property name="sessionFactory" ref="sessionFactory"/>
+		</bean>
+
+		<bean id="sessionFactory" class="org.springframework.orm.hibernate5.LocalSessionFactoryBean">
+			<!-- configuration elided for brevity -->
+		</bean>
+
+	</beans>
+----
+
+[NOTE]
+=====
+如果您是从 Spring 提供的测试基类扩展而来的,而该基类恰巧在其 setter 方法之一上使用 `@Autowired`,则可能在应用程序上下文中定义了多个受影响类型的 Bean (例如,多个 `DataSource` Bean) .在这种情况下,您可以重写 setter 方法,并使用 `@Qualifier` 注解指示特定的目标 bean,如下所示 (但请确保也委托给超类中的重写方法) :
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ...
+
+		@Autowired
+		@Override
+		public void setDataSource(@Qualifier("myDataSource") DataSource dataSource) {
+			super.setDataSource(dataSource);
+		}
+
+	// ...
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ...
+
+		@Autowired
+		override fun setDataSource(@Qualifier("myDataSource") dataSource: DataSource) {
+			super.setDataSource(dataSource)
+		}
+
+	// ...
+----
+
+指定的限定符值指示要注入的特定 `DataSource` Bean,从而将类型匹配的范围缩小到特定 Bean.  其值与相应的 `<bean>` 定义中的 `<qualifier>` 声明匹配.  Bean 名称用作后备限定符值,因此您也可以在该名称中有效地指向特定的 Bean (如先前所示,假设 `myDataSource` 是 Bean  `id`) .
+=====
+
+
+[[testcontext-web-scoped-beans]]
+== 测试请求和会话作用域的 Bean
+
+Spring 从早期开始就<<core#beans-factory-scopes-other, 支持请求和会话作用域的 Bean>>,您可以按照以下步骤测试请求和会话作用域的 Bean:
+
+* 通过使用 `@WebAppConfiguration` 注解测试类,确保为测试加载 `WebApplicationContext`.
+* 将模拟请求或会话注入到测试实例中,并适当地准备测试夹具.
+* 调用从配置的 `WebApplicationContext` 中检索到的 Web 组件 (带有依赖注入) .
+* 对模拟执行断言.
+
+下一个代码片段显示了登录用例的 XML 配置.  注意,`userService` bean 与请求范围的 `loginAction` bean 有依赖.  另外,通过使用<<core.adoc#expressions, SpEL 表达式>> 实例化 `LoginAction`,该表达式从当前 HTTP请 求中检索用户名和密码.
+在我们的测试中,我们想通过 TestContext 框架管理的模拟来配置这些请求参数.  以下清单显示了此用例的配置:
+
+.Request-scoped bean configuration
+[source,xml,indent=0]
+----
+	<beans>
+
+		<bean id="userService" class="com.example.SimpleUserService"
+				c:loginAction-ref="loginAction"/>
+
+		<bean id="loginAction" class="com.example.LoginAction"
+				c:username="#{request.getParameter('user')}"
+				c:password="#{request.getParameter('pswd')}"
+				scope="request">
+			<aop:scoped-proxy/>
+		</bean>
+
+	</beans>
+----
+
+在 `RequestScopedBeanTests` 中,我们将 `UserService` (即被测对象) 和 `MockHttpServletRequest` 都注入到我们的测试实例中.  在 `requestScope()` 测试方法中,我们通过在提供的 `MockHttpServletRequest` 中设置请求参数来设置测试装置.
+当在我们的 `userService` 上调用 `loginUser()` 方法时,可以确保该用户服务可以访问当前 `MockHttpServletRequest` (即我们刚刚设置参数的那个) 在请求范围内的 `loginAction`.
+然后,我们可以根据用户名和密码的已知输入对结果进行断言.  以下清单显示了如何执行此操作:
+
+.Request-scoped bean test
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig
+	class RequestScopedBeanTests {
+
+		@Autowired UserService userService;
+		@Autowired MockHttpServletRequest request;
+
+		@Test
+		void requestScope() {
+			request.setParameter("user", "enigma");
+			request.setParameter("pswd", "$pr!ng");
+
+			LoginResults results = userService.loginUser();
+			// assert results
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig
+	class RequestScopedBeanTests {
+
+		@Autowired lateinit var userService: UserService
+		@Autowired lateinit var request: MockHttpServletRequest
+
+		@Test
+		fun requestScope() {
+			request.setParameter("user", "enigma")
+			request.setParameter("pswd", "\$pr!ng")
+
+			val results = userService.loginUser()
+			// assert results
+		}
+	}
+----
+
+以下代码段类似于我们之前针对请求范围的 Bean 看到的代码段.  但是,这一次,`userService` bean 与会话范围的 `userPreferences` bean 有依赖.  注意,通过使用 SpEL 表达式实例化 `UserPreferences` bean,该 SpEL 表达式从当前 HTTP 会话中检索主题.
+在我们的测试中,我们需要在由TestContext框架管理的模拟会话中配置主题.  以下示例显示了如何执行此操作:
+
+.Session-scoped bean configuration
+[source,xml,indent=0,subs="verbatim,quotes"]
+----
+	<beans>
+
+		<bean id="userService" class="com.example.SimpleUserService"
+				c:userPreferences-ref="userPreferences" />
+
+		<bean id="userPreferences" class="com.example.UserPreferences"
+				c:theme="#{session.getAttribute('theme')}"
+				scope="session">
+			<aop:scoped-proxy/>
+		</bean>
+
+	</beans>
+----
+
+在 `SessionScopedBeanTests` 中,我们将 `UserService` 和 `MockHttpSession` 注入到我们的测试实例中.  在 `sessionScope()` 测试方法中,我们通过在提供的 `MockHttpSession` 中设置期望的主题属性来设置测试装置.
+当在我们的 `userService` 上调用 `processUserPreferences()` 方法时,可以确保用户服务可以访问当前 `MockHttpSession` 的会话范围的 `userPreferences`,并且可以基于配置的主题对结果执行断言.  以下示例显示了如何执行此操作:
+
+.Session-scoped bean test
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitWebConfig
+	class SessionScopedBeanTests {
+
+		@Autowired UserService userService;
+		@Autowired MockHttpSession session;
+
+		@Test
+		void sessionScope() throws Exception {
+			session.setAttribute("theme", "blue");
+
+			Results results = userService.processUserPreferences();
+			// assert results
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitWebConfig
+	class SessionScopedBeanTests {
+
+		@Autowired lateinit var userService: UserService
+		@Autowired lateinit var session: MockHttpSession
+
+		@Test
+		fun sessionScope() {
+			session.setAttribute("theme", "blue")
+
+			val results = userService.processUserPreferences()
+			// assert results
+		}
+	}
+----
+
+[[testcontext-tx]]
+== 事务管理
+
+在 TestContext 框架中,事务由 `TransactionalTestExecutionListener` 进行管理,默认情况下配置该事务,即使您没有在测试类上显式声明 `@TestExecutionListeners` 也不例外.
+但是,要启用对事务的支持,必须在 `ApplicationContext` 中配置使用 `@ContextConfiguration` 语义加载的 `PlatformTransactionManager` bean (稍后将提供更多详细信息) .  此外,您必须在测试的类或方法级别声明 Spring 的 `@Transactional` 注解.
+
+[[testcontext-tx-test-managed-transactions]]
+=== 测试管理的事务
+
+
+测试管理的事务是通过使用 `TransactionalTestExecutionListener` 声明式管理的事务,或者是通过使用 `TestTransaction` 以编程方式管理的事务 (稍后描述) .
+您不应将此类事务与 Spring 托管的事务 (由 Spring 在加载的 `ApplicationContext` 中直接管理以进行测试的事务) 或应用程序托管的事务 (在测试所调用的应用程序代码中以编程方式管理的事务) 相混淆.
+Spring 管理的事务和应用程序管理的事务通常参与测试管理的事务.  但是,如果Spring管理的事务或应用程序管理的事务配置了除 `REQUIRED` 或 `SUPPORTS` 之外的任何传播类型,则应谨慎使用 (有关详细信息,请参见关于<<data-access.adoc#tx-propagation, 事务传播>>的讨论) .
+
+.Preemptive timeouts and test-managed transactions
+[WARNING]
+====
+将测试框架中的任何形式的抢占式超时与Spring的受测试管理的交易结合使用时,必须谨慎行事.
+
+具体来说,Spring 的测试支持会在调用当前测试方法之前将事务状态绑定到当前线程 (通过 `java.lang.ThreadLocal` 变量) .  如果测试框架在新线程中调用当前测试方法以支持抢占式超时,则在当前测试方法内执行的任何操作都不会在测试管理的事务内调用.  因此,任何此类操作的结果都不会随着测试管理的事务而回滚.  相反,即使 Spring 适当地回滚了测试管理的事务,此类操作也将提交给持久存储 (例如关系数据库) .
+
+可能发生这种情况的情况包括但不限于以下情况.
+
+* JUnit 4 `@Test(timeout = ...)` 支持和 `TimeOut` 规则
+* `org.junit.jupiter.api.Assertions` 类中的 JUnit Jupiter 的 `assertTimeoutPreemptively(…)` 方法
+* TestNG 的  `@Test(timeOut = ...)` 支持
+====
+
+[[testcontext-tx-enabling-transactions]]
+=== 启用和禁用事务
+
+使用 `@Transactional` 注解测试方法会导致测试在事务中运行,默认情况下,该事务在测试完成后会自动回滚.  如果用 `@Transactional` 注解测试类,则该类层次结构中的每个测试方法都在事务中运行.
+未使用 `@Transactional` 注解的测试方法 (在类或方法级别) 不在事务内运行.  请注意,测试生命周期方法不支持 `@Transactional`,例如,使用 JUnit Jupiter 的 `@BeforeAll`,`@BeforeEach` 等进行注解的方法. 此外,使用 `@Transactional` 进行注解但将传播属性设置为 `NOT_SUPPORTED` 或 `NEVER` 的测试不会在事务中传播.
+
+[[testcontext-tx-attribute-support]]
+.`@Transactional` 支持的属性
+|===
+|Attribute |Supported for test-managed transactions
+
+|`value` and `transactionManager` |yes
+
+|`propagation` |仅支持 `Propagation.NOT_SUPPORTED` 和 `Propagation.NEVER`
+
+|`isolation` |no
+
+|`timeout` |no
+
+|`readOnly` |no
+
+|`rollbackFor` and `rollbackForClassName` |no: use `TestTransaction.flagForRollback()` instead
+
+|`noRollbackFor` and `noRollbackForClassName` |no: use `TestTransaction.flagForCommit()` instead
+|===
+
+[TIP]
+====
+方法级生命周期方法 (例如,用 JUnit Jupiter 的 `@BeforeEach` 或 `@AfterEach` 注解的方法) 在测试管理的事务中运行.  另一方面,套件级和类级生命周期方法 (例如,以 JUnit Jupiter 的 `@BeforeAll` 或 `@AfterAll` 注解的方法以及以 TestNG 的 `@BeforeSuite`,`@AfterSuite`,`@BeforeClass` 或 `@AfterClass` 注解的方法) 不在内部运行 测试管理的事务.
+
+如果需要在事务内的套件级或类级生命周期方法中执行代码,则可能希望将相应的 `PlatformTransactionManager` 注入测试类中,然后将其与 `TransactionTemplate` 一起用于程序化事务管理.
+====
+
+
+请注意,`AbstractTransactionalJUnit4SpringContextTests` 和 <<testcontext-support-classes-testng, `AbstractTransactionalTestNGSpringContextTests`>> 已预先配置为在类级别提供事务支持.
+
+下面的示例演示了为基于 `Hibernate` 的 `UserRepository` 编写集成测试的常见方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	@Transactional
+	class HibernateUserRepositoryTests {
+
+		@Autowired
+		HibernateUserRepository repository;
+
+		@Autowired
+		SessionFactory sessionFactory;
+
+		JdbcTemplate jdbcTemplate;
+
+		@Autowired
+		void setDataSource(DataSource dataSource) {
+			this.jdbcTemplate = new JdbcTemplate(dataSource);
+		}
+
+		@Test
+		void createUser() {
+			// track initial state in test database:
+			final int count = countRowsInTable("user");
+
+			User user = new User(...);
+			repository.save(user);
+
+			// Manual flush is required to avoid false positive in test
+			sessionFactory.getCurrentSession().flush();
+			assertNumUsers(count + 1);
+		}
+
+		private int countRowsInTable(String tableName) {
+			return JdbcTestUtils.countRowsInTable(this.jdbcTemplate, tableName);
+		}
+
+		private void assertNumUsers(int expected) {
+			assertEquals("Number of rows in the [user] table.", expected, countRowsInTable("user"));
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	@Transactional
+	class HibernateUserRepositoryTests {
+
+		@Autowired
+		lateinit var repository: HibernateUserRepository
+
+		@Autowired
+		lateinit var sessionFactory: SessionFactory
+
+		lateinit var jdbcTemplate: JdbcTemplate
+
+		@Autowired
+		fun setDataSource(dataSource: DataSource) {
+			this.jdbcTemplate = JdbcTemplate(dataSource)
+		}
+
+		@Test
+		fun createUser() {
+			// track initial state in test database:
+			val count = countRowsInTable("user")
+
+			val user = User()
+			repository.save(user)
+
+			// Manual flush is required to avoid false positive in test
+			sessionFactory.getCurrentSession().flush()
+			assertNumUsers(count + 1)
+		}
+
+		private fun countRowsInTable(tableName: String): Int {
+			return JdbcTestUtils.countRowsInTable(jdbcTemplate, tableName)
+		}
+
+		private fun assertNumUsers(expected: Int) {
+			assertEquals("Number of rows in the [user] table.", expected, countRowsInTable("user"))
+		}
+	}
+----
+
+如<<testcontext-tx-rollback-and-commit-behavior,事务回滚和提交行为>>中所述,运行  `createUser()` 方法后无需清理数据库,因为对数据库所做的任何更改都会由 `TransactionalTestExecutionListener` 自动回滚.
+
+[[testcontext-tx-rollback-and-commit-behavior]]
+=== 事务回滚和提交行为
+
+默认情况下,测试事务将在测试完成后自动回滚; 但是,可以通过 `@Commit` 和 `@Rollback` 注解声明性地配置事务提交和回滚行为.  有关更多详细信息,请参见<<integration-testing-annotations, 注解支持>>部分中的相应条目.
+
+
+[[testcontext-tx-programmatic-tx-mgt]]
+=== 程序化事务管理
+
+您可以使用 `TestTransaction` 中的静态方法以编程方式与测试管理的事务进行交互.  例如,您可以在测试方法中,方法之前和方法之后使用 `TestTransaction` 来启动或结束当前的测试管理的事务,或配置当前的测试管理的事务以进行回滚或提交.
+每当启用 `TransactionalTestExecutionListener` 时,都会自动提供对 `TestTransaction` 的支持.
+
+下面的示例演示了 `TestTransaction` 的某些功能.  有关更多详细信息,请参见 javadoc 中的 {api-spring-framework}/test/context/transaction/TestTransaction.html[`TestTransaction`].
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@ContextConfiguration(classes = TestConfig.class)
+	public class ProgrammaticTransactionManagementTests extends
+			AbstractTransactionalJUnit4SpringContextTests {
+
+		@Test
+		public void transactionalTest() {
+			// assert initial state in test database:
+			assertNumUsers(2);
+
+			deleteFromTables("user");
+
+			// changes to the database will be committed!
+			TestTransaction.flagForCommit();
+			TestTransaction.end();
+			assertFalse(TestTransaction.isActive());
+			assertNumUsers(0);
+
+			TestTransaction.start();
+			// perform other actions against the database that will
+			// be automatically rolled back after the test completes...
+		}
+
+		protected void assertNumUsers(int expected) {
+			assertEquals("Number of rows in the [user] table.", expected, countRowsInTable("user"));
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@ContextConfiguration(classes = [TestConfig::class])
+	class ProgrammaticTransactionManagementTests : AbstractTransactionalJUnit4SpringContextTests() {
+
+		@Test
+		fun transactionalTest() {
+			// assert initial state in test database:
+			assertNumUsers(2)
+
+			deleteFromTables("user")
+
+			// changes to the database will be committed!
+			TestTransaction.flagForCommit()
+			TestTransaction.end()
+			assertFalse(TestTransaction.isActive())
+			assertNumUsers(0)
+
+			TestTransaction.start()
+			// perform other actions against the database that will
+			// be automatically rolled back after the test completes...
+		}
+
+		protected fun assertNumUsers(expected: Int) {
+			assertEquals("Number of rows in the [user] table.", expected, countRowsInTable("user"))
+		}
+	}
+----
+
+[[testcontext-tx-before-and-after-tx]]
+=== 在事务外运行代码
+
+有时,您可能需要在事务测试方法之前或之后但在事务上下文之外执行某些代码. 例如,在运行测试之前验证初始数据库状态或在测试运行之后验证预期的事务提交行为 (如果 测试已配置为提交事务) .  对于此类情况,`TransactionalTestExecutionListener` 支持 `@BeforeTransaction` 和 `@AfterTransaction` 注解.
+您可以使用这些注解之一来注解测试类中的任何 `void` 方法或测试接口中的任何 `void` 默认方法,并且 `TransactionalTestExecutionListener` 确保您的 `before` 事务方法或 `after` 事务方法在适当的时间运行.
+
+TIP: 任何 before 方法 (例如以 JUnit Jupiter 的 `@BeforeEach` 注解的方法) 和任何 `after` 方法 (例如以 JUnit Jupiter 的 `@AfterEach` 注解的方法) 都在事务中运行.  此外,对于未配置为在事务内运行的测试方法,不会运行带有 `@BeforeTransaction` 或 `@AfterTransaction` 注解的方法.
+
+[[testcontext-tx-mgr-config]]
+=== 配置一个事务管理器
+
+`TransactionalTestExecutionListener` 期望在 Spring `ApplicationContext` 中为测试定义一个 `PlatformTransactionManager` bean.  如果测试的 `ApplicationContext` 中有 `PlatformTransactionManager` 的多个实例,
+则可以使用 `@Transactional("myTxMgr")` 或 `@Transactional(transactionManager ="myTxMgr")` 来声明限定符,或者可以通过 `@Configuration` 类来实现 `TransactionManagementConfigurer`.  有关用于在测试的 `ApplicationContext` 中查找事务管理器的算法的详细信息,
+请查阅 {api-spring-framework}/test/context/transaction/TestContextTransactionUtils.html#retrieveTransactionManager-org.springframework.test.context.TestContext-java.lang.String-[javadoc
+中的 `TestContextTransactionUtils.retrieveTransactionManager()`]
+
+[[testcontext-tx-annotation-demo]]
+=== 演示所有与事务相关的注解
+
+以下基于 JUnit Jupiter 的示例显示了一个虚拟的集成测试方案,该方案突出显示了所有与事务相关的注解.  该示例并非旨在演示最佳实践,而是演示如何使用这些注解.
+有关更多信息和配置示例,请参见<<integration-testing-annotations, 注解支持>> 部分.  `@Sql` 的事务管理包含另一个示例,该示例使用 `@Sql` 以默认事务回滚语义使用声明式SQL 脚本执行.  以下示例显示了相关的注解:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig
+	@Transactional(transactionManager = "txMgr")
+	@Commit
+	class FictitiousTransactionalTest {
+
+		@BeforeTransaction
+		void verifyInitialDatabaseState() {
+			// logic to verify the initial state before a transaction is started
+		}
+
+		@BeforeEach
+		void setUpTestDataWithinTransaction() {
+			// set up test data within the transaction
+		}
+
+		@Test
+		// overrides the class-level @Commit setting
+		@Rollback
+		void modifyDatabaseWithinTransaction() {
+			// logic which uses the test data and modifies database state
+		}
+
+		@AfterEach
+		void tearDownWithinTransaction() {
+			// run "tear down" logic within the transaction
+		}
+
+		@AfterTransaction
+		void verifyFinalDatabaseState() {
+			// logic to verify the final state after transaction has rolled back
+		}
+
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig
+	@Transactional(transactionManager = "txMgr")
+	@Commit
+	class FictitiousTransactionalTest {
+
+		@BeforeTransaction
+		fun verifyInitialDatabaseState() {
+			// logic to verify the initial state before a transaction is started
+		}
+
+		@BeforeEach
+		fun setUpTestDataWithinTransaction() {
+			// set up test data within the transaction
+		}
+
+		@Test
+		// overrides the class-level @Commit setting
+		@Rollback
+		fun modifyDatabaseWithinTransaction() {
+			// logic which uses the test data and modifies database state
+		}
+
+		@AfterEach
+		fun tearDownWithinTransaction() {
+			// run "tear down" logic within the transaction
+		}
+
+		@AfterTransaction
+		fun verifyFinalDatabaseState() {
+			// logic to verify the final state after transaction has rolled back
+		}
+
+	}
+----
+
+[[testcontext-tx-false-positives]]
+.测试 ORM 代码时避免误报
+[NOTE]
+=====
+当您测试操纵 Hibernate 会话或 JPA 持久性上下文状态的应用程序代码时,请确保在运行该代码的测试方法中刷新基础工作单元.  未能刷新基础工作单元可能会产生误报: 您的测试通过了,但是相同的代码在实际的生产环境中引发异常.  请注意,这适用于任何维护内存中工作单元的 ORM 框架.  在下面的基于 Hibernate 的示例测试用例中,一种方法演示了误报,另一种方法正确显示了刷新会话的结果:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ...
+
+	@Autowired
+	SessionFactory sessionFactory;
+
+	@Transactional
+	@Test // no expected exception!
+	public void falsePositive() {
+		updateEntityInHibernateSession();
+		// False positive: an exception will be thrown once the Hibernate
+		// Session is finally flushed (i.e., in production code)
+	}
+
+	@Transactional
+	@Test(expected = ...)
+	public void updateWithSessionFlush() {
+		updateEntityInHibernateSession();
+		// Manual flush is required to avoid false positive in test
+		sessionFactory.getCurrentSession().flush();
+	}
+
+	// ...
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ...
+
+	@Autowired
+	lateinit var sessionFactory: SessionFactory
+
+	@Transactional
+	@Test // no expected exception!
+	fun falsePositive() {
+		updateEntityInHibernateSession()
+		// False positive: an exception will be thrown once the Hibernate
+		// Session is finally flushed (i.e., in production code)
+	}
+
+	@Transactional
+	@Test(expected = ...)
+	fun updateWithSessionFlush() {
+		updateEntityInHibernateSession()
+		// Manual flush is required to avoid false positive in test
+		sessionFactory.getCurrentSession().flush()
+	}
+
+	// ...
+----
+
+以下示例显示了 JPA 的匹配方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ...
+
+	@PersistenceContext
+	EntityManager entityManager;
+
+	@Transactional
+	@Test // no expected exception!
+	public void falsePositive() {
+		updateEntityInJpaPersistenceContext();
+		// False positive: an exception will be thrown once the JPA
+		// EntityManager is finally flushed (i.e., in production code)
+	}
+
+	@Transactional
+	@Test(expected = ...)
+	public void updateWithEntityManagerFlush() {
+		updateEntityInJpaPersistenceContext();
+		// Manual flush is required to avoid false positive in test
+		entityManager.flush();
+	}
+
+	// ...
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ...
+
+	@PersistenceContext
+	lateinit var entityManager:EntityManager
+
+	@Transactional
+	@Test // no expected exception!
+	fun falsePositive() {
+		updateEntityInJpaPersistenceContext()
+		// False positive: an exception will be thrown once the JPA
+		// EntityManager is finally flushed (i.e., in production code)
+	}
+
+	@Transactional
+	@Test(expected = ...)
+	void updateWithEntityManagerFlush() {
+		updateEntityInJpaPersistenceContext()
+		// Manual flush is required to avoid false positive in test
+		entityManager.flush()
+	}
+
+	// ...
+----
+=====
+
+[[testcontext-tx-orm-lifecycle-callbacks]]
+.Testing ORM entity lifecycle callbacks
+[NOTE]
+=====
+类似于在测试 ORM 代码时避免 <<testcontext-tx-false-positives, false positives>> 的注释，如果您的应用程序使用实体生命周期回调（也称为实体侦听器），请确保刷新底层单元在运行该代码的测试方法中工作。未能 _flush_ 或 _clear_ 底层工作单元可能会导致某些生命周期回调未被调用。
+
+例如，当使用 JPA 时，不会调用 `@PostPersist`、`@PreUpdate` 和 `@PostUpdate` 回调，除非在保存或更新实体后调用 `entityManager.flush()`。类似地，如果实体已经附加到当前工作单元（与当前持久性上下文相关联），则尝试重新加载实体不会导致 `@PostLoad` 回调，除非之前调用了 `entityManager.clear()` 尝试重新加载实体。
+
+以下示例显示如何刷新 `EntityManager` 以确保在持久化实体时调用 `@PostPersist` 回调。已为示例中使用的 `Person` 实体注册了具有 `@PostPersist` 回调方法的实体监听器。
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// ...
+
+	@Autowired
+	JpaPersonRepository repo;
+
+	@PersistenceContext
+	EntityManager entityManager;
+
+	@Transactional
+	@Test
+	void savePerson() {
+		// EntityManager#persist(...) results in @PrePersist but not @PostPersist
+		repo.save(new Person("Jane"));
+
+		// Manual flush is required for @PostPersist callback to be invoked
+		entityManager.flush();
+
+		// Test code that relies on the @PostPersist callback
+		// having been invoked...
+	}
+
+	// ...
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// ...
+
+	@Autowired
+	lateinit var repo: JpaPersonRepository
+
+	@PersistenceContext
+	lateinit var entityManager: EntityManager
+
+	@Transactional
+	@Test
+	fun savePerson() {
+		// EntityManager#persist(...) results in @PrePersist but not @PostPersist
+		repo.save(Person("Jane"))
+
+		// Manual flush is required for @PostPersist callback to be invoked
+		entityManager.flush()
+
+		// Test code that relies on the @PostPersist callback
+		// having been invoked...
+	}
+
+	// ...
+----
+
+见 Spring Framework test suite https://github.com/spring-projects/spring-framework/blob/main/spring-test/src/test/java/org/springframework/test/context/junit/jupiter/orm/JpaEntityListenerTests.java[JpaEntityListenerTests] 用于使用所有 JPA 生命周期回调的工作示例。
+=====
+
+
+[[testcontext-executing-sql]]
+== 执行 SQL 脚本
+
+在针对关系数据库编写集成测试时,执行 SQL 脚本来修改数据库模式或将测试数据插入表中通常是有益的.  `spring-jdbc` 模块支持在加载 Spring `ApplicationContext` 时通过执行SQL 脚本来初始化嵌入式数据库或现有数据库.
+有关详细信息,请参见<<data-access.adoc#jdbc-embedded-database-support, 嵌入式数据库支持>>和<<data-access.adoc#jdbc-embedded-database-dao-testing, 使用嵌入式数据库测试数据访问>>逻辑.
+
+尽管在加载 `ApplicationContext` 时初始化一次数据库以进行测试非常有用,但是有时在集成测试过程中能够修改数据库至关重要.  以下各节说明在集成测试期间如何以编程方式和声明方式执行 SQL 脚本.
+
+[[testcontext-executing-sql-programmatically]]
+=== 以编程方式执行 SQL 脚本
+
+Spring 提供了以下选项,用于在集成测试方法中以编程方式执行 SQL 脚本.
+
+* `org.springframework.jdbc.datasource.init.ScriptUtils`
+* `org.springframework.jdbc.datasource.init.ResourceDatabasePopulator`
+* `org.springframework.test.context.junit4.AbstractTransactionalJUnit4SpringContextTests`
+* `org.springframework.test.context.testng.AbstractTransactionalTestNGSpringContextTests`
+
+`ScriptUtils` 提供了用于处理 SQL 脚本的静态实用程序方法的集合,并且主要供框架内部使用.  但是,如果您需要完全控制如何解析和执行 SQL 脚本,则 `ScriptUtils` 可能比稍后介绍的其他一些替代方法更适合您的需求.
+有关更多详细信息,请参见 `ScriptUtils` 中各个方法的 {api-spring-framework}/jdbc/datasource/init/ScriptUtils.html[javadoc] .
+
+`ResourceDatabasePopulator` 提供了基于对象的 API,可通过使用外部资源中定义的 SQL 脚本以编程方式填充,初始化或清理数据库.  `ResourceDatabasePopulator` 提供选项,用于配置在解析和运行脚本时使用的字符编码,语句分隔符,注解定界符和错误处理标志.
+每个配置选项都有一个合理的默认值.  有关默认值的详细信息,请参见 {api-spring-framework}/jdbc/datasource/init/ResourceDatabasePopulator.html[javadoc].  要运行 `ResourceDatabasePopulator` 中配置的脚本,您可以调用 `populate(Connection)` 方法以针对 `java.sql.Connection` 执行填充器,
+或者可以执行 `execute(DataSource)` 方法以针对 `javax.sql.DataSource` 执行填充器.  以下示例为测试模式和测试数据指定 SQL 脚本,将语句分隔符设置为 `@@`,然后针对 `DataSource` 执行脚本:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Test
+	void databaseTest() {
+		ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+		populator.addScripts(
+				new ClassPathResource("test-schema.sql"),
+				new ClassPathResource("test-data.sql"));
+		populator.setSeparator("@@");
+		populator.execute(this.dataSource);
+		// run code that uses the test schema and data
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Test
+	fun databaseTest() {
+		val populator = ResourceDatabasePopulator()
+		populator.addScripts(
+				ClassPathResource("test-schema.sql"),
+				ClassPathResource("test-data.sql"))
+		populator.setSeparator("@@")
+		populator.execute(dataSource)
+		// run code that uses the test schema and data
+	}
+----
+
+
+请注意,`ResourceDatabasePopulator` 内部委托给 `ScriptUtils` 来解析和运行SQL脚本.  同样,<<testcontext-support-classes-junit4, `AbstractTransactionalJUnit4SpringContextTests`>> 和 <<testcontext-support-classes-testng, `AbstractTransactionalTestNGSpringContextTests`>> 中的  `executeSqlScript(..)` 方法在内部使用 `ResourceDatabasePopulator` 运行 SQL 脚本.
+有关各种详细信息,请参见 Javadoc 中的各种  `executeSqlScript(..)` 方法.
+
+[[testcontext-executing-sql-declaratively]]
+=== 使用 @Sql 声明式执行 SQL 脚本
+
+除了上述用于以编程方式运行 SQL 脚本的机制之外,您还可以在 Spring TestContext Framework 中声明性地配置 SQL 脚本.  具体来说,您可以在测试类或测试方法上声明 `@Sql` 注解,
+以配置单独的 SQL 语句或应在集成测试方法之前或之后针对给定数据库运行的SQL脚本的资源路径.  `@Sql` 的支持由 `SqlScriptsTestExecutionListener` 提供,默认情况下启用.
+
+NOTE: 方法级别的 `@Sql` 声明默认情况下覆盖类级别的声明.  从 Spring Framework 5.2 开始,可以通过 `@SqlMergeMode` 为每个测试类或每个测试方法配置此行为.  有关更多详细信息,请参见<<testcontext-executing-sql-declaratively-script-merging,使用 `@SqlMergeMode` 合并和覆盖配置>> .
+
+[[testcontext-executing-sql-declaratively-script-resources]]
+==== 路径资源语义
+
+每个路径都被解释为 Spring 资源.  普通路径 (例如 `"schema.sql"` ) 被视为相对于定义测试类的程序包的类路径资源.  以斜杠开头的路径被视为绝对类路径资源 (例如, `"/org/example/schema.sql"`) .  通过使用指定的资源协议加载引用URL的路径 (例如,前缀为 `classpath:`, `file:`, `http:` 的路径) .
+
+以下示例显示如何在基于 JUnit Jupiter 的集成测试类中的类级别和方法级别使用 `@Sql` :
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig
+	@Sql("/test-schema.sql")
+	class DatabaseTests {
+
+		@Test
+		void emptySchemaTest() {
+			// run code that uses the test schema without any test data
+		}
+
+		@Test
+		@Sql({"/test-schema.sql", "/test-user-data.sql"})
+		void userTest() {
+			// run code that uses the test schema and test data
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig
+	@Sql("/test-schema.sql")
+	class DatabaseTests {
+
+		@Test
+		fun emptySchemaTest() {
+			// run code that uses the test schema without any test data
+		}
+
+		@Test
+		@Sql("/test-schema.sql", "/test-user-data.sql")
+		fun userTest() {
+			// run code that uses the test schema and test data
+		}
+	}
+----
+
+[[testcontext-executing-sql-declaratively-script-detection]]
+==== 默认脚本检测
+
+如果未指定任何 SQL 脚本或语句,则根据声明 `@Sql` 的位置来尝试检测默认脚本.  如果无法检测到默认值,则抛出 `IllegalStateException`.
+
+* 类级别的声明: 如果带注解的测试类为 `com.example.MyTest`,则相应的默认脚本为 `classpath:com/example/MyTest.sql`.
+* 方法级别的声明: 如果带注解的测试方法名为 `testMethod()` 且在 `com.example.MyTest` 类中定义,则相应的默认脚本为 `classpath:com/example/MyTest.testMethod.sql`.
+
+[[testcontext-executing-sql-declaratively-multiple-annotations]]
+==== 声明多个 `@Sql` 集
+
+如果需要为给定的测试类或测试方法配置多组 SQL 脚本,但使用不同的语法配置,不同的错误处理规则或每组不同的执行阶段,则可以声明 `@Sql` 的多个实例.  使用 Java 8,您可以将 `@Sql` 用作可重复注解.  否则,您可以使用 `@SqlGroup` 注解作为显式容器来声明 `@Sql` 的多个实例.
+
+下面的示例演示如何将 `@Sql` 用作 Java 8 的可重复注解:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Test
+	@Sql(scripts = "/test-schema.sql", config = @SqlConfig(commentPrefix = "`"))
+	@Sql("/test-user-data.sql")
+	void userTest() {
+		// run code that uses the test schema and test data
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Repeatable annotations with non-SOURCE retention are not yet supported by Kotlin
+----
+
+在前面的示例中呈现的方案中,`test-schema.sql` 脚本对单行注解使用了不同的语法.
+
+除了 `@Sql` 声明在 `@SqlGroup` 中分组在一起之外,以下示例与上述示例相同.  在 Java 8 及更高版本中,`@SqlGroup` 的使用是可选的,但您可能需要使用 `@SqlGroup` 才能与其他 JVM 语言 (例如 Kotlin) 兼容.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Test
+	@SqlGroup({
+		@Sql(scripts = "/test-schema.sql", config = @SqlConfig(commentPrefix = "`")),
+		@Sql("/test-user-data.sql")
+	)}
+	void userTest() {
+		// run code that uses the test schema and test data
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Test
+	@SqlGroup(
+		Sql("/test-schema.sql", config = SqlConfig(commentPrefix = "`")),
+		Sql("/test-user-data.sql"))
+	fun userTest() {
+		// Run code that uses the test schema and test data
+	}
+----
+
+[[testcontext-executing-sql-declaratively-script-execution-phases]]
+==== 脚本执行阶段
+
+默认情况下,SQL 脚本在相应的测试方法之前执行.  但是,如果需要在测试方法之后运行一组特定的脚本 (例如,清理数据库状态) ,则可以使用 `@Sql` 中的 `executionPhase` 属性,如以下示例所示:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@Test
+	@Sql(
+		scripts = "create-test-data.sql",
+		config = @SqlConfig(transactionMode = ISOLATED)
+	)
+	@Sql(
+		scripts = "delete-test-data.sql",
+		config = @SqlConfig(transactionMode = ISOLATED),
+		executionPhase = AFTER_TEST_METHOD
+	)
+	void userTest() {
+		// run code that needs the test data to be committed
+		// to the database outside of the test's transaction
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@Test
+	@SqlGroup(
+		Sql("create-test-data.sql",
+			config = SqlConfig(transactionMode = ISOLATED)),
+		Sql("delete-test-data.sql",
+			config = SqlConfig(transactionMode = ISOLATED),
+			executionPhase = AFTER_TEST_METHOD))
+	fun userTest() {
+		// run code that needs the test data to be committed
+		// to the database outside of the test's transaction
+	}
+----
+
+请注意,分别从 `Sql.TransactionMode` 和 `Sql.ExecutionPhase` 静态导入了 `ISOLATED` 和 `AFTER_TEST_METHOD`.
+
+[[testcontext-executing-sql-declaratively-script-configuration]]
+==== 使用 `@SqlConfig` 进行脚本配置
+
+您可以使用 `@SqlConfig` 注解配置脚本解析和错误处理.  当在集成测试类上声明为类级别的注解时,`@SqlConfig` 充当测试类层次结构中所有SQL脚本的全局配置.  通过使用 `@Sql` 注解的 `config` 属性直接声明时,`@SqlConfig` 用作封闭的 `@Sql` 注解中声明的 SQL 脚本的本地配置.
+`@SqlConfig` 中的每个属性都有一个隐式默认值,该默认值记录在相应属性的javadoc中.  不幸的是,由于 Java 语言规范中为注解属性定义的规则,不可能为注解属性分配 `null` 值.
+因此,为了支持对继承的全局配置的覆盖,`@SqlConfig` 属性的显式默认值为 `""`  (对于字符串) , `{}`  (对于数组) 或 `DEFAULT` (对于枚举) .  这种方法允许 `@SqlConfig` 的本地声明通过提供除 `""`, `{}` 或 `DEFAULT` 之外的值来有选择地覆盖 `@SqlConfig` 的全局声明中的各个属性.
+只要本地 `@SqlConfig` 属性不提供除 `""`, `{}` 或 `DEFAULT` 之外的显式值,就会继承全局 `@SqlConfig` 属性.  因此,显式本地配置将覆盖全局配置.
+
+`@Sql` 和 `@SqlConfig` 提供的配置选项与 `ScriptUtils` 和 ResourceDatabasePopulator 支持的配置选项等效,但是 `<jdbc: initialize-database />` XML 命名空间元素提供的配置选项的超集.  有关详细信息,请参见  {api-spring-framework}/test/context/jdbc/Sql.html[`@Sql`] 和 {api-spring-framework}/test/context/jdbc/SqlConfig.html[`@SqlConfig`] 中各个属性的javadoc.
+
+[[testcontext-executing-sql-declaratively-tx]]
+*`@Sql` 的事务管理*
+
+默认情况下,`SqlScriptsTestExecutionListener` 会为使用 `@Sql` 配置的脚本推断所需的事务语义.  具体来说,SQL 脚本在没有事务的情况下运行,
+而是在现有的 Spring 管理的事务中运行 (例如,由 `TransactionalTestExecutionListener` 管理的事务,用于使用 `@Transactional` 注解的测试) ,或者在隔离的事务中运行,
+具体取决于 `transactionMode` 的配置值 `@SqlConfig` 中的属性和测试的 `ApplicationContext` 中是否存在 `PlatformTransactionManager`.  但是,作为最低要求,测试的 `ApplicationContext` 中必须存在一个 `javax.sql.DataSource`.
+
+如果 `SqlScriptsTestExecutionListener` 用于检测 `DataSource` 和 `PlatformTransactionManager` 并推断事务语义的算法不符合您的需求,则可以通过设置 `@SqlConfig` 的 `dataSource` 和 `transactionManager` 属性来指定显式名称.
+此外,您可以通过设置 `@SqlConfig` 的 `transactionMode` 属性来控制事务传播行为 (例如,是否应在隔离的事务中运行脚本) .  尽管对使用 `@Sql` 进行事务管理的所有受支持选项的详尽讨论超出了本参考手册的范围,
+但是 {api-spring-framework}/test/context/jdbc/SqlConfig.html[`@SqlConfig`]  和 {api-spring-framework}/test/context/jdbc/SqlScriptsTestExecutionListener.html[`SqlScriptsTestExecutionListener`]的 javadoc 提供了详细信息,并且以下示例显示了使用 `@Sql` JUnit Jupiter 和事务性测试的典型测试方案:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestDatabaseConfig.class)
+	@Transactional
+	class TransactionalSqlScriptsTests {
+
+		final JdbcTemplate jdbcTemplate;
+
+		@Autowired
+		TransactionalSqlScriptsTests(DataSource dataSource) {
+			this.jdbcTemplate = new JdbcTemplate(dataSource);
+		}
+
+		@Test
+		@Sql("/test-data.sql")
+		void usersTest() {
+			// verify state in test database:
+			assertNumUsers(2);
+			// run code that uses the test data...
+		}
+
+		int countRowsInTable(String tableName) {
+			return JdbcTestUtils.countRowsInTable(this.jdbcTemplate, tableName);
+		}
+
+		void assertNumUsers(int expected) {
+			assertEquals(expected, countRowsInTable("user"),
+				"Number of rows in the [user] table.");
+		}
+	}
+----
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestDatabaseConfig::class)
+	@Transactional
+	class TransactionalSqlScriptsTests @Autowired constructor(dataSource: DataSource) {
+
+		val jdbcTemplate: JdbcTemplate = JdbcTemplate(dataSource)
+
+		@Test
+		@Sql("/test-data.sql")
+		fun usersTest() {
+			// verify state in test database:
+			assertNumUsers(2)
+			// run code that uses the test data...
+		}
+
+		fun countRowsInTable(tableName: String): Int {
+			return JdbcTestUtils.countRowsInTable(jdbcTemplate, tableName)
+		}
+
+		fun assertNumUsers(expected: Int) {
+			assertEquals(expected, countRowsInTable("user"),
+					"Number of rows in the [user] table.")
+		}
+	}
+----
+
+请注意,在运行 `usersTest()` 方法后,无需清理数据库,因为对数据库所做的任何更改 (在 test 方法内或在 `/test-data.sql` 脚本内) 都将自动回滚.  `TransactionalTestExecutionListener` (有关详细信息,请参见<<testcontext-tx,事务管理>> ) .
+
+[[testcontext-executing-sql-declaratively-script-merging]]
+==== 使用 `@SqlMergeMode` 合并和覆盖配置
+
+从 Spring Framework 5.2 开始,可以将方法级 `@Sql` 声明与类级声明合并.  例如,这使您可以为每个测试类提供一次数据库模式的配置或一些常见的测试数据,然后为每种测试方法提供特定于用例的其他测试数据.
+若要启用 `@Sql` 合并,请使用  `@SqlMergeMode(MERGE)` 注解测试类或测试方法.  若要禁用特定测试方法 (或特定测试子类) 的合并,可以通过  `@SqlMergeMode(OVERRIDE)` 切换回默认模式.  有关示例和更多详细信息,请查阅 `@SqlMergeMode` 注解文档部分.
+
+
+[[testcontext-parallel-test-execution]]
+== 并行测试执行
+
+Spring Framework 5.0 引入了对使用 Spring TestContext Framework 时在单个 JVM 中并行执行测试的基本支持.  通常,这意味着大多数测试类或测试方法可以并行执行,而无需更改测试代码或配置.
+
+TIP: 有关如何设置并行测试执行的详细信息,请参见您的测试框架,构建工具或 IDE 的文档.
+
+请记住,将并发引入测试套件可能会导致意外的副作用,奇怪的运行时行为以及间歇性或看似随机失败的测试.  因此,对于何时不并行执行测试,Spring 团队提供了以下一般准则.
+
+如果测试符合以下条件,则不要并行执行测试:
+
+* 使用 Spring Framework 的 `@DirtiesContext` 支持.
+* 使用 Spring Boot 的 `@MockBean` 或 `@SpyBean` 支持.
+* 使用 JUnit 4 的 `@FixMethodOrder` 支持或旨在确保测试方法按特定顺序运行的任何测试框架功能.  但是请注意,如果整个测试类是并行执行的,则此方法不适用.
+* 更改共享服务或系统 (如数据库,消息代理,文件系统等) 的状态.  这适用于嵌入式和外部系统.
+
+[TIP]
+====
+如果并行测试执行失败,并有异常指出当前测试的 `ApplicationContext` 不再处于 active 状态,则通常意味着该 `ApplicationContext` 已从 `ContextCache` 中的另一个线程中删除.
+
+这可能是由于使用 `@DirtiesContext` 或由于从 `ContextCache` 自动驱逐.  如果 `@DirtiesContext` 是罪魁祸首,则需要找到一种避免使用 `@DirtiesContext` 的方法,或者从并行执行中排除此类测试.
+如果已超过 `ContextCache` 的最大大小,则可以增加缓存的最大大小.  有关详细信息,请参见<<testcontext-ctx-management-caching, 上下文缓存>>的讨论.
+====
+
+WARNING: Spring TestContext Framework 中的并行测试执行只有在基础的 `TestContext` 实现提供了副本构造函数的情况下才可能执行,如 {api-spring-framework}/test/context/TestContext.html[`TestContext`] 的 javadoc 中所述.  Spring中使用的 `DefaultTestContext` 提供了这样的构造函数.  但是,如果使用提供自定义 `TestContext` 实现的第三方库,则需要验证它是否适合并行测试执行.
+
+[[testcontext-support-classes]]
+== TestContext Framework 支持类
+
+本节描述了支持 Spring TestContext Framework 的各种类.
+
+[[testcontext-junit4-runner]]
+=== Spring JUnit 4 Runner
+
+Spring TestContext Framework 通过自定义运行程序 (在 JUnit 4.12 或更高版本上受支持) 提供了与 JUnit 4 的完全集成.  通过使用 `@RunWith(SpringJUnit4ClassRunner.class)` 或更短的  `@RunWith(SpringRunner.class)` 注解测试类,
+开发人员可以实现基于 JUnit 4 的标准单元测试和集成测试,同时获得 TestContext 框架的优势,例如对 加载应用程序上下文,测试实例的依赖注入,事务性测试方法执行等.
+如果您想将 Spring TestContext Framework 与替代运行程序 (例如 JUnit 4 的 `Parameterized` runner) 或第三方运行程序 (例如 `MockitoJUnitRunner`) 一起使用,则可以选择使用 Spring 对<<testcontext-junit4-rules, JUnit 规则的支持>> .
+
+以下代码清单显示了配置测试类以与自定义 Spring `Runner` 一起运行的最低要求:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@RunWith(SpringRunner.class)
+	@TestExecutionListeners({})
+	public class SimpleTest {
+
+		@Test
+		public void testMethod() {
+			// test logic...
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@RunWith(SpringRunner::class)
+	@TestExecutionListeners
+	class SimpleTest {
+
+		@Test
+		fun testMethod() {
+			// test logic...
+		}
+	}
+----
+
+在前面的示例中,为 `@TestExecutionListeners` 配置了一个空列表以禁用默认监听器,否则将需要通过 `@ContextConfiguration` 配置 `ApplicationContext`.
+
+[[testcontext-junit4-rules]]
+=== Spring JUnit 4 Rules
+
+`org.springframework.test.context.junit4.rules` 包提供以下 JUnit 4 规则 (在 JUnit 4.12 或更高版本上受支持) :
+
+* `SpringClassRule`
+* `SpringMethodRule`
+
+`SpringClassRule` 是一个 JUnit `TestRule`,它支持Spring TestContext Framework的类级功能,而 `SpringMethodRule` 是一个 JUnit `MethodRule`,它支持 Spring TestContext Framework 的实例级和方法级功能.
+
+与 `SpringRunner` 相比,Spring 的基于规则的 JUnit 支持具有独立于任何 `org.junit.runner.Runner` 实现的优点,因此可以与现有的替代运行器 (例如 JUnit 4 的 `Parameterized`) 或第三方结合使用 跑步者 (例如 `MockitoJUnitRunner`) .
+
+为了支持 TestContext 框架的全部功能,必须将 `SpringClassRule` 与 `SpringMethodRule` 结合使用.  以下示例显示了在集成测试中声明这些规则的正确方法:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Optionally specify a non-Spring Runner via @RunWith(...)
+	@ContextConfiguration
+	public class IntegrationTest {
+
+		@ClassRule
+		public static final SpringClassRule springClassRule = new SpringClassRule();
+
+		@Rule
+		public final SpringMethodRule springMethodRule = new SpringMethodRule();
+
+		@Test
+		public void testMethod() {
+			// test logic...
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Optionally specify a non-Spring Runner via @RunWith(...)
+	@ContextConfiguration
+	class IntegrationTest {
+
+		@Rule
+		val springMethodRule = SpringMethodRule()
+
+		@Test
+		fun testMethod() {
+			// test logic...
+		}
+
+		companion object {
+			@ClassRule
+			val springClassRule = SpringClassRule()
+		}
+	}
+----
+
+[[testcontext-support-classes-junit4]]
+=== JUnit 4 支持类
+
+`org.springframework.test.context.junit4` 包为基于 JUnit 4 的测试用例提供了以下支持类 (在 JUnit 4.12 或更高版本上受支持) :
+
+* `AbstractJUnit4SpringContextTests`
+* `AbstractTransactionalJUnit4SpringContextTests`
+
+`AbstractJUnit4SpringContextTests` 是抽象的基础测试类,该类将 Spring TestContext Framework 与 JUnit 4 环境中的显式 `ApplicationContext` 测试支持集成在一起.  扩展 `AbstractJUnit4SpringContextTests` 时,可以访问 `protected` 的 `applicationContext` 实例变量,
+该变量可用于执行显式 bean 查找或测试整个上下文的状态.
+
+`AbstractTransactionalJUnit4SpringContextTests` 是 `AbstractJUnit4SpringContextTests` 的抽象事务扩展,为 JDBC 访问添加了一些便利功能.  此类期望在 `ApplicationContext` 中定义一个 `javax.sql.DataSource` bean和 `PlatformTransactionManager` bean.
+扩展 `AbstractTransactionalJUnit4SpringContextTests` 时,可以访问 `protected` `jdbcTemplate` 实例变量,该实例变量可用于运行 SQL 语句来查询数据库.  您可以在运行与数据库相关的应用程序代码之前和之后使用此类查询来确认数据库状态,
+并且 Spring 确保此类查询在与应用程序代码相同的事务范围内运行.  与 ORM 工具一起使用时,<<testcontext-tx-false-positives,请确保避免误报>>.  如<<integration-testing-support-jdbc,JDBC 测试支持>>中所述,`AbstractTransactionalJUnit4SpringContextTests` 还提供了便捷的方法,
+这些方法通过使用上述的 `jdbcTemplate` 委托给  `JdbcTestUtils` 中的方法.  此外,`AbstractTransactionalJUnit4SpringContextTests` 提供了 `executeSqlScript(..)` 方法,用于针对已配置的 `DataSource` 运行SQL脚本.
+
+TIP: 这些类为扩展提供了便利.  如果您不希望将测试类绑定到特定于 Spring 的类层次结构,则可以使用 `@RunWith(SpringRunner.class)` 或<<testcontext-junit4-rules, Spring 的 JUnit 规则>>来配置自己的自定义测试类.
+
+[[testcontext-junit-jupiter-extension]]
+=== JUnit Jupiter 的 SpringExtension
+
+Spring TestContext Framework 提供了与 JUnit 5 中引入的 JUnit Jupiter 测试框架的完全集成. 通过使用 `@ExtendWith(SpringExtension.class)` 注解测试类,您可以实现基于 JUnit Jupiter 的标准单元测试和集成测试,并同时从中受益.  TestContext 框架,例如对加载应用程序上下文的支持,对测试实例的依赖注入,事务性测试方法执行等.
+
+此外,得益于 JUnit Jupiter 中丰富的扩展 API,Spring 在 Spring 支持 JUnit 4 和 TestNG 的功能集之外提供了以下功能:
+
+* 测试构造函数,测试方法和测试生命周期回调方法的依赖注入.  有关更多详细信息,请参见 <<testcontext-junit-jupiter-di,使用 SpringExtension 进行依赖注入>>.
+* 对基于 SpEL 表达式,环境变量,系统属性等的 link:https://junit.org/junit5/docs/current/user-guide/#extensions-conditions[条件测试执行]的强大支持.  有关更多详细信息和示例,
+请参见  <<integration-testing-annotations-junit-jupiter,Spring JUnit Jupiter 测试注解>> 中有关 `@EnabledIf` 和 `@DisabledIf` 的文档.
+* 定制组合注解,结合了 Spring 和 JUnit Jupiter 的注解.  有关更多详细信息,请参见  <<integration-testing-annotations-meta,元注解支持测试>>  中的 `@TransactionalDevTestConfig` 和 `@TransactionalIntegrationTest` 示例.
+
+以下代码清单显示如何配置测试类以将 `SpringExtension` 与 `@ContextConfiguration` 结合使用:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Instructs JUnit Jupiter to extend the test with Spring support.
+	@ExtendWith(SpringExtension.class)
+	// Instructs Spring to load an ApplicationContext from TestConfig.class
+	@ContextConfiguration(classes = TestConfig.class)
+	class SimpleTests {
+
+		@Test
+		void testMethod() {
+			// test logic...
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Instructs JUnit Jupiter to extend the test with Spring support.
+	@ExtendWith(SpringExtension::class)
+	// Instructs Spring to load an ApplicationContext from TestConfig::class
+	@ContextConfiguration(classes = [TestConfig::class])
+	class SimpleTests {
+
+		@Test
+		fun testMethod() {
+			// test logic...
+		}
+	}
+----
+
+由于您还可以在 JUnit 5 中将注解用作元注解,因此Spring提供了 `@SpringJUnitConfig` 和 `@SpringJUnitWebConfig` 组成的注解,以简化测试 `ApplicationContext` 和 JUnit Jupiter 的配置.
+
+以下示例使用 `@SpringJUnitConfig` 减少前一示例中使用的配置量:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Instructs Spring to register the SpringExtension with JUnit
+	// Jupiter and load an ApplicationContext from TestConfig.class
+	@SpringJUnitConfig(TestConfig.class)
+	class SimpleTests {
+
+		@Test
+		void testMethod() {
+			// test logic...
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Instructs Spring to register the SpringExtension with JUnit
+	// Jupiter and load an ApplicationContext from TestConfig.class
+	@SpringJUnitConfig(TestConfig::class)
+	class SimpleTests {
+
+		@Test
+		fun testMethod() {
+			// test logic...
+		}
+	}
+----
+
+同样,以下示例使用 `@SpringJUnitWebConfig` 创建用于 JUnit Jupiter 的 `WebApplicationContext`:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	// Instructs Spring to register the SpringExtension with JUnit
+	// Jupiter and load a WebApplicationContext from TestWebConfig.class
+	@SpringJUnitWebConfig(TestWebConfig.class)
+	class SimpleWebTests {
+
+		@Test
+		void testMethod() {
+			// test logic...
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	// Instructs Spring to register the SpringExtension with JUnit
+	// Jupiter and load a WebApplicationContext from TestWebConfig::class
+	@SpringJUnitWebConfig(TestWebConfig::class)
+	class SimpleWebTests {
+
+		@Test
+		fun testMethod() {
+			// test logic...
+		}
+	}
+----
+
+有关更多详细信息,请参见 <<integration-testing-annotations-junit-jupiter,Spring JUnit Jupiter 测试注解>> 中有关 `@SpringJUnitConfig` 和 `@SpringJUnitWebConfig` 的文档.
+
+[[testcontext-junit-jupiter-di]]
+==== 使用 `SpringExtension` 进行依赖注入
+
+`SpringExtension` 从 JUnit Jupiter 实现了 link:https://junit.org/junit5/docs/current/user-guide/#extensions-parameter-resolution[`ParameterResolver`] 扩展 API,它使 Spring 可以为测试构造函数,测试方法和测试生命周期回调方法提供依赖注入.
+
+具体来说,`SpringExtension` 可以将来自测试的 `ApplicationContext` 的依赖注入到以 `@BeforeAll`, `@AfterAll`, `@BeforeEach`, `@AfterEach`, `@Test`, `@RepeatedTest`,`@ParameterizedTest` 等标记的测试构造函数和方法中.
+
+[[testcontext-junit-jupiter-di-constructor]]
+===== 构造函数注入
+
+如果 JUnit Jupiter 测试类的构造函数中的特定参数为 `ApplicationContext` 类型 (或其子类型) ,或者使用 `@Autowired`,`@Qualifier` 或 `@Value` 进行注解或元注解,则 Spring 会为此特定值注入值 参数与测试的 `ApplicationContext` 中的相应bean或值.
+
+如果认为构造函数是可自动构造的,则还可以将 Spring 配置为自动连接测试类构造函数的所有参数.  如果满足以下条件之一 (按优先顺序排列) ,则认为构造函数是可自动构造的.
+
+* 构造函数带有 `@Autowired` 注解.
+* `@TestConstructor` 在 `autowireMode` 属性设置为 `ALL` 的测试类中存在或元存在.
+* 默认的测试构造函数自动装配模式已更改为 `ALL`.
+
+有关<<integration-testing-annotations-testconstructor,使用 `@TestConstructor`>>以及如何更改全局测试构造函数自动装配模式的详细信息,请参见 `@TestConstructor`.
+
+WARNING: 如果测试类的构造函数被认为是可自动构造的,则 Spring 负责解决构造函数中所有参数的参数.  因此,在 JUnit Jupiter 中注册的其他 `ParameterResolver` 不能解析此类构造函数的参数.
+
+[WARNING]
+====
+如果在测试方法之前或之后使用 `@DirtiesContext` 关闭测试的 `ApplicationContext`,则不得与 JUnit Jupiter 的 `@TestInstance(PER_CLASS)` 支持一起使用针对测试类的构造函数注入.
+
+原因是 `@TestInstance(PER_CLASS)` 指示 JUnit Jupiter 在测试方法调用之间缓存测试实例.  因此,测试实例将保留对最初从随后已关闭的 `ApplicationContext` 注入的 bean 的引用.  由于在这种情况下测试类的构造函数将仅被调用一次,因此依赖注入不会再次发生,并且后续测试将与来自封闭的 `ApplicationContext` 的bean进行交互,这可能会导致错误.
+
+要将 `@DirtiesContext` 与 `@TestInstance(PER_CLASS)` 一起用于 "测试方法之前" 或 "测试方法之后" 模式,必须配置通过字段或 setter 注入提供的 Spring 依赖,以便可以在测试之间重新注入它们 方法调用.
+====
+
+在下面的示例中,Spring 将从 `TestConfig.class` 加载的 `ApplicationContext` 中的 `OrderService` bean 注入 `OrderServiceIntegrationTests` 构造函数中.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	class OrderServiceIntegrationTests {
+
+		private final OrderService orderService;
+
+		@Autowired
+		OrderServiceIntegrationTests(OrderService orderService) {
+			this.orderService = orderService;
+		}
+
+		// tests that use the injected OrderService
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	class OrderServiceIntegrationTests @Autowired constructor(private val orderService: OrderService){
+		// tests that use the injected OrderService
+	}
+
+----
+
+请注意,此功能使测试依赖是 `final` 的,因此是不可变的.
+
+如果 `spring.test.constructor.autowire.mode` 属性是 `all` 属性 (请参阅<<integration-testing-annotations-testconstructor,@TestConstructor>> ) ,则可以在上一个示例中省略构造函数上 `@Autowired` 的声明,从而得到以下结果.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	class OrderServiceIntegrationTests {
+
+		private final OrderService orderService;
+
+		OrderServiceIntegrationTests(OrderService orderService) {
+			this.orderService = orderService;
+		}
+
+		// tests that use the injected OrderService
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	class OrderServiceIntegrationTests(val orderService:OrderService) {
+		// tests that use the injected OrderService
+	}
+----
+
+[[testcontext-junit-jupiter-di-method]]
+===== 方法注入
+
+如果 JUnit Jupiter 测试方法或测试生命周期回调方法中的参数属于 `ApplicationContext` 类型 (或其子类型) ,或者使用 `@Autowired`,`@Qualifier` 或 `@Value` 进行注解或元注解,则 Spring 为此注入值.  特定参数以及来自测试的 `ApplicationContext` 的相应bean.
+
+在下面的示例中,Spring 将 `TestService.class` 加载的 `ApplicationContext` 中的 `OrderService` 注入到 `deleteOrder()` 测试方法中:
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	class OrderServiceIntegrationTests {
+
+		@Test
+		void deleteOrder(@Autowired OrderService orderService) {
+			// use orderService from the test's ApplicationContext
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	class OrderServiceIntegrationTests {
+
+		@Test
+		fun deleteOrder(@Autowired orderService: OrderService) {
+			// use orderService from the test's ApplicationContext
+		}
+	}
+----
+
+由于 JUnit Jupiter 中 `ParameterResolver` 支持的强大功能,因此您不仅可以从 Spring 中而且可以从 JUnit Jupiter 本身或其他第三方扩展中将多个依赖注入到单个方法中.
+
+下面的示例演示如何让 Spring 和 JUnit Jupiter 同时将依赖注入到 `placeOrderRepeatedly()` 测试方法中.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	class OrderServiceIntegrationTests {
+
+		@RepeatedTest(10)
+		void placeOrderRepeatedly(RepetitionInfo repetitionInfo,
+				@Autowired OrderService orderService) {
+
+			// use orderService from the test's ApplicationContext
+			// and repetitionInfo from JUnit Jupiter
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	class OrderServiceIntegrationTests {
+
+		@RepeatedTest(10)
+		fun placeOrderRepeatedly(repetitionInfo:RepetitionInfo, @Autowired orderService:OrderService) {
+
+			// use orderService from the test's ApplicationContext
+			// and repetitionInfo from JUnit Jupiter
+		}
+	}
+----
+
+请注意,通过使用 JUnit Jupiter 中的 `@RepeatedTest` ,测试方法可以访问 `RepetitionInfo`.
+
+[[testcontext-junit-jupiter-nested-test-configuration]]
+==== `@Nested` 测试类配置
+
+从 Spring Framework 5.0 开始， _Spring TestContext Framework_ 支持在 JUnit Jupiter 中的 `@Nested` 测试类上使用与测试相关的注解； 但是， 直到 Spring Framework 5.3 类级测试配置注解才从封闭类继承而来， 就像它们是从超类继承的一样.
+
+Spring Framework 5.3 引入了对从封闭类继承测试类配置的一流支持， 并且默认情况下将继承此类配置.  要将默认的 `INHERIT` 模式更改为 `OVERRIDE` 模式， 可以使用 `@NestedTestConfiguration(EnclosingConfiguration.OVERRIDE)` 注解单个 `@Nested` 测试类.  一个显式的 `@NestedTestConfiguration` 声明将应用于带注解的测试类及其任何子类和嵌套类.  因此， 您可以使用 `@NestedTestConfiguration` 注解顶级测试类， 并将其递归应用于其所有嵌套测试类.
+
+为了允许开发团队将默认值更改为 `OVERRIDE` (例如， 为了与 Spring Framework 5.0 到 5.2 兼容) ， 可以通过 JVM 系统属性或类路径根目录中的 `spring.properties` 文件全局更改默认模式.  有关详细信息， 请参见 <<integration-testing-annotations-nestedtestconfiguration, "Changing the default enclosing configuration inheritance mode">>.
+
+尽管下面的 "Hello World" 示例非常简单， 但是它显示了如何在由其 `@Nested` 测试类继承的顶级类上声明通用配置.  在此特定示例中， 仅继承 `TestConfig` 配置类.  每个嵌套的测试类提供自己的活动配置文件集， 从而为每个嵌套的测试类提供不同的 `ApplicationContext`  (有关详细信息， 请参见 <<testcontext-ctx-management-caching>>) . 请查阅 <<integration-testing-annotations-nestedtestconfiguration, 受支持的注解列表>> ， 以了解可以在 `@Nested` 测试类中继承哪些注解.
+
+[source,java,indent=0,subs="verbatim,quotes",role="primary"]
+.Java
+----
+	@SpringJUnitConfig(TestConfig.class)
+	class GreetingServiceTests {
+
+		@Nested
+		@ActiveProfiles("lang_en")
+		class EnglishGreetings {
+
+			@Test
+			void hello(@Autowired GreetingService service) {
+				assertThat(service.greetWorld()).isEqualTo("Hello World");
+			}
+		}
+
+		@Nested
+		@ActiveProfiles("lang_de")
+		class GermanGreetings {
+
+			@Test
+			void hello(@Autowired GreetingService service) {
+				assertThat(service.greetWorld()).isEqualTo("Hallo Welt");
+			}
+		}
+	}
+----
+
+[source,kotlin,indent=0,subs="verbatim,quotes",role="secondary"]
+.Kotlin
+----
+	@SpringJUnitConfig(TestConfig::class)
+	class GreetingServiceTests {
+
+		@Nested
+		@ActiveProfiles("lang_en")
+		inner class EnglishGreetings {
+
+			@Test
+			fun hello(@Autowired service:GreetingService) {
+				assertThat(service.greetWorld()).isEqualTo("Hello World")
+			}
+		}
+
+		@Nested
+		@ActiveProfiles("lang_de")
+		inner class GermanGreetings {
+
+			@Test
+			fun hello(@Autowired service:GreetingService) {
+				assertThat(service.greetWorld()).isEqualTo("Hallo Welt")
+			}
+		}
+	}
+----
+
+[[testcontext-support-classes-testng]]
+=== TestNG 支持类
+
+`org.springframework.test.context.testng` 包为基于 TestNG 的测试用例提供以下支持类:
+
+* `AbstractTestNGSpringContextTests`
+* `AbstractTransactionalTestNGSpringContextTests`
+
+`AbstractTestNGSpringContextTests` 是一个抽象的基础测试类,该类将 Spring TestContext Framework 与 TestNG 环境中的显式 `ApplicationContext` 测试支持集成在一起.  扩展 `AbstractTestNGSpringContextTests` 时,
+可以访问 `protected`  `applicationContext` 实例变量,该变量可用于执行显式的bean查找或测试整个上下文的状态.
+
+`AbstractTransactionalTestNGSpringContextTests` 是 `AbstractTestNGSpringContextTests` 的抽象事务扩展,它为 JDBC 访问添加了一些便利功能.  此类期望在 `ApplicationContext` 中定义一个 `javax.sql.DataSource` bean和 `PlatformTransactionManager` bean.
+扩展 `AbstractTransactionalTestNGSpringContextTests` 时,可以访问 `protected` `jdbcTemplate` 实例变量,该实例变量可用于执行 SQL 语句来查询数据库.  您可以在运行与数据库相关的应用程序代码之前和之后使用此类查询来确认数据库状态,
+并且 Spring 确保此类查询在与应用程序代码相同的事务范围内运行.  与 ORM 工具一起使用时,<<testcontext-tx-false-positives, 请确保避免误报>>.  如<<integration-testing-support-jdbc,JDBC 测试支持>>中所述,`AbstractTransactionalTestNGSpringContextTests` 还提供了便捷的方法,
+这些方法通过使用上述的 `jdbcTemplate` 委托给 `JdbcTestUtils` 中的方法.  此外,`AbstractTransactionalTestNGSpringContextTests` 提供了 `executeSqlScript(..)`  方法,用于针对已配置的 `DataSource` 运行SQL脚本.
+
+TIP: 这些类为扩展提供了便利.  如果您不希望将测试类绑定到特定于 Spring 的类层次结构,则可以使用 `@ContextConfiguration`,`@TestExecutionListeners` 等来配置自己的自定义测试类,并通过使用 `TestContextManager` 手动检测测试类.
+有关如何检测测试类的示例,请参见 `AbstractTestNGSpringContextTests` 的源代码.
+
+[[testcontext-aot]]
+== AOT 测试支持
+
+本章介绍了 Spring 对使用 Spring TestContext Framework 的集成测试的 Ahead of Time (AOT) 支持。
+
+测试支持扩展了 Spring 的 <<core.adoc#core.aot,core AOT support>> 具有以下特性。
+
+* 构建时检测当前项目中使用 TestContext 框架加载 `ApplicationContext` 的所有集成测试。
+  - 为基于 JUnit Jupiter 和 JUnit 4 的测试类提供显式支持，并为 TestNG 和其他使用 Spring 核心测试注释的测试框架提供隐式支持——只要测试是使用注册的 JUnit 平台 `TestEngine` 运行的当前项目。
+* 构建时 AOT 处理：当前项目中的每个唯一测试 `ApplicationContext` 将被 <<core.adoc#core.aot.refresh,refreshed for AOT processing>>。
+* 运行时 AOT 支持：在 AOT 运行时模式下执行时，Spring 集成测试将使用 AOT 优化的 `ApplicationContext`，它透明地参与 <<testcontext-ctx-management-caching, context cache>>。
+
+[WARNING]
+====
+AOT 模式目前不支持 `@ContextHierarchy` 注解。
+====
+
+要在 GraalVM native image 中提供特定于测试的运行时提示，您有以下选项。
+
+* 自定义实现 {api-spring-framework}/test/context/aot/TestRuntimeHintsRegistrar.html[`TestRuntimeHintsRegistrar`] 并通过 `META-INF/spring/aot.factories` 进行全局注册.
+* 自定义实现 {api-spring-framework}/aot/hint/RuntimeHintsRegistrar.html[`RuntimeHintsRegistrar`] 并通过 `META-INF/spring/aot.factories` 或本地测试类 `ImportRuntimeHints` 进行全局注册
+* 使用测试类注解 {api-spring-framework}/aot/hint/annotation/Reflective.html[`@Reflective`] 或 {api-spring-framework}/aot/hint/annotation/RegisterReflectionForBinding.html[`@RegisterReflectionForBinding`].
+* 请查看 <<core.adoc#core.aot.hints,Runtime Hints>> 了解 Spring runtime hints 和注解支持.
+
+[TIP]
+====
+`TestRuntimeHintsRegistrar` API 作为核心 `RuntimeHintsRegistrar` API 的搭档。 如果您需要为不特定于特定测试类的测试支持注册全局提示，请支持在特定于测试的 API 上实现 `RuntimeHintsRegistrar`。
+====
+
+如果你实现一个自定义的 `ContextLoader`，它必须实现
+{api-spring-framework}/test/context/aot/AotContextLoader.html[`AotContextLoader`] 以提供AOT 构建时处理和 AOT 运行时执行支持。
+但是请注意，Spring Framework 和 Spring Boot 提供的所有上下文加载器实现都已经实现了  `AotContextLoader`。
+
+如果您实现自定义的 `TestExecutionListener`，它必须实现 {api-spring-framework}/test/context/aot/AotTestExecutionListener.html[`AotTestExecutionListener`] 才能参与 AOT 处理。 有关示例，请参见 `spring-test` 模块中的 `SqlScriptsTestExecutionListener`。

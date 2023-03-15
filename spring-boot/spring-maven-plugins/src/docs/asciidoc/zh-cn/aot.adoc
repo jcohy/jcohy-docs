@@ -1,0 +1,87 @@
+[[aot]]
+= Ahead-of-Time Processing
+
+Spring AOT 是一个在构建时分析应用程序并生成其优化版本的过程。
+这是在原生镜像中运行 Spring `ApplicationContext` 的强制性步骤。
+
+NOTE: 有关 Spring Boot 中 GraalVM 原生镜像支持的概述，请参阅 {spring-boot-reference}/#native-image[reference documentation].
+
+Spring Boot Maven 插件提供了可用于对应用程序和测试代码执行 AOT 处理的 goal。
+
+== 处理应用程序
+若要将应用程序配置为使用此功能，请为 `process-aot` goal 添加执行，如以下示例所示：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/aot/pom.xml[tags=aot]
+----
+
+由于 `BeanFactory` 在构建时已做好充分准备，因此还会评估条件。 与常规的 Spring 引导应用程序在运行时所做的相比，这有一个重要的区别。
+例如，如果要选择加入或退出某些功能，则需要配置在构建时使用的环境以执行此操作。
+因此，`process-aot` goal 与  <<run,run goal>> 共享许多属性。
+
+=== 使用 Native Profile
+如果使用 `spring-boot-starter-parent` 作为项目的 `parent` ，则可以使用 `native` 配置文件来简化构建原生镜像所需的步骤。
+
+`native` 配置文件配置以下内容：
+
+* 当 Spring Boot Maven 插件应用于项目时执行 `process-aot`。
+* 适当的设置以便 <<build-image,build-image>>  生成原生镜像.
+* {nbt-reference}[Native Build Tools Maven Plugin], 的默认值，特别是:
+** 确保插件使用原始类路径，而不是主 jar 文件，因为它不理解我们重新打包的 jar 格式。
+** 验证合适的 GraalVM 版本是否可用。
+** 下载第三方可达性元数据。
+
+为了从  `native`  配置文件中受益，表示应用程序的模块应定义两个插件，如以下示例所示：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/aot-native/pom.xml[tags=aot-native]
+----
+
+单个项目可以使用 {spring-boot-reference}/#native-image.developing-your-first-application.buildpacks.maven[Cloud Native Buildpacks] 或
+{spring-boot-reference}/#native-image.developing-your-first-application.native-build-tools.maven[Native Image Build Tools] 在命令行上触发原生镜像的生成。
+
+要将 `native` 配置文件用于多模块项目，您可以创建 `native` 配置文件的自定义，以便它调用您的首选技术。
+
+要在 `package` 阶段绑定云原生构建包，请将以下内容添加到多模块项目的根 POM 中：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/aot-native-profile-buildpacks/pom.xml[tags=profile]
+----
+
+下面的示例对 Native Build Tools 执行相同的操作：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/aot-native-profile-nbt/pom.xml[tags=profile]
+----
+
+完成上述操作后，您可以构建多模块项目并在相关子模块中生成原生镜像，如以下示例所示：
+
+[indent=0]
+----
+	$ mvn package -Pnative
+----
+
+NOTE: "相关" 子模块是表示 Spring Boot 应用程序的模块。 该模块必须如上所述定义 Native Build Tools 和 Spring Boot 插件。
+
+include::goals/process-aot.adoc[leveloffset=+1]
+
+== 测试处理
+AOT 引擎可以应用于使用 Spring 的测试上下文框架的 JUnit 5 测试。
+适当的测试由 AOT 引擎处理，以生成 `ApplicationContextInitialzer` 代码。
+
+若要将应用程序配置为使用此功能，请为 `process-test-aot` goal 添加执行，如以下示例所示：
+
+[source,xml,indent=0,subs="verbatim,attributes",tabsize=4]
+----
+include::../maven/aot-test/pom.xml[tags=aot]
+----
+
+TIP: 如果您使用的是 `spring-boot-starter-parent` ，则在启用 `nativeTest`  配置文件时会自动配置此执行。
+
+与应用程序AOT处理一样，`BeanFactory` 在构建时已完全准备好。
+
+include::goals/process-test-aot.adoc[leveloffset=+1]

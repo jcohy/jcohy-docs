@@ -1,0 +1,224 @@
+[[native-image.developing-your-first-application]]
+== 开发您的第一个 GraalVM 原生应用程序
+现在我们已经很好地概述了 GraalVM 原生镜像以及 Spring ahead-of-time 引擎的工作原理，我们可以看看如何创建应用程序。
+
+构建 Spring Boot 原生镜像应用程序有两种主要方法：
+
+* 使用 Spring Boot 对云原生构建包的支持来生成包含原生可执行文件的轻量级容器。
+* 使用 GraalVM 原生构建工具生成原生可执行文件。
+
+TIP: 启动新的原生 Spring 引导项目的最简单方法是转到 https://start.spring.io[start.spring.io]，添加 "`GraalVM Native Support`" 依赖并生成项目。
+包含的 `HELP.md` 文件将提供入门提示。
+
+[[native-image.developing-your-first-application.sample-application]]
+=== Sample Application
+我们需要一个可用于创建原生镜像的示例应用程序。
+就我们的目的而言，"`<<getting-started#getting-started.first-application>>`" 部分中介绍的简单的 "`Hello World!`" Web 应用程序就足够了。
+
+回顾一下，我们的主要应用程序代码如下所示:
+
+include::code:MyApplication[]
+
+此应用程序使用 Spring MVC 和嵌入式 Tomcat，两者都已经过测试和验证，可以与 GraalVM 原生镜像配合使用。
+
+[[native-image.developing-your-first-application.buildpacks]]
+=== 使用 Buildpacks 构建原生镜像
+Spring Boot 直接为 Maven 和 Gradle 提供原生镜像的构建包支持。 这意味着您只需键入单个命令，即可快速将镜像放入本地运行的 Docker 守护程序中。 生成的镜像不包含 JVM，而是静态编译原生镜像。 这会导致镜像变小。
+
+NOTE: 用于镜像的构建器是 `paketobuildpacks/builder:tiny`.它是轻量级的，功能少, 您也可以使用 `paketobuildpacks/builder:base` 或 `paketobuildpacks/builder:full` 在镜像中提供更多工具.
+
+[[native-image.developing-your-first-application.buildpacks.system-requirements]]
+==== 系统要求
+应该安装 Docker，有关详细信息，请参阅  https://docs.docker.com/installation/#installation[Get Docker].
+如果在 Linux， https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user[请配置允许非root用户]
+
+NOTE: 您可以运行 `docker run hello-world` (不带 `sudo`) 来检查 Docker 守护进程是否按预期访问。.
+查看 {spring-boot-maven-plugin-docs}/#build-image-docker-daemon[Maven] 或 {spring-boot-gradle-plugin-docs}/#build-image-docker-daemon[Gradle] Spring Boot 插件文档获取更多信息.
+
+TIP: 在MacOS上，建议将分配给 Docker 的内存增加到至少 `8GB`，并可能添加更多 CPU。 有关更多详细信息，请参阅此 https://stackoverflow.com/questions/44533319/how-to-assign-more-memory-to-docker-container/44533437#44533437[Stackoverflow answer].
+在 Microsoft Windows, 请确保开启 https://docs.docker.com/docker-for-windows/wsl/[Docker WSL 2 backend] 来获取更好的性能.
+
+[[native-image.developing-your-first-application.buildpacks.maven]]
+==== 使用 Maven
+要使用 Maven 构建原生镜像容器，您应该确保 `pom.xml` 文件使用  `spring-boot-starter-parent`。
+您应该有一个 `<parent>` 部分，如下所示的：
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>{spring-boot-version}</version>
+	</parent>
+----
+
+`spring-boot-starter-parent` 声明了一个 `native` 配置文件，该配置文件配置需要运行的执行以创建原生镜像。
+您可以使用命令行上的 `-P` 标志激活配置文件。
+
+TIP: 如果你不想使用 `spring-boot-starter-parent`，你需要为 Spring Boot 插件中的 `process-aot` goal 和 Native Build Tools 插件中的 `add-reachability-metadata` goal 配置执行。
+
+要构建镜像，您可以在激活  `native` 配置文件的情况下运行  `spring-boot:build-image` goal：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ mvn -Pnative spring-boot:build-image
+----
+
+
+
+[[native-image.developing-your-first-application.buildpacks.gradle]]
+==== 使用 Gradle
+Spring Boot Gradle 插件会在应用 GraalVM 原生镜像插件时自动配置 AOT 任务。
+您应该检查您的 gradle 构建是否包含一个包含 `org.graalvm.buildtools.native` 的 `plugins` 块。
+
+只要应用了 `org.graalvm.buildtools.native` 插件，`bootBuildImage` 任务就会生成原生镜像而不是 JVM 镜像。
+您可以使用以下命令运行任务：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ gradle bootBuildImage
+----
+
+[[native-image.developing-your-first-application.buildpacks.running]]
+==== 运行示例
+运行相应的生成命令后，Docker 镜像就可以用了。 您可以使用 `docker run` 启动应用程序：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ docker run --rm -p 8080:8080 docker.io/library/myproject:0.0.1-SNAPSHOT
+----
+
+应会看到类似于以下内容的输出:
+
+[source,shell,indent=0,subs="verbatim,attributes"]
+----
+	  .   ____          _            __ _ _
+	 /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+	( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+	 \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+	  '  |____| .__|_| |_|_| |_\__, | / / / /
+	 =========|_|==============|___/=/_/_/_/
+	 :: Spring Boot ::  (v{spring-boot-version})
+	....... . . .
+	....... . . . (log output here)
+	....... . . .
+	........ Started MyApplication in 0.08 seconds (process running for 0.095)
+----
+
+NOTE: 启动时间因机器而异，但它应该比在 JVM 上运行的 Spring Boot 应用程序快得多。
+
+如果打开 Web 浏览器并访问 `http://localhost:8080`，应看到以下输出：
+
+[indent=0]
+----
+	Hello World!
+----
+
+要优雅地退出应用程序，请按 `ctrl-c`。
+
+[[native-image.developing-your-first-application.native-build-tools]]
+=== 使用 Native Build Tools 构建原生镜像
+如果你想在不使用 Docker 的情况下直接生成原生可执行文件，可以使用 GraalVM 原生构建工具。
+原生构建工具是 GraalVM 为 Maven 和 Gradle 提供的插件。 您可以使用它们来执行各种 GraalVM 任务，包括生成原生镜像。
+
+[[native-image.developing-your-first-application.native-build-tools.prerequisites]]
+==== 先决条件
+若要使用 Native Build Tools 生成原生镜像，需要在计算机上使用 GraalVM 发行版。
+您可以在 {liberica-nik-download}[Liberica Native Image Kit 页面] 上手动下载，也可以使用像 SDKMAN！这样的工具
+
+[[native-image.developing-your-first-application.native-build-tools.prerequisites.linux-macos]]
+===== Linux 和 MacOS
+
+要在 MacOS 或 Linux 上安装原生镜像编译器，我们建议使用 SDKMAN！。
+获取 SDKMAN！https://sdkman.io，然后使用以下命令安装 Liberica GraalVM 发行版：
+
+[source,shell,indent=0,subs="verbatim,attributes"]
+----
+	$ sdk install java {graal-version}.r17-nik
+	$ sdk use java {graal-version}.r17-nik
+----
+
+通过检查 `java -version` 的输出来验证是否配置了正确的版本：
+
+[source,shell,indent=0,subs="verbatim,attributes"]
+----
+	$ java -version
+	openjdk version "17.0.5" 2022-10-18 LTS
+	OpenJDK Runtime Environment GraalVM 22.3.0 (build 17.0.5+8-LTS)
+	OpenJDK 64-Bit Server VM GraalVM 22.3.0 (build 17.0.5+8-LTS, mixed mode)
+----
+
+[[native-image.developing-your-first-application.native-build-tools.prerequisites.windows]]
+===== Windows
+
+在 Windows 上，按照 https://medium.com/graalvm/using-graalvm-and-native-image-on-windows-10-9954dc071311[这些说明] 在版本 {graal-version}、Visual Studio Build Tools 和 Windows SDK 中安装 https://www.graalvm.org/downloads/[GraalVM] 或 {liberica-nik-download}[Liberica Native Image Kit]。
+由于 https://docs.microsoft.com/en-US/troubleshoot/windows-client/shell-experience/command-line-string-restriction[Windows 相关命令行最大长度]，请确保使用 x64 Native Tools Command Prompt 而不是常规的 Windows 命令行來執行 Maven 或 Gradle 插件。
+
+[[native-image.developing-your-first-application.native-build-tools.maven]]
+==== 使用 Maven
+与  <<native-image#native-image.developing-your-first-application.buildpacks.maven,buildpack support>>一样，你需要确保使用 `spring-boot-starter-parent` 来继承 `native` 配置文件。
+
+激活 `native` 配置文件后，您可以调用  `native:compile` goal 来触发  `native-image` 编译：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ mvn -Pnative native:compile
+----
+
+原生镜像可执行文件可以在 `target` 目录中找到。
+
+[[native-image.developing-your-first-application.native-build-tools.gradle]]
+==== 使用 Gradle
+当 Native Build Tools Gradle 插件应用于您的项目时，Spring Boot Gradle 插件将自动触发 Spring AOT 引擎。
+任务依赖是自动配置的，因此您只需运行标准的 `nativeCompile` 任务即可生成原生镜像：
+
+[source,shell,indent=0,subs="verbatim"]
+----
+	$ gradle nativeCompile
+----
+
+原生镜像可执行文件可以在 `build/native/nativeCompile` 目录中找到。
+
+[[native-image.developing-your-first-application.native-build-tools.running]]
+==== 运行示例
+此时，您的应用程序应该可以工作，您现在可以通过直接运行它来启动应用程序：
+
+[source,shell,indent=0,subs="verbatim",role="primary"]
+.Maven
+----
+	$ target/myproject
+----
+
+[source,shell,indent=0,subs="verbatim",role="secondary"]
+.Gradle
+----
+	$ build/native/nativeCompile/myproject
+----
+
+应会看到类似于以下内容的输出：
+
+[source,shell,indent=0,subs="verbatim,attributes"]
+----
+	  .   ____          _            __ _ _
+	 /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+	( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+	 \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+	  '  |____| .__|_| |_|_| |_\__, | / / / /
+	 =========|_|==============|___/=/_/_/_/
+	 :: Spring Boot ::  (v{spring-boot-version})
+	....... . . .
+	....... . . . (log output here)
+	....... . . .
+	........ Started MyApplication in 0.08 seconds (process running for 0.095)
+----
+
+NOTE: 启动时间因机器而异，但它应该比在 JVM 上运行的 Spring Boot 应用程序快得多。
+
+如果打开 Web 浏览器并访问 `http://localhost:8080`，应看到以下输出：
+
+[indent=0]
+----
+	Hello World!
+----
+
+要优雅地退出应用程序，请按 `ctrl-c`.

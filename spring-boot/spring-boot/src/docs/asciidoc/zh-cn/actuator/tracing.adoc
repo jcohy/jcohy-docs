@@ -1,10 +1,108 @@
 [[actuator.tracing]]
 == HTTP 追踪
-可以通过在应用程序的配置中提供 `HttpTraceRepository` 类型的 Bean 来启用 HTTP 跟踪.  为了方便起见,Spring Boot默认提供了一个 `InMemoryHttpTraceRepository`,用于存储最近 100 次请求-响应交换的跟踪.
-与其他跟踪解决方案相比,`InMemoryHttpTraceRepository` 受到限制,我们建议仅将其用于开发环境.  对于生产环境,建议使用可用于生产的跟踪或可观察性解决方案,例如 `Zipkin` 或 Spring Cloud Sleuth. 或者,创建自己的 `HttpTraceRepository` 来满足您的需求.
+Spring Boot Actuator 为 for https://micrometer.io/docs/tracing[Micrometer Tracing] 提供了依赖管理和自动配置, 使用常见的 trace 库.
 
-`httptrace` 端点可用于获取有关存储在 `HttpTraceRepository` 中的请求-响应交换的信息.
+TIP: 有关链路追踪的更新能力, 请查看 https://micrometer.io/docs/tracing[reference documentation].
 
-[[actuator.tracing.custom]]
-=== 自定义 HTTP 追踪
-要自定义每个跟踪中包含的项目,请使用 `management.trace.http.include` 配置属性.  对于高级定制,请考虑注册自己的 `HttpExchangeTracer` 实现.
+
+[[actuator.micrometer-tracing.tracers]]
+=== 支持的 trace
+Spring Boot 为以下 trace 器提供自动配置:
+
+* https://opentelemetry.io/[OpenTelemetry] with https://zipkin.io/[Zipkin] or https://docs.wavefront.com/[Wavefront]
+* https://github.com/openzipkin/brave[OpenZipkin Brave] with https://zipkin.io/[Zipkin] or https://docs.wavefront.com/[Wavefront]
+
+[[actuator.micrometer-tracing.getting-started]]
+=== 入门
+我们需要一个可用于开始跟踪的示例应用程序。
+就我们的目的而言， "`<<getting-started#getting-started.first-application>>`"  部分中介绍的简单的 "`Hello World!`" Web 应用程序就足够了。
+我们将使用 OpenTelemetry 跟踪器与 Zipkin 作为跟踪后端。
+
+回顾一下，我们的主要应用程序代码如下所示:
+
+include::code:MyApplication[]
+
+NOTE: 在 `home()` 方法中添加了一个记录器语句，这将在后面很重要。.
+
+现在我们必须添加以下依赖项:
+
+* `org.springframework.boot:spring-boot-starter-actuator`
+* `io.micrometer:micrometer-tracing-bridge-otel` - 将 Micrometer Observation API 转接到 OpenTelemetry.
+* `io.opentelemetry:opentelemetry-exporter-zipkin` - 将 https://micrometer.io/docs/tracing#_glossary[traces] 发布到 Zipkin.
+
+添加以下应用属性:
+
+[source,yaml,indent=0,subs="verbatim",configprops,configblocks]
+----
+	management.tracing.sampling.probability: 1.0
+----
+
+默认情况下，Spring Boot 仅对 10% 的请求进行采样，以防止后端不堪重负。 此属性将其切换为 100%，以便将每个请求发送到 trace 后端。
+
+为了收集和可视化 trace ，我们需要一个正在运行的 trace 后端。 我们在这里使用 Zipkin 作为我们的 trace 后端。
+https://zipkin.io/pages/quickstart[Zipkin 快速入门指南] 提供了如何在本地启动 Zipkin 的说明。
+
+Zipkin 运行后，您可以启动应用程序。
+
+在浏览器中打开 `http://localhost:8080`, 你将看到以下输出:
+
+[indent=0]
+----
+	Hello World!
+----
+
+在幕后，已经为 HTTP 请求创建了一个观察结果，该观察结果又被桥接到 OpenTelemetry，后者向 Zipkin 报告新的 trace。
+
+现在在  `http://localhost:9411`  处打开 Zipkin UI，然后按  "Run Query" 按钮列出所有收集的跟踪。
+您应该看到一条痕迹。
+按 "Show"  按钮以查看该 trace 的详细信息。
+
+TIP: 通过将 `logging.pattern.level` 属性设置为  `%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]`，可以在日志中包含当前  trace 和 span  ID
+
+[[actuator.micrometer-tracing.tracer-implementations]]
+=== Tracer 实现
+由于 Micrometer Tracer 支持多种 tracer 实现，因此 Spring Boot 可以进行多种依赖组合。
+
+所有 tracer 实现都需要 `org.springframework.boot:spring-boot-starter-actuator` 依赖。
+
+[[actuator.micrometer-tracing.tracer-implementations.otel-zipkin]]
+==== OpenTelemetry 和 Zipkin
+
+* `io.micrometer:micrometer-tracing-bridge-otel` - which is needed to bride the Micrometer Observation API to OpenTelemetry.
+* `io.opentelemetry:opentelemetry-exporter-zipkin` - which is needed to report traces to Zipkin.
+
+[[actuator.micrometer-tracing.tracer-implementations.otel-wavefront]]
+==== OpenTelemetry 和 Wavefront
+
+* `io.micrometer:micrometer-tracing-bridge-otel` - which is needed to bride the Micrometer Observation API to OpenTelemetry.
+* `io.micrometer:micrometer-tracing-reporter-wavefront` - which is needed to report traces to Wavefront.
+
+[[actuator.micrometer-tracing.tracer-implementations.brave-zipkin]]
+==== OpenZipkin Brave 和 Zipkin
+
+* `io.micrometer:micrometer-tracing-bridge-brave` - which is needed to bridge the Micrometer Observation API to Brave.
+* `io.zipkin.reporter2:zipkin-reporter-brave` - which is needed to report traces to Zipkin.
+
+NOTE: 如果你的项目不使用 Spring MVC 或 Spring WebFlux，那么也需要 `io.zipkin.reporter2:zipkin-sender-urlconnection` 依赖关系。
+
+[[actuator.micrometer-tracing.tracer-implementations.brave-wavefront]]
+==== OpenZipkin Brave 和 Wavefront
+
+* `io.micrometer:micrometer-tracing-bridge-brave` - which is needed to bridge the Micrometer Observation API to Brave.
+* `io.micrometer:micrometer-tracing-reporter-wavefront` - which is needed to report traces to Wavefront.
+
+[[actuator.micrometer-tracing.micrometer-observation]]
+=== Micrometer Observation 集成
+
+`TracingAwareMeterObservationHandler`  会自动在  `ObservationRegistry` 上注册，为每个完成的观察创建 spans。
+
+[[actuator.micrometer-tracing.creating-spans]]
+=== 创建自定义 Spans
+您可以通过启动 observation 来创建自己的 spans。
+为此，将  `ObservationRegistry` 注入到您的组件中：
+
+include::code:CustomObservation[]
+
+这将创建一个名为  "some-operation" 的 observation，标签为  "some-tag=some-value"。
+
+TIP: 提示：如果要在不创建指标的情况下创建 span，则需要使用 Micrometer 的 https://micrometer.io/docs/tracing#_using_micrometer_tracing_directly[lower-level `Tracer` API] 。
