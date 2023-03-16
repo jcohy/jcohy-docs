@@ -1,0 +1,68 @@
+[[context.propagation]]
+= 上下文传播支持
+
+从 3.5.0 开始，Reactor-Core 内置了对 `io.micrometer:context-propagation` SPI 的支持，此库提供了一种在上下文传播过程中变量之间适应的方法和实现。例如 `ContextView`/`Context`，在 `ThreadLocal` 中的变量。
+
+`ReactorContextAccessor` 允许 Context-Propagation 库了解 Reactor `Context` 和 `Contextview`。 它实现了 SPI 并通过 `java.util.ServiceLoader` 加载。 除了依赖于 `reactor-core` 和 `io.micrometer:context-propagation` 之外，
+不需要用户做额外的操作。虽然 `ReactorContextAccessor` 类是 public 的，但通常不应由用户代码访问。
+
+最重要的是，Reactor-Core 3.5.0 还修改了几个关键运算符的行为，并引入了 `contextCapture` 操作符，以便库在运行时可以透明地处理 `ContextSnapshot`。
+
+== `contextCapture` 操作符
+
+当需要在订阅时捕获 `ThreadLocal` 值并将这些值反映在 Reactor Context 中以使上游操作符受益时，可以使用此运算符。 它依赖于  `context-propagation` 库，尤其是注册的 `ThreadLocalAccessor(s)` 来发现相关的 `ThreadLocal` 值。
+
+这是 `contextWrite` 的一种方便替代方法，后者使用 `context-propagation` API 获取 `ContextSnapshot`，然后使用该 snapshot 填充 Reactor 上下文。
+
+因此，如果在订阅阶段有任何 `ThreadLocal` 值，并且有一个已注册的 `ThreadLocalAccessor`，它们的值现在将存储在 Reactor 上下文中，并在运行时在上游操作符中可见。
+
+====
+[source,java]
+----
+//assuming TL is known to Context-Propagation as key TLKEY.
+static final ThreadLocal<String> TL = new ThreadLocal<>();
+
+//in the main thread, TL is set to "HELLO"
+TL.set("HELLO");
+
+Mono.deferContextual(ctx ->
+  Mono.delay(Duration.ofSeconds(1))
+      //we're now in another thread, TL is not set
+      .map(v -> "delayed ctx[" + TLKEY + "]=" + ctx.getOrDefault(TLKEY, "not found") + ", TL=" + TL.get())
+)
+.contextCapture()
+.block(); // returns "delayed ctx[TLKEY]=HELLO, TL=null"
+----
+====
+
+== Operators that transparently restore a snapshot: `handle` and `tap`
+
+如果 `Context-Propagation` 库在运行时可用时，则 `handle` 和 `tap` 的 `Flux` 和 `Mono` 的行为将略有修改。
+
+也就是说，如果它们的下游 `ContextView` 不为空，它们将假定已发生上下文捕获（手动或通过 `contextCapture()` 运算符），并将尝试透明地从该快照恢复 `ThreadLocal`。
+
+这些运算符将分别确保围绕用户提供的代码执行恢复：
+
+- `handle` 将把 `BiConsumer` 包装在一个恢复 `ThreadLocal` 的代码中
+- `tap` 将 `SignalListener` 包装成一个对每个方法都有相同类型的包装（ 这包括 `addToContext` 方法）
+
+目的是让一组简约的操作员透明地执行恢复。 因此我们选择了应用比较普遍和广泛的操作符（一种有改造能力，一种有恢复能力）
+
+====
+[source,java]
+----
+//assuming TL is known to Context-Propagation.
+static final ThreadLocal<String> TL = new ThreadLocal<>();
+
+//in the main thread, TL is set to "HELLO"
+TL.set("HELLO");
+
+Mono.delay(Duration.ofSeconds(1))
+  //we're now in another thread, TL is not set yet
+  .doOnNext(v -> System.out.println(TL.get()))
+  //inside the handler however, TL _is_ restored
+  .handle((v, sink) -> sink.next("handled delayed TL=" + TL.get()))
+  .contextCapture()
+  .block(); // prints "null" and returns "handled delayed TL=HELLO"
+----
+====
