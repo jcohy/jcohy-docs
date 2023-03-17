@@ -1,3 +1,16 @@
+在 Reactor 中，sink 是一个允许以独立方式安全手动触发信号的类，创建一个类似 `Publisher` 的结构，能够处理多个 `Subscriber`（`unicast()` 类型除外）。
+
+在 3.5.0 之前，还有一套已经被淘汰的 `Processor` 实现。
+
+[[sinks-intro]]
+= 使用 `Sinks.One` 和 `Sinks.Many` 从多个线程安全地生产
+
+从下游订阅者的角度来看，由 reactor-core 暴露的 `Sinks` 需要确保多线程使用被检测到，并且不会导致违反规范或未定义的行为。当使用 `tryEmit*`  API 时，并行调用会快速失败。当使用 `emit*`  API 时，提供的 `EmissionFailureHandler` 可能允许重试连接(例如。busy looping)，否则 sink 将以一个错误终止.
+
+这是对 `Processor.onNext` 的改进。它必须从外部同步，否则从下游订阅者的角度来看会导致未定义的行为.
+
+[NOTE]
+====
 Processors 既是一种特别的发布者(`Publisher`)又是一种订阅者(`Subscriber`).
 它们最初的目的是作为一个中间步骤的可能表示，然后可以在 Reactive Streams 实现之间共享。然而，在 Reactor 中，这些步骤是由 `Publisher` 之类的操作符表示的。
 
@@ -6,22 +19,10 @@ Processors 既是一种特别的发布者(`Publisher`)又是一种订阅者(`Sub
 这样的手动调用应该小心进行，特别是在 Reactive Streams 规范之外的同步调用。Processors 实际上可能略微有用，除非遇到需要传递基于 Reactive Streams 的 API 的 `Subscriber` 而不是公开 `Publisher` 的.
 
 Sinks 通常是更好的选择。在 Reactor 中，sink 是一个允许安全手动触发信号的类。它可以与订阅关联(从操作符内部)，也可以完全独立.
+====
 
-从 `3.4.0` 开始, sinks 逐渐成为一等公民, 并且 `Processor` 正被逐渐淘汰:
-
-- 抽象和具体的 `FluxProcessor` 和 `MonoProcessor` 都将被淘汰，并在 3.5.0 移除
-- sinks 是通过 `Sinks` 类中的工厂生成的，而不是通过操作符产生的.
-- 我们希望所有的 processor 用法都可以通过现有的操作符或者 `Sinks` 来替代。在 3.5 发布之前，用户有时间去发现那些不是这样的情况，同时退回到使用废弃的 api.
-
-[[sinks]]
-= 使用 `Sinks.One` 和 `Sinks.Many` 从多个线程生成
-
-从下游订阅者的角度来看，由 reactor-core 暴露的 `Sinks` 需要确保多线程使用被检测到，并且不会导致违反规范或未定义的行为。当使用 `tryEmit*`  API 时，并行调用会快速失败。当使用 `emit*`  API 时，提供的 `EmissionFailureHandler` 可能允许重试连接(例如。busy looping)，否则 sink 将以一个错误终止.
-
-这是对 `Processor.onNext` 的改进。它必须从外部同步，否则从下游订阅者的角度来看会导致未定义的行为.
-
-`Sinks` 建造者对象(builder) 为主要支持的 producer 类型提供了一个指导性 API to the main supported producer types.
-您可以字 `Flux` 中识别一些行为,例如 `onBackpressureBuffer`.
+`Sinks` 建造者对象(builder) 为主要支持的 producer 类型提供了一个引导性 API.
+您可以发现 `Flux` 中识别一些行为,例如 `onBackpressureBuffer`.
 
 ====
 [source,java]
@@ -36,14 +37,28 @@ Sinks.Many<Integer> replaySink = Sinks.many().replay().all();
 [source,java]
 ----
 //thread1
-sink.emitNext(1, FAIL_FAST);
+replaySink.emitNext(1, EmitFailureHandler.FAIL_FAST);
 
 //thread2, later
-sink.emitNext(2, FAIL_FAST);
+replaySink.emitNext(2, EmitFailureHandler.FAIL_FAST);
 
 //thread3, concurrently with thread 2
-EmitResult result = sink.tryEmitNext(3); //would return FAIL_NON_SERIALIZED
+//would retry emitting for 2 seconds and fail with EmissionException if unsuccessful
+replaySink.emitNext(3, EmitFailureHandler.busyLooping(Duration.ofSeconds(2)));
+
+//thread3, concurrently with thread 2
+//would return FAIL_NON_SERIALIZED
+EmitResult result = replaySink.tryEmitNext(4);
+
+
 ----
+====
+
+[NOTE]
+====
+使用 `busyLooping` 时，请注意返回的 `EmitFailureHandler` 实例不能重复使用，例如，
+它应该是每个 `emitNext` 调用一次 `busyLooping`。
+此外，建议使用 100 毫秒以上的超时，因为较小的值没有实际意义。
 ====
 
 `Sinks.Many` 可以作为 `Flux` 展现给下游消费者, 如下:
@@ -70,7 +85,7 @@ fluxView
 . `one()`: a sink that will play a single element to its subscribers
 . `empty()`: a sink that will play a terminal signal only to its subscribers (error or complete), but can still be viewed as a `Mono<T>` (notice the generic type `<T>`).
 
-[[processor-overview]]
+[[sinks-overview]]
 = 可用的 Sinks 的概述
 
 == Sinks.many().unicast().onBackpressureBuffer(args?)

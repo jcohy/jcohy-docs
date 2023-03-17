@@ -21,28 +21,28 @@ Consider the following stack trace:
 
 .A typical Reactor stack trace
 ====
-[source,java]
+[source]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
-	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.tryEmitScalar(FluxFlatMap.java:445)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onNext(FluxFlatMap.java:379)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onNext(FluxMapFuseable.java:121)
-	at reactor.core.publisher.FluxRange$RangeSubscription.slowPath(FluxRange.java:154)
-	at reactor.core.publisher.FluxRange$RangeSubscription.request(FluxRange.java:109)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.request(FluxMapFuseable.java:162)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onSubscribe(FluxFlatMap.java:332)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onSubscribe(FluxMapFuseable.java:90)
-	at reactor.core.publisher.FluxRange.subscribe(FluxRange.java:68)
-	at reactor.core.publisher.FluxMapFuseable.subscribe(FluxMapFuseable.java:63)
-	at reactor.core.publisher.FluxFlatMap.subscribe(FluxFlatMap.java:97)
-	at reactor.core.publisher.MonoSingle.subscribe(MonoSingle.java:58)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3096)
-	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
-	at reactor.guide.GuideTests.debuggingCommonStacktrace(GuideTests.java:995)
+    at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.tryEmitScalar(FluxFlatMap.java:445)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.onNext(FluxFlatMap.java:379)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onNext(FluxMapFuseable.java:121)
+    at reactor.core.publisher.FluxRange$RangeSubscription.slowPath(FluxRange.java:154)
+    at reactor.core.publisher.FluxRange$RangeSubscription.request(FluxRange.java:109)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.request(FluxMapFuseable.java:162)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.onSubscribe(FluxFlatMap.java:332)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onSubscribe(FluxMapFuseable.java:90)
+    at reactor.core.publisher.FluxRange.subscribe(FluxRange.java:68)
+    at reactor.core.publisher.FluxMapFuseable.subscribe(FluxMapFuseable.java:63)
+    at reactor.core.publisher.FluxFlatMap.subscribe(FluxFlatMap.java:97)
+    at reactor.core.publisher.MonoSingle.subscribe(MonoSingle.java:58)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3096)
+    at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
+    at reactor.guide.GuideTests.debuggingCommonStacktrace(GuideTests.java:995)
 ----
 ====
 
@@ -76,7 +76,9 @@ pre-existing `Flux` is subscribed to, as follows:
 ====
 [source,java]
 ----
-toDebug.subscribe(System.out::println, Throwable::printStackTrace);
+toDebug
+    .subscribeOn(Schedulers.immediate())
+    .subscribe(System.out::println, Throwable::printStackTrace);
 ----
 ====
 
@@ -114,7 +116,7 @@ bit of experience, we can see that it is not ideal by itself in more advanced ca
 
 Fortunately, Reactor comes with  assembly-time instrumentation that is designed for debugging.
 
-This is done by customizing the `Hooks.onOperator` hook at application start (or at
+This is done by activating a global debug mode via the `Hooks.onOperatorDebug()` method at application start (or at
 least before the incriminated `Flux` or `Mono` can be instantiated), as follows:
 
 ====
@@ -124,14 +126,17 @@ Hooks.onOperatorDebug();
 ----
 ====
 
-This starts instrumenting the calls to the `Flux` (and `Mono`) operator  methods (where
+This starts instrumenting the calls to Reactor operator methods (where
 they are assembled into the chain) by wrapping the construction of the operator and
 capturing a stack trace there. Since this is done when the operator chain is declared, the
 hook should be activated before that, so the safest way is to activate it right at the
 start of your application.
 
 Later on, if an exception occurs, the failing operator is able to refer to that capture
-and append it to the stack trace. We call this captured assembly information a *traceback*.
+and to rework the stack trace, appending additional information.
+
+TIP: We call this captured assembly information (and additional information added to the
+exceptions by Reactor in general) a *traceback*.
 
 In the next section, we see how the stack trace differs and how to interpret
 that new information.
@@ -139,49 +144,59 @@ that new information.
 == Reading a Stack Trace in Debug Mode
 
 When we reuse our initial example but activate the `operatorStacktrace` debug feature,
-the stack trace is as follows:
+several things happen:
+
+ 1. The stack trace, which points to subscription site and is thus less interesting, is cut after the first frame and set aside.
+ 2. A special suppressed exception is added to the original exception (or amended if already there).
+ 3. A message is constructed for that special exception with several sections.
+ 4. First section will trace back to the assembly site of the operator that fails.
+ 5. Second section will attempt to display the chain(s) that are built from this operator and have seen the error propagate
+ 6. Last section is the original stack trace
+
+
+The full stack trace, once printed, is as follows:
 
 ====
-[source,java]
+[source]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
-	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
-	at reactor.core.publisher.FluxOnAssembly$OnAssemblySubscriber.onNext(FluxOnAssembly.java:375) <1>
+    at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:127) <1>
+    Suppressed: The stacktrace has been enhanced by Reactor, refer to additional information below: <2>
+Assembly trace from producer [reactor.core.publisher.MonoSingle] : <3>
+    reactor.core.publisher.Flux.single(Flux.java:7915)
+    reactor.guide.GuideTests.scatterAndGather(GuideTests.java:1017)
+Error has been observed at the following site(s): <4>
+    *_______Flux.single ⇢ at reactor.guide.GuideTests.scatterAndGather(GuideTests.java:1017) <5>
+    |_ Mono.subscribeOn ⇢ at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1071) <6>
+Original Stack Trace: <7>
+        at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:127)
 ...
-<2>
+<8>
 ...
-	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
-	at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1000)
-	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException: <3>
-Assembly trace from producer [reactor.core.publisher.MonoSingle] : <4>
-	reactor.core.publisher.Flux.single(Flux.java:6676)
-	reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949)
-	reactor.guide.GuideTests.populateDebug(GuideTests.java:962)
-	org.junit.rules.TestWatcher$1.evaluate(TestWatcher.java:55)
-	org.junit.rules.RunRules.evaluate(RunRules.java:20)
-Error has been observed by the following operator(s): <5>
-	|_	Flux.single ⇢ reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949) <6>
+        at reactor.core.publisher.Mono.subscribeWith(Mono.java:4363)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4223)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4159)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4131)
+        at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1067)
 ----
-<1> This is new: We see the wrapper operator that captures the stack.
-<2> Apart from that, the first section of the stack trace is still the same for the most
-part, showing a bit of the operator's internals (so we removed a bit of the snippet here).
-<3> This is where the traceback starts to appear.
-<4> First, we get some details about where the operator was assembled.
-<5> We also get a traceback of the error as it propagated through the operator chain,
+<1> The original stack trace is truncated to a single frame.
+<2> This is new: We see the wrapper operator that captures the stack.
+This is where the traceback starts to appear.
+<3> First, we get some details about where the operator was assembled.
+<4> Second, we get a notion of operator chain(s) through which the error propagated,
 from first to last (error site to subscribe site).
-<6> Each operator that saw the error is mentioned along with the user class and line where it
-was used.
+<5> Each operator that saw the error is mentioned along with the user class and line where it
+was used. Here we have a "root".
+<6> Here we have a simple part of the chain.
+<7> The rest of the stack trace is moved at the end...
+<8> ...showing a bit of the operator's internals (so we removed a bit of the snippet here).
 ====
 
 The captured stack trace is appended to the original error as a
-suppressed `OnAssemblyException`. There are two parts to it, but the first section is the
+suppressed `OnAssemblyException`. There are three parts to it, but the first section is the
 most interesting. It shows the path of construction for the operator that triggered the
-exception. Here, it shows that the `single` that caused our issue was created in the
-`scatterAndGather` method, itself called from a `populateDebug` method that got executed
-through JUnit.
+exception. Here, it shows that the `single` that caused our issue was actually created in the
+`scatterAndGather` method.
 
 Now that we are armed with enough information to find the culprit, we can have
 a meaningful look at that `scatterAndGather` method:
@@ -204,16 +219,16 @@ that line, we find out he meant to use the less restrictive `take(1)` instead.
 
 We have solved our problem.
 
-Now consider the following line in the stack trace:
+Now consider the following section in the stack trace:
 
 ====
 [source]
 ----
-Error has been observed by the following operator(s):
+Error has been observed at the following site(s):
 ----
 ====
 
-That second part of the debug stack trace was not necessarily interesting in
+That second part of the traceback was not necessarily interesting in
 this particular example, because the error was actually happening in the last
 operator in the chain (the one closest to `subscribe`). Considering another
 example might make it more clear:
@@ -229,25 +244,26 @@ FakeRepository.findAllUserByName(Flux.just("pedro", "simon", "stephane"))
 ====
 
 Now imagine that, inside `findAllUserByName`, there is a `map` that fails. Here,
-we would see the following final traceback:
+we would see the following in the second part of the traceback:
 
 ====
-[source,java]
+[source]
 ----
-Error has been observed by the following operator(s):
-	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:27)
-	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:28)
-	|_	Flux.filter ⇢ reactor.guide.FakeUtils1.lambda$static$1(FakeUtils1.java:29)
-	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:40)
-	|_	Flux.elapsed ⇢ reactor.guide.FakeUtils2.lambda$static$0(FakeUtils2.java:30)
-	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:41)
+Error has been observed at the following site(s):
+    *________Flux.map ⇢ at reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:27)
+    |_       Flux.map ⇢ at reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:28)
+    |_    Flux.filter ⇢ at reactor.guide.FakeUtils1.lambda$static$1(FakeUtils1.java:29)
+    |_ Flux.transform ⇢ at reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:39)
+    |_   Flux.elapsed ⇢ at reactor.guide.FakeUtils2.lambda$static$0(FakeUtils2.java:30)
+    |_ Flux.transform ⇢ at reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:40)
 ----
 ====
 
-This corresponds to the section of the chain of operators that gets notified of the error:
+This corresponds to the section of the chain(s) of operators that gets notified of the error:
 
-. The exception originates in the first `map`.
-. It is seen by a second `map` (both in fact correspond to the `findAllUserByName`
+. The exception originates in the first `map`. This one is identified as a root by the `*` connector and the fact `_`
+are used for indentation.
+. The exception is seen by a second `map` (both in fact correspond to the `findAllUserByName`
 method).
 . It is then seen by a `filter` and a `transform`, which indicate that part of the chain
 is constructed by a reusable transformation function (here, the `applyFilters` utility
@@ -255,7 +271,55 @@ method).
 . Finally, it is seen by an `elapsed` and a `transform`. Once again, `elapsed` is applied
 by the transformation function of that second transform.
 
-TIP: As tracebacks are appended to original errors as suppressed exceptions, this can somewhat
+In some cases where the same exception is propagated through multiple chains, the "root" marker `*_`
+allows us to better separate such chains.
+If a site is seen several time, there will be an `(observed x times)` after the call site information.
+
+For instance, let us consider the following snippet:
+
+====
+[source,java]
+----
+public class MyClass {
+    public void myMethod() {
+        Flux<String> source = Flux.error(sharedError);
+        Flux<String> chain1 = source.map(String::toLowerCase).filter(s -> s.length() < 4);
+        Flux<String> chain2 = source.filter(s -> s.length() > 5).distinct();
+
+        Mono<Void> when = Mono.when(chain1, chain2);
+    }
+}
+----
+====
+
+In the code above, error propagates to the `when`, going through two separate chains `chain1` and `chain2`.
+It would lead to a traceback containing the following:
+
+====
+[source]
+----
+Error has been observed at the following site(s):
+    *_____Flux.error ⇢ at myClass.myMethod(MyClass.java:3) (observed 2 times)
+    |_      Flux.map ⇢ at myClass.myMethod(MyClass.java:4)
+    |_   Flux.filter ⇢ at myClass.myMethod(MyClass.java:4)
+    *_____Flux.error ⇢ at myClass.myMethod(MyClass.java:3) (observed 2 times)
+    |_   Flux.filter ⇢ at myClass.myMethod(MyClass.java:5)
+    |_ Flux.distinct ⇢ at myClass.myMethod(MyClass.java:5)
+    *______Mono.when ⇢ at myClass.myMethod(MyClass.java:7)
+----
+====
+
+We see that:
+
+. there are 3 "root" elements (the `when` is the true root).
+. two chains starting from `Flux.error` are visible.
+. both chains seem to be based on the same `Flux.error` source (`observed 2 times`).
+. first chain is `Flux.error().map().filter`
+. second chain is `Flux.error().filter().distinct()
+
+
+TIP: *A note on tracebacks and suppressed exceptions*:
+As tracebacks are appended to original errors as suppressed exceptions, this can somewhat
 interfere with another type of exception that uses this mechanism: composite exceptions.
 Such exceptions can be created directly via `Exceptions.multiple(Throwable...)`, or by some
 operators that might join multiple erroring sources (like `Flux#flatMapDelayError`). They
@@ -299,18 +363,6 @@ to the assembly traceback. This way, the stack trace is omitted and you rely on 
 description to identify the assembly site. `checkpoint(String)` imposes less processing
 cost than a regular `checkpoint`.
 
-//snippets are in FluxOnAssemblyTest
-`checkpoint(String)` includes "`light`" in its output (which can be handy when
-searching), as shown in the following example:
-
-====
-----
-...
-	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException:
-Assembly site of producer [reactor.core.publisher.ParallelSource] is identified by light checkpoint [light checkpoint identifier].
-----
-====
-
 Last but not least, if you want to add a more generic description to the checkpoint but
 still rely on the stack trace mechanism to identify the assembly site, you can force that
 behavior by using the `checkpoint("description", true)` version. We are now back to the
@@ -318,11 +370,12 @@ initial message for the traceback, augmented with a `description`, as shown in t
 following example:
 
 ====
+[source]
 ----
 Assembly trace from producer [reactor.core.publisher.ParallelSource], described as [descriptionCorrelation1234] : <1>
 	reactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:215)
 	reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
-Error has been observed by the following operator(s):
+Error has been observed at the following site(s):
 	|_	ParallelFlux.checkpoint ⇢ reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
 ----
 <1> `descriptionCorrelation1234` is the description provided in the `checkpoint`.
@@ -331,9 +384,10 @@ Error has been observed by the following operator(s):
 The description could be a static identifier or user-readable description or a wider
 correlation ID (for instance, coming from a header in the case of an HTTP request).
 
-NOTE: When both global debugging and local `checkpoint()` are enabled, checkpointed
-snapshot stacks are appended as suppressed error output after the observing operator
-graph and following the same declarative order.
+NOTE: When global debugging is enabled in conjunction with checkpoints, the global debugging
+traceback style is applied and checkpoints are only reflected in the
+"Error has been observed..." section.
+As a result, the name of heavy checkpoints is not visible in this case.
 
 [[reactor-tools-debug]]
 == Production-ready Global Debugging
@@ -379,7 +433,7 @@ ReactorDebugAgent.init();
 ====
 
 TIP: Since the implementation will instrument your classes when they are loaded,
-the best place to put it is before everything else in your main(String[]) methood:
+the best place to put it is before everything else in your main(String[]) method:
 ====
 [source,java]
 ----
@@ -390,7 +444,8 @@ public static void main(String[] args) {
 ----
 ====
 
-You may also re-process existing classes if you cannot run the init eagerly (e.g. in the tests):
+You may also re-process existing classes with `processExistingClasses()` if you cannot run the init eagerly.
+For example, in https://junit.org/junit5/docs/current/user-guide/#launcher-api-listeners-custom[JUnit5 tests from a `TestExecutionListener`] or even in the class `static` initializer block:
 ====
 [source,java]
 ----
@@ -537,7 +592,7 @@ This prints out the following (through the logger's console appender):
 ====
 ----
 10:45:20.200 [main] INFO  reactor.Flux.Range.1 - | onSubscribe([Synchronous Fuseable] FluxRange.RangeSubscription) <1>
-10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(unbounded) <2>
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(3) <2>
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(1) <3>
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(2)
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(3)
@@ -557,13 +612,14 @@ characters, the actual event gets printed. Here, we get an `onSubscribe` call, a
 to the operator-specific implementation. Between square brackets, we get additional
 information, including whether the operator can be automatically optimized through
 synchronous or asynchronous fusion.
-<2> On the second line, we can see that an unbounded request was propagated up from
-downstream.
+<2> On the second line, we can see that take limited the request to upstream to 3.
 <3> Then the range sends three values in a row.
 <4> On the last line, we see `cancel()`.
 ====
 
-The last line, (4), is the most interesting. We can see the `take` in action there. It
-operates by cutting the sequence short after it has seen enough elements emitted. In
-short, `take()` causes the source to `cancel()` once it has emitted the user-requested
-amount.
+The second (2) and last lines (4) are the most interesting. We can see the `take` in action there.
+It leverages backpressure in order to ask the source for exactly the expected amount of elements.
+After having received enough elements, it tells the source no more items will be needed by calling `cancel()`.
+Note that if downstream had itself used backpressure, eg. by requesting only 1 element,
+the `take` operator would have honored that (it _caps_ the request when propagating it from downstream
+to upstream).

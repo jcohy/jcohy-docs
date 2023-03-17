@@ -16,25 +16,25 @@
 [source,java]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
-	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.tryEmitScalar(FluxFlatMap.java:445)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onNext(FluxFlatMap.java:379)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onNext(FluxMapFuseable.java:121)
-	at reactor.core.publisher.FluxRange$RangeSubscription.slowPath(FluxRange.java:154)
-	at reactor.core.publisher.FluxRange$RangeSubscription.request(FluxRange.java:109)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.request(FluxMapFuseable.java:162)
-	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onSubscribe(FluxFlatMap.java:332)
-	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onSubscribe(FluxMapFuseable.java:90)
-	at reactor.core.publisher.FluxRange.subscribe(FluxRange.java:68)
-	at reactor.core.publisher.FluxMapFuseable.subscribe(FluxMapFuseable.java:63)
-	at reactor.core.publisher.FluxFlatMap.subscribe(FluxFlatMap.java:97)
-	at reactor.core.publisher.MonoSingle.subscribe(MonoSingle.java:58)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3096)
-	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
-	at reactor.guide.GuideTests.debuggingCommonStacktrace(GuideTests.java:995)
+    at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.tryEmitScalar(FluxFlatMap.java:445)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.onNext(FluxFlatMap.java:379)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onNext(FluxMapFuseable.java:121)
+    at reactor.core.publisher.FluxRange$RangeSubscription.slowPath(FluxRange.java:154)
+    at reactor.core.publisher.FluxRange$RangeSubscription.request(FluxRange.java:109)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.request(FluxMapFuseable.java:162)
+    at reactor.core.publisher.FluxFlatMap$FlatMapMain.onSubscribe(FluxFlatMap.java:332)
+    at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onSubscribe(FluxMapFuseable.java:90)
+    at reactor.core.publisher.FluxRange.subscribe(FluxRange.java:68)
+    at reactor.core.publisher.FluxMapFuseable.subscribe(FluxMapFuseable.java:63)
+    at reactor.core.publisher.FluxFlatMap.subscribe(FluxFlatMap.java:97)
+    at reactor.core.publisher.MonoSingle.subscribe(MonoSingle.java:58)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3096)
+    at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
+    at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
+    at reactor.guide.GuideTests.debuggingCommonStacktrace(GuideTests.java:995)
 ----
 ====
 
@@ -55,7 +55,9 @@ java.lang.IndexOutOfBoundsException: Source emitted more than one item
 ====
 [source,java]
 ----
-toDebug.subscribe(System.out::println, Throwable::printStackTrace);
+toDebug
+    .subscribeOn(Schedulers.immediate())
+    .subscribe(System.out::println, Throwable::printStackTrace);
 ----
 ====
 
@@ -84,7 +86,7 @@ WARNING: 本节介绍了启用调试功能的最简单但最慢的方法,因为�
 
 幸运的是,Reactor 内置了一种面向调试的能力—— 操作期测量(assembly-time instrumentation).
 
-这通过 在应用启动的时候 (或至少在有问题的 `Flux` 或 `Mono` 实例化之前) 加入自定义的 `Hook.onOperator` 钩子(hook),如下:
+这通过 在应用启动的时候 (或至少在有问题的 `Flux` 或 `Mono` 实例化之前) 通过 `Hooks.onOperatorDebug()` 方法激活全局调试模式来完成的,如下:
 
 ====
 [source,java]
@@ -93,49 +95,62 @@ Hooks.onOperatorDebug();
 ----
 ====
 
-这行代码——通过包装操作符的构造方法,并在此捕捉 stack trace——来监测对这个 `Flux`(或 `Mono`)的操作符的调用(也就是“组装”链的地方).由于这些在 操作链被声明的地方就搞定,这个 hook 应该在 早于 声明的时候被激活, 最保险的方式就是在你程序的最开始就激活它.
+这行代码——通过包装操作符的构造方法,并在此捕捉 stack trace —— 来监测对这个 Reactor 操作符的调用(也就是“组装”链的地方).由于这些在 操作链被声明的地方就搞定,这个 hook 应该在 早于 声明的时候被激活, 最保险的方式就是在你程序的最开始就激活它.
 
 之后,如果发生了异常,导致失败的操作符能够找到捕捉点并补充 stack trace.
+
+TIP: 我们将此捕获的程序集信息 (以及由常规的 Reactor 添加到异常的附加信息) 称为 *traceback*.
 
 在下一小节,我们看一下 stack trace 会有什么不同,以及如何对其进行分析.
 
 == 阅读调试模式的 Stack Trace
 
 我们在对上边的例子激活 `operatorStacktrace` 调试功能后,stack trace 如下:
+发生了几件事：
+
+1. 指向订阅站点的堆栈跟踪不用太关系，在第一帧之后会被裁剪。
+2. 将一个特殊的 suppressed exception（抑制异常）添加到原始异常中（或者如果已经存在则进行修改）。
+3. 为该特殊异常构造一条消息，其中包含多个部分。
+4. 第一部分将追溯至失败操作符的组装地点。
+5. 第二部分将尝试显示从该运算符构建的链并且已经看到错误传播
+6. 最后一部分是原始堆栈跟踪
+
+打印后的完整堆栈跟踪如下：
 
 ====
-[source,java]
+[source]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
-	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
-	at reactor.core.publisher.FluxOnAssembly$OnAssemblySubscriber.onNext(FluxOnAssembly.java:375) <1>
+    at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:127) <1>
+    Suppressed: The stacktrace has been enhanced by Reactor, refer to additional information below: <2>
+Assembly trace from producer [reactor.core.publisher.MonoSingle] : <3>
+    reactor.core.publisher.Flux.single(Flux.java:7915)
+    reactor.guide.GuideTests.scatterAndGather(GuideTests.java:1017)
+Error has been observed at the following site(s): <4>
+    *_______Flux.single ⇢ at reactor.guide.GuideTests.scatterAndGather(GuideTests.java:1017) <5>
+    |_ Mono.subscribeOn ⇢ at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1071) <6>
+Original Stack Trace: <7>
+        at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:127)
 ...
-<2>
+<8>
 ...
-	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
-	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
-	at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1000)
-	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException: <3>
-Assembly trace from producer [reactor.core.publisher.MonoSingle] : <4>
-	reactor.core.publisher.Flux.single(Flux.java:6676)
-	reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949)
-	reactor.guide.GuideTests.populateDebug(GuideTests.java:962)
-	org.junit.rules.TestWatcher$1.evaluate(TestWatcher.java:55)
-	org.junit.rules.RunRules.evaluate(RunRules.java:20)
-Error has been observed by the following operator(s): <5>
-	|_	Flux.single ⇢ reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949) <6>
+        at reactor.core.publisher.Mono.subscribeWith(Mono.java:4363)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4223)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4159)
+        at reactor.core.publisher.Mono.subscribe(Mono.java:4131)
+        at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1067)
 ----
-<1> 这一条是新的: 可以发现外层操作符捕捉到了 stack trace.
-<2> 第一部分的 stack trace 多数与上边一样,显示了操作符内部的信息(所以省略了这一块).
-<3> 从这里开始,是在调试模式下显示的内容.
-<4> 首先我们获得了关于操作符组装的信息.
-<5> 以及错误沿着操作链传播的轨迹(从错误点到订阅点).
-<6> 每一个看到这个错误的操作符都会列出,包括类和行信息.如果操作符是在 Reactor 源码内部组装的,行信息会被忽略.
+<1> 原始堆栈跟踪被截断为单个帧.
+<2> 这一条是新的: 可以发现外层操作符捕捉到了 stack trace. 这是回溯开始出现的地方。
+<3> 首先我们获得了关于操作符组装的信息。
+<4> 以及错误沿着操作链传播的轨迹，从第一个到最后一个(从错误点到订阅点).
+<5> 每一个看到这个错误的操作符都会列出,包括类和行信息. 这里我们有一个 "root".
+<6> 这里我们有链的一个简单部分.
+<7> 堆栈跟踪的其余部分被移动到最后...
+<8> ...显示了一些操作符的内部结构（所以我们在这里删除了一些片段）。.
 ====
 
-可见,捕获的 stack trace 作为 `OnAssemblyException` 添加到原始错误信息的之后.有两部分, 但是第一部分更加有意思.它显示了操作符触发异常的路径.这里显示的是 `scatterAndGather` 方法中的 `single` 导致的问题,而 `scatterAndGather` 方法是在 JUnit 中被 `populateDebug` 方法调用的.
+可见,捕获的 stack trace 作为 `OnAssemblyException` 添加到原始错误信息的之后.有三部分, 但是第一部分更加有意思.它显示了操作符触发异常的路径.这里显示的是 `scatterAndGather` 方法中的 `single` 导致的问题
 
 既然我们已经有足够的信息来查出罪魁祸首,我们就来看一下 `scatterAndGather` 方法吧:
 
@@ -154,12 +169,12 @@ private Mono<String> scatterAndGather(Flux<String> urls) {
 
 我们解决了问题.
 
-现在考虑 stack trace 中的以下行:
+现在考虑 stack trace 中的以下部分:
 
 ====
 [source]
 ----
-Error has been observed by the following operator(s):
+Error has been observed at the following site(s):
 ----
 ====
 
@@ -175,37 +190,79 @@ FakeRepository.findAllUserByName(Flux.just("pedro", "simon", "stephane"))
 ----
 ====
 
-现在想象一下在 `findAllUserByName` 内部有个 `map` 方法报错了.我们可能会看到如下的 trace:
+现在想象一下在 `findAllUserByName` 内部有个 `map` 方法报错了.我们可能会在第二部分中看到如下的 trace:
+
+====
+[source]
+----
+Error has been observed at the following site(s):
+    *________Flux.map ⇢ at reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:27)
+    |_       Flux.map ⇢ at reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:28)
+    |_    Flux.filter ⇢ at reactor.guide.FakeUtils1.lambda$static$1(FakeUtils1.java:29)
+    |_ Flux.transform ⇢ at reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:39)
+    |_   Flux.elapsed ⇢ at reactor.guide.FakeUtils2.lambda$static$0(FakeUtils2.java:30)
+    |_ Flux.transform ⇢ at reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:40)
+----
+====
+
+这与 (s) 上收到错误通知的操作符是一致:
+
+. 异常源自第一个 `map`. `*` 表示为 root，而 `_` 用于缩进。
+. 第二个 `map` 看到异常(都在 `findAllUserByName` 方法中).
+. 接着被一个 `filter` 和一个 `transform` 看到,说明链的这部分是由一个可重复使用的转换方法组装的 (这里是 `applyFilters` 工具方法).
+. 最后被一个 `elapsed` 和一个 `transform` 看到,类似的, `elapsed` 由第二个转换方法(`enrichUser`) 组装.
+
+在某些情况下，相同的异常通过多个链传播，"root" 使用 `*_` 标记。使我们能够更好地分离这些链。
+如果一个站点被多次查看，调用站点信息后会有一个 `(observed x times)`。
+
+例如，让我们考虑以下片段:
 
 ====
 [source,java]
 ----
-Error has been observed by the following operator(s):
-	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:27)
-	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:28)
-	|_	Flux.filter ⇢ reactor.guide.FakeUtils1.lambda$static$1(FakeUtils1.java:29)
-	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:40)
-	|_	Flux.elapsed ⇢ reactor.guide.FakeUtils2.lambda$static$0(FakeUtils2.java:30)
-	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:41)
+public class MyClass {
+    public void myMethod() {
+        Flux<String> source = Flux.error(sharedError);
+        Flux<String> chain1 = source.map(String::toLowerCase).filter(s -> s.length() < 4);
+        Flux<String> chain2 = source.filter(s -> s.length() > 5).distinct();
+
+        Mono<Void> when = Mono.when(chain1, chain2);
+    }
+}
 ----
 ====
 
-这与链上收到错误通知的操作符是一致:
+在上面的代码中，错误传播到 `when`，通过两个独立的链 `chain1` 和 `chain2`。
+这将导致包含以下内容的回溯：
 
-. 异常源自第一个 `map`.
-. 被第二个 `map` 看到(都在 `findAllUserByName` 方法中).
-. 接着被一个 `filter` 和一个 `transform` 看到,说明链的这部分是由一个可重复使用的转换方法组装的 (这里是 `applyFilters` 工具方法).
-. 最后被一个 `elapsed` 和一个 `transform` 看到,类似的, `elapsed` 由第二个转换方法(`enrichUser`) 组装.
+====
+[source]
+----
+Error has been observed at the following site(s):
+    *_____Flux.error ⇢ at myClass.myMethod(MyClass.java:3) (observed 2 times)
+    |_      Flux.map ⇢ at myClass.myMethod(MyClass.java:4)
+    |_   Flux.filter ⇢ at myClass.myMethod(MyClass.java:4)
+    *_____Flux.error ⇢ at myClass.myMethod(MyClass.java:3) (observed 2 times)
+    |_   Flux.filter ⇢ at myClass.myMethod(MyClass.java:5)
+    |_ Flux.distinct ⇢ at myClass.myMethod(MyClass.java:5)
+    *______Mono.when ⇢ at myClass.myMethod(MyClass.java:7)
+----
+====
 
-TIP: As tracebacks are appended to original errors as suppressed exceptions, this can somewhat
-interfere with another type of exception that uses this mechanism: composite exceptions.
-Such exceptions can be created directly via `Exceptions.multiple(Throwable...)`, or by some
-operators that might join multiple erroring sources (like `Flux#flatMapDelayError`). They
-can be unwrapped into a `List` via `Exceptions.unwrapMultiple(Throwable)`, in which case the traceback
-would be considered a component of the composite and be part of the returned `List`.
-If that is somehow not desirable, tracebacks can be identified thanks to `Exceptions.isTraceback(Throwable)`
-check, and excluded from such an unwrap by using `Exceptions.unwrapMultipleExcludingTracebacks(Throwable)`
-instead.
+我们可以看到:
+
+. 这里有 3 "root" 元素 ( `when` 才是真正的 root).
+. 从 `Flux.error` 开始的两条链是可见的。.
+. 两条链似乎都基于相同的 `Flux.error` 来源（`observed 2 times`）。
+. 第一条链是 `Flux.error().map().filter`
+. 第二条链是 `Flux.error().filter().distinct()
+
+TIP: *关于回溯和抑制异常的解释*:
+由于回溯作为被抑制的异常附加到原始错误，这可能会在某种程度上干扰使用此机制的另一种类型的异常：复合异常。
+此类异常可以通过 `Exceptions.multiple(Throwable...)` 直接创建，或者由一些可能加入多个错误源的操作符（如  `Flux#flatMapDelayError`）创建。 他们
+可以通过 `Exceptions.unwrapMultiple(Throwable)` 展开到一个 `List` 中，在这种情况下，traceback 将被视为复合的一个组件，并且是返回的 `List` 的一部分。
+如果这在某种程度上是不可取的，tracebacks 可以由于 `Exceptions.isTraceback(Throwable)` 检查而被识别，
+并通过使用 `Exceptions.unwrapMultipleExcludingTracebacks(Throwable)` 而被排除在这样的 unwrap 之外。
 
 用这种形式的检测方式构造 stack trace 是成本较高的.也因此这种调试模式作为最终大招, 只应该在可控的方式下激活.
 
@@ -225,24 +282,15 @@ instead.
 还有一个 `checkpoint(String)` 的方法变体,你可以传入一个独特的字符串以方便在 assembly traceback 中识别信息. 这样会省略 stack trace,你可以依赖这个字符串(以下改称“定位描述符”)来定位到组装点.
 `checkpoint(String)` 比 `checkpoint` 有更低的执行成本.
 
-`checkpoint(String)` 在它的输出中包含 "light" (可以方便用于搜索),如下所示:
-
-====
-----
-...
-	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException:
-Assembly site of producer [reactor.core.publisher.ParallelSource] is identified by light checkpoint [light checkpoint identifier].
-----
-====
-
 最后的但同样重要的是,如果你既想通过 checkpoint 添加定位描述符,同时又依赖于 stack trace 来定位组装点,你可以使用 `checkpoint("description", true)` 来实现这一点.这时回溯信息又出来了, 同时附加了定位描述符,如下例所示:
 
 ====
+[source]
 ----
 Assembly trace from producer [reactor.core.publisher.ParallelSource], described as [descriptionCorrelation1234] : <1>
 	reactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:215)
 	reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
-Error has been observed by the following operator(s):
+Error has been observed at the following site(s):
 	|_	ParallelFlux.checkpoint ⇢ reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
 ----
 <1> `descriptionCorrelation1234` 是通过 `checkpoint` 给出的定位描述符.
@@ -250,7 +298,7 @@ Error has been observed by the following operator(s):
 
 定位描述符可以是静态的字符串、或人类可读的描述、或一个 correlation ID(例如, 来自 HTTP 请求头的信息).
 
-NOTE: 当全局调试模式和 `checkpoint()` 都开启的时候,checkpoint 的 stacks 输出会作为 suppressed 错误输出,按照声明顺序添加在操作符图(graph)的后面.
+NOTE: 当全局调试模式和 `checkpoint()` 都开启的时候,将应用全局调试回溯样式，并且 checkpoint 仅反映在 "Error has been observed..." 部分中,因此，在这种情况下，heavy checkpoints 的名称是不可见的。.
 
 [[reactor-tools-debug]]
 == 用于生产环境的全局调试
@@ -305,7 +353,9 @@ public static void main(String[] args) {
 ----
 ====
 
-如果您不着急执行初始化(例如在测试中),也可以重新处理现有的类:
+如果您不着急执行初始化(例如在测试中),也可以使用 `processExistingClasses()` 重新处理现有的类，
+例如，在 https://junit.org/junit5/docs/current/user-guide/#launcher-api-listeners-custom[来自 `TestExecutionListener` 的 JUnit5 测试] 甚至在类 `static` 初始化程序块中：
+
 
 ====
 [source,java]
@@ -435,7 +485,7 @@ flux.subscribe();
 ====
 ----
 10:45:20.200 [main] INFO  reactor.Flux.Range.1 - | onSubscribe([Synchronous Fuseable] FluxRange.RangeSubscription) <1>
-10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(unbounded) <2>
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(3) <2>
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(1) <3>
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(2)
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(3)
@@ -447,9 +497,10 @@ flux.subscribe();
 <1> `reactor.Flux.Range.1` 是自动生成的日志 类别(category),以防你在操作链中多次使用 同一个操作符.通过它你可以分辨出来是哪个操作符的事件(这里是 `range` 的). 你可以调用 `log(String)` 方法用自定义的类别替换这个标识符.在几个用于分隔的字符之后, 打印出了实际的事件.
 这里是一个 `onSubscribe` 调用、一个 `request` 调用、三个 `onNext` 调用, 以及一个 `cancel` 调用.对于第一行的 `onSubscribe`,我们知道了 `Subscriber` 的具体实现,
 通常与操作符指定的实现是一致的,在方括号内有一些额外信息,包括这个操作符是否能够 通过同步或异步融合的方式进行自动优化.
-<2> 第二行,我们可以看到是一个由下游传播上来的个数无限的请求.
+<2> 第二行,我们可以看到 take 将向上游的请求限制为 3。.
 <3> 然后 range 一下发出三个值.
 <4> 最后一行,我们看到了 `cancel()`.
 ====
 
-最后一行,(4),最有意思.我们看到 take 在这里发挥作用了.在它拿到足够的元素之后, 就将序列切断了.简单来说,`take()` 导致源在发出用户请求的数量后 `cancel()` 了.
+第二行 (2) 和最后一行 (4) 是最有趣的。 我们可以看到 `take` 的动作。它利用背压来向源询问准确的预期元素数量。 在收到足够的元素后，它会通过调用 `cancel()` 告诉源不再需要任何元素。
+请注意，如果下游本身使用背压，例如。 通过仅请求 `1` 个元素，`take` 运算符会尊重这一点（它在从下游传播请求时 _caps_ 请求到上游）。
