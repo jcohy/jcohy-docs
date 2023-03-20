@@ -16,8 +16,8 @@ public enum ProjectVersion {
 
     GRADLE_DOCS("gradle-docs","gradle-version","6.9.3",""),
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
-    REACTOR("reactor","reactor-version","3.4.8",""),
-    REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.3",""),
+    REACTOR("reactor","reactor-version","3.5.0",""),
+    REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.4",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     HIBERNATE_ORM("hibernate-orm","hibernate-orm-version","5.5.7",""),
     DEPENDENCY_MANAGEMENT_PLUGIN("dependency-management-plugin","dependency-management-plugin-version","1.0.11.RELEASE",""),
