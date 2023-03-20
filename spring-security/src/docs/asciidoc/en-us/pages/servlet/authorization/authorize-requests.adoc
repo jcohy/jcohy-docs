@@ -3,30 +3,33 @@
 :figures: servlet/authorization
 
 [NOTE]
+====
 `FilterSecurityInterceptor` is in the process of being replaced by xref:servlet/authorization/authorize-http-requests.adoc[`AuthorizationFilter`].
 Consider using that instead.
+====
 
-This section builds on xref:servlet/architecture.adoc#servlet-architecture[Servlet Architecture and Implementation] by digging deeper into how xref:servlet/authorization/index.adoc#servlet-authorization[authorization] works within Servlet based applications.
+This section builds on xref:servlet/architecture.adoc#servlet-architecture[Servlet Architecture and Implementation] by digging deeper into how xref:servlet/authorization/index.adoc#servlet-authorization[authorization] works within Servlet-based applications.
 
-The {security-api-url}org/springframework/security/web/access/intercept/FilterSecurityInterceptor.html[`FilterSecurityInterceptor`] provides xref:servlet/authorization/index.adoc#servlet-authorization[authorization] for ``HttpServletRequest``s.
+The {security-api-url}org/springframework/security/web/access/intercept/FilterSecurityInterceptor.html[`FilterSecurityInterceptor`] provides xref:servlet/authorization/index.adoc#servlet-authorization[authorization] for `HttpServletRequest` instances.
 It is inserted into the xref:servlet/architecture.adoc#servlet-filterchainproxy[FilterChainProxy] as one of the xref:servlet/architecture.adoc#servlet-security-filters[Security Filters].
+
+The following image shows the role of `FilterSecurityInterceptor`:
 
 .Authorize HttpServletRequest
 image::{figures}/filtersecurityinterceptor.png[]
 
-* image:{icondir}/number_1.png[] First, the `FilterSecurityInterceptor` obtains an  xref:servlet/authentication/architecture.adoc#servlet-authentication-authentication[Authentication] from the xref:servlet/authentication/architecture.adoc#servlet-authentication-securitycontextholder[SecurityContextHolder].
-* image:{icondir}/number_2.png[] Second, `FilterSecurityInterceptor` creates a {security-api-url}org/springframework/security/web/FilterInvocation.html[`FilterInvocation`] from the `HttpServletRequest`, `HttpServletResponse`, and `FilterChain` that are passed into the `FilterSecurityInterceptor`.
-// FIXME: link to FilterInvocation
-* image:{icondir}/number_3.png[] Next, it passes the `FilterInvocation` to `SecurityMetadataSource` to get the ``ConfigAttribute``s.
-* image:{icondir}/number_4.png[] Finally, it passes the `Authentication`, `FilterInvocation`, and ``ConfigAttribute``s to the xref:servlet/authorization.adoc#authz-access-decision-manager`AccessDecisionManager`.
-** image:{icondir}/number_5.png[] If authorization is denied, an `AccessDeniedException` is thrown.
-In this case the xref:servlet/architecture.adoc#servlet-exceptiontranslationfilter[`ExceptionTranslationFilter`] handles the `AccessDeniedException`.
-** image:{icondir}/number_6.png[] If access is granted, `FilterSecurityInterceptor` continues with the xref:servlet/architecture.adoc#servlet-filters-review[FilterChain] which allows the application to process normally.
+image:{icondir}/number_1.png[] The `FilterSecurityInterceptor` obtains an xref:servlet/authentication/architecture.adoc#servlet-authentication-authentication[Authentication] from the xref:servlet/authentication/architecture.adoc#servlet-authentication-securitycontextholder[SecurityContextHolder].
+image:{icondir}/number_2.png[] `FilterSecurityInterceptor` creates a {security-api-url}org/springframework/security/web/FilterInvocation.html[`FilterInvocation`] from the `HttpServletRequest`, `HttpServletResponse`, and `FilterChain` that are passed into the `FilterSecurityInterceptor`.
+image:{icondir}/number_3.png[] It passes the `FilterInvocation` to `SecurityMetadataSource` to get the ``ConfigAttribute``s.
+image:{icondir}/number_4.png[] It passes the `Authentication`, `FilterInvocation`, and ``ConfigAttribute``s to the `AccessDecisionManager`.
+image:{icondir}/number_5.png[] If authorization is denied, an `AccessDeniedException` is thrown.
+In this case, the xref:servlet/architecture.adoc#servlet-exceptiontranslationfilter[`ExceptionTranslationFilter`] handles the `AccessDeniedException`.
+image:{icondir}/number_6.png[] If access is granted, `FilterSecurityInterceptor` continues with the xref:servlet/architecture.adoc#servlet-filters-review[`FilterChain`], which lets the application process normally.
 
 // configuration (xml/java)
 
-By default, Spring Security's authorization will require all requests to be authenticated.
-The explicit configuration looks like:
+By default, Spring Security's authorization requires all requests to be authenticated.
+The following listing shows the explicit configuration:
 
 [[servlet-authorize-requests-defaults]]
 .Every Request Must be Authenticated
@@ -34,12 +37,14 @@ The explicit configuration looks like:
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 	http
 		// ...
 		.authorizeRequests(authorize -> authorize
 			.anyRequest().authenticated()
 		);
+	return http.build();
 }
 ----
 
@@ -55,33 +60,37 @@ protected void configure(HttpSecurity http) throws Exception {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
     http {
         // ...
         authorizeRequests {
             authorize(anyRequest, authenticated)
         }
     }
+    return http.build()
 }
 ----
 ====
 
-We can configure Spring Security to have different rules by adding more rules in order of precedence.
+We can configure Spring Security to have different rules by adding more rules in order of precedence:
 
 .Authorize Requests
 ====
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 	http
 		// ...
 		.authorizeRequests(authorize -> authorize                                  // <1>
-			.mvcMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
-			.mvcMatchers("/admin/**").hasRole("ADMIN")                             // <3>
-			.mvcMatchers("/db/**").access("hasRole('ADMIN') and hasRole('DBA')")   // <4>
+			.requestMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
+			.requestMatchers("/admin/**").hasRole("ADMIN")                             // <3>
+			.requestMatchers("/db/**").access("hasRole('ADMIN') and hasRole('DBA')")   // <4>
 			.anyRequest().denyAll()                                                // <5>
 		);
+	return http.build();
 }
 ----
 
@@ -104,7 +113,8 @@ protected void configure(HttpSecurity http) throws Exception {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
    http {
         authorizeRequests { // <1>
             authorize("/resources/**", permitAll) // <2>
@@ -116,6 +126,7 @@ fun configure(http: HttpSecurity) {
             authorize(anyRequest, denyAll) // <5>
         }
     }
+    return http.build()
 }
 ----
 ====
@@ -129,3 +140,44 @@ You will notice that since we are invoking the `hasRole` method we do not need t
 You will notice that since we are using the `hasRole` expression we do not need to specify the "ROLE_" prefix.
 <5> Any URL that has not already been matched on is denied access.
 This is a good strategy if you do not want to accidentally forget to update your authorization rules.
+====
+
+
+[[filtersecurityinterceptor-every-request]]
+== Configure FilterSecurityInterceptor with Dispatcher Types
+
+By default, the `FilterSecurityInterceptor` applies to every request.
+This means that if a request is dispatched from a request that was already filtered, the `FilterSecurityInterceptor` will perform the same authorization checks on the dispatched request.
+In some scenarios, you may not want to apply authorization on some dispatcher types:
+
+.Permit ASYNC and ERROR dispatcher types
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeRequests((authorize) -> authorize
+            .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+            .anyRequest.authenticated()
+        )
+        // ...
+
+    return http.build();
+}
+----
+.XML
+[source,xml]
+----
+<http auto-config="true">
+    <intercept-url request-matcher-ref="dispatcherTypeMatcher" access="permitAll" />
+    <intercept-url pattern="/**" access="authenticated"/>
+</http>
+
+<b:bean id="dispatcherTypeMatcher" class="org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher">
+    <b:constructor-arg value="ASYNC"/>
+    <b:constructor-arg value="ERROR"/>
+</b:bean>
+----
+====
