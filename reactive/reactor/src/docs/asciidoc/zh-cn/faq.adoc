@@ -69,10 +69,9 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 ====
 [source,java]
 ----
-Flux<String> secrets = Flux
-  .just("something", "chain")
-  .map(secret -> secret.replaceAll(".", "*"))
-  .subscribe(next -> System.out.println("Received: " + next));
+Flux.just("something", "chain")
+    .map(secret -> secret.replaceAll(".", "*"))
+    .subscribe(next -> System.out.println("Received: " + next));
 ----
 ====
 
@@ -149,7 +148,7 @@ Exponential backoff 的意思是进行的多次重试之间的间隔越来越长
 
 从 `3.3.4.RELEASE` 开始,Reactor 附带了用于此类重试的构建器,可与 `Flux#retryWhen`:`Retry.backoff` 一起使用.
 
-以下示例展示了构建器的简单用法,在重试尝试延迟之前和之后,hook 都记录了消息,每次重试的间隔都会递增 (伪代码: delay = attempt number * 100 milliseconds):
+以下示例展示了构建器的简单用法,在重试尝试延迟之前和之后,hook 都记录了消息,每次重试的间隔都会递增 (伪代码: delay = 100ms * 2^attempt_number_starting_at_zero):
 
 ====
 [source,java]
@@ -163,13 +162,13 @@ Flux.<String>error(new IllegalStateException("boom"))
 		})
 		.retryWhen(Retry
 				.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
-				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now() + ", attempt " + rs.totalRetries())) // <3>
 				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
 		);
 ----
 <1> 记录错误出现的时间;
 <2> 我们配置了重试 3 次的效果.
-<3> 我们还会记录重试发生的时间.
+<3> 我们还会记录重试发生的时间和重试次数（从 0 开始）
 <4> 默认情况下,将抛出 `Exceptions.retryExhausted`  异常,并以最后一个  `failure()` 为异常原因. 在这里,我们将其自定义为直接原因并作为 `onError` 发出.
 ====
 
@@ -177,17 +176,17 @@ Flux.<String>error(new IllegalStateException("boom"))
 
 ====
 ----
-java.lang.IllegalArgumentException at 18:02:29.338
-retried at 18:02:29.459 <1>
-java.lang.IllegalArgumentException at 18:02:29.460
-retried at 18:02:29.663 <2>
-java.lang.IllegalArgumentException at 18:02:29.663
-retried at 18:02:29.964 <3>
-java.lang.IllegalArgumentException at 18:02:29.964
+java.lang.IllegalStateException: boom at 00:00:00.0
+retried at 00:00:00.101, attempt 0 <1>
+java.lang.IllegalStateException: boom at 00:00:00.101
+retried at 00:00:00.304, attempt 1 <2>
+java.lang.IllegalStateException: boom at 00:00:00.304
+retried at 00:00:00.702, attempt 2 <3>
+java.lang.IllegalStateException: boom at 00:00:00.702
 ----
 <1> 第一次重试延迟大约 100ms
 <2> 第二次重试延迟大约 200ms
-<3> 第三次重试延迟大约 300ms
+<3> 第三次重试延迟大约 400ms
 ====
 
 [[faq.thread-affinity-publishon]]

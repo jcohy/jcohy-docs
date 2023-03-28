@@ -372,6 +372,22 @@ Flux.just(10)
 <1> 仅在异常消息为 `"boom10"` 时恢复
 ====
 
+==== 捕获和接收错误
+
+如果您不想用回退值替换异常，而是忽略它并只传播到目前为止已经产生的元素，你想要的基本上是替换带有 `onComplete` 信号的 `onError` 信号。 这可以通过 `onErrorComplete` 运算符来完成：
+
+====
+[source,java]
+----
+Flux.just(10,20,30)
+    .map(this::doSomethingDangerousOn30)
+    .onErrorComplete(); //<1>
+----
+<1> 通过将 `onError` 变成 `onComplete` 来恢复
+====
+
+与 `onErrorReturn` 一样，`onErrorComplete` 有一些方法可以让你过滤哪些异常基于异常的类或 `Predicate` 来回退。
+
 ==== 异常处理方法
 
 如果你不只是想要在发生错误的时候给出默认值,而是希望提供一种更安全的处理数据的方式, 可以使用 `onErrorResume`.这与第 (2) 条(捕获并执行一个异常处理方法)类似.
@@ -608,7 +624,7 @@ Flux.just("foo", "bar")
 <1> `doFinally` 用 `SignalType` 检查了终止信号的类型.
 <2> 与 `finally` 块类似,我们总是记录时间.
 <3> 如果只是取消,那么统计数据自增.
-<4> `take(1)` 能够在发出 1 个元素后取消流.
+<4> `take(1)` 能够从上游请求 1 个元素后取消流.
 ====
 
 另一方面,`using` 能处理从 `Flux` 产生的资源,并且每当处理完成时都必须对资源进行操作. 在以下示例中,我们用 `Disposable` 替换了  "`try-with-resource`"  的 `AutoCloseable` 接口:
@@ -768,6 +784,7 @@ TIP: 可以使用  `Retry` 中暴露的构建器以更流畅的方式以及更�
 TIP: 类似的代码也可以被用于实现 "`exponential backoff and retry`" 模式 (译者加: 重试指定的次数, 且每一次重试之间停顿的时间逐渐增加),参考 <<faq.exponentialBackoff,FAQ>>.
 
 core 包中提供的 `Retry` helpers , `RetrySpec` 和 `RetryBackoffSpec` 都允许高级自定义,例如:
+
 - 为可能触发重试的异常设置 `filter(Predicate)`
 - 通过 `modifyErrorFilter(Function)` 修改类似上一条中设置的过滤器
 - 触发副作用,例如在重试触发器周围记录日志(即在延迟之前和之后进行回退),前提是重试已通过验证(`doBeforeRetry()` 和 `doAfterRetry()` 都符合)
@@ -775,43 +792,67 @@ core 包中提供的 `Retry` helpers , `RetrySpec` 和 `RetryBackoffSpec` 都允
 - 通过 `onRetryExhaustedThrow(BiFunction)` 自定义异常(如果已达到最大尝试次数).默认情况下,使用  `Exceptions.retryExhausted(...)`,可以通过 `Exceptions.isRetryExhausted(Throwable)` 进行区分
 - 激活  _transient errors_  的处理(请参见下文)(see below)
 
-`Retry` 规范中的瞬态错误处理利用 `RetrySignal#totalRetriesInARow()`: 检查是否重试并计算重试延迟,使用的索引是一种替代索引,每次发出 `onNext` 时,该索引都会重置为0.
-结果是,如果重新订阅源在再次失败之前生成了一些数据,则先前的失败将不会计入最大重试次数. 在采用指数退避策略的情况下,这还意味着下一次尝试将回到使用最小的 `Duration` ,而不是更长的 `Duration`.
-这对于发现零星突发错误(或瞬态错误)的长寿命源尤其有用,在这种情况下,应使用自己的退避重试每个突发.
+===== 重试 transient errors（瞬态错误 ）
+
+一些长期存在的源可能会看到零星突发错误，然后是一段较长的时间，在此期间一切都在平稳运行。本文档将这种错误模式称为 _transient errors_ （瞬态错误）。
+
+在这种情况下，最好单独处理每个突发错误，以便下一个突发不会继承前一个突发的重试状态。例如，使用 exponential backoff （指数退避）策略，
+这还意味着下一次尝试将回到使用最小的 `Duration` 开始重新延时重试,而不是更长的 `Duration`.。
+
+`RetrySignal` 接口 表示 `retryWhen` 状态，他有一个 `totalRetriesInARow()` 值。与通常的单调递增的 `totalRetries()` 索引不同，每次出现错误时，该二级索引都会重置为 `0`
+通过重试恢复（即，当尝试重试导致传入的 `onNext` 而不是再次出现 `onError` 时）。
+
+当在  `RetrySpec`  或 `RetryBackoffSpec` 中将 `transientErrors(boolean)` 配置参数设置为 `true` 时，生成的策略会使用 `totalRetriesInARow()` 索引，
+从而有效地处理 _transient errors_。 这些规范根据索引计算重试模式，因此实际上规范的所有其他配置参数都独立应用于每个突发错误。
 
 ====
 [source,java]
 ----
 AtomicInteger errorCount = new AtomicInteger(); // <1>
-AtomicInteger transientHelper = new AtomicInteger();
-Flux<Integer> transientFlux = Flux.<Integer>generate(sink -> {
-	int i = transientHelper.getAndIncrement();
-	if (i == 10) { // <2>
-		sink.next(i);
-		sink.complete();
-	}
-	else if (i % 3 == 0) { // <3>
-		sink.next(i);
-	}
-	else {
-		sink.error(new IllegalStateException("Transient error at " + i)); // <4>
-	}
-})
-		.doOnError(e -> errorCount.incrementAndGet());
+Flux<Integer> transientFlux = httpRequest.get() // <2>
+        .doOnError(e -> errorCount.incrementAndGet());
 
-transientFlux.retryWhen(Retry.max(2).transientErrors(true))  // <5>
+transientFlux.retryWhen(Retry.max(2).transientErrors(true))  // <3>
              .blockLast();
-assertThat(errorCount).hasValue(6); // <6>
+assertThat(errorCount).hasValue(6); // <4>
 ----
 <1> 我们将计算重试序列中的错误数.
-<2> 我们 `generate`  的源中包含大量错误.当计数器达到 10 时,它将成功完成.
-<3> 如果 `transientHelper` atomic 是 3 的倍数,则我们发出 `onNext` 并因此结束当前突发.
-<4> 在其他情况下,我们发出一个 `onError`.因为 2 不是 3 的倍数,因此 2 个 `onError` 突发被 1 个 `onNext` 中断.
-<5> 我们在该源上使用 `retryWhen`,最多配置2次重试尝试,但处于 `transientErrors` 模式.
-<6> 最后,在 `errorCount` 中注册了 `6` 个错误之后,序列到达 `onNext(10)` 并完成.
+<2> 我们假设一个 http 请求是一个流端点，有时会连续失败两次，然后恢复。
+<3> 我们在该请求上使用 `retryWhen` 配置为最多 2 次重试，但处于 `transientErrors` 模式。.
+<4> 最后，在 `errorCount` 中注册了 `6` 次尝试后，将获得有效响应，并且 `transientFlux` 成功完成。
 ====
 
-如果没有 `transientErrors(true)`,则第二个突发将达到配置的最大尝试次数 `2`,并且在发出 `onNext(3)` 之后序列将失败.
+如果没有 `transientErrors(true)`,则第二个突发将达到配置的最大尝试次数 `2`, 整个序列最终将失败。.
+
+[NOTE]
+====
+如果您想在没有实际 http 远程端点的情况下在本地尝试此操作，您可以将伪 `httpRequest` 方法实现为 `Supplier`，如下所示：
+
+=====
+[source,java]
+----
+final AtomicInteger transientHelper = new AtomicInteger();
+Supplier<Flux<Integer>> httpRequest = () ->
+    Flux.generate(sink -> { // <1>
+        int i = transientHelper.getAndIncrement();
+        if (i == 10) { // <2>
+            sink.next(i);
+            sink.complete();
+        }
+        else if (i % 3 == 0) { // <3>
+            sink.next(i);
+        }
+        else {
+            sink.error(new IllegalStateException("Transient error at " + i)); // <4>
+        }
+    });
+----
+<1> 我们 `generate` 的源中包含大量错误
+<2> 当计数器达到 10 时,它将成功完成.
+<3> 如果 `transientHelper` atomic 是 3 的倍数,则我们发出 `onNext` 并因此结束当前突发.
+<4> 在其他情况下,我们发出一个 `onError`.因为 2 不是 3 的倍数,因此 2 个 `onError` 突发被 1 个 `onNext` 中断.
+=====
+====
 
 === 在操作符或函数式中处理异常
 
@@ -904,7 +945,7 @@ converted.subscribe(
 ----
 ====
 
-[[processors]]
-== Processors 和 Sinks
+[[sinks]]
+== Sinks
 
-include::processors.adoc[]
+include::processors.adoc[leveloffset=3]
