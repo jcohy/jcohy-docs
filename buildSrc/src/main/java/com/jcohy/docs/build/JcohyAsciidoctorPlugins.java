@@ -4,11 +4,13 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.Lists;
-import com.jcohy.convention.conventions.ConventionsPlugin;
-import com.jcohy.convention.deployed.DeployedPlugin;
+import io.github.jcohy.gradle.asciidoctor.AsciidoctorConventionsPlugin;
+import io.github.jcohy.gradle.conventions.ConventionsPlugin;
+import io.github.jcohy.gradle.deployed.DeployedPlugin;
 import org.asciidoctor.gradle.jvm.AbstractAsciidoctorTask;
 import org.asciidoctor.gradle.jvm.AsciidoctorJExtension;
 import org.asciidoctor.gradle.jvm.AsciidoctorJPlugin;
+import org.asciidoctor.gradle.jvm.AsciidoctorTask;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.file.DuplicatesStrategy;
@@ -32,27 +34,22 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
     public void apply(Project project) {
         PluginContainer plugins = project.getPlugins();
         plugins.apply(AsciidoctorJPlugin.class);
+        plugins.apply(AsciidoctorConventionsPlugin.class);
         plugins.apply(ConventionsPlugin.class);
         plugins.apply(DeployedPlugin.class);
         project.setVersion(ProjectVersion.getVersionFromName(project.getName()));
-        plugins.withType(AsciidoctorJPlugin.class, (asciidoctorPlugin) -> project.getTasks().withType(AbstractAsciidoctorTask.class, (asciidoctorTask) -> configureAsciidoctorTask(project, asciidoctorTask)));
+           project.afterEvaluate(p -> {
+               p.getTasks().withType(AsciidoctorTask.class,asciidoctorTask -> {
+                   configureAsciidoctorTask(p, asciidoctorTask);
+               });
+           });
     }
 
     private void configureAsciidoctorTask(Project project, AbstractAsciidoctorTask asciidoctorTask) {
         asciidoctorTask.languages("zh-cn");
-        if(singlePage.contains(project.getName()) && !asciidoctorTask.getName().equals("asciidoctorMultipage")) {
-            asciidoctorTask.sources("*.singleadoc");
-        } else {
-            asciidoctorTask.sources("index.adoc");
-        }
         asciidoctorTask.setLogDocuments(true);
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
-        project.getTasks()
-                .withType(Sync.class, (sync -> sync.from("src/main/resources", (spec) -> {
-                    spec.into("main/resources");
-                    spec.setDuplicatesStrategy(DuplicatesStrategy.INCLUDE);
-                })));
     }
 
     private void configureCommonAttributes(Project project, AbstractAsciidoctorTask asciidoctorTask) {
@@ -76,6 +73,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
         attributes.put("spring-api-doc", "https://docs.spring.io/" + project.getName());
         attributes.put("doc-root","https://docs.jcohy.com");
+        attributes.put("docs-java",project.getProjectDir() + "/src/main/java/org/springframework/docs");
         attributes.put("spring-docs-prefix","https://docs.spring.io/spring-framework/docs/");
         attributes.put("gh-samples-url","https://github.com/spring-projects/spring-security/master/");
 
