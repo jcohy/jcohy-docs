@@ -159,7 +159,7 @@ https://projectreactor.io/docs/core/release/api/reactor/core/scheduler/Scheduler
 * 无限弹性线程池 (`Schedulers.elastic()`): 此选项不再是首选,因为它倾向于隐藏背压问题并导致线程过多(请参见下文)使用  `Schedulers.boundedElastic()`.
 * 有限弹性线程池 (`Schedulers.boundedElastic()`). 像其前身 `elastic()` 一样 ,它根据需要创建一个线程池,重用空闲线程.线程池如果空闲时间过长 (默认为 60s)就会被废弃.与  `elastic()` 不同的是,它可以支持
 你创建线程的个数(默认为 CPU 核数*10),达到上限后,最多可提交 `10` 万个任务,并在线程可用时重新调度(当延迟调度时,延迟在线程可用时开始),对于 I/O 阻塞的场景比较适用. `Schedulers.boundedElastic()` 能够方便地给一个阻塞 的任务分配它自己的线程,
-从而不会妨碍其他任务和资源,见 <<faq.wrap-blocking,如何包装一个同步阻塞的调用 ?>>.使用新线程不会给系统带来太大压力.
+从而不会妨碍其他任务和资源,见 <<faq.adoc#faq.wrap-blocking,如何包装一个同步阻塞的调用 ?>>.使用新线程不会给系统带来太大压力.
 * 固定大小线程池 (`Schedulers.parallel()`). 所创建线程池的大小与 CPU 个数等同.
 
 此外,你还可以使用 `Schedulers.fromExecutorService(ExecutorService)` 基于现有的 `ExecutorService` 创建 `Scheduler`.(虽然不太建议,不过你也可以使用 `Executor` 来创建).
@@ -182,7 +182,7 @@ Flux.interval(Duration.ofMillis(300), Schedulers.newSingle("test"))
 ----
 ====
 
-Reactor 提供了两种在响应式链中调整调度器 `Scheduler` 的方法: `publishOn` 和 `subscribeOn`. 它们都接受一个 `Scheduler` 作为参数,从而可以改变调度器.但是 `publishOn` 在链中出现的位置 是有讲究的,而 `subscribeOn` 则无所谓.要理解它们的不同,你首先要理解 <<reactive.subscribe,nothing happens until you subscribe>>.
+Reactor 提供了两种在响应式链中调整调度器 `Scheduler` 的方法: `publishOn` 和 `subscribeOn`. 它们都接受一个 `Scheduler` 作为参数,从而可以改变调度器.但是 `publishOn` 在链中出现的位置 是有讲究的,而 `subscribeOn` 则无所谓.要理解它们的不同,你首先要理解 <<reactiveProgramming.adoc#reactive.subscribe,nothing happens until you subscribe>>.
 
 在 Reactor 中,当你在操作链上添加操作符的时候,你可以根据需要在 `Flux` 和 `Mono` 的实现中包装其他的 `Flux` 和 `Mono`.一旦你订阅(subscribe)了它,一个 `Subscriber` 的链 就被创建了,一直向上到第一个 `publisher` .这些对开发者是不可见的,开发者所能看到的是最外一层的 `Flux` (或 `Mono`)和 `Subscription`,但是具体的任务是在中间这些跟操作符相关的 `subscriber` 上处理的.
 
@@ -254,7 +254,7 @@ new Thread(() -> flux.subscribe(System.out::println));  //<5>
 [[error.handling]]
 == 处理错误
 
-TIP: 如果想了解有哪些可用于错误处理的操作符,请参考 <<which.errors,the relevant operator decision tree>>.
+TIP: 如果想了解有哪些可用于错误处理的操作符,请参考 <<apdx-operatorChoice.adoc#which.errors,the relevant operator decision tree>>.
 
 在响应式流中,错误(error)是终止(terminal)事件.当有错误发生时,它会导致流序列停止, 并且错误信号会沿着操作链条向下传递,直至遇到你定义的 `Subscriber` 及其 `onError` 方法.
 
@@ -781,7 +781,7 @@ include::snippetRetryWhenRetry.adoc[]
 
 TIP: 可以使用  `Retry` 中暴露的构建器以更流畅的方式以及更精细的重试策略来实现相同目标.例如: `errorFlux.retryWhen(Retry.max(3));`.
 
-TIP: 类似的代码也可以被用于实现 "`exponential backoff and retry`" 模式 (译者加: 重试指定的次数, 且每一次重试之间停顿的时间逐渐增加),参考 <<faq.exponentialBackoff,FAQ>>.
+TIP: 类似的代码也可以被用于实现 "`exponential backoff and retry`" 模式 (译者加: 重试指定的次数, 且每一次重试之间停顿的时间逐渐增加),参考 <<faq.adoc#faq.exponentialBackoff,FAQ>>.
 
 core 包中提供的 `Retry` helpers , `RetrySpec` 和 `RetryBackoffSpec` 都允许高级自定义,例如:
 
@@ -879,12 +879,12 @@ ERROR: java.lang.IllegalArgumentException: foo
 ----
 ====
 
-TIP: `Exception` 可以在其被传递给 `onError` 之前,使用 <<hooks-internal,hook>> 进行调整.
+TIP: `Exception` 可以在其被传递给 `onError` 之前,使用 <<advancedFeatures.adoc#hooks-internal,hook>> 进行调整.
 
 Reactor,定义了一系列的能够导致“严重失败”的错误(比如 `OutOfMemoryError`),也可参考 `Exceptions.throwIfFatal` 方法.这些错误意味着 Reactor 无力处理只能抛出,无法传递下去.
 
 NOTE: 还有些情况下不受检异常仍然无法传递下去(多数处于 subscribe 和 request 阶段), 因为可能由于多线程竞争导致两次 `onError` 或 `onComplete` 的情况.当这种竞争发生的时候, 无法传递下去的错误信号就被 "`dropped`" 了.
-这些情况仍然可以通过自定义的 hook 来搞定,见 丢弃事件的 <<hooks-dropping>>.
+这些情况仍然可以通过自定义的 hook 来搞定,见 丢弃事件的 <<advancedFeatures.adoc#hooks-dropping>>.
 
 你可能会问: “那么 受检查异常(Checked Exceptions)? ”
 
@@ -948,4 +948,195 @@ converted.subscribe(
 [[sinks]]
 == Sinks
 
-include::processors.adoc[leveloffset=3]
+在 Reactor 中，sink 是一个允许以独立方式安全手动触发信号的类，创建一个类似 `Publisher` 的结构，能够处理多个 `Subscriber`（`unicast()` 类型除外）。
+
+在 3.5.0 之前，还有一套已经被淘汰的 `Processor` 实现。
+
+[[sinks-intro]]
+=== 使用 `Sinks.One` 和 `Sinks.Many` 从多个线程安全地生产
+
+从下游订阅者的角度来看，由 reactor-core 暴露的 `Sinks` 需要确保多线程使用被检测到，并且不会导致违反规范或未定义的行为。当使用 `tryEmit*`  API 时，并行调用会快速失败。当使用 `emit*`  API 时，提供的 `EmissionFailureHandler` 可能允许重试连接(例如。busy looping)，否则 sink 将以一个错误终止.
+
+这是对 `Processor.onNext` 的改进。它必须从外部同步，否则从下游订阅者的角度来看会导致未定义的行为.
+
+[NOTE]
+====
+Processors 既是一种特别的发布者(`Publisher`)又是一种订阅者(`Subscriber`).
+它们最初的目的是作为一个中间步骤的可能表示，然后可以在 Reactive Streams 实现之间共享。然而，在 Reactor 中，这些步骤是由 `Publisher` 之类的操作符表示的。
+
+第一次遇到 `Processor` 时，一个常见的错误是试图直接从 `Subscriber` 接口调用公开的 `onNext`, `onComplete` 和 `onError`  方法。
+
+这样的手动调用应该小心进行，特别是在 Reactive Streams 规范之外的同步调用。Processors 实际上可能略微有用，除非遇到需要传递基于 Reactive Streams 的 API 的 `Subscriber` 而不是公开 `Publisher` 的.
+
+Sinks 通常是更好的选择。在 Reactor 中，sink 是一个允许安全手动触发信号的类。它可以与订阅关联(从操作符内部)，也可以完全独立.
+====
+
+`Sinks` 建造者对象(builder) 为主要支持的 producer 类型提供了一个引导性 API.
+您可以发现 `Flux` 中识别一些行为,例如 `onBackpressureBuffer`.
+
+====
+[source,java]
+----
+Sinks.Many<Integer> replaySink = Sinks.many().replay().all();
+----
+====
+
+多个生产者线程可以通过执行以下操作在接收器上并发生成数据：
+
+====
+[source,java]
+----
+//thread1
+replaySink.emitNext(1, EmitFailureHandler.FAIL_FAST);
+
+//thread2, later
+replaySink.emitNext(2, EmitFailureHandler.FAIL_FAST);
+
+//thread3, concurrently with thread 2
+//would retry emitting for 2 seconds and fail with EmissionException if unsuccessful
+replaySink.emitNext(3, EmitFailureHandler.busyLooping(Duration.ofSeconds(2)));
+
+//thread3, concurrently with thread 2
+//would return FAIL_NON_SERIALIZED
+EmitResult result = replaySink.tryEmitNext(4);
+
+
+----
+====
+
+[NOTE]
+====
+使用 `busyLooping` 时，请注意返回的 `EmitFailureHandler` 实例不能重复使用，例如，
+它应该是每个 `emitNext` 调用一次 `busyLooping`。
+此外，建议使用 100 毫秒以上的超时，因为较小的值没有实际意义。
+====
+
+`Sinks.Many` 可以作为 `Flux` 展现给下游消费者, 如下:
+
+====
+[source,java]
+----
+Flux<Integer> fluxView = replaySink.asFlux();
+fluxView
+	.takeWhile(i -> i < 10)
+	.log()
+	.blockLast();
+----
+====
+
+相似的, `Sinks.Empty` 和 `Sinks.One` 可以使用 `asMono()` 方法 将其视为 `Mono`.
+
+
+`Sinks` 分类:
+
+. `many().multicast()`: a sink that will transmit only newly pushed data to its subscribers, honoring their backpressure (newly pushed as in "after the subscriber's subscription").
+. `many().unicast()`: same as above, with the twist that data pushed before the first subscriber registers is buffered.
+. `many().replay()`: a sink that will replay a specified history size of pushed data to new subscribers then continue pushing new data live.
+. `one()`: a sink that will play a single element to its subscribers
+. `empty()`: a sink that will play a terminal signal only to its subscribers (error or complete), but can still be viewed as a `Mono<T>` (notice the generic type `<T>`).
+
+[[sinks-overview]]
+=== 可用的 Sinks 的概述
+
+==== Sinks.many().unicast().onBackpressureBuffer(args?)
+
+A unicast `Sinks.Many` can deal with backpressure by using an internal buffer.
+The trade-off is that it can have _at most one_ `Subscriber`.
+
+The basic unicast sink is created via `Sinks.many().unicast().onBackpressureBuffer()`.
+But there are a few additional `unicast` static factory methods in `Sinks.many().unicast()` allowing finer tuning.
+
+For instance, by default, it is unbounded: if you push any amount of data through it while
+its `Subscriber` has not yet requested data, it buffers all of the data.
+You can change this by providing a custom `Queue` implementation for the internal
+buffering in the `Sinks.many().unicast().onBackpressureBuffer(Queue)` factory m
+
+
+
+ethod.
+If that queue is bounded, the sink could reject the push of a value when the buffer
+is full and not enough requests from downstream have been received.
+
+==== Sinks.many().multicast().onBackpressureBuffer(args?)
+
+A multicast `Sinks.Many` can emit to several subscribers while honoring backpressure for each of its subscribers.
+Subscribers receive only the signals pushed through the sink after they have subscribed.
+
+The basic multicast sink is created via `Sinks.many().multicast().onBackpressureBuffer()`.
+
+By default, if all of its subscribers are cancelled (which basically means they have all
+un-subscribed), it clears its internal buffer and stops accepting new subscribers.
+You can tune this by using the `autoCancel` parameter in the `multicast` static factory methods
+under `Sinks.many().multicast()`.
+
+==== Sinks.many().multicast().directAllOrNothing()
+
+A multicast `Sinks.Many` with a simplistic handling of backpressure: if *any* of the subscribers
+is too slow (has zero demand), the `onNext` is dropped for *all* subscribers.
+
+However, the slow subscribers are not terminated and once the slow subscribers have started
+requesting again, all will resume receiving elements pushed from there on.
+
+Once the `Sinks.Many` has terminated (usually through its `emitError(Throwable)` or
+`emitComplete()` methods being called), it lets more subscribers subscribe but replays the
+termination signal to them immediately.
+
+==== Sinks.many().multicast().directBestEffort()
+
+A multicast `Sinks.Many` with a best effort handling of backpressure: if a subscriber
+is too slow (has zero demand), the `onNext` is dropped for *this slow subscriber only*.
+
+However, the slow subscribers are not terminated and once they have started requesting again
+they will resume receiving newly pushed elements.
+
+Once the `Sinks.Many` has terminated (usually through its `emitError(Throwable)` or
+`emitComplete()` methods being called), it lets more subscribers subscribe but replays the
+termination signal to them immediately.
+
+==== Sinks.many().replay()
+
+A replay `Sinks.Many` caches emitted elements and replays them to late subscribers.
+
+It can be created in multiple configurations:
+
+* Caching a limited history (`Sinks.many().replay().limit(int)`) or an unbounded history (`Sinks.many().replay().all()`).
+* Caching a time-based replay window (`Sinks.many().replay().limit(Duration)`).
+* Caching a combination of history size and time window (`Sinks.many().replay().limit(int, Duration)`).
+
+Additional overloads for fine tuning of the above can also be found under `Sinks.many().replay()`, as well
+as a variant that allows caching of a single element (`latest()` and `latestOrDefault(T)`).
+
+==== Sinks.unsafe().many()
+
+Advanced users and operators builders might want to consider using `Sinks.unsafe().many()`
+which will provide the same `Sinks.Many` factories _without_ the extra producer thread safety.
+As a result there will be less overhead per sink, since thread-safe sinks have to detect multi-threaded access.
+
+Library developers should not expose unsafe sinks but can use them internally in a controlled
+calling environment where they can ensure external synchronization of the calls that lead to
+`onNext`, `onComplete` and `onError` signals, in respect of the Reactive Streams specification.
+
+==== Sinks.one()
+
+This method directly construct a simple instance of `Sinks.One<T>`.
+This flavor of `Sinks` is viewable as a `Mono` (through its `asMono()` view method), and
+has slightly different `emit` methods to better convey this Mono-like semantics:
+
+* `emitValue(T value)` generates an `onNext(value)` signal and - in most implementations - will also trigger an implicit `onComplete()`
+* `emitEmpty()` generates an isolated `onComplete()` signal, intended as generating the equivalent of an empty `Mono`
+* `emitError(Throwable t)` generates an `onError(t)` signal
+
+`Sinks.one()` accepts _one_ call of any of these methods, effectively generating a `Mono`
+that either completed with a value, completed empty or failed.
+
+==== Sinks.empty()
+
+This method directly constructs a simple instance of `Sinks.Empty<T>`.
+This flavor of `Sinks` is like `Sinks.One<T>`, except it doesn't offer the `emitValue` method.
+
+As a result, it can only generates a `Mono` that completes empty or fails.
+
+The sink is still typed with a generic `<T>` despite being unable to trigger an `onNext`,
+because it allows easy composition and inclusion in chains of operators that require a specific type.
+
+// include::processors.adoc[leveloffset=3]

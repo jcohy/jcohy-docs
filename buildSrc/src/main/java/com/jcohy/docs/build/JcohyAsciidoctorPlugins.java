@@ -68,7 +68,16 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
         attributes.put("spring-api-doc", "https://docs.spring.io/" + project.getName());
         attributes.put("doc-root","https://docs.jcohy.com");
-        attributes.put("docs-java",project.getProjectDir() + "/src/main/java/org/springframework/docs");
+        if(project.getName().startsWith("spring-boot")) {
+            attributes.put("docs-java",project.getProjectDir() + "/src/main/java/org/springframework/boot/docs");
+            attributes.put("docs-kotlin",project.getProjectDir() + "/src/main/kotlin/org/springframework/boot/docs");
+            attributes.put("docs-groovy",project.getProjectDir() + "/src/main/groovy/org/springframework/boot/docs");
+        } else {
+            attributes.put("docs-java",project.getProjectDir() + "/src/main/java/org/springframework/docs");
+            attributes.put("docs-kotlin",project.getProjectDir() + "/src/main/kotlin/org/springframework/docs");
+            attributes.put("docs-groovy",project.getProjectDir() + "/src/main/groovy/org/springframework/docs");
+        }
+
         attributes.put("spring-docs-prefix","https://docs.spring.io/spring-framework/docs/");
         attributes.put("gh-samples-url","https://github.com/spring-projects/spring-security/master/");
         attributes.put("version",ProjectVersion.getVersionFromName(project.getName()));
