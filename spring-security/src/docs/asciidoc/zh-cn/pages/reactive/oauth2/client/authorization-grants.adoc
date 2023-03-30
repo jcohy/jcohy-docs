@@ -69,6 +69,10 @@ spring:
 . `client-secret` is omitted (or empty)
 . `client-authentication-method` is set to "none" (`ClientAuthenticationMethod.NONE`)
 
+[TIP]
+如果 OAuth 2.0 提供程序支持 https://tools.ietf.org/html/rfc6749#section-2.1[Confidential Clients] 的 PKCE，您可以（可选）使用 `DefaultServerOAuth2AuthorizationRequestResolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce())`.
+
+
 [[reactive-oauth2Client-auth-code-redirect-uri]]
 `DefaultServerOAuth2AuthorizationRequestResolver` 还支持使用 `UriComponentsBuilder` 的 `redirect-uri` 的 `URI` 模板变量。
 
@@ -109,6 +113,7 @@ spring:
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class OAuth2LoginSecurityConfig {
 
@@ -151,6 +156,7 @@ public class OAuth2LoginSecurityConfig {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 class SecurityConfig {
 
@@ -159,7 +165,7 @@ class SecurityConfig {
 
     @Bean
     fun securityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
-        return http {
+        http {
             authorizeExchange {
                 authorize(anyExchange, authenticated)
             }
@@ -167,6 +173,8 @@ class SecurityConfig {
                 authorizationRequestResolver = authorizationRequestResolver(customClientRegistrationRepository)
             }
         }
+
+        return http.build()
     }
 
     private fun authorizationRequestResolver(
@@ -253,6 +261,7 @@ private fun authorizationRequestCustomizer(): Consumer<OAuth2AuthorizationReques
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class OAuth2ClientSecurityConfig {
 
@@ -271,16 +280,19 @@ public class OAuth2ClientSecurityConfig {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 class OAuth2ClientSecurityConfig {
 
     @Bean
     fun securityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
-        return http {
+        http {
             oauth2Client {
                 authorizationRequestRepository = authorizationRequestRepository()
             }
         }
+
+        return http.build()
     }
 }
 ----
@@ -322,6 +334,7 @@ IMPORTANT: 重要提示：自定义 `Converter` 必须返回 OAuth 2.0 访问令
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class OAuth2ClientSecurityConfig {
 
@@ -348,16 +361,19 @@ public class OAuth2ClientSecurityConfig {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 class OAuth2ClientSecurityConfig {
 
     @Bean
     fun securityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
-        return http {
+        http {
             oauth2Client {
                 authenticationManager = authorizationCodeAuthenticationManager()
             }
         }
+
+        return http.build()
     }
 
     private fun authorizationCodeAuthenticationManager(): ReactiveAuthenticationManager {
@@ -1071,3 +1087,9 @@ class OAuth2ResourceServerController {
 }
 ----
 ====
+
+[NOTE]
+`JwtBearerReactiveOAuth2AuthorizedClientProvider` 默认通过 `OAuth2AuthorizationContext.getPrincipal().getPrincipal()` 解析 `Jwt` 断言，因此在前面的示例中使用了 `JwtAuthenticationToken`。
+
+[TIP]
+如果您需要解析来自不同来源的 `Jwt` 断言，您可以提供带有自定义 `Function<OAuth2AuthorizationContext, Mono<Jwt>>` 的 `JwtBearerReactiveOAuth2AuthorizedClientProvider.setJwtAssertionResolver()`。

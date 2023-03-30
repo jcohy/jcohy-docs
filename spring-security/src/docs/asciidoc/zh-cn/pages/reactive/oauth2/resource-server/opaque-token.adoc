@@ -2,20 +2,27 @@
 
 [[webflux-oauth2resourceserver-opaque-minimaldependencies]]
 == Introspection 最小依赖
-如 <<webflux-oauth2resourceserver-jwt-minimaldependencies,JWT 的最小配置>> 中所述， 大多数资源服务器支持都在 `spring-security-oauth2-resource-server` 中. 但是， 除非提供了自定义的 <<webflux-oauth2resourceserver-opaque-introspector-bean,`ReactiveOpaqueTokenIntrospector`>>,否则资源服务器将回退到 `ReactiveOpaqueTokenIntrospector`.  这意味着 `spring-security-oauth2-resource-server` 和 `oauth2-oidc-sdk` 都是必需的， 以使支持不透明承载令牌的最小资源服务器正常工作.  为了确定 `oauth2-oidc-sdk` 的正确版本， 请参考 `spring-security-oauth2-resource-server`.
+如 <<webflux-oauth2resourceserver-jwt-minimaldependencies,JWT 的最小配置>> 中所述， 大多数资源服务器支持都在 `spring-security-oauth2-resource-server` 中.
+但是， 除非提供了自定义的 <<webflux-oauth2resourceserver-opaque-introspector-bean,`ReactiveOpaqueTokenIntrospector`>>,否则资源服务器将回退到 `ReactiveOpaqueTokenIntrospector`.
+这意味着 `spring-security-oauth2-resource-server` 和 `oauth2-oidc-sdk` 都是必需的， 以使支持不透明承载令牌的最小资源服务器正常工作.
+为了确定 `oauth2-oidc-sdk` 的正确版本， 请参考 `spring-security-oauth2-resource-server`.
 
 [[webflux-oauth2resourceserver-opaque-minimalconfiguration]]
 == Introspection 最小配置
 
 通常,opaque token 可以通过授权服务器托管的 https://tools.ietf.org/html/rfc7662[OAuth 2.0 Introspection Endpoint]进行验证. 当需要撤销时,这可能很方便.
 
-使用 https://spring.io/projects/spring-boot[Spring Boot] 时,将应用程序配置为使用内省的资源服务器包括两个基本步骤. 首先,包括所需的依赖性,其次,指示内省端点详细信息.
+使用 https://spring.io/projects/spring-boot[Spring Boot] 时,将应用程序配置为使用内省的资源服务器包括两个基本步骤.
+
+* 包括所需的依赖性
+* 指示内省端点详细信息.
 
 [[webflux-oauth2resourceserver-opaque-introspectionuri]]
 === 指定授权服务器
 
 要指定内省端点的位置,只需执行以下操作:
 
+====
 [source,yaml]
 ----
 spring:
@@ -27,13 +34,16 @@ spring:
           client-id: client
           client-secret: secret
 ----
+====
 
 其中 `https://idp.example.com/introspect` 是授权服务器托管的内省端点,而 `client-id` 和 `client-secret` 是击中该端点所需的凭据.
 
 资源服务器将使用这些属性进一步进行自我配置,并随后验证传入的 JWT.
 
 [NOTE]
-使用内省时,授权服务器的字眼就是法律.  如果授权服务器响应令牌是有效的,那么令牌是有效的.
+====
+如果授权服务器响应令牌是有效的,那么令牌是有效的.
+====
 
 就是这样！
 
@@ -47,11 +57,13 @@ spring:
 
 应用程序启动后,资源服务器将尝试处理任何包含 `Authorization: Bearer` 头的请求:
 
+====
 [source,http]
 ----
 GET / HTTP/1.1
 Authorization: Bearer some-token-value # Resource Server will process this
 ----
+====
 
 只要指示了此方案,资源服务器就会尝试根据 Bearer Token 规范处理请求.
 
@@ -65,9 +77,9 @@ Authorization: Bearer some-token-value # Resource Server will process this
 
 从这里,您可能要跳转到:
 
-* <<webflux-oauth2resourceserver-opaque-attributes,查找身份验证后的属性>>
-* <<webflux-oauth2resourceserver-opaque-authorization-extraction,手动提取权限>>
-* <<webflux-oauth2resourceserver-opaque-jwt-introspector,对 JWT 使用 Introspection>>
+* <<webflux-oauth2resourceserver-opaque-attributes>>
+* <<webflux-oauth2resourceserver-opaque-authorization-extraction>>
+* <<webflux-oauth2resourceserver-opaque-jwt-introspector>>
 
 [[webflux-oauth2resourceserver-opaque-attributes]]
 == 查找身份验证后的属性
@@ -120,7 +132,7 @@ fun foo(@AuthenticationPrincipal principal: OAuth2AuthenticatedPrincipal): Mono<
 
 === 通过 SpEL 查找属性
 
-当然,这也意味着可以通过 SpEL 访问属性.
+您可以使用 Spring 表达式语言 (SpEL) 访问属性。.
 
 例如,如果使用 `@EnableReactiveMethodSecurity` 以便可以使用 `@PreAuthorize` 注解,则可以执行以下操作:
 
@@ -192,6 +204,7 @@ fun springSecurityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain 
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class MyCustomSecurityConfiguration {
     @Bean
@@ -270,6 +283,7 @@ fun introspector(): ReactiveOpaqueTokenIntrospector {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class DirectlyConfiguredIntrospectionUri {
     @Bean
@@ -320,6 +334,7 @@ fun springSecurityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain 
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class DirectlyConfiguredIntrospector {
     @Bean
@@ -389,7 +404,12 @@ fun introspector(): ReactiveOpaqueTokenIntrospector {
 
 OAuth 2.0 内省端点通常会返回一个 `scope` 属性,指示其被授予的范围 (或权限) ,例如:
 
-`{ ..., "scope" : "messages contacts"}`
+====
+[source,json]
+----
+{ ..., "scope" : "messages contacts"}
+----
+====
 
 在这种情况下,资源服务器将尝试将这些作用域强制为已授予权限的列表,并为每个作用域添加字符串 "SCOPE_" 作为前缀.
 
@@ -399,6 +419,7 @@ OAuth 2.0 内省端点通常会返回一个 `scope` 属性,指示其被授予的
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebFluxSecurity
 public class MappedAuthorities {
     @Bean
@@ -457,7 +478,7 @@ fun getMessages(): Flux<Message> { }
 
 默认情况下,Opaque Token 支持将从内省响应中提取范围声明,并将其解析为各个 `GrantedAuthority` 实例.
 
-例如,如果内省响应为:
+考虑以下示例：
 
 [source,json]
 ----
@@ -468,7 +489,7 @@ fun getMessages(): Flux<Message> { }
 ----
 
 
-然后,资源服务器将生成具有两个权限的  `Authentication` ,一个权限用于  `message:read` ,另一个权限用于 `message:write`.
+如果 introspection 响应如前例所示，然后,资源服务器将生成具有两个权限的  `Authentication` ,一个权限用于  `message:read` ,另一个权限用于 `message:write`.
 
 当然,这可以使用自定义的 `ReactiveOpaqueTokenIntrospector` 进行自定义,该 `ReactiveOpaqueTokenIntrospector` 查看属性集并以自己的方式进行转换:
 
@@ -549,6 +570,7 @@ Spring Security 的 Opaque 令牌支持被设计为不关心令牌的格式-它�
 
 即使您为令牌使用 JWT 格式,您的验证方法也是内省的,这意味着您想要执行以下操作:
 
+====
 [source,yaml]
 ----
 spring:
@@ -560,6 +582,7 @@ spring:
           client-id: client
           client-secret: secret
 ----
+====
 
 在这种情况下,得到的  `Authentication` 将是 `BearerTokenAuthentication`.
 相应的 `OAuth2AuthenticatedPrincipal` 中的任何属性将是内省端点返回的任何属性.
