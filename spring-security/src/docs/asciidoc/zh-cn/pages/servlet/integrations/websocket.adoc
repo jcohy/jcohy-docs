@@ -8,22 +8,39 @@ Spring Security 4 增加了对确保 Spring https://docs.spring.io/spring/docs/c
 Spring Security 不提供直接的 JSR-356 支持,因为这样做几乎没有价值.  这是因为格式是未知的,因此 Spring https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-intro-sub-protocol[几乎无法保护未知格式].  另外,JSR-356 没有提供拦截消息的方法,因此安全性将具有相当大的侵入性.
 ****
 
+[[websocket-authentication]]
+== WebSocket Authentication
+
+WebSockets 重用建立 WebSocket 连接时在 HTTP 请求中找到的相同身份验证信息。
+这意味着 `HttpServletRequest` 上的 `Principal` 将被移交给 WebSockets。
+如果您使用的是 Spring Security，则会自动覆盖 `HttpServletRequest` 上的 `Principal`。
+
+更具体地说，为了确保用户已经通过您的 WebSocket 应用程序的身份验证，所有必要的就是确保您设置 Spring Security 来验证您基于 HTTP 的 Web 应用程序。
+
 [[websocket-configuration]]
 == WebSocket 配置
 
-Spring Security 4.0 通过 Spring Messaging 抽象引入了对 WebSocket 的授权支持.  要使用 Java 配置来配置授权,只需扩展 `AbstractSecurityWebSocketMessageBrokerConfigurer` 并配置 `MessageSecurityMetadataSourceRegistry`.  例如:
+Spring Security 4.0 通过 Spring Messaging 抽象引入了对 WebSocket 的授权支持.
+
+在 Spring Security 5.8 中，此支持已更新为使用 `AuthorizationManager` API。
+
+要使用 Java 配置配置授权，只需包含 `@EnableWebSocketSecurity` 注解并发布 `AuthorizationManager<Message<?>>` bean 或在 XML 中使用 `use-authorization-manager` 属性。
+一种方法是使用 `AuthorizationManagerMessageMatcherRegistry` 来指定端点模式，如下所示：
 
 ====
 .Java
 [source,java,role="primary"]
 ----
 @Configuration
-public class WebSocketSecurityConfig
-      extends AbstractSecurityWebSocketMessageBrokerConfigurer { // <1> <2>
+@EnableWebSocketSecurity // <1> <2>
+public class WebSocketSecurityConfig {
 
-    protected void configureInbound(MessageSecurityMetadataSourceRegistry messages) {
+    @Bean
+    AuthorizationManager<Message<?>> messageAuthorizationManager(MessageMatcherDelegatingAuthorizationManager.Builder messages) {
         messages
                 .simpDestMatchers("/user/**").authenticated() // <3>
+
+        return messages.build();
     }
 }
 ----
@@ -32,57 +49,86 @@ public class WebSocketSecurityConfig
 [source,kotlin,role="secondary"]
 ----
 @Configuration
-open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() { // <1> <2>
-    override fun configureInbound(messages: MessageSecurityMetadataSourceRegistry) {
+@EnableWebSocketSecurity // <1> <2>
+open class WebSocketSecurityConfig { // <1> <2>
+    @Bean
+    fun messageAuthorizationManager(messages: MessageMatcherDelegatingAuthorizationManager.Builder): AuthorizationManager<Message<?>> {
         messages.simpDestMatchers("/user/**").authenticated() // <3>
+        return messages.build()
     }
 }
 ----
-====
-
-这将确保:
-
 <1> 任何入站 CONNECT 消息均需要有效的 CSRF 令牌来实施 <<websocket-sameorigin,同源策略>>
 <2> 对于任何入站请求,在 simpUser header 属性中使用用户填充 SecurityContextHolder.
-<3> 我们的消息需要适当的授权. 具体来说,任何以 "/user/" 开头的入站消息都需要 `ROLE_USER`. 有关授权的更多详细信息,请参见 <<websocket-authorization,第 15.7.3 节 "WebSocket授权">>
+<3> 我们的消息需要适当的授权. 具体来说,任何以 "/user/" 开头的入站消息都需要 `ROLE_USER`. 有关授权的更多详细信息,请参见 <<websocket-authorization,第 15.7.3 节 "WebSocket 授权">>
+====
 
-Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保护 WebSocket.  可比较的基于XML的配置如下所示:
+Spring Security 还提供 <<nsa-websocket-security,XML 命名空间>> 支持以保护 WebSocket.  可比较的基于 XML 的配置如下所示:
 
+====
 [source,xml]
 ----
-<websocket-message-broker> <!--1--> <!--2-->
-    <!--3-->
-    <intercept-message pattern="/user/**" access="hasRole('USER')" />
+<websocket-message-broker use-authorization-manager="true">
+    <intercept-message pattern="/user/**" access="authenticated"/>
 </websocket-message-broker>
 ----
-
-这将确保:
-
 <1> 任何入站 CONNECT 消息均需要有效的 CSRF 令牌来实施 <<websocket-sameorigin,同源策略>>
 <2> 对于任何入站请求,在 simpUser header 属性中使用用户填充 SecurityContextHolder.
 <3> 我们的消息需要适当的授权. 具体来说,任何以 "/user/" 开头的入站消息都需要 `ROLE_USER`. 有关授权的更多详细信息,请参见 <<websocket-authorization,第15.7.3节 "WebSocket授权">>
+====
 
-[[websocket-authentication]]
-== WebSocket 认证
+=== Custom Authorization
 
-WebSockets 重用建立 `WebSocket` 连接时在 HTTP 请求中找到的相同身份验证信息.  这意味着 `HttpServletRequest` 上的 `Principal` 将移交给 `WebSockets`.  如果您使用的是 Spring Security,则 `HttpServletRequest` 上的 `Principal` 将被自动覆盖.
-
-更具体地说,要确保用户已通过 `WebSocket` 应用程序的身份验证,所需要做的就是确保您设置 Spring Security 以对基于 HTTP 的 Web 应用程序进行身份验证.
-
-[[websocket-authorization]]
-== WebSocket 授权
-
-Spring Security 4.0 通过 Spring Messaging 抽象引入了对 WebSocket 的授权支持.  要使用 Java 配置来配置授权,只需扩展 `AbstractSecurityWebSocketMessageBrokerConfigurer` 并配置 `MessageSecurityMetadataSourceRegistry`.  例如:
+使用 `AuthorizationManager` 时，定制非常简单。 例如，您可以使用 `AuthorityAuthorizationManager` 发布一个要求所有消息都具有 "USER" 角色的 `AuthorizationManager`，如下所示：
 
 ====
 .Java
 [source,java,role="primary"]
 ----
 @Configuration
-public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBrokerConfigurer {
+@EnableWebSocketSecurity // <1> <2>
+public class WebSocketSecurityConfig {
 
-    @Override
-    protected void configureInbound(MessageSecurityMetadataSourceRegistry messages) {
+    @Bean
+    AuthorizationManager<Message<?>> messageAuthorizationManager(MessageMatcherDelegatingAuthorizationManager.Builder messages) {
+        return AuthorityAuthorizationManager.hasRole("USER");
+    }
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+@EnableWebSocketSecurity // <1> <2>
+open class WebSocketSecurityConfig {
+    @Bean
+    fun messageAuthorizationManager(messages: MessageMatcherDelegatingAuthorizationManager.Builder): AuthorizationManager<Message<?>> {
+        return AuthorityAuthorizationManager.hasRole("USER") // <3>
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<bean id="authorizationManager" class="org.example.MyAuthorizationManager"/>
+
+<websocket-message-broker authorization-manager-ref="myAuthorizationManager"/>
+----
+====
+
+有几种方法可以进一步匹配消息，如下面更高级的示例所示：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+public class WebSocketSecurityConfig {
+
+    @Bean
+    public AuthorizationManager<Message<?>> messageAuthorizationManager(MessageMatcherDelegatingAuthorizationManager.Builder messages) {
         messages
                 .nullDestMatcher().authenticated() // <1>
                 .simpSubscribeDestMatchers("/user/queue/errors").permitAll() // <2>
@@ -91,6 +137,7 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
                 .simpTypeMatchers(MESSAGE, SUBSCRIBE).denyAll() // <5>
                 .anyMessage().denyAll(); // <6>
 
+        return messages.build();
     }
 }
 ----
@@ -99,8 +146,8 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
 [source,kotlin,role="secondary"]
 ----
 @Configuration
-open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() {
-    override fun configureInbound(messages: MessageSecurityMetadataSourceRegistry) {
+open class WebSocketSecurityConfig {
+    fun messageAuthorizationManager(messages: MessageMatcherDelegatingAuthorizationManager.Builder): AuthorizationManager<Message<?> {
         messages
             .nullDestMatcher().authenticated() // <1>
             .simpSubscribeDestMatchers("/user/queue/errors").permitAll() // <2>
@@ -108,25 +155,16 @@ open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfi
             .simpSubscribeDestMatchers("/user/**", "/topic/friends/*").hasRole("USER") // <4>
             .simpTypeMatchers(MESSAGE, SUBSCRIBE).denyAll() // <5>
             .anyMessage().denyAll() // <6>
+
+        return messages.build();
     }
 }
 ----
-====
 
-这将确保:
-
-<1> 任何没有目的地的消息(即除了消息类型或订阅之外的任何消息)都需要用户进行身份验证
-<2> 任何人都可以订阅 /user/queue/errors
-<3> 任何以 "/app/" 开头的消息都要求用户使用角色 ROLE_USER
-<4> 任何以 "/user/" 或类型为 SUBSCRIBE 的 "/topic/friends/" 开头的消息都需要ROLE_USER
-<5> 拒绝消息或订阅类型的任何其他消息. 由于第 6 步,我们不需要这个步骤,但它说明了如何匹配特定的消息类型.
-<6> 拒绝任何其他消息. 这是一个确保您不会错过任何消息的好主意.
-
-Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保护 WebSocket. 可比较的基于 XML 的配置如下所示:
-
-[source,xml]
+.Xml
+[source,kotlin,role="secondary"]
 ----
-<websocket-message-broker>
+<websocket-message-broker use-authorization-manager="true">
     <!--1-->
     <intercept-message type="CONNECT" access="permitAll" />
     <intercept-message type="UNSUBSCRIBE" access="permitAll" />
@@ -136,8 +174,8 @@ Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保
     <intercept-message pattern="/app/**" access="hasRole('USER')" />      <!--3-->
 
     <!--4-->
-    <intercept-message pattern="/user/**" access="hasRole('USER')" />
-    <intercept-message pattern="/topic/friends/*" access="hasRole('USER')" />
+    <intercept-message pattern="/user/**" type="SUBSCRIBE" access="hasRole('USER')" />
+    <intercept-message pattern="/topic/friends/*" type="SUBSCRIBE" access="hasRole('USER')" />
 
     <!--5-->
     <intercept-message type="MESSAGE" access="denyAll" />
@@ -146,13 +184,14 @@ Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保
     <intercept-message pattern="/**" access="denyAll" /> <!--6-->
 </websocket-message-broker>
 ----
+====
 
 这将确保:
 
-<1> 任何没有目的地的消息(即除了消息类型或订阅之外的任何消息)都需要用户进行身份验证
+<1> 任何没有目的地的消息(即除了 MESSAGE 或 SUBSCRIBE 之外的任何消息)都需要用户进行身份验证
 <2> 任何人都可以订阅 /user/queue/errors
-<3> 任何以 "/app/" 开头的消息都要求用户使用角色ROLE_USER
-<4> 任何以 "/user/" 或类型为 SUBSCRIBE 的 "/topic/friends/" 开头的消息都需要 ROLE_USER
+<3> 任何以 "/app/" 开头的消息都要求用户使用角色 ROLE_USER
+<4> 任何以 "/user/" 或类型为 SUBSCRIBE 的 "/topic/friends/" 开头的消息都需要ROLE_USER
 <5> 拒绝消息或订阅类型的任何其他消息. 由于第 6 步,我们不需要这个步骤,但它说明了如何匹配特定的消息类型.
 <6> 拒绝任何其他消息. 这是一个确保您不会错过任何消息的好主意.
 
@@ -162,18 +201,18 @@ Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保
 为了正确保护您的应用程序,了解 Spring 的 WebSocket 支持非常重要.
 
 [[websocket-authorization-notes-messagetypes]]
-==== WebSocket对消息类型的授权
+==== WebSocket 对消息类型的授权
 
-重要的是要了解 SUBSCRIBE 和 MESSAGE 类型的消息之间的区别以及它在 Spring 中的工作方式.
+重要的是要了解 `SUBSCRIBE` 和 `MESSAGE` 类型的消息之间的区别以及它在 Spring 中的工作方式.
 
 考虑聊天应用程序.
 
 * 系统可以通过 "/topic/system/notifications" 的目的地向所有用户发送 "MESSAGE" 通知
 * 客户可以通过订阅接收到 "/topic/system/notifications" 的通知.
 
-尽管我们希望客户能够订阅  "/topic/system/notifications",但我们不想让他们将 MESSAGE 发送到该目的地.  如果我们允许向  "/topic/system/notifications" 发送消息,则客户端可以直接向该端点发送消息并模拟系统.
+尽管我们希望客户能够订阅  "/topic/system/notifications",但我们不想让他们将 `MESSAGE` 发送到该目的地.  如果我们允许向  "/topic/system/notifications" 发送消息,则客户端可以直接向该端点发送消息并模拟系统.
 
-通常,应用程序通常拒绝发送到以 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp[代理前缀](即 "/topic/" 或 "/queue/") 开头的目标的任何 MESSAGE.
+通常,应用程序通常拒绝发送到以 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp[代理前缀](即 "/topic/" 或 "/queue/") 开头的目标的任何 `MESSAGE`.
 
 [[websocket-authorization-notes-destinations]]
 ==== 目的地上的 WebSocket 授权
@@ -182,19 +221,19 @@ Spring Security 还提供<<nsa-websocket-security,XML 命名空间>>支持以保
 
 考虑聊天应用程序.
 
-* 用户可以通过将消息发送到 "/app/chat" 的目的地来向特定用户发送消息.
-* 应用程序会看到该消息,并确保将  "from" 属性指定为当前用户(我们不能信任客户端) .
+* 用户可以通过将消息发送到 `/app/chat` 的目的地来向特定用户发送消息.
+* 应用程序会看到该消息,并确保将  `from` 属性指定为当前用户(我们不能信任客户端) .
 * 然后,应用程序使用  `SimpMessageSendingOperations.convertAndSendToUser("toUser", "/queue/messages", message)` 将消息发送给收件人.
-* 消息变成目标 "/queue/user/messages-<sessionid>"
+* 消息变成目标 `/queue/user/messages-<sessionid>`
 
-使用上面的应用程序,我们希望允许我们的客户端收听 "/user/queue",它被转换为  "/queue/user/messages-<sessionid>".  但是,我们不希望客户端能够收听 "/queue/*",因为那样会使客户端看到每个用户的消息.
+使用上面的应用程序,我们希望允许我们的客户端收听 `/user/queue`,它被转换为  `/queue/user/messages-<sessionid>`.  但是,我们不希望客户端能够收听 `/queue/*`,因为那样会使客户端看到每个用户的消息.
 
-通常,应用程序通常会拒绝发送到以 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp[代理前缀] (即 "/topic/" 或 "/queue/")开头的消息的任何 SUBSCRIBE.  当然,我们可能会提供例外情况来说明类似
+通常,应用程序通常会拒绝发送到以 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp[代理前缀] (即 `/topic/` 或 `/queue/`)开头的消息的任何 SUBSCRIBE.  当然,我们可能会提供例外情况来说明类似
 
 [[websocket-authorization-notes-outbound]]
-=== 出站邮件
+=== Outbound Messages
 
-Spring 包含一个标题为 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp-message-flow[消息流] 的部分,该部分描述了消息如何在系统中流动.  重要的是要注意,Spring Security 仅保护 `clientInboundChannel`.  Spring Security 不会尝试保护 `clientOutboundChannel`.
+Spring Framework 参考文档包含一个标题为 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-stomp-message-flow[消息流] 的部分,该部分描述了消息如何在系统中流动.  重要的是要注意,Spring Security 仅保护 `clientInboundChannel`.  Spring Security 不会尝试保护 `clientOutboundChannel`.
 
 最重要的原因是性能.  对于每条传入的消息,通常会有更多的出去消息.  我们鼓励保护对端点的订阅,而不是保护出站消息.
 
@@ -206,33 +245,35 @@ Spring 包含一个标题为 https://docs.spring.io/spring/docs/current/spring-f
 [[websocket-sameorigin-why]]
 === 为什么同源?
 
-请考虑以下情形.  用户访问 bank.com 并验证其帐户.  同一用户在其浏览器中打开另一个选项卡,并访问 evil.com.  相同来源政策可确保 evil.com 无法读取数据或将数据写入 bank.com.
+请考虑以下情形.  用户访问 `bank.com` 并验证其帐户.  同一用户在其浏览器中打开另一个选项卡,并访问 `evil.com`.  相同来源政策可确保 `evil.com` 无法读取数据或将数据写入 `bank.com`.
 
-对于 WebSocket,不适用 "同源策略".  实际上,除非 bank.com 明确禁止,否则 evil.com 可以代表用户读取和写入数据.  这意味着用户可以通过 webSocket 进行任何操作(即转帐) ,evil.com 可以代表该用户进行操作.
+对于 WebSocket,不适用 "同源策略".  实际上,除非 `bank.com` 明确禁止,否则 `evil.com` 可以代表用户读取和写入数据.  这意味着用户可以通过 webSocket 进行任何操作(即转帐) ,`evil.com` 可以代表该用户进行操作.
 
 由于 SockJS 尝试模拟 WebSocket,因此它也绕过了相同起源策略.  这意味着开发人员在使用 SockJS 时需要明确保护其应用程序不受外部域的影响.
 
 [[websocket-sameorigin-spring]]
-=== Spring WebSocket允许的来源
+=== Spring WebSocket 允许的来源
 
 幸运的是,自 Spring 4.1.5 起,Spring 的 WebSocket 和 SockJS 支持限制了对 https://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html#websocket-server-allowed-origins[当前域] 的访问.  Spring Security 增加了一层保护,以提供 https://en.wikipedia.org/wiki/Defense_in_depth_%2528computing%2529[深度防御].
 
 [[websocket-sameorigin-csrf]]
 === 将 CSRF 添加到 Stomp 头
 
-默认情况下,Spring Security 需要任何 CONNECT 消息类型的 <<csrf,CSRF 令牌>>.  这样可以确保只有有权访问 CSRF 令牌的站点才能连接.  由于只有相同来源可以访问 CSRF 令牌,因此不允许外部域进行连接.
+默认情况下,Spring Security 需要任何 `CONNECT` 消息类型的 <<csrf,CSRF 令牌>>.  这样可以确保只有有权访问 CSRF 令牌的站点才能连接.  由于只有相同来源可以访问 CSRF 令牌,因此不允许外部域进行连接.
 
 通常,我们需要在 HTTP header 或 HTTP 参数中包含 CSRF 令牌.  但是,SockJS 不允许使用这些选项.  相反,我们必须在 Stomp header 中包含令牌
 
 应用程序可以通过访问名为 `_csrf` 的请求属性来<<servlet-csrf-include,获取 CSRF 令牌>>.  例如,以下将允许在 JSP 中访问 `CsrfToken`:
 
+====
 [source,javascript]
 ----
 var headerName = "${_csrf.headerName}";
 var token = "${_csrf.token}";
 ----
+====
 
-如果使用的是静态 HTML,则可以在 REST 端点上暴露 `CsrfToken`. 例如,以下内容将在 URL /csrf 上暴露 `CsrfToken`
+如果使用的是静态 HTML,则可以在 REST 端点上暴露 `CsrfToken`. 例如,以下内容将在 `/csrf`  URL 上暴露 `CsrfToken`
 
 ====
 .Java
@@ -264,8 +305,8 @@ class CsrfController {
 JavaScript 可以对端点进行 REST 调用,并使用响应填充 `headerName` 和令牌.
 
 现在,我们可以将令牌包含在Stomp客户端中.
-例如:
 
+====
 [source,javascript]
 ----
 ...
@@ -274,14 +315,72 @@ headers[headerName] = token;
 stompClient.connect(headers, function(frame) {
   ...
 
-}
+})
 ----
+====
 
 [[websocket-sameorigin-disable]]
 === 在 WebSockets 中禁用 CSRF
 
-如果您想允许其他域访问您的站点,则可以禁用 Spring Security 的保护.
-例如,在 Java 配置中,您可以使用以下代码:
+NOTE: 在这一点上，CSRF 在使用 `@EnableWebSocketSecurity` 时是不可配置的，尽管这可能会在未来的版本中添加。
+
+要禁用 CSRF，而不是使用 `@EnableWebSocketSecurity`，您可以使用 XML 支持或自己添加 Spring Security 组件，如下所示：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+public class WebSocketSecurityConfig implements WebSocketMessageBrokerConfigurer {
+
+    @Override
+    public void addArgumentResolvers(List<HandlerMethodArgumentResolver> argumentResolvers) {
+        argumentResolvers.add(new AuthenticationPrincipalArgumentResolver());
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        AuthorizationManager<Message<?>> myAuthorizationRules = AuthenticatedAuthorizationManager.authenticated();
+        AuthorizationChannelInterceptor authz = new AuthorizationChannelInterceptor(myAuthorizationRules);
+        AuthorizationEventPublisher publisher = new SpringAuthorizationEventPublisher(this.context);
+        authz.setAuthorizationEventPublisher(publisher);
+        registration.interceptors(new SecurityContextChannelInterceptor(), authz);
+    }
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+open class WebSocketSecurityConfig : WebSocketMessageBrokerConfigurer {
+    @Override
+    override fun addArgumentResolvers(argumentResolvers: List<HandlerMethodArgumentResolver>) {
+        argumentResolvers.add(AuthenticationPrincipalArgumentResolver())
+    }
+
+    @Override
+    override fun configureClientInboundChannel(registration: ChannelRegistration) {
+        var myAuthorizationRules: AuthorizationManager<Message<?>> = AuthenticatedAuthorizationManager.authenticated()
+        var authz: AuthorizationChannelInterceptor = AuthorizationChannelInterceptor(myAuthorizationRules)
+        var publisher: AuthorizationEventPublisher = SpringAuthorizationEventPublisher(this.context)
+        authz.setAuthorizationEventPublisher(publisher)
+        registration.interceptors(SecurityContextChannelInterceptor(), authz)
+    }
+}
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<websocket-message-broker use-authorization-manager="true" same-origin-disabled="true">
+    <intercept-message pattern="/**" access="authenticated"/>
+</websocket-message-broker>
+----
+====
+
+另一方面，如果您正在使用 <<legacy-websocket-configuration,legacy-websocket-configuration>> 并且您希望允许其他域访问您的站点，则可以禁用 Spring Security 的保护。
+例如，在 Java 配置中，您可以使用以下内容：
 
 ====
 .Java
@@ -314,6 +413,40 @@ open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfi
 ----
 ====
 
+[[websocket-expression-handler]]
+=== Custom Expression Handler
+
+有时，自定义如何处理 `intercept-message` XML 元素中定义的 `access` 表达式可能很有价值。
+为此，您可以创建一个类型为 `SecurityExpressionHandler<MessageAuthorizationContext<?>>` 的类，并在您的 XML 定义中引用它，如下所示：
+
+[source,xml]
+----
+<websocket-message-broker use-authorization-manager="true">
+    <expression-handler ref="myRef"/>
+    ...
+</websocket-message-broker>
+
+<b:bean ref="myRef" class="org.springframework.security.messaging.access.expression.MessageAuthorizationContextSecurityExpressionHandler"/>
+----
+
+如果您正在从实现 `SecurityExpressionHandler<Message<?>>` 的 `websocket-message-broker` 的遗留使用中迁移，您可以：
+1.另外实现 `createEvaluationContext(Supplier, Message)` 方法然后
+2. 将该值包装在 `MessageAuthorizationContextSecurityExpressionHandler` 中，如下所示：
+
+[source,xml]
+----
+<websocket-message-broker use-authorization-manager="true">
+    <expression-handler ref="myRef"/>
+    ...
+</websocket-message-broker>
+
+<b:bean ref="myRef" class="org.springframework.security.messaging.access.expression.MessageAuthorizationContextSecurityExpressionHandler">
+    <b:constructor-arg>
+        <b:bean class="org.example.MyLegacyExpressionHandler"/>
+    </b:constructor-arg>
+</b:bean>
+----
+
 [[websocket-sockjs]]
 == 使用 SockJS
 
@@ -326,6 +459,7 @@ SockJS 可能使用利用 https://github.com/sockjs/sockjs-client/tree/v0.3.4[if
 
 您可以使用 frame-options 元素来自定义 X-Frame-Options.  例如,以下内容将指示 Spring Security 使用 "X-Frame-Options: SAMEORIGIN" 它允许在同一域内的 iframe:
 
+====
 [source,xml]
 ----
 <http>
@@ -337,6 +471,7 @@ SockJS 可能使用利用 https://github.com/sockjs/sockjs-client/tree/v0.3.4[if
     </headers>
 </http>
 ----
+====
 
 同样,您可以使用以下方法自定义框架选项以在 Java 配置中使用相同的来源:
 
@@ -344,12 +479,12 @@ SockJS 可能使用利用 https://github.com/sockjs/sockjs-client/tree/v0.3.4[if
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class WebSecurityConfig extends
-   WebSecurityConfigurerAdapter {
+public class WebSecurityConfig {
 
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             // ...
             .headers(headers -> headers
@@ -357,6 +492,7 @@ public class WebSecurityConfig extends
                      .sameOrigin()
                 )
         );
+        return http.build();
     }
 }
 ----
@@ -364,9 +500,11 @@ public class WebSecurityConfig extends
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+open class WebSecurityConfig {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             // ...
             headers {
@@ -375,6 +513,7 @@ open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
                 }
             }
         }
+        return http.build()
     }
 }
 ----
@@ -395,15 +534,14 @@ SockJS 在 CONNECT 消息上使用 POST 进行任何基于 HTTP 的传输.  通�
 ----
 @Configuration
 @EnableWebSecurity
-public class WebSecurityConfig
-    extends WebSecurityConfigurerAdapter {
+public class WebSecurityConfig {
 
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf
                 // ignore our stomp endpoints since they are protected using Stomp headers
-                .ignoringAntMatchers("/chat/**")
+                .ignoringRequestMatchers("/chat/**")
             )
             .headers(headers -> headers
                 // allow same origin to frame our site to support iframe SockJS
@@ -415,6 +553,8 @@ public class WebSecurityConfig
                 ...
             )
             ...
+    }
+}
 ----
 
 .Kotlin
@@ -422,11 +562,12 @@ public class WebSecurityConfig
 ----
 @Configuration
 @EnableWebSecurity
-open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+open class WebSecurityConfig {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             csrf {
-                ignoringAntMatchers("/chat/**")
+                ignoringRequestMatchers("/chat/**")
             }
             headers {
                 frameOptions {
@@ -437,12 +578,15 @@ open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
                 // ...
             }
             // ...
-
+        }
+    }
+}
 ----
 ====
 
-如果使用基于 XML 的配置,则可以使用<<nsa-csrf-request-matcher-ref,csrf@request-matcher-ref>>. 例如:
+如果使用基于 XML 的配置,则可以使用<<nsa-csrf-request-matcher-ref,csrf@request-matcher-ref>>:
 
+====
 [source,xml]
 ----
 <http ...>
@@ -467,3 +611,49 @@ open class WebSecurityConfig : WebSecurityConfigurerAdapter() {
     </b:constructor-arg>
 </b:bean>
 ----
+====
+
+[[legacy-websocket-configuration]]
+== 旧版 WebSocket 配置
+
+在 Spring Security 5.8 之前，使用 Java Configuration 配置消息授权的方法是扩展 `AbstractSecurityWebSocketMessageBrokerConfigurer` 并配置 `MessageSecurityMetadataSourceRegistry`。
+例如：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+public class WebSocketSecurityConfig
+      extends AbstractSecurityWebSocketMessageBrokerConfigurer { // <1> <2>
+
+    protected void configureInbound(MessageSecurityMetadataSourceRegistry messages) {
+        messages
+                .simpDestMatchers("/user/**").authenticated() // <3>
+    }
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+open class WebSocketSecurityConfig : AbstractSecurityWebSocketMessageBrokerConfigurer() { // <1> <2>
+    override fun configureInbound(messages: MessageSecurityMetadataSourceRegistry) {
+        messages.simpDestMatchers("/user/**").authenticated() // <3>
+    }
+}
+----
+====
+
+这将确保：
+
+<1> 任何入站 `CONNECT` 消息都需要有效的 CSRF 令牌来执行 <<websocket-sameorigin,Same Origin Policy>>
+<2> `SecurityContextHolder` 由任何入站请求的 simpUser 标头属性中的用户填充。
+<3> 我们的消息需要适当的授权。 具体来说，任何以 `/user/` 开头的入站消息都需要 `ROLE_USER`。 有关授权的更多详细信息，请参见 <<websocket>>
+
+如果您有一个扩展了 `AbstractSecurityExpressionHandler` 并覆盖了 `createEvaluationContextInternal` 或 `createSecurityExpressionRoot` 的自定义 `SecurityExpressionHandler`，
+那么使用旧配置会很有帮助。
+为了推迟 `Authorization` 查找，新的 `AuthorizationManager` API 在评估表达式时不会调用这些。
+
+如果您使用的是 XML，则只需不使用 `use-authorization-manager` 元素或将其设置为 `false` 即可使用旧版 API。

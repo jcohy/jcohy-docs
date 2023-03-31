@@ -175,26 +175,29 @@ fun forFoosEyesOnly(): String {
 
 Spring Boot 代表 Resource Server 生成了两个 `@Bean`.
 
-第一个是将应用程序配置为资源服务器的 `WebSecurityConfigurerAdapter`. 使用 Opaque Token 时,此 `WebSecurityConfigurerAdapter` 如下所示:
+第一个是将应用程序配置为资源服务器的 `SecurityFilterChain`. 使用 Opaque Token 时,此 `SecurityFilterChain` 如下所示:
 
 .Default Opaque Token Configuration
 ====
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
         .authorizeHttpRequests(authorize -> authorize
             .anyRequest().authenticated()
         )
         .oauth2ResourceServer(OAuth2ResourceServerConfigurer::opaqueToken);
+    return http.build();
 }
 ----
 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-override fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
     http {
         authorizeRequests {
             authorize(anyRequest, authenticated)
@@ -203,11 +206,12 @@ override fun configure(http: HttpSecurity) {
             opaqueToken { }
         }
     }
+    return http.build()
 }
 ----
 ====
 
-如果应用程序未暴露 `WebSecurityConfigurerAdapter` Bean,则 Spring Boot 将暴露上述默认值.
+如果应用程序未暴露 `SecurityFilterChain` Bean,则 Spring Boot 将暴露上述默认值.
 
 替换它就像在应用程序中暴露 Bean 一样简单:
 
@@ -216,12 +220,14 @@ override fun configure(http: HttpSecurity) {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class MyCustomSecurityConfiguration {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorize -> authorize
-                .mvcMatchers("/messages/**").hasAuthority("SCOPE_message:read")
+                .requestMatchers("/messages/**").hasAuthority("SCOPE_message:read")
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
@@ -229,6 +235,7 @@ public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter 
                     .introspector(myIntrospector())
                 )
             );
+        return http.build();
     }
 }
 ----
@@ -236,9 +243,11 @@ public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class MyCustomSecurityConfiguration {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             authorizeRequests {
                 authorize("/messages/**", hasAuthority("SCOPE_message:read"))
@@ -250,6 +259,7 @@ class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
                 }
             }
         }
+        return http.build()
     }
 }
 ----
@@ -286,6 +296,8 @@ fun introspector(): OpaqueTokenIntrospector {
 
 可以使用 `introspectionUri()` 和 `introspectionClientCredentials()` 覆盖其配置,也可以使用 `introspector()` 替换其配置.
 
+如果应用程序不公开 `OpaqueTokenAuthenticationConverter` bean，那么 spring-security 将构建 `BearerTokenAuthentication`。
+
 或者,如果您根本不使用 Spring Boot,那么这两个组件-过滤器链和 <<oauth2resourceserver-opaque-architecture-introspector,`OpaqueTokenIntrospector`>>  都可以用 XML 指定.
 
 过滤器链的指定如下:
@@ -298,7 +310,8 @@ fun introspector(): OpaqueTokenIntrospector {
 <http>
     <intercept-uri pattern="/**" access="authenticated"/>
     <oauth2-resource-server>
-        <opaque-token introspector-ref="opaqueTokenIntrospector"/>
+        <opaque-token introspector-ref="opaqueTokenIntrospector"
+                authentication-converter-ref="opaqueTokenAuthenticationConverter"/>
     </oauth2-resource-server>
 </http>
 ----
@@ -320,6 +333,19 @@ fun introspector(): OpaqueTokenIntrospector {
 ----
 ====
 
+
+`OpaqueTokenAuthenticationConverter` 像这样:
+
+.Opaque Token Authentication Converter
+====
+.Xml
+[source,xml,role="primary"]
+----
+<bean id="opaqueTokenAuthenticationConverter"
+        class="com.example.CustomOpaqueTokenAuthenticationConverter"/>
+----
+====
+
 [[oauth2resourceserver-opaque-introspectionuri-dsl]]
 === 使用 `introspectionUri()`
 
@@ -331,9 +357,11 @@ fun introspector(): OpaqueTokenIntrospector {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class DirectlyConfiguredIntrospectionUri extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class DirectlyConfiguredIntrospectionUri {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorize -> authorize
                 .anyRequest().authenticated()
@@ -344,6 +372,7 @@ public class DirectlyConfiguredIntrospectionUri extends WebSecurityConfigurerAda
                     .introspectionClientCredentials("client", "secret")
                 )
             );
+        return http.build();
     }
 }
 ----
@@ -351,9 +380,11 @@ public class DirectlyConfiguredIntrospectionUri extends WebSecurityConfigurerAda
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class DirectlyConfiguredIntrospectionUri : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class DirectlyConfiguredIntrospectionUri {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             authorizeRequests {
                 authorize(anyRequest, authenticated)
@@ -365,6 +396,7 @@ class DirectlyConfiguredIntrospectionUri : WebSecurityConfigurerAdapter() {
                 }
             }
         }
+        return http.build()
     }
 }
 ----
@@ -393,9 +425,11 @@ class DirectlyConfiguredIntrospectionUri : WebSecurityConfigurerAdapter() {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class DirectlyConfiguredIntrospector extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class DirectlyConfiguredIntrospector {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorize -> authorize
                 .anyRequest().authenticated()
@@ -405,6 +439,7 @@ public class DirectlyConfiguredIntrospector extends WebSecurityConfigurerAdapter
                     .introspector(myCustomIntrospector())
                 )
             );
+        return http.build();
     }
 }
 ----
@@ -412,9 +447,11 @@ public class DirectlyConfiguredIntrospector extends WebSecurityConfigurerAdapter
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class DirectlyConfiguredIntrospector : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class DirectlyConfiguredIntrospector {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             authorizeRequests {
                 authorize(anyRequest, authenticated)
@@ -425,6 +462,7 @@ class DirectlyConfiguredIntrospector : WebSecurityConfigurerAdapter() {
                 }
             }
         }
+        return http.build()
     }
 }
 ----
@@ -472,16 +510,19 @@ OAuth 2.0 内省端点通常会返回一个 `scope` 属性,指示其被授予的
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class MappedAuthorities extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class MappedAuthorities {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorizeRequests -> authorizeRequests
-                .mvcMatchers("/contacts/**").hasAuthority("SCOPE_contacts")
-                .mvcMatchers("/messages/**").hasAuthority("SCOPE_messages")
+                .requestMatchers("/contacts/**").hasAuthority("SCOPE_contacts")
+                .requestMatchers("/messages/**").hasAuthority("SCOPE_messages")
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(OAuth2ResourceServerConfigurer::opaqueToken);
+        return http.build();
     }
 }
 ----
@@ -489,9 +530,11 @@ public class MappedAuthorities extends WebSecurityConfigurerAdapter {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class MappedAuthorities : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class MappedAuthorities {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
        http {
             authorizeRequests {
                 authorize("/contacts/**", hasAuthority("SCOPE_contacts"))
@@ -502,6 +545,7 @@ class MappedAuthorities : WebSecurityConfigurerAdapter() {
                opaqueToken { }
            }
         }
+        return http.build()
     }
 }
 ----

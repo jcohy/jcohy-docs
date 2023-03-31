@@ -1,7 +1,7 @@
 [[servlet-authentication-ldap]]
 = LDAP 认证
 
-LDAP 通常被组织用作用户信息的中央存储库和身份验证服务.  它还可以用于存储应用程序用户的角色信息.
+LDAP(Lightweight Directory Access Protocol)  通常被组织用作用户信息的中央存储库和身份验证服务.  它还可以用于存储应用程序用户的角色信息.
 
 当 Spring Security 配置为 <<servlet-authentication-unpwd-input,接受用户名/密码>> 进行身份验证时,将使用 Spring Security 的基于 LDAP 的身份验证.  但是,尽管利用了用户名/密码进行身份验证,它也无法使用 `UserDetailsService` 集成,
 因为在 <<servlet-authentication-ldap-bind,绑定身份验证>> 中 LDAP 服务器不会返回密码,因此应用程序无法执行密码验证.
@@ -27,7 +27,7 @@ LDAP 通常被组织用作用户信息的中央存储库和身份验证服务.  
 //	search, etc (other APIs)
 
 [[servlet-authentication-ldap-embedded]]
-== 设置嵌入式LDAP服务器
+== 设置嵌入式 LDAP 服务器
 
 您需要做的第一件事是确保您有一个 LDAP 服务器来指向您的配置.  为简单起见,通常最好从嵌入式 LDAP 服务器开始.  Spring Security 支持使用以下任一方法:
 
@@ -37,6 +37,7 @@ LDAP 通常被组织用作用户信息的中央存储库和身份验证服务.  
 在下面的示例中,我们将以下内容作为  `users.ldif`  暴露为类路径资源,以使用用户 `user` 和 `admin` 来初始化嵌入式 LDAP 服务器,这两个用户的密码均为 `password`.
 
 .users.ldif
+====
 [source,ldif]
 ----
 dn: ou=groups,dc=springframework,dc=org
@@ -82,6 +83,7 @@ objectclass: groupOfNames
 cn: admin
 uniqueMember: uid=admin,ou=people,dc=springframework,dc=org
 ----
+====
 
 [[servlet-authentication-ldap-unboundid]]
 === 嵌入式 UnboundID 服务器
@@ -110,9 +112,33 @@ depenendencies {
 ----
 ====
 
-然后,您可以配置嵌入式 LDAP 服务器
+然后,您可以使用 `EmbeddedLdapServerContextSourceFactoryBean` 配置嵌入式 LDAP 服务器，这将指示 Spring Security 启动内存中的 LDAP 服务器：
 
 .嵌入式 LDAP 服务器配置
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public EmbeddedLdapServerContextSourceFactoryBean contextSourceFactoryBean() {
+	return EmbeddedLdapServerContextSourceFactoryBean.fromEmbeddedLdapServer();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun contextSourceFactoryBean(): EmbeddedLdapServerContextSourceFactoryBean {
+    return EmbeddedLdapServerContextSourceFactoryBean.fromEmbeddedLdapServer()
+}
+----
+====
+
+或者，您可以手动配置嵌入式 LDAP 服务器。
+如果您选择这种方法，您将负责管理嵌入式 LDAP 服务器的生命周期。
+
+.Explicit Embedded LDAP Server Configuration
 ====
 .Java
 [source,java,role="primary"]
@@ -216,7 +242,37 @@ fun ldapContainer(): ApacheDSContainer {
 [[servlet-authentication-ldap-contextsource]]
 == LDAP ContextSource
 
-一旦有了 LDAP 服务器来将您的配置指向,就需要配置 Spring Security 来指向应该用于认证用户的 LDAP 服务器.  这是通过创建 LDAP  `ContextSource` 来完成的,该 LDAP `ContextSource` 等效于 JDBC `DataSource`.
+一旦有了 LDAP 服务器来将您的配置指向,就需要配置 Spring Security 来指向应该用于认证用户的 LDAP 服务器.
+这是通过创建 LDAP  `ContextSource` 来完成的,该 LDAP `ContextSource` 等效于 JDBC `DataSource`.
+如果您已经配置了一个 `EmbeddedLdapServerContextSourceFactoryBean`，Spring Security 将创建一个指向嵌入式 LDAP 服务器的 LDAP `ContextSource`。
+
+.LDAP Context Source with Embedded LDAP Server
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public EmbeddedLdapServerContextSourceFactoryBean contextSourceFactoryBean() {
+	EmbeddedLdapServerContextSourceFactoryBean contextSourceFactoryBean =
+			EmbeddedLdapServerContextSourceFactoryBean.fromEmbeddedLdapServer();
+	contextSourceFactoryBean.setPort(0);
+	return contextSourceFactoryBean;
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun contextSourceFactoryBean(): EmbeddedLdapServerContextSourceFactoryBean {
+    val contextSourceFactoryBean = EmbeddedLdapServerContextSourceFactoryBean.fromEmbeddedLdapServer()
+    contextSourceFactoryBean.setPort(0)
+    return contextSourceFactoryBean
+}
+----
+====
+
+或者，您可以显式配置 LDAP `ContextSource` 以连接到提供的 LDAP 服务器：
 
 .LDAP Context Source
 ====
@@ -249,7 +305,8 @@ fun contextSource(container: UnboundIdContainer): ContextSource {
 
 Spring Security 的 LDAP 不支持使用 <<servlet-authentication-userdetailsservice,UserDetailsService>>,因为 LDAP 绑定身份验证不允许客户端读取密码,甚至不允许散列密码.  这意味着 Spring Security 无法读取密码然后对其进行身份验证.
 
-因此,使用 `LdapAuthenticator` 接口实现了对 LDAP 支持.  `LdapAuthenticator` 还负责检索任何必需的用户属性.  这是因为对属性的权限可能取决于所使用的身份验证类型.  例如,如果以用户身份进行绑定,则可能有必要在用户自己的权限下阅读它们.
+因此,使用 `LdapAuthenticator` 接口实现了对 LDAP 支持.  `LdapAuthenticator` 接口还负责检索任何必需的用户属性.  这是因为对属性的权限可能取决于所使用的身份验证类型.
+例如,如果以用户身份进行绑定,则可能有必要在用户自己的权限下阅读属性.
 
 Spring Security 提供了两个 `LdapAuthenticator` 实现:
 
@@ -259,7 +316,7 @@ Spring Security 提供了两个 `LdapAuthenticator` 实现:
 [[servlet-authentication-ldap-bind]]
 == 使用绑定身份验证
 
-https://ldap.com/the-ldap-bind-operation/[绑定身份验证] 是使用 LDAP 身份验证用户的最常用机制.  在绑定身份验证中,用户凭据(即用户名/密码) 将提交给LDAP服务器以对其进行身份验证.
+https://ldap.com/the-ldap-bind-operation/[绑定身份验证] 是使用 LDAP 身份验证用户的最常用机制.  在绑定身份验证中,用户凭据(即用户名和密码) 将提交给LDAP服务器以对其进行身份验证.
 使用绑定身份验证的优点是不需要将用户的机密信息(即密码) 暴露给客户端,这有助于防止客户端泄露.
 
 绑定身份验证配置的示例可以在下面找到.
@@ -270,15 +327,10 @@ https://ldap.com/the-ldap-bind-operation/[绑定身份验证] 是使用 LDAP 身
 [source,java,role="primary",attrs="-attributes"]
 ----
 @Bean
-BindAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
-	BindAuthenticator authenticator = new BindAuthenticator(contextSource);
-	authenticator.setUserDnPatterns(new String[] { "uid={0},ou=people" });
-	return authenticator;
-}
-
-@Bean
-LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
-	return new LdapAuthenticationProvider(authenticator);
+AuthenticationManager authenticationManager(BaseLdapPathContextSource contextSource) {
+	LdapBindAuthenticationManagerFactory factory = new LdapBindAuthenticationManagerFactory(contextSource);
+	factory.setUserDnPatterns("uid={0},ou=people");
+	return factory.createAuthenticationManager();
 }
 ----
 
@@ -293,15 +345,10 @@ LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticato
 [source,kotlin,role="secondary",attrs="-attributes"]
 ----
 @Bean
-fun authenticator(contextSource: BaseLdapPathContextSource): BindAuthenticator {
-    val authenticator = BindAuthenticator(contextSource)
-    authenticator.setUserDnPatterns(arrayOf("uid={0},ou=people"))
-    return authenticator
-}
-
-@Bean
-fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
-    return LdapAuthenticationProvider(authenticator)
+fun authenticationManager(contextSource: BaseLdapPathContextSource): AuthenticationManager {
+    val factory = LdapBindAuthenticationManagerFactory(contextSource)
+    factory.setUserDnPatterns("uid={0},ou=people")
+    return factory.createAuthenticationManager()
 }
 ----
 ====
@@ -314,19 +361,11 @@ fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthentication
 [source,java,role="primary",attrs="-attributes"]
 ----
 @Bean
-BindAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
-	String searchBase = "ou=people";
-	String filter = "(uid={0})";
-	FilterBasedLdapUserSearch search =
-		new FilterBasedLdapUserSearch(searchBase, filter, contextSource);
-	BindAuthenticator authenticator = new BindAuthenticator(contextSource);
-	authenticator.setUserSearch(search);
-	return authenticator;
-}
-
-@Bean
-LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
-	return new LdapAuthenticationProvider(authenticator);
+AuthenticationManager authenticationManager(BaseLdapPathContextSource contextSource) {
+	LdapBindAuthenticationManagerFactory factory = new LdapBindAuthenticationManagerFactory(contextSource);
+	factory.setUserSearchFilter("(uid={0})");
+	factory.setUserSearchBase("ou=people");
+	return factory.createAuthenticationManager();
 }
 ----
 
@@ -342,18 +381,11 @@ LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticato
 [source,kotlin,role="secondary",attrs="-attributes"]
 ----
 @Bean
-fun authenticator(contextSource: BaseLdapPathContextSource): BindAuthenticator {
-    val searchBase = "ou=people"
-    val filter = "(uid={0})"
-    val search = FilterBasedLdapUserSearch(searchBase, filter, contextSource)
-    val authenticator = BindAuthenticator(contextSource)
-    authenticator.setUserSearch(search)
-    return authenticator
-}
-
-@Bean
-fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
-    return LdapAuthenticationProvider(authenticator)
+fun authenticationManager(contextSource: BaseLdapPathContextSource): AuthenticationManager {
+    val factory = LdapBindAuthenticationManagerFactory(contextSource)
+    factory.setUserSearchFilter("(uid={0})")
+    factory.setUserSearchBase("ou=people")
+    return factory.createAuthenticationManager()
 }
 ----
 ====
@@ -364,7 +396,7 @@ fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthentication
 [[servlet-authentication-ldap-pwd]]
 == 使用密码认证
 
-密码比较是将用户提供的密码与存储库中存储的密码进行比较.  可以通过检索 password 属性的值并在本地对其进行检查来完成此操作,也可以通过执行 LDAP "比较" 操作来完成,在该操作中,将提供的密码传递给服务器进行比较,并且永远不会检索到真实的密码值.  如果使用随机盐正确地对密码进行了哈希处理,则无法进行 LDAP 比较.
+密码比较是将用户提供的密码与存储库中存储的密码进行比较.  可以通过检索 password 属性的值并在本地对其进行检查来完成此操作,也可以通过执行 LDAP "`compare`" 操作来完成,在该操作中,将提供的密码传递给服务器进行比较,并且永远不会检索到真实的密码值.  如果使用随机盐正确地对密码进行了哈希处理,则无法进行 LDAP 比较.
 
 .Minimal Password Compare Configuration
 ====
@@ -372,13 +404,11 @@ fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthentication
 [source,java,role="primary"]
 ----
 @Bean
-PasswordComparisonAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
-	return new PasswordComparisonAuthenticator(contextSource);
-}
-
-@Bean
-LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
-	return new LdapAuthenticationProvider(authenticator);
+AuthenticationManager authenticationManager(BaseLdapPathContextSource contextSource) {
+	LdapPasswordComparisonAuthenticationManagerFactory factory = new LdapPasswordComparisonAuthenticationManagerFactory(
+			contextSource, NoOpPasswordEncoder.getInstance());
+	factory.setUserDnPatterns("uid={0},ou=people");
+	return factory.createAuthenticationManager();
 }
 ----
 
@@ -395,13 +425,12 @@ LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticato
 [source,kotlin,role="secondary"]
 ----
 @Bean
-fun authenticator(contextSource: BaseLdapPathContextSource): PasswordComparisonAuthenticator {
-    return PasswordComparisonAuthenticator(contextSource)
-}
-
-@Bean
-fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
-    return LdapAuthenticationProvider(authenticator)
+fun authenticationManager(contextSource: BaseLdapPathContextSource?): AuthenticationManager? {
+    val factory = LdapPasswordComparisonAuthenticationManagerFactory(
+        contextSource, NoOpPasswordEncoder.getInstance()
+    )
+    factory.setUserDnPatterns("uid={0},ou=people")
+    return factory.createAuthenticationManager()
 }
 ----
 ====
@@ -414,17 +443,12 @@ fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthentication
 [source,java,role="primary"]
 ----
 @Bean
-PasswordComparisonAuthenticator authenticator(BaseLdapPathContextSource contextSource) {
-	PasswordComparisonAuthenticator authenticator =
-		new PasswordComparisonAuthenticator(contextSource);
-	authenticator.setPasswordAttributeName("pwd"); // <1>
-	authenticator.setPasswordEncoder(new BCryptPasswordEncoder()); // <2>
-	return authenticator;
-}
-
-@Bean
-LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator) {
-	return new LdapAuthenticationProvider(authenticator);
+AuthenticationManager authenticationManager(BaseLdapPathContextSource contextSource) {
+	LdapPasswordComparisonAuthenticationManagerFactory factory = new LdapPasswordComparisonAuthenticationManagerFactory(
+			contextSource, new BCryptPasswordEncoder());
+	factory.setUserDnPatterns("uid={0},ou=people");
+	factory.setPasswordAttribute("pwd");  // <1>
+	return factory.createAuthenticationManager();
 }
 ----
 
@@ -445,27 +469,24 @@ LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticato
 [source,kotlin,role="secondary"]
 ----
 @Bean
-fun authenticator(contextSource: BaseLdapPathContextSource): PasswordComparisonAuthenticator {
-    val authenticator = PasswordComparisonAuthenticator(contextSource)
-    authenticator.setPasswordAttributeName("pwd") // <1>
-    authenticator.setPasswordEncoder(BCryptPasswordEncoder()) // <2>
-    return authenticator
-}
-
-@Bean
-fun authenticationProvider(authenticator: LdapAuthenticator): LdapAuthenticationProvider {
-    return LdapAuthenticationProvider(authenticator)
+fun authenticationManager(contextSource: BaseLdapPathContextSource): AuthenticationManager {
+    val factory = LdapPasswordComparisonAuthenticationManagerFactory(
+        contextSource, BCryptPasswordEncoder()
+    )
+    factory.setUserDnPatterns("uid={0},ou=people")
+    factory.setPasswordAttribute("pwd") // <1>
+    return factory.createAuthenticationManager()
 }
 ----
 ====
 
 <1> 将密码属性指定为 `pwd`
-<2> 使用 `BCryptPasswordEncoder`
 
 
 == LdapAuthoritiesPopulator
 
 Spring Security 的 `LdapAuthoritiesPopulator` 用于确定返回给用户的授权.
+以下示例显示了如何配置 `LdapAuthoritiesPopulator`：
 
 .LdapAuthoritiesPopulator Configuration
 ====
@@ -482,8 +503,11 @@ LdapAuthoritiesPopulator authorities(BaseLdapPathContextSource contextSource) {
 }
 
 @Bean
-LdapAuthenticationProvider authenticationProvider(LdapAuthenticator authenticator, LdapAuthoritiesPopulator authorities) {
-	return new LdapAuthenticationProvider(authenticator, authorities);
+AuthenticationManager authenticationManager(BaseLdapPathContextSource contextSource, LdapAuthoritiesPopulator authorities) {
+	LdapBindAuthenticationManagerFactory factory = new LdapBindAuthenticationManagerFactory(contextSource);
+	factory.setUserDnPatterns("uid={0},ou=people");
+	factory.setLdapAuthoritiesPopulator(authorities);
+	return factory.createAuthenticationManager();
 }
 ----
 
@@ -507,8 +531,13 @@ fun authorities(contextSource: BaseLdapPathContextSource): LdapAuthoritiesPopula
 }
 
 @Bean
-fun authenticationProvider(authenticator: LdapAuthenticator, authorities: LdapAuthoritiesPopulator): LdapAuthenticationProvider {
-    return LdapAuthenticationProvider(authenticator, authorities)
+fun authenticationManager(
+    contextSource: BaseLdapPathContextSource,
+    authorities: LdapAuthoritiesPopulator): AuthenticationManager {
+    val factory = LdapBindAuthenticationManagerFactory(contextSource)
+    factory.setUserDnPatterns("uid={0},ou=people")
+    factory.setLdapAuthoritiesPopulator(authorities)
+    return factory.createAuthenticationManager()
 }
 ----
 ====
@@ -520,7 +549,13 @@ Active Directory 支持其自己的非标准身份验证选项,并且正常使�
 
 配置 `ActiveDirectoryLdapAuthenticationProvider` 非常简单.  您只需要提供域名和提供服务器地址的 LDAP URL footnote:[也可以使用DNS查找来获取服务器的IP地址.  目前尚不支持此功能,但希望在以后的版本中可用.].  配置示例如下所示:
 
-下面是一个示例配置:
+[NOTE]
+====
+还可以通过使用 DNS 查找来获取服务器的 IP 地址。
+目前不支持，但希望在未来的版本中支持。
+====
+
+以下示例配置 Active Directory：
 
 .Example Active Directory Configuration
 ====

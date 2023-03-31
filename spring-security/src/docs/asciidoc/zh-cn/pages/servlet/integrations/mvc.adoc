@@ -6,11 +6,20 @@ Spring Security 提供了许多与 Spring MVC 的可选集成. 本节将详细�
 [[mvc-enablewebmvcsecurity]]
 == @EnableWebMvcSecurity
 
-NOTE: 从 Spring Security 4.0 开始, `@EnableWebMvcSecurity` 已经标记为 过时注解. 替换为 `@EnableWebSecurity`,它将根据类路径确定添加 Spring MVC 功能.
+[NOTE]
+====
+从 Spring Security 4.0 开始, `@EnableWebMvcSecurity` 已经标记弃用. 替换为 `@EnableWebSecurity`,它将根据类路径确定添加 Spring MVC 功能.
+====
 
 要启用与 Spring MVC 的 Spring Security 集成,请在配置中添加 `@EnableWebSecurity` 注解.
 
-NOTE: Spring Security 使用 Spring MVC 的 https://docs.spring.io/spring/docs/5.0.0.RELEASE/spring-framework-reference/web.html#mvc-config-customize[WebMvcConfigurer]提供配置.  这意味着,如果您使用的是更高级的选项,例如直接与 `WebMvcConfigurationSupport` 集成,那么您将需要手动提供 Spring Security 配置.
+[NOTE]
+====
+Spring Security 使用 Spring MVC 的 https://docs.spring.io/spring/docs/5.0.0.RELEASE/spring-framework-reference/web.html#mvc-config-customize[WebMvcConfigurer]提供配置.
+这意味着,如果您使用的是更高级的选项,例如直接与 `WebMvcConfigurationSupport` 集成,那么您将需要手动提供 Spring Security 配置.
+====
+
+NOTE:
 
 [[mvc-requestmatcher]]
 == MvcRequestMatcher
@@ -19,8 +28,9 @@ Spring Security 提供了与 Spring MVC 如何使用 `MvcRequestMatcher` 在 URL
 
 为了使用 MvcRequestMatcher,必须将 Spring Security Configuration 与 DispatcherServlet 放在同一 `ApplicationContext` 中.  这是必需的,因为 Spring Security 的 `MvcRequestMatcher` 希望您的 Spring MVC 配置会注册一个名称为 `mvcHandlerMappingIntrospector` 的 `HandlerMappingIntrospector` Bean,用于执行匹配.
 
-对于 `web.xml`,这意味着您应该将配置放在 `DispatcherServlet.xml` 中.
+对于 `web.xml` 文件，这意味着您应该将配置放在 `DispatcherServlet.xml` 中.
 
+====
 [source,xml]
 ----
 <listener>
@@ -48,6 +58,7 @@ Spring Security 提供了与 Spring MVC 如何使用 `MvcRequestMatcher` 在 URL
   <url-pattern>/</url-pattern>
 </servlet-mapping>
 ----
+====
 
 在 `WebSecurityConfiguration` 下面的 `DispatcherServlets` 中放置 `ApplicationContext`.
 
@@ -115,6 +126,8 @@ class SecurityInitializer : AbstractAnnotationConfigDispatcherServletInitializer
 ----
 @RequestMapping("/admin")
 public String admin() {
+	// ...
+}
 ----
 
 .Kotlin
@@ -122,90 +135,113 @@ public String admin() {
 ----
 @RequestMapping("/admin")
 fun admin(): String {
+    // ...
+}
 ----
 ====
 
-如果我们想将对这种控制器方法的访问限制为管理员用户,则开发人员可以通过在 `HttpServletRequest` 上匹配以下内容来提供授权规则:
+如果我们想将对这种控制器方法的访问限制为管理员用户,您可以通过在 `HttpServletRequest` 上匹配以下内容来提供授权规则:
 
 ====
 .Java
 [source,java,role="primary"]
 ----
-protected configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 	http
-		.authorizeHttpRequests(authorize -> authorize
-			.antMatchers("/admin").hasRole("ADMIN")
+		.authorizeHttpRequests((authorize) -> authorize
+			.requestMatchers("/admin").hasRole("ADMIN")
 		);
+	return http.build();
 }
 ----
 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-override fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
     http {
-        authorizeRequests {
-            authorize(AntPathRequestMatcher("/admin"), hasRole("ADMIN"))
+        authorizeHttpRequests {
+            authorize("/admin", hasRole("ADMIN"))
         }
     }
+    return http.build()
 }
 ----
 ====
 
 或使用 xml
 
+====
 [source,xml]
 ----
 <http>
 	<intercept-url pattern="/admin" access="hasRole('ADMIN')"/>
 </http>
 ----
+====
 
-无论采用哪种配置,URL  `/admin`  都将要求经过身份验证的用户为 admin 用户.  但是,根据我们的 Spring MVC 配置,URL `/admin.html` 也将映射到我们的 `admin()` 方法.  另外,根据我们的 Spring MVC 配置,URL `/admin/` 也将映射到我们的 `admin()` 方法.
+无论采用哪种配置,URL  `/admin`  都将要求经过身份验证的用户为 admin 用户.  但是,根据我们的 Spring MVC 配置,URL `/admin.html` 也将映射到我们的 `admin()` 方法.
+另外,根据我们的 Spring MVC 配置,URL `/admin/` 也将映射到我们的 `admin()` 方法.
 
 问题在于我们的安全规则仅保护 `/admin` .  我们可以为 Spring MVC 的所有排列添加其他规则,但这将非常冗长而乏味.
 
-相反,我们可以利用 Spring Security 的 `MvcRequestMatcher`.  以下配置通过使用 Spring MVC 在 URL 上进行匹配来保护与 Spring MVC 匹配的 URL.
+幸运的是，当使用 `requestMatchers` DSL 方法时，如果 Spring Security 检测到 Spring MVC 在类路径中可用，它会自动创建一个 `MvcRequestMatcher`。
+因此，它将通过使用 Spring MVC 在 URL 上进行匹配来保护与 Spring MVC 匹配的 URL。
+
+使用 Spring MVC 时的一个常见要求是指定 servlet 路径属性，因为您可以使用 `MvcRequestMatcher.Builder` 来创建多个共享相同 servlet 路径的 `MvcRequestMatcher` 实例：
 
 ====
 .Java
 [source,java,role="primary"]
 ----
-protected configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http, HandlerMappingIntrospector introspector) throws Exception {
+	MvcRequestMatcher.Builder mvcMatcherBuilder = new MvcRequestMatcher.Builder(introspector).servletPath("/path");
 	http
-		.authorizeHttpRequests(authorize -> authorize
-			.mvcMatchers("/admin").hasRole("ADMIN")
+		.authorizeHttpRequests((authorize) -> authorize
+			.requestMatchers(mvcMatcherBuilder.pattern("/admin")).hasRole("ADMIN")
+			.requestMatchers(mvcMatcherBuilder.pattern("/user")).hasRole("USER")
 		);
+	return http.build();
 }
 ----
 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-override fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity, introspector: HandlerMappingIntrospector): SecurityFilterChain {
+    val mvcMatcherBuilder = MvcRequestMatcher.Builder(introspector)
     http {
-        authorizeRequests {
-            authorize("/admin", hasRole("ADMIN"))
+        authorizeHttpRequests {
+            authorize(mvcMatcherBuilder.pattern("/admin"), hasRole("ADMIN"))
+            authorize(mvcMatcherBuilder.pattern("/user"), hasRole("USER"))
         }
     }
+    return http.build()
 }
 ----
 ====
 
 或使用 xml
 
+====
 [source,xml]
 ----
 <http request-matcher="mvc">
 	<intercept-url pattern="/admin" access="hasRole('ADMIN')"/>
 </http>
 ----
+====
 
 [[mvc-authentication-principal]]
 == @AuthenticationPrincipal
 
 Spring Security 提供了 `AuthenticationPrincipalArgumentResolver`,它可以为 Spring MVC 参数自动解析当前的 `Authentication.getPrincipal()` .  通过使用 `@EnableWebSecurity`,您将自动将其添加到 Spring MVC 配置中.  如果使用基于 XML 的配置,则必须自己添加.  例如:
 
+====
 [source,xml]
 ----
 <mvc:annotation-driven>
@@ -214,8 +250,9 @@ Spring Security 提供了 `AuthenticationPrincipalArgumentResolver`,它可以为
 		</mvc:argument-resolvers>
 </mvc:annotation-driven>
 ----
+====
 
-正确配置 `AuthenticationPrincipalArgumentResolver` 之后,您就可以在 Spring MVC 层中与 Spring Security 完全脱钩.
+一旦正确配置了 `AuthenticationPrincipalArgumentResolver`，您就可以在 Spring MVC 层中与 Spring Security 完全分离。
 
 考虑一种情况,其中自定义 `UserDetailsService` 返回一个实现 `UserDetails` 的对象和您自己的 `CustomUser` 对象.  可以使用以下代码访问当前已认证用户的 `CustomUser`:
 
@@ -378,7 +415,10 @@ open fun updateName(
 
 通过使 `@AuthenticationPrincipal` 成为我们自己的注解的元注解,我们可以进一步消除对 Spring Security 的依赖. 下面我们演示如何在名为 `@CurrentUser` 的注解上执行此操作.
 
-NOTE: 重要的是要意识到,为了消除对 Spring Security 的依赖,创建 `@CurrentUser` 的是消耗者的应用程序.  并非严格要求执行此步骤,但可以帮助您将对 Spring Security 的依赖隔离到更中央的位置.
+[NOTE]
+====
+为了消除对 Spring Security 的依赖,创建 `@CurrentUser` 的是消费者的应用程序. 此步骤不是严格要求的，但可以帮助您将对 Spring Security 的依赖性隔离到更集中的位置。.
+====
 
 ====
 .Java
@@ -402,7 +442,8 @@ annotation class CurrentUser
 ----
 ====
 
-现在已经指定了 `@CurrentUser`,我们可以用它来通知解析当前已认证用户的 `CustomUser`. 我们还将对 Spring Security 的依赖隔离到一个文件中.
+我们还将对 Spring Security 的依赖隔离到一个文件中.
+现在已经指定了 `@CurrentUser`,我们可以用它来通知解析当前已认证用户的 `CustomUser`.
 
 ====
 .Java
@@ -461,8 +502,8 @@ open fun processUpload(file: MultipartFile?): Callable<String> {
 ----
 ====
 
-[NOTE]
 .将 SecurityContext 与 Callable 的关联
+[NOTE]
 ====
 从技术上讲,Spring Security 与 `WebAsyncManager` 集成. 用于处理 `Callable` 的 `SecurityContext` 是在调用 `startCallableProcessing` 时 `SecurityContextHolder` 上存在的 `SecurityContext`.
 ====
@@ -472,10 +513,13 @@ open fun processUpload(file: MultipartFile?): Callable<String> {
 [[mvc-csrf]]
 == Spring MVC 和 CSRF 整合
 
+Spring Security 与 Spring MVC 集成以添加 CSRF 保护。
+
 === 自动包含令牌
 
 Spring Security 将在使用 https://docs.spring.io/spring/docs/3.2.x/spring-framework-reference/html/view.html#view-jsp-formtaglib-formtag[Spring MVC form tag]中自动<<servlet-csrf-include,包含 CSRF 令牌>>. 例如,以下 JSP:
 
+====
 [source,xml]
 ----
 <jsp:root xmlns:jsp="http://java.sun.com/JSP/Page"
@@ -499,9 +543,11 @@ Spring Security 将在使用 https://docs.spring.io/spring/docs/3.2.x/spring-fra
 </html>
 </jsp:root>
 ----
+====
 
 将输出类似于以下内容的 HTML:
 
+====
 [source,xml]
 ----
 <!-- ... -->
@@ -513,6 +559,7 @@ Spring Security 将在使用 https://docs.spring.io/spring/docs/3.2.x/spring-fra
 
 <!-- ... -->
 ----
+====
 
 [[mvc-csrf-resolver]]
 ===  CsrfToken 解析

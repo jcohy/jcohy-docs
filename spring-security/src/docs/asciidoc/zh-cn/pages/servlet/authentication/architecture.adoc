@@ -49,12 +49,11 @@ context.authentication = authentication
 
 SecurityContextHolder.setContext(context) // <3>
 ----
-====
-
-<1> 我们首先创建一个空的 `SecurityContext`.  重要的是创建一个新的 `SecurityContext` 实例,而不要使用 `SecurityContextHolder.getContext().setAuthentication(authentication)`  以避免跨多个线程出现竞争状况.
+<1> 我们首先创建一个空的 `SecurityContext`.  你应该创建一个新的 `SecurityContext` 实例,而不要使用 `SecurityContextHolder.getContext().setAuthentication(authentication)`  以避免跨多个线程出现竞争状况.
 <2> 接下来,我们创建一个新的  <<servlet-authentication-authentication,`Authentication`>>  对象.  Spring Security 并不关心在 `SecurityContext` 上设置什么类型的 `Authentication` 实现.
 在这里我们使用 `TestingAuthenticationToken`,因为它非常简单.  一个更常见的生产方案是  `UsernamePasswordAuthenticationToken(userDetails, password, authorities)`..
 <3> 最后,我们在 `SecurityContextHolder` 上设置 `SecurityContext`.  Spring Security 将使用此信息进行  <<servlet-authorization,授权>>.
+====
 
 如果希望获取有关已验证的主体的信息,可以通过访问 `SecurityContextHolder` 来获得.
 
@@ -100,24 +99,26 @@ val authorities = authentication.authorities
 [[servlet-authentication-authentication]]
 == Authentication
 
-{security-api-url}org/springframework/security/core/Authentication.html[`Authentication`]  在 Spring Security 中有两个主要用途:
+{security-api-url}org/springframework/security/core/Authentication.html[`Authentication`]  接口在 Spring Security 中有两个主要用途:
 
 * <<servlet-authentication-authenticationmanager,`AuthenticationManager`>>  的输入,用于提供用户提供的用于身份验证的凭据.  在这种情况下使用时, `isAuthenticated()` 返回 `false`.
-*  代表当前经过身份验证的用户.  可以从 <<servlet-authentication-securitycontext,SecurityContext>>
+*  代表当前经过身份验证的用户.  可以从 <<servlet-authentication-securitycontext,SecurityContext>> 获取当前的 `Authentication`。
 
 `Authentication` 包含:
 
-* `principal` - 识别用户.  使用用户名/密码进行身份验证时,这通常是  <<servlet-authentication-userdetails,`UserDetails`>> 的实例.
-* `credentials` - 通常是密码.  在许多情况下,将在验证用户身份后清除此内容,以确保它不会泄漏.
-* `authorities` - <<servlet-authentication-granted-authority,`GrantedAuthoritys`>> 是授予用户的权限.  角色或范围是几个例子.
+* `principal`: 识别用户.  使用用户名/密码进行身份验证时,这通常是  <<servlet-authentication-userdetails,`UserDetails`>> 的实例.
+* `credentials`: 通常是密码.  在许多情况下,将在验证用户身份后清除此内容,以确保它不会泄漏.
+* `authorities`: <<servlet-authentication-granted-authority,`GrantedAuthoritys`>> 是授予用户的权限.  角色或范围是几个例子.
 
 
 [[servlet-authentication-granted-authority]]
 == GrantedAuthority
 
-{security-api-url}org/springframework/security/core/GrantedAuthority.html[`GrantedAuthority`s] 是授予用户的高级权限.  角色或范围是几个例子.
+{security-api-url}org/springframework/security/core/GrantedAuthority.html[`GrantedAuthority`] 是授予用户的高级权限.  有两个角色或范围的例子.
 
-`Authentication` 提供的重要方法是 `getAuthorities()`. 这个方法提供了 `GrantedAuthority` 对象数组. 毫无疑问,`GrantedAuthority` 是赋予到主体的权限.
+通常，GrantedAuthority 对象是应用程序范围的权限。 它们不特定于给定的域对象。 因此，您不太可能有一个 GrantedAuthority 来表示对 Employee 对象编号 54 的许可，因为如果有数千个这样的权限，您将很快耗尽内存（或者至少会导致应用程序花费很长时间 验证用户）。 当然，Spring Security 明确设计用于处理这种常见需求，但您应该为此目的使用项目的域对象安全功能。
+
+您可以从 <<servlet-authentication-authentication,`Authentication.getAuthorities()`>> 方法获取 `GrantedAuthority` 实例。. 这个方法提供了 `GrantedAuthority` 对象集合. 毫无疑问,`GrantedAuthority` 是赋予到主体的权限.
 这些权限通常使用角色表示,比如 `ROLE_ADMINISTRATOR` 或 `ROLE_HR_SUPERVISOR`. 这些角色会在后面,对 web 验证,方法验证和领域对象验证进行配置.
 Spring Security 的其他部分用来拦截这些权限,期望他们被表现出现. `GrantedAuthority` 对象通常是使用  <<servlet-authentication-userdetailsservice,`UserDetailsService`>> 读取的.
 
@@ -130,7 +131,7 @@ Spring Security 的其他部分用来拦截这些权限,期望他们被表现出
 
 {security-api-url}org/springframework/security/authentication/AuthenticationManager.html[`AuthenticationManager`]  是用于定义 Spring Security 的过滤器如何执行 <<authentication,身份验证>>的API.
 然后,由调用 `AuthenticationManager` 的控制器(即 Spring Security 的 <<servlet-security-filters,Spring Security 的过滤器>>) 在 <<servlet-authentication-securitycontextholder,SecurityContextHolder>>  上设置返回的身份验证.
-如果您不与 Spring Security 的过滤器集成,则可以直接设置 `SecurityContextHolder`,并且不需要使用 `AuthenticationManager`.
+如果您不与 Spring Security 的过滤器实例集成,则可以直接设置 `SecurityContextHolder`,并且不需要使用 `AuthenticationManager`.
 
 虽然 `AuthenticationManager` 的实现可以是任何东西,但最常见的实现是  <<servlet-authentication-providermanager,`ProviderManager`>>.
 // FIXME: add configuration
@@ -141,7 +142,7 @@ Spring Security 的其他部分用来拦截这些权限,期望他们被表现出
 :figures: {image-resource}/servlet/authentication/architecture
 
 {security-api-url}org/springframework/security/authentication/ProviderManager.html[`ProviderManager`] 是 <<servlet-authentication-authenticationmanager,`AuthenticationManager`>> 的最常用实现.  `ProviderManager` 委托给 <<servlet-authentication-authenticationprovider,``AuthenticationProvider``s>> 列表.
-每个 `AuthenticationProvider` 都有可能认证成功或失败,或者表明它不能做出决定并允许下一个 `AuthenticationProvider` 进行决定.  如果没有一个已配置的 `AuthenticationProviders` 可以进行身份验证,则身份验证将失败,并显示 `ProviderNotFoundException`,这是一个特殊的 `AuthenticationException`,它指示未配置 `ProviderManager` 支持传递给它的身份验证类型.
+每个 `AuthenticationProvider` 实例都有可能认证成功或失败,或者表明它不能做出决定并允许下一个 `AuthenticationProvider` 进行决定.  如果没有一个已配置的 `AuthenticationProviders` 可以进行身份验证,则身份验证将失败,并显示 `ProviderNotFoundException`,这是一个特殊的 `AuthenticationException`,它指示未配置 `ProviderManager` 支持传递给它的身份验证类型.
 
 image::{figures}/providermanager.png[]
 
@@ -205,21 +206,22 @@ image:{image-resource}/icons/number_3.png[] 如果身份验证失败,则失败
 
 * 已清除 <<servlet-authentication-securitycontextholder,SecurityContextHolder>>.
 * `RememberMeServices.loginFail` 被调用.  如果 RememberMeServices 未配置,则为空.
-// FIXME: link to rememberme
+See the {security-api-url}org/springframework/security/web/authentication/rememberme/package-frame.html[`rememberme`] package.
 * `AuthenticationFailureHandler` 被调用.
-// FIXME: link to AuthenticationFailureHandler
+See the {security-api-url}org/springframework/security/web/authentication/AuthenticationFailureHandler.html[`AuthenticationFailureHandler`] interface.
 
 image:{image-resource}/icons/number_4.png[] 如果身份验证成功,则为成功.
 
 * 新的登录通知 `SessionAuthenticationStrategy`.
-// FIXME: Add link to SessionAuthenticationStrategy
+See the {security-api-url}org/springframework/security/web/authentication/session/SessionAuthenticationStrategy.html[`SessionAuthenticationStrategy`] interface.
+
 * <<servlet-authentication-authentication,Authentication >> 是在 <<servlet-authentication-securitycontextholder,SecurityContextHolder>> 上设置的.  之后,`SecurityContextPersistenceFilter` 将 `SecurityContext` 保存到 `HttpSession` 中.
-// FIXME: link securitycontextpersistencefilter
+See the {security-api-url}org/springframework/security/web/context/SecurityContextPersistenceFilter.html[`SecurityContextPersistenceFilter`] class.
 * `RememberMeServices.loginSuccess` 被调用.  如果 RememberMeServices 未配置,则为空.
-// FIXME: link to rememberme
+See the {security-api-url}org/springframework/security/web/authentication/rememberme/package-frame.html[`rememberme`] package.
 * `ApplicationEventPublisher` 发布一个 `InteractiveAuthenticationSuccessEvent`.
 * `AuthenticationSuccessHandler` 被调用.
-// FIXME: link to AuthenticationSuccessHandler
+See the {security-api-url}org/springframework/security/web/authentication/AuthenticationSuccessHandler.html[`AuthenticationSuccessHandler`] interface.
 
 
 // daoauthenticationprovider (goes in username/password)
