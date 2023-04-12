@@ -11,11 +11,13 @@
 [[query-by-example.usage]]
 == 使用
 
-示例查询由三部分组成:
+示例查询由四部分组成:
 
 * Probe: 带有填充字段的 domain 对象的实际示例.
 * `ExampleMatcher`: `ExampleMatcher` 包含有关如何匹配特定字段的详细信息.  可以在多个示例中重复使用它.
 * `Example`: 示例包括探针和 `ExampleMatcher`.  它用于创建查询.
+* `FetchableFluentQuery`: `FetchableFluentQuery` 提供了一个流式 API，允许进一步自定义从 `Example` 派生的查询。
+使用流式的 API，您可以为查询指定排序投影和结果处理。
 
 示例查询非常适合几种用例:
 
@@ -49,7 +51,7 @@ public class Person {
 
 前面的示例显示了一个简单的域对象.  您可以使用它来创建一个 `Example`.  默认情况下,具有 `null` 的字段将被忽略,并且使用存储特定的默认值来匹配字符串.  可以使用工厂方法或使用 `ExampleMatcher` 构建示例.  例子是一成不变的.  以下清单显示了一个简单的示例:
 
-NOTE: 由于可空性， 可以将属性包含在 "按示例查询" . 除非 <<query-by-example.matchers,忽略属性路径>>， 否则始终包括使用基本类型(`int`, `double`, …) 的属性 .
+NOTE: 由于可空性， 可以将属性包含在 "按示例查询" . 除非 <<query-by-example.matchers,`ExampleMatcher` 忽略属性路径>>， 否则始终包括使用基本类型(`int`, `double`, …) 的属性 .
 
 
 .简单示例
@@ -167,3 +169,26 @@ ExampleMatcher matcher = ExampleMatcher.matching()
 | Property path
 
 |===
+
+[[query-by-example.fluent]]
+== Fluent API
+
+`QueryByExampleExecutor` 提供了另一种方法，我们目前尚未提及：`<S extends T, R> R findBy(Example<S> example, Function<FluentQuery.FetchableFluentQuery<S>, R> queryFunction)`。
+与其他方法一样，它执行从 `Example` 派生的查询。 但是，使用第二个参数，您可以控制您无法动态控制的执行的各个方面。
+您可以通过在第二个参数中调用 `FetchableFluentQuery` 的各种方法来实现。
+`sortBy` 允许您为结果指定排序。
+`as` 允许您指定要将结果转换为的类型。
+`project` 限制查询的属性。
+`first`, `firstValue`, `one`, `oneValue`, `all`, `page`, `stream`, `count` 和 `exists` 定义了你得到什么样的结果以及当更多的时候查询的行为 可用的结果数量超出预期。
+
+.Use the fluent API to get the last of potentially many results, ordered by lastname.
+====
+[source,java]
+----
+Optional<Person> match = repository.findBy(example,
+    q -> q
+        .sortBy(Sort.by("lastname").descending())
+        .first()
+);
+----
+====

@@ -1,6 +1,10 @@
 :spring-framework-docs: https://docs.spring.io/spring-framework/docs/{springVersion}/reference/html
 :spring-framework-javadoc: https://docs.spring.io/spring/docs/{springVersion}/javadoc-api
 
+ifndef::store[]
+:store: Jpa
+endif::[]
+
 [[repositories]]
 = Working with Spring Data Repositories
 
@@ -12,8 +16,11 @@ _Spring Data repository documentation and your module_
 
 This chapter explains the core concepts and interfaces of Spring Data repositories.
 The information in this chapter is pulled from the Spring Data Commons module.
-It uses the configuration and code samples for the Java Persistence API (JPA) module.
-You should adapt the XML namespace declaration and the types to be extended to the equivalents of the particular module that you use. "`<<repositories.namespace-reference>>`" covers XML configuration, which is supported across all Spring Data modules that support the repository API. "`<<repository-query-keywords>>`" covers the query method keywords supported by the repository abstraction in general.
+It uses the configuration and code samples for the Jakarta Persistence API (JPA) module.
+ifeval::[{include-xml-namespaces} != false]
+If you want to use XML configuration you should adapt the XML namespace declaration and the types to be extended to the equivalents of the particular module that you use. "`<<repositories.namespace-reference>>`" covers XML configuration, which is supported across all Spring Data modules that support the repository API.
+endif::[]
+"`<<repository-query-keywords>>`" covers the query method keywords supported by the repository abstraction in general.
 For detailed information on the specific features of your module, see the chapter on that module of this document.
 ====
 
@@ -23,7 +30,7 @@ For detailed information on the specific features of your module, see the chapte
 The central interface in the Spring Data repository abstraction is `Repository`.
 It takes the domain class to manage as well as the ID type of the domain class as type arguments.
 This interface acts primarily as a marker interface to capture the types to work with and to help you to discover interfaces that extend this one.
-The https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/CrudRepository.html[`CrudRepository`] interface provides sophisticated CRUD functionality for the entity class that is being managed.
+The https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/CrudRepository.html[`CrudRepository`] and https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/ListCrudRepository.html[`ListCrudRepository`] interfaces provide sophisticated CRUD functionality for the entity class that is being managed.
 
 [[repositories.repository]]
 .`CrudRepository` Interface
@@ -55,16 +62,18 @@ public interface CrudRepository<T, ID> extends Repository<T, ID> {
 <6> Indicates whether an entity with the given ID exists.
 ====
 
+`ListCrudRepository` offers equivalent methods, but they return `List` where the `CrudRepository` methods return an `Iterable`.
+
 NOTE: We also provide persistence technology-specific abstractions, such as `JpaRepository` or `MongoRepository`.
 Those interfaces extend `CrudRepository` and expose the capabilities of the underlying persistence technology in addition to the rather generic persistence technology-agnostic interfaces such as `CrudRepository`.
 
-On top of the `CrudRepository`, there is a https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/PagingAndSortingRepository.html[`PagingAndSortingRepository`] abstraction that adds additional methods to ease paginated access to entities:
+Additional to the `CrudRepository`, there is a https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/PagingAndSortingRepository.html[`PagingAndSortingRepository`] abstraction that adds additional methods to ease paginated access to entities:
 
 .`PagingAndSortingRepository` interface
 ====
 [source,java]
 ----
-public interface PagingAndSortingRepository<T, ID> extends CrudRepository<T, ID> {
+public interface PagingAndSortingRepository<T, ID>  {
 
   Iterable<T> findAll(Sort sort);
 
@@ -139,23 +148,20 @@ interface PersonRepository extends Repository<Person, Long> {
 ====
 
 . Set up Spring to create proxy instances for those interfaces, either with <<repositories.create-instances.java-config,JavaConfig>> or with <<repositories.create-instances,XML configuration>>.
-
-.. To use Java configuration, create a class similar to the following:
 +
 ====
-[source,java]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
 ----
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.data.….repository.config.Enable{store}Repositories;
 
-@EnableJpaRepositories
+@Enable{store}Repositories
 class Config { … }
 ----
-====
 
-.. To use XML configuration, define a bean similar to the following:
-+
-====
-[source,xml]
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -166,18 +172,21 @@ class Config { … }
      http://www.springframework.org/schema/data/jpa
      https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
 
-   <jpa:repositories base-package="com.acme.repositories"/>
+   <repositories base-package="com.acme.repositories"/>
 
 </beans>
 ----
+endif::[]
 ====
 +
+ifeval::[{include-xml-namespaces} != false]
 The JPA namespace is used in this example.
 If you use the repository abstraction for any other store, you need to change this to the appropriate namespace declaration of your store module.
 In other words, you should exchange `jpa` in favor of, for example, `mongodb`.
+endif::[]
 +
-Also, note that the JavaConfig variant does not configure a package explicitly, because the package of the annotated class is used by default.
-To customize the package to scan, use one of the `basePackage…` attributes of the data-store-specific repository's `@Enable${store}Repositories`-annotation.
+Note that the JavaConfig variant does not configure a package explicitly, because the package of the annotated class is used by default.
+To customize the package to scan, use one of the `basePackage…` attributes of the data-store-specific repository's `@Enable{store}Repositories`-annotation.
 . Inject the repository instance and use it, as shown in the following example:
 +
 ====
@@ -210,17 +219,35 @@ The sections that follow explain each step in detail:
 
 To define a repository interface, you first need to define a domain class-specific repository interface.
 The interface must extend `Repository` and be typed to the domain class and an ID type.
-If you want to expose CRUD methods for that domain type, extend `CrudRepository` instead of `Repository`.
+If you want to expose CRUD methods for that domain type, you may extend `CrudRepository`, or one of its variants instead of `Repository`.
 
 [[repositories.definition-tuning]]
 === Fine-tuning Repository Definition
 
-Typically, your repository interface extends `Repository`, `CrudRepository`, or `PagingAndSortingRepository`.
-Alternatively, if you do not want to extend Spring Data interfaces, you can also annotate your repository interface with `@RepositoryDefinition`.
-Extending `CrudRepository` exposes a complete set of methods to manipulate your entities.
-If you prefer to be selective about the methods being exposed, copy the methods you want to expose from `CrudRepository` into your domain repository.
+There are a few variants how you can get started with your repository interface.
 
-NOTE: Doing so lets you define your own abstractions on top of the provided Spring Data Repositories functionality.
+The typical approach is to extend `CrudRepository`, which gives you methods for CRUD functionality.
+CRUD stands for Create, Read, Update, Delete.
+With version 3.0 we also introduced `ListCrudRepository` which is very similar to the `CrudRepository` but for those methods that return multiple entities it returns a `List` instead of an `Iterable` which you might find easier to use.
+
+If you are using a reactive store you might choose `ReactiveCrudRepository`, or `RxJava3CrudRepository` depending on which reactive framework you are using.
+
+If you are using Kotlin you might pick `CoroutineCrudRepository` which utilizes Kotlin's coroutines.
+
+Additional you can extend `PagingAndSortingRepository`, `ReactiveSortingRepository`, `RxJava3SortingRepository`, or `CoroutineSortingRepository` if you need methods that allow to specify a `Sort` abstraction or in the first case a `Pageable` abstraction.
+Note that the various sorting repositories no longer extended their respective CRUD repository as they did in Spring Data Versions pre 3.0.
+Therefore, you need to extend both interfaces if you want functionality of both.
+
+If you do not want to extend Spring Data interfaces, you can also annotate your repository interface with `@RepositoryDefinition`.
+Extending one of the CRUD repository interfaces exposes a complete set of methods to manipulate your entities.
+If you prefer to be selective about the methods being exposed, copy the methods you want to expose from the CRUD repository into your domain repository.
+When doing so, you may change the return type of methods.
+Spring Data will honor the return type if possible.
+For example, for methods returning multiple entities you may choose `Iterable<T>`, `List<T>`, `Collection<T>` or a VAVR list.
+
+If many repositories in your application should have the same set of methods you can define your own base interface to inherit from.
+Such an interface must be annotated with `@NoRepositoryBean`.
+This prevents Spring Data to try to create an instance of it directly and failing because it can't determine the entity for that repository, since it still contains a generic type variable.
 
 The following example shows how to selectively expose CRUD methods (`findById` and `save`, in this case):
 
@@ -347,7 +374,7 @@ However, Spring Data can then no longer determine a unique module with which to 
 The last way to distinguish repositories is by scoping repository base packages.
 Base packages define the starting points for scanning for repository interface definitions, which implies having repository definitions located in the appropriate packages.
 By default, annotation-driven configuration uses the package of the configuration class.
-The <<repositories.create-instances.spring,base package in XML-based configuration>> is mandatory.
+The <<repositories.create-instances.xml,base package in XML-based configuration>> is mandatory.
 
 The following example shows annotation-driven configuration of base packages:
 
@@ -377,8 +404,10 @@ The next section describes the available options.
 === Query Lookup Strategies
 
 The following strategies are available for the repository infrastructure to resolve the query.
+ifeval::[{include-xml-namespaces} != false]
 With XML configuration, you can configure the strategy at the namespace through the `query-lookup-strategy` attribute.
-For Java configuration, you can use the `queryLookupStrategy` attribute of the `Enable${store}Repositories` annotation.
+endif::[]
+For Java configuration, you can use the `queryLookupStrategy` attribute of the `Enable{store}Repositories` annotation.
 Some strategies may not be supported for particular datastores.
 
 - `CREATE` attempts to construct a store-specific query from the query method name.
@@ -846,77 +875,21 @@ Future<User> findByFirstname(String firstname);               <1>
 
 @Async
 CompletableFuture<User> findOneByFirstname(String firstname); <2>
-
-@Async
-ListenableFuture<User> findOneByLastname(String lastname);    <3>
 ----
 <1> Use `java.util.concurrent.Future` as the return type.
 <2> Use a Java 8 `java.util.concurrent.CompletableFuture` as the return type.
-<3> Use a `org.springframework.util.concurrent.ListenableFuture` as the return type.
 ====
 
 [[repositories.create-instances]]
 == Creating Repository Instances
 
-This section covers how to create instances and bean definitions for the defined repository interfaces. One way to do so is by using the Spring namespace that is shipped with each Spring Data module that supports the repository mechanism, although we generally recommend using Java configuration.
-
-[[repositories.create-instances.spring]]
-=== XML Configuration
-
-Each Spring Data module includes a `repositories` element that lets you define a base package that Spring scans for you, as shown in the following example:
-
-.Enabling Spring Data repositories via XML
-====
-[source,xml]
-----
-<?xml version="1.0" encoding="UTF-8"?>
-<beans:beans xmlns:beans="http://www.springframework.org/schema/beans"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns="http://www.springframework.org/schema/data/jpa"
-  xsi:schemaLocation="http://www.springframework.org/schema/beans
-    https://www.springframework.org/schema/beans/spring-beans.xsd
-    http://www.springframework.org/schema/data/jpa
-    https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
-
-  <repositories base-package="com.acme.repositories" />
-
-</beans:beans>
-----
-====
-
-In the preceding example, Spring is instructed to scan `com.acme.repositories` and all its sub-packages for interfaces extending `Repository` or one of its sub-interfaces.
-For each interface found, the infrastructure registers the persistence technology-specific `FactoryBean` to create the appropriate proxies that handle invocations of the query methods.
-Each bean is registered under a bean name that is derived from the interface name, so an interface of `UserRepository` would be registered under `userRepository`.
-Bean names for nested repository interfaces are prefixed with their enclosing type name.
-The `base-package` attribute allows wildcards so that you can define a pattern of scanned packages.
-
-[[repositories.using-filters]]
-==== Using Filters
-
-By default, the infrastructure picks up every interface that extends the persistence technology-specific `Repository` sub-interface located under the configured base package and creates a bean instance for it.
-However, you might want more fine-grained control over which interfaces have bean instances created for them.
-To do so, use `<include-filter />` and `<exclude-filter />` elements inside the `<repositories />` element.
-The semantics are exactly equivalent to the elements in Spring's context namespace.
-For details, see the {spring-framework-docs}/core.html#beans-scanning-filters[Spring reference documentation] for these elements.
-
-For example, to exclude certain interfaces from instantiation as repository beans, you could use the following configuration:
-
-.Using exclude-filter element
-====
-[source,xml]
-----
-<repositories base-package="com.acme.repositories">
-  <context:exclude-filter type="regex" expression=".*SomeRepository" />
-</repositories>
-----
-====
-
-The preceding example excludes all interfaces ending in `SomeRepository` from being instantiated.
+This section covers how to create instances and bean definitions for the defined repository interfaces.
 
 [[repositories.create-instances.java-config]]
 === Java Configuration
 
-You can also trigger the repository infrastructure by using a store-specific `@Enable${store}Repositories` annotation on a Java configuration class. For an introduction to Java-based configuration of the Spring container, see {spring-framework-docs}/core.html#beans-java[JavaConfig in the Spring reference documentation].
+Use the store-specific `@Enable{store}Repositories` annotation on a Java configuration class to define a configuration for repository activation.
+For an introduction to Java-based configuration of the Spring container, see {spring-framework-docs}/core.html#beans-java[JavaConfig in the Spring reference documentation].
 
 A sample configuration to enable Spring Data repositories resembles the following:
 
@@ -936,16 +909,89 @@ class ApplicationConfiguration {
 ----
 ====
 
-NOTE: The preceding example uses the JPA-specific annotation, which you would change according to the store module you actually use.
-The same applies to the definition of the `EntityManagerFactory` bean.
-See the sections covering the store-specific configuration.
+NOTE: The preceding example uses the JPA-specific annotation, which you would change according to the store module you actually use. The same applies to the definition of the `EntityManagerFactory` bean. See the sections covering the store-specific configuration.
+
+ifeval::[{include-xml-namespaces} != false]
+[[repositories.create-instances.spring]]
+[[repositories.create-instances.xml]]
+=== XML Configuration
+
+Each Spring Data module includes a `repositories` element that lets you define a base package that Spring scans for you, as shown in the following example:
+
+.Enabling Spring Data repositories via XML
+====
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans:beans xmlns:beans="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns="http://www.springframework.org/schema/data/jpa"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+    https://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/data/jpa
+    https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
+
+  <jpa:repositories base-package="com.acme.repositories" />
+
+</beans:beans>
+----
+====
+
+In the preceding example, Spring is instructed to scan `com.acme.repositories` and all its sub-packages for interfaces extending `Repository` or one of its sub-interfaces.
+For each interface found, the infrastructure registers the persistence technology-specific `FactoryBean` to create the appropriate proxies that handle invocations of the query methods.
+Each bean is registered under a bean name that is derived from the interface name, so an interface of `UserRepository` would be registered under `userRepository`.
+Bean names for nested repository interfaces are prefixed with their enclosing type name.
+The base package attribute allows wildcards so that you can define a pattern of scanned packages.
+endif::[]
+
+[[repositories.using-filters]]
+=== Using Filters
+
+By default, the infrastructure picks up every interface that extends the persistence technology-specific `Repository` sub-interface located under the configured base package and creates a bean instance for it.
+However, you might want more fine-grained control over which interfaces have bean instances created for them.
+To do so, use filter elements inside the repository declaration.
+The semantics are exactly equivalent to the elements in Spring's component filters.
+For details, see the {spring-framework-docs}/core.html#beans-scanning-filters[Spring reference documentation] for these elements.
+
+For example, to exclude certain interfaces from instantiation as repository beans, you could use the following configuration:
+
+.Using filters
+====
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
+----
+@Configuration
+@Enable{store}Repositories(basePackages = "com.acme.repositories",
+    includeFilters = { @Filter(type = FilterType.REGEX, pattern = ".*SomeRepository") },
+    excludeFilters = { @Filter(type = FilterType.REGEX, pattern = ".*SomeOtherRepository") })
+class ApplicationConfiguration {
+
+  @Bean
+  EntityManagerFactory entityManagerFactory() {
+    // …
+  }
+}
+----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
+----
+<repositories base-package="com.acme.repositories">
+  <context:exclude-filter type="regex" expression=".*SomeRepository" />
+  <context:include-filter type="regex" expression=".*SomeOtherRepository" />
+</repositories>
+----
+endif::[]
+====
+
+The preceding example excludes all interfaces ending in `SomeRepository` from being instantiated and includes those ending with `SomeOtherRepository`.
+
 
 [[repositories.create-instances.standalone]]
 === Standalone Usage
 
-You can also use the repository infrastructure outside of a Spring container -- for example, in CDI environments.
-You still need some Spring libraries in your classpath, but, generally, you can set up repositories programmatically as well.
-The Spring Data modules that provide repository support ship with a persistence technology-specific `RepositoryFactory` that you can use, as follows:
+You can also use the repository infrastructure outside of a Spring container -- for example, in CDI environments. You still need some Spring libraries in your classpath, but, generally, you can set up repositories programmatically as well. The Spring Data modules that provide repository support ship with a persistence technology-specific `RepositoryFactory` that you can use, as follows:
 
 .Standalone usage of the repository factory
 ====
@@ -1108,19 +1154,29 @@ interface PersonRepository extends CrudRepository<Person, Long>, CustomizedSave<
 [[repositories.configuration]]
 ==== Configuration
 
-If you use namespace configuration, the repository infrastructure tries to autodetect custom implementation fragments by scanning for classes below the package in which it found a repository.
-These classes need to follow the naming convention of appending the namespace element's `repository-impl-postfix` attribute to the fragment interface name.
-This postfix defaults to `Impl`.
+The repository infrastructure tries to autodetect custom implementation fragments by scanning for classes below the package in which it found a repository.
+These classes need to follow the naming convention of appending a postfix defaulting to `Impl`.
+
 The following example shows a repository that uses the default postfix and a repository that sets a custom value for the postfix:
 
 .Configuration example
 ====
-[source,xml]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
+----
+@Enable{store}Repositories(repositoryImplementationPostfix = "MyPostfix")
+class Configuration { … }
+----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository" />
 
 <repositories base-package="com.acme.repository" repository-impl-postfix="MyPostfix" />
 ----
+endif::[]
 ====
 
 The first configuration in the preceding example tries to look up a class called `com.acme.repository.CustomizedUserRepositoryImpl` to act as a custom repository implementation.
@@ -1170,7 +1226,20 @@ The following example shows how to manually wire a custom implementation:
 
 .Manual wiring of custom implementations
 ====
-[source,xml]
+
+.Java
+[source,java,role="primary"]
+----
+class MyClass {
+  MyClass(@Qualifier("userRepositoryImpl") UserRepository userRepository) {
+    …
+  }
+}
+----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository" />
 
@@ -1178,6 +1247,8 @@ The following example shows how to manually wire a custom implementation:
   <!-- further configuration -->
 </beans:bean>
 ----
+endif::[]
+
 ====
 
 [[repositories.customize-base-repository]]
@@ -1216,27 +1287,26 @@ CAUTION: The class needs to have a constructor of the super class which the stor
 If the repository base class has multiple constructors, override the one taking an `EntityInformation` plus a store specific infrastructure object (such as an `EntityManager` or a template class).
 
 The final step is to make the Spring Data infrastructure aware of the customized repository base class.
-In Java configuration, you can do so by using the `repositoryBaseClass` attribute of the `@Enable${store}Repositories` annotation, as shown in the following example:
+In configuration, you can do so by using the `repositoryBaseClass`, as shown in the following example:
 
-.Configuring a custom repository base class using JavaConfig
+.Configuring a custom repository base class
 ====
-[source,java]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
 ----
 @Configuration
-@EnableJpaRepositories(repositoryBaseClass = MyRepositoryImpl.class)
+@Enable{store}Repositories(repositoryBaseClass = MyRepositoryImpl.class)
 class ApplicationConfiguration { … }
 ----
-====
 
-A corresponding attribute is available in the XML namespace, as shown in the following example:
-
-.Configuring a custom repository base class using XML
-====
-[source,xml]
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository"
      base-class="….MyRepositoryImpl" />
 ----
+endif::[]
 ====
 
 [[core.domain-events]]
@@ -1338,24 +1408,17 @@ In general, the integration support is enabled by using the `@EnableSpringDataWe
 
 .Enabling Spring Data web support
 ====
-[source,java]
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 @EnableWebMvc
 @EnableSpringDataWebSupport
 class WebConfiguration {}
 ----
-====
 
-The `@EnableSpringDataWebSupport` annotation registers a few components.
-We discuss those later in this section.
-It also detects Spring HATEOAS on the classpath and registers integration components (if present) for it as well.
-
-Alternatively, if you use XML configuration, register either `SpringDataWebConfiguration` or `HateoasAwareSpringDataWebConfiguration` as Spring beans, as the following example shows (for `SpringDataWebConfiguration`):
-
-.Enabling Spring Data web support in XML
-====
-[source,xml]
+.XML
+[source,xml,role="secondary"]
 ----
 <bean class="org.springframework.data.web.config.SpringDataWebConfiguration" />
 
@@ -1363,6 +1426,12 @@ Alternatively, if you use XML configuration, register either `SpringDataWebConfi
 <bean class="org.springframework.data.web.config.HateoasAwareSpringDataWebConfiguration" />
 ----
 ====
+
+The `@EnableSpringDataWebSupport` annotation registers a few components.
+We discuss those later in this section.
+It also detects Spring HATEOAS on the classpath and registers integration components (if present) for it as well.
+
+.Enabling Spring Data web support in XML
 
 [[core.web.basic]]
 ==== Basic Web Support
@@ -1681,6 +1750,7 @@ interface UserRepository extends CrudRepository<User, String>,
 
 TIP: You can register a `QuerydslBinderCustomizerDefaults` bean holding default Querydsl bindings before applying specific bindings from the repository or `@QuerydslPredicate`.
 
+ifeval::[{include-xml-namespaces} != false]
 [[core.repository-populators]]
 === Repository Populators
 
@@ -1758,3 +1828,4 @@ The following example shows how to unmarshall a repository populator with JAXB:
 </beans>
 ----
 ====
+endif::[]
