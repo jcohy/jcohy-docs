@@ -1,0 +1,480 @@
+= Bootstrap
+
+为了更好的在大型的生态环境中理解响应式编程，我们需要了解 Spring。什么是 Spring？什么是依赖注入？我们为什么使用基于 Spring Framework 的 Spring Boot 而不是其他框架。本章是一些
+基础入门知识。我们不在本章中讨论响应式编程。如果您已经了解了依赖注入、控制反转、Java 配置、Spring 应用程序上下文、面向切面编程（AOP）和 SpringBoot 的自动配置，请务必跳过此章。
+
+至于其他，我们将通过构建一些东西来展示一些关键的概念。和往常一样，我们从 https://start.spring.io[Spring Initializr] 开始我们的旅程。我们的目标是构建一个简单的应用程序，我在 `Group` 字段中
+指定了 `rsb`，在 `Artifact` 字段中输入 `bootstrap`，您也可以填写您喜欢的任何内容。在页面右下角显示搜索依赖的组合框中选择以下依赖：`Devtools`，`Web`，`H2`，`JDBC`，`Actuator` 和 `Lombok`。
+
+`Devtools` 允许我们通过运行 IDE 的构建命令来重新启动应用程序，无需重启整个 JVM 进程。这让我们可以更快的迭代并查看编译代码中的更改。它还会启动一个 Livereload 协议的服务器。有一些浏览器插件可以监听此服务器上
+的消息并强制刷新浏览器页面，为您提供所见即所得的体验。
+
+[TIP]
+====
+如果你使用的是 Spring Tool Suite，那么你只需要保存你的代码即可。IntelliJ 没有内置的 `save` 的概念，因此，没有处理此时间的 hook。您需要改为 "build" 代码。转到 `Build > Build the Project` 。
+在 Mac 上，您可以使用 `Cmd + F9` 快捷键
+====
+
+`Web` 帮助我们引入了基于 Servlet 规范和构建传统 Spring MVC 应用程序所需的一切。有表单验证，JSON 和 XML 编组，websocket，REST 和 HTTP 控制器支持等等。`H2` 是一个嵌入式数据库，每次重启都会丢失其状态。
+这对于我们来说是比较理想的，因为我们不需要安装数据库（或重置它）。
+
+`JDBC` 引入了对 SQL 数据库的支持，例如 JdbcTemplate
+
+`Lombok` 是一个编译时注解处理器，它综合了诸如 getter，setter，`toString()`，`equals()` 等方法。我们只需要很少的注解即可。大多数注解都以简明该，对类的描述不言自明。
+
+`Actuator` 在 `/actuator/\*` 下提供 HTTP 端点，可以通过这些端点查看应用程序的状态。
+
+这里还有一些其他选项。您要使用的 JVM 版本（我建议使用与最新 OpenJDK 构建对应的版本），您想要使用的语言？我们稍后探索 Kotlin，现在让我们使用 Java。emmmm，Groovy，似乎也是一个不错的选择。对于这个简单的
+应用程序，其他选项都可以使用默认值。
+
+对于我们指定的所有内容，我们并没有指定 Spring 本身，日志库，或需要完成这项工作的其他任何框架。使用 Spring Boot 时，这些依赖项已经隐含在其他依赖中，因此我们无需担心。
+
+现在，是不是欲哭无泪，"响应式怎么样了？"，别担心，我保证，我们终会到达哪里。但我们在本节中介绍的任何内容都不涉及 Reactive，因为我们需要一个基线。好了，现在，假设你对 JDBC（Java Database Connectivity API）和
+Servlet 规范（在 Java Web 层面上几乎所有的事情都涉及到 Servlet 规范）有一定的了解。
+
+滚动到底部选择 Generate Project
+
+image::images/reactive-spring01.png[]
+
+自动生成并打包进 `.zip` 文件中并下载。您可以在浏览器存储下载文件的文件夹中找到。解压此文件，您将看到以下布局:
+
+[source,txt]
+----
+.
+├── mvnw
+├── mvnw.cmd
+├── pom.xml
+└── src
+    ├── main
+    │ ├─--─ java
+    │ │     └── com
+    │ │         └── example
+    │ │             └── bootstrap
+    │ │                 └── BootstrapApplication.java
+    │ └─--─ resources
+    │       └── application.properties
+    └── test
+        └── java
+            └── com
+                └── example
+                    └── bootstrap
+                        └── BootstrapApplicationTests.java
+  12 directories, 6 files
+----
+
+这是一个标准的 Maven 项目，您唯一可能不熟悉的是 Maven 包装器 - 以 `.mvnw` 开头的文件。Maven wrapper 提供了 shell 脚本，可以在不同的操作系统之间，下载运行
+该项目所使用的 Apache Maven 发行版。当您想让构建以预期的方式运行时特别有用，尤其是在持续集成环境中。当在 UNIX 环境中（MacOS，或任何 Linux 风格），您会运行
+`mvnw` ，在 Windows 上，会运行 `mvnw.cmd`。
+
+您的 Maven `pom.xml` 文件应该如下所示:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+  <project xmlns="http://maven.apache.org/POM/4.0.0"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+  http://maven.apache.org/xsd/maven-4.0.0.xsd">
+        <modelVersion>4.0.0</modelVersion>
+        <groupId>rsb</groupId>
+        <artifactId>bootstrap</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <packaging>jar</packaging>
+        <name>bootstrap</name>
+        <description>Demo project for Spring Boot</description>
+        <parent>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-parent</artifactId>
+            <version>2.1.0.RELEASE</version>
+            <relativePath/> <!-- lookup parent from repository -->
+        </parent>
+        <properties>
+            <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+            <project.reporting.outputEncoding>UTF-8
+            </project.reporting.outputEncoding>
+            <java.version>1.8</java.version>
+        </properties>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-actuator</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-web</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-jdbc</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-devtools</artifactId>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <optional>true</optional>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-test</artifactId>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+        <build>
+            <plugins>
+              <plugin>
+                  <groupId>org.springframework.boot</groupId>
+                  <artifactId>spring-boot-maven-plugin</artifactId>
+              </plugin>
+            </plugins>
+        </build>
+</project>
+----
+
+这个 `pom.xml` 文件很简单，在 Spring Initializr 上选择的复选框都表示为 `pom.xml` 文件的 `dependency`。我们选择了 Web，它对于的依赖是 `org.springframework.boot:spring-boot-starter-web`。
+对于这个例子，它解释了我们需要至少三个依赖项，但并不能解释所有的依赖项。同时，测试也很重要，在添加到 Maven 构建的依赖项中，我们可以至少可以看到
+`org.springframework.boot:spring-boot-starter-test`。通常，Spring Initializr 会根据您添加的库在合适的时候添加其他测试库。如果没有选择其他库，Spring Initializr
+会自动生产具有测试依赖的新项目。
+
+我们还可以看到有一个空的属性文件 `src/main/resources/application.properties`， 稍后，我们会对此文件进行配置。Spring 可以读取 `.properties` 文件和 `.yaml` 文件。
+
+这是一个标准的 Spring Boot 应用程序，入口类 `BootstrapApplication.java` 具有  `public static void main(String[] args)` 方法。这是一个带有 main 方法
+和注解的一个空类。很好，虽然我很想留在这里，大谈 Spring Boot。但如果没有一些背景知识，这也不会成为一个入门课程。因此，删除 `BootstrapApplication.java`，我们
+会到达那里，但前提是需要一些基础知识。
+
+== A Bigol'Bago'Beans
+
+Spring Framework 是第一个冠以 Spring 绰号的项目，其核心是一个依赖注入的框架，依赖注入很简单，但影响深远。其思想也很简单：应用程序变化很大，从广义上讲，
+解耦有助于降低更改应用程序和系统架构带来的成本，因此，我们需要一种不知道依赖（协作对象）在何处的方式来编写代码。
+
+== CustomerService
+
+假设我们已经编写了一个 CustomerService 接口，现在，我们需要为其提供一种实现：
+
+// include::code:CustomerService[]
+
+[source,java]
+----
+public interface CustomerService {
+
+    Collection<Customer> save(String... names);
+
+    Customer findById(Long id);
+
+    Collection<Customer> findAll();
+}
+----
+
+CustomerService 本身并不像它最终会如何连接在一起那么有趣，编写实现 - 需要使用那些依赖对象，这会影响到以后更改实现的难易程度。当您向系统中添加更多类型时，会增加此成本。
+在软件项目的长期维护中，预先编写可维护的代码总是好的
+
+在 Spring 的核心 JDBC 支持中，`JdbcTemplate` 是许多人使用的 Spring 的实用工具类。它在 Spring 生命周期的大部分时间都存在，并支持常见的 JDBC 操作，可以避免我们
+使用 JDBC 时涉及到的大量样板代码（创建和销毁会话或事务，结果集映射到对象，参数绑定等等）。
+
+为了让对象关系映射（ORM）的讨论变得简单 - Spring 本身以某种方式很好的支持范例 - 我们将在我们的实现中坚持使用 `JdbcTemplate`，让我们来看以下 `BaseCustomerService`，
+它需要一个 `DataSource` 实例，并实例化一个新的 `JdbcTemplate` 实例
+
+[source,java]
+----
+public class BaseCustomerService implements CustomerService { // <1>
+
+    private final RowMapper<Customer> rowMapper = (rs,i) -> new Customer(rs.getLong("id"),rs.getString("NAME"));
+
+    private final JdbcTemplate jdbcTemplate; // <2>
+
+    public BaseCustomerService(DataSource dataSource) { // <3>
+        this.jdbcTemplate = new JdbcTemplate(dataSource);
+    }
+
+    @Override
+    public Collection<Customer> save(String... names) {
+        List<Customer> customerList = new ArrayList<>();
+
+        for(String name : names) {
+            GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
+            this.jdbcTemplate.update((connection) -> {
+                PreparedStatement ps = connection.prepareStatement("insert into CUSTOMERS(name) values (?)"
+                        , Statement.RETURN_GENERATED_KEYS);
+                ps.setString(1,name);
+                return ps;
+            },keyHolder);
+            Long keyHolderKey = Objects.requireNonNull(keyHolder.getKey().longValue());
+            Customer customer = this.findById(keyHolderKey);
+            Assert.notNull(name,"the name given must not be null!");
+            customerList.add(customer);
+        }
+        return customerList;
+    }
+
+    @Override
+    public Customer findById(Long id) {
+        String sql = "select * from CUSTOMERS where id = ?";
+        return this.jdbcTemplate.queryForObject(sql,rowMapper,id);
+    }
+
+    @Override
+    public Collection<Customer> findAll() {
+        return this.jdbcTemplate.query("select * from CUSTOMERS",rowMapper);
+    }
+}
+----
+<1> 这是一个 public 类，因为在本章中我们会在不同的包中有不同的实现。通常，你应该不会在不同的包中有多个实现，你应该尽可能的为实现分配不可见的修饰符。我的大部分代码的包都是私有的（根本没有修饰符）
+<2> `JdbcTemplate` 引用我们需要的数据源
+<3> 它需要一个数据源
+
+== 不灵活的实现
+
+实现的第一步是需要确定其与 RDBMS 对话的 `java.sql.DataSource` 实例。它需要该对象能够与数据库进行交互。这个数据库肯定会根据环境而改变位置。因此，在 Java 中对开发数据库
+的凭据进行硬编码是错误的，进具体的说，将 `DataSource` 对象的创建隐藏在 `CustomerService` 实现中是错误的。出于多种原因，最重要的是安全性，这是一种糟糕的想法。
+因为它将本地计算机上运行的数据库和代码耦合起来，无法切换数据库驱动程序的 URL。
+
+[TIP]
+====
+如果你的开发，测试和集成测试数据库都是同一个数据库，这将是非常糟糕的
+====
+
+一个 `CustomerService` 的本地实现 - 但不建议这么做
+
+[source,java]
+----
+public class DevelopmentOnlyCustomerService extends BaseCustomerService {
+
+    public DevelopmentOnlyCustomerService() {
+        super(buildDataSource());
+    }
+
+    private static DataSource buildDataSource() { // <1>
+        EmbeddedDatabase dataSource = new EmbeddedDatabaseBuilder()
+                .setType(EmbeddedDatabaseType.H2)
+                .build();
+        return DataSourceUtils.initializeDdl(dataSource);
+    }
+}
+----
+====
+<1> 在 `CustomerService` 实现中硬编码创建数据源，这里使用的是基于内存数据库的嵌入式 H2
+====
+
+最大的遗憾是，这个实现除了硬编码将 `DataSource` 传递给父构造函数之外，并没有做其他任何事。`BaseCustomerService` 是参数化的，它保留了可选性，这个子类几乎是
+不遗余力的通过对 `Datasource` 进行硬编码来删除可选性，真的是浪费。`DataSource` 确实是需要在某个地方创建，但我们希望不应该在它的实现中创建。`DataSource` 表示
+与网络服务的实时连接，当我们的应用程序从一个环境（开发，QA，staging 等）迁移到另一个环境时，其位置可能会发生变化。在这个糟糕的例子中，我们使用了内存和嵌入式数据库，
+但这并不是常见的情况，在大多数情况下，我们通常会有一个需要指定 URIS，位置，凭据的数据源
+
+`DataSource` 在使用前需要进行一些初始化设置，此示例在 `CustomerService` 实现时已经进行了创建和初始化逻辑。如果你对初始化逻辑比较好奇，我们将在后续示例中使用此
+方法 `DataSourceUtils#initializeDdl(DataSource)`
+
+[source,java]
+----
+public class DataSourceUtils {
+
+    public static DataSource initializeDdl(DataSource dataSource) { // <1>
+        ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
+                new ClassPathResource("/schema.sql")); // <2>
+        DatabasePopulatorUtils.execute(populator,dataSource);
+        return dataSource;
+    }
+}
+----
+====
+<1> `ResourceDatabasePopulator` 来自 Spring Framework。它支持执行一个或多个 SQL 文件执行 SQL 语句。例如，如果在尝试运行 `CREATE TABLE` 操作时，如果数据库已经存在。或者继续，或者使其初始化失败
+<2> Spring 提供了一个抽象概念 `Resource`，它代表了我们可能想要执行输出和输入的某种资源。`ClassPathResource` 代表应用程序类路径资源
+====
+
+下面演示如何使用这个实现
+
+[source,java]
+----
+public class Application {
+
+    public static void main(String[] args) {
+        DevelopmentOnlyCustomerService customerService = new DevelopmentOnlyCustomerService();
+        Demo.workWithCustomerService(Application.class,customerService);
+    }
+}
+----
+
+我们使用 Demo#workWithCustomerService(CustomerService) 来测试最终的实现，后续的例子中会用到这个方法，我们来看看他的定义：
+
+[source,java]
+----
+public class Demo {
+
+    private static final Logger log = LoggerFactory.getLogger(Demo.class);
+
+    public static void workWithCustomerService(Class<?> label, CustomerService customerService){
+        // <1>
+        log.info("================================");
+        log.info(label.getName());
+        log.info("================================");
+
+        // <2>
+        Stream.of("A","B","C").map(customerService::save)
+                .forEach(customer -> {
+                    log.info("saved " + customer.toString());
+                });
+
+        // <3>
+        customerService.findAll()
+                .forEach(customer -> {
+                    Long id = customer.getId();
+                    // <4>
+                    Customer byId = customerService.findById(id);
+                    log.info("found " + byId.toString());
+                    Assert.notNull(byId,"the resulting customer should not be null!");
+                    Assert.isTrue(byId.equals(customer),"we should be able to query for this result");
+                });
+    }
+}
+----
+====
+<1> 解释我们要做什么
+<2> 使用我们的实现向数据库写入一些数据
+<3> 查找数据库中的所有记录
+<4> 确认我们可以通过 id 找到每条记录
+====
+
+这段代码看起来像是一个测试，也确是如此。每个示例都有一个 JUnit 单元测试，基本上使用相同的代码路径。我们将专注于如何在 `public static void main` 应用程序的上下文
+中建立每个示例，并进行测试。可以这么说，测试和演示我们都使用相同的代码。
+
+`DataSource` 实例的代价很高并且通常需要在服务之间共享，所以，在使用他们的地方创建没有任务意义。取而代之的是，让我们集中在一处创建它们，它不需要关心我们如何编写自己的代码。
+
+== 参数化实现
+
+为了改进我们的示例并恢复可选性，最简单的方式就是通过构造函数对 `DataSource` 进行参数化
+
+[source,java]
+----
+public class DataSourceCustomerService extends BaseCustomerService {
+    // <1>
+    public DataSourceCustomerService(DataSource dataSource) {
+        super(dataSource);
+    }
+}
+----
+====
+<1> 具有调用父类构造函数的构造函数
+====
+
+下面是重构的 `main` 方法
+
+[source,java]
+----
+public class Application {
+
+    public static void main(String[] args) {
+        // <1>
+        EmbeddedDatabase dataSource = new EmbeddedDatabaseBuilder()
+                .setType(EmbeddedDatabaseType.H2)
+                .build();
+        // <2>
+        DataSource initializeDataSource = DataSourceUtils.initializeDdl(dataSource);
+        CustomerService customerService = new DataSourceCustomerService(initializeDataSource);
+        Demo.workWithCustomerService(Application.class,customerService);
+    }
+}
+----
+====
+<1> 我们的 `CustomerService` 仅依赖指向数据源的指针，我们可以随时更改此引用
+<2> `CustomerService` 只关系它有一个完整的数据源引用，不需要连接初始化逻辑
+====
+
+这样好多了，此实现支持通过基类型进行参数化构造，这种情况下，我们的代码并不知道 `DataSource` 引用的来源。他可以是测试中的模拟实例，也可以是生产环境中的生产级连接池数据源。
+
+你会注意到一点，代码在事务管理中有点愚蠢，因为它根本不处理事务。我们的实现可以说是比较乐观的，所有的这些都是以我们假设没有任何问题的方式编写的。公平的说，`findById` 和 `findAll` 方法
+是查询。因此，查询要么返回我们要求的结果，要么不返回
+
+== Template
+
+对于那些读取数据的方法，您可能会忽略其原子性和事务，因为只有一个查询，当循环遍历所有输入参数使用 `save(String... names)` 插入到数据库时，事情就有点复杂了。当然，我们可能考虑到使用
+SQL 批处理，但也引发了我们的一个思考：如果在处理所有的 `String... names` 参数过程中出现问题怎么办？这时，我们已经将一条或者多条数据插入到数据库中，这是可以接受的吗？
+在我们的例子中，可以，有总比没有没有好。但是，有时候，您可能试图将几条相关信息写入数据库，如果这些相关信息没有同时写入数据库，它们将不一致，那么它们的完整性就得不到维护
+
+在一些包括 SQL 数据存储的中间件中支持事务的概念，您可以将多个相关的事务封装到一个工作单元中，然后同时提交所有这些相关的事务。要么写入事务中的内容，要么回滚所有内容，
+结果就像您根本没有写任何东西一样。以这种方式对系统进行推理要容易的多，您不必猜测写入的那部分成功了，那部分没有成功。
+
+当我们在基于 SQL 数据存储和 `JdbcTemplate` 的上下文中查看事务的概念时，，这不是数据库独有的。`MongoDB` 也支持事务。许多您最喜欢的消息队列（如 `RabbitMQ` 或支持 `JMS` 规范的消息队列）也是如此。
+`Neo4J` 也是如此。在 Spring 中，处理事务的基本流程用 `PlatformTransactionManager` 表示，有不同的实现以支持不同的技术。您可以使用 `PlatformTransactionManager` 显式的开始工作，
+提交或者回滚。这很简单，但是必须编写 `try/catch` 语句来处理工作单元，在没有异常时提交，有异常时回滚。这时很乏味的，即使你使用了 `PlatformTransactionManager`。
+
+因此，Spring 提供了 `TransactionTemplate`，将其简化为一行。您只需要提供一个在打开的事务上下文中执行的回调。如果您抛出任何异常，则会导致混滚。否则，事务将被提交。
+让我们重新整理我们的例子，这次使用事务。
+
+[source,java]
+----
+public class TransactionTemplateCustomerService extends BaseCustomerService {
+
+    private final TransactionTemplate transactionTemplate; // <1>
+
+    public TransactionTemplateCustomerService(DataSource dataSource,
+                                              TransactionTemplate transactionTemplate) {
+        super(dataSource);
+        this.transactionTemplate = transactionTemplate;
+    }
+
+    @Override
+    public Collection<Customer> save(String... names) {
+        return this.transactionTemplate.execute(s -> super.save(names));
+    }
+
+    @Override
+    public Customer findById(Long id) {
+        return this.transactionTemplate.execute(s -> super.findById(id));
+    }
+
+    @Override
+    public Collection<Customer> findAll() {
+        return this.transactionTemplate.execute(s -> super.findAll());
+    }
+}
+----
+====
+除了 `DataSource` 外，此类还需要依赖 `TransactionTemplate`
+====
+
+好多了，现在我们不需要手动去捕获异常了，也能返回一个正常的结果，并且也不需要我们清理数据库。这一切并不难，现在，让我们看一下在应用程序中如何将一些必要的对象连接在一起
+
+[source,java]
+----
+public class Application {
+
+    public static void main(String[] args) {
+        EmbeddedDatabase dataSource = new EmbeddedDatabaseBuilder()
+                .setType(EmbeddedDatabaseType.H2)
+                .build();
+
+        DataSource initializeDataSource = DataSourceUtils.initializeDdl(dataSource); // <1>
+        PlatformTransactionManager dsTxManager = new DataSourceTransactionManager(initializeDataSource); // <2>
+        TransactionTemplate transactionTemplate = new TransactionTemplate(dsTxManager); // <3>
+        // <4>
+        CustomerService customerService = new TransactionTemplateCustomerService(initializeDataSource,transactionTemplate);
+        Demo.workWithCustomerService(Application.class,customerService);
+    }
+}
+----
+====
+<1> 和之前一样，初始化数据源
+<2> 创建 PlatformTransactionManager 实例 DataSourceTransactionManager
+<3> 使用 TransactionTemplate 包装 PlatformTransactionManager
+<4> 其余同上
+====
+
+好多了，现在我们不需要手动去捕获异常了，也能返回一个正常的结果，并且也不需要我们清理数据库。`TransactionTemplate` 只是许多 `\*Template` 对象中的一个，就像我们一直在使用的 `JdbcTemplate` 一样，它的目的是
+封装事务管理等样板代码。模版方法是一种处理和隐藏其他样板代码，让用户使用尽可能少的代码的一种方法。在这种情况下，我们对数据库所做的事情 - 查询，提取和转换结果等是唯一的，因此我们只需要提供逻辑即可。但与使用
+`PlatformTransactionManager` 实现相关的所有其他事情都不是。
+
+你会发现 Spring 提供了许多 `\*Template` 对象。`JmsTemplate` 使使用 JMS 更容易，`AmqpTemplate` 使使用 AMQP 更容易，`MongoTemplate` 和 `ReactiveMongoTemplate` 对象分别以同步，阻塞和异步，非阻塞的方式使使用
+MongoDB 更容易，`JdbcTemplate` 使使用 JDBC 更容易，`RedisTemplate` 使使用 Redis 更容易，RestTemplate 使创建 HTTP 客户端请求更容易。还有其他十几个你会在日常工作中经常遇到，还有十几个不起眼但也很有用，如果你需要的
+话。我最喜欢的，晦涩的一个是 `org.springframework.jca.cci.core.CciTemplate`，它使通过通用连接器接口（CCI）和使用 Java 连接器结构（JCA）连接器的客户端更容易结合。
+
+[NOTE]
+====
+您需要它吗？希望您永远不会，这是一个 API，您需要将企业集成系统集成到您的 J2EE/JavaEE 应用程序服务器。本书不会涉及到这些
+====
