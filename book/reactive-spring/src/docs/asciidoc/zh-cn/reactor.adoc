@@ -1,0 +1,327 @@
+= Reactor
+
+在本章中，我们将了解 Reactive Streams 规范和 Pivotal 的 Reactor 项目中的基础类型，您将在本书其余部分中，几乎将其用于所有其他内容。 可以说，这是最重要的一章。 本书中几乎所有其他内容都只是将这些类型构建到 Spring 中。
+
+如果您已经了解 Spring，那么这就是缺少的部分，delta。 对于那些熟悉 Spring 的人来说，本书的其余部分只是通过集成响应式编程，使其成为可能性。 多么酷啊？ 伙计们，我们到了。 我不想减少本书的其余部分。
+他们介绍了明确如何执行的详细信息。 但这是我要开始的地方。 如果你不了解 Spring，好吧，我有一个介绍性的章节你可以阅读它，它不是响应式编程。 它介绍了核心 Spring 概念。 先读那个。 然后这个。 瞧。
+
+你不需要 Spring 来编写基于 Reactor 的应用程序，就像你不需要 Reactor 来编写基于 Spring 的应用程序一样。 这是他们的协同作用，这太令人兴奋了。
+但是很多人只用 Reactor 就做出了惊人的事情。 例如，Microsoft Azure SDK 团队在其 Java SDK 客户端的实现中使用它。
+在针对 Java 的 Microsoft Azure SDK 指南中，他们甚至鼓励在某些情况下使用它而不是其他选项。
+
+image::images/reactive-spring-501.png[]
+
+CloudFoundry 团队还仅使用 Reactor 构建了他们的 Java 客户端。
+
+== Reactive Streams 规范
+
+响应式编程为一个相当古老的问题提供了解决方案：我们如何处理更多用户？ 我们如何扩展？ 我们如何更有效地使用我们的线程？ 响应式编程支持协作式多线程。
+如果我们愿意改变我们编写代码的方式，以便我们可以让运行时更好地了解我们何时不使用给定线程，那么运行时可以更负责任地安排线程上的工作。 这种效率是一件好事，只要线程是 JVM 上的宝贵资源。
+
+响应式编程要求我们重写代码，以便在使用或不使用给定线程时向运行时发出信号。 我们需要改变描述异步处理的方式。 假设您想对另一个节点进行网络调用。 在传统的阻塞 IO 中，您的代码将位于线程上，阻塞，等待新数据到达。
+在此期间，系统中没有其他人可以重用您正在处理的线程。
+
+2015 年，包括 Pivotal、Netflix、Lightbend（né“Typesafe”）和 Eclipse Foundation 在内的一些组织合作提取了一些通用接口来表示异步的、潜在的、可能无限的数据流。
+
+Reactive Streams 规范由四个接口和一个类组成。 让我们看看这四个接口。
+
+.The Reactive Streams Publisher<T> interface.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Publisher<T> {
+
+  void subscribe(Subscriber<? super T> s);
+
+}
+----
+
+第一个接口 `Publisher<T>` 发布 - 广播！ - 到 `Subscriber<T>` 的数据（`T` 类型）。
+
+.The Reactive Streams Subscriber<T> interface.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Subscriber<T> {
+
+    public void onSubscribe(Subscription s);
+
+    public void onNext(T t);
+
+    public void onError(Throwable t);
+
+    public void onComplete();
+}
+----
+
+一旦 `Subscriber<T>` 订阅，它就会收到一个 `Subscription`，这可以说是整个 Reactive Streams 规范中最重要的类，我们稍后会讲到它。
+
+`onError` 方法处理流中遇到的任何错误。 Errors - 或 Exception 实例，只是 Reactive Streams 规范中的另一种数据。 他们没有什么特别的。
+它们以与常规数据相同的方式进行。 请记住，Reactor 在其工作过程中将执行流从一个线程转移到另一个线程。 这是一个调度程序。
+你不能依赖像 `try-catch` 这样的标准控制流机制。 有一个统一的错误处理渠道是一件很简单的事情。
+
+.The Reactive Streams Subscription interface.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Subscription {
+
+      public void request(long n);
+
+      public void cancel();
+
+}
+----
+
+`Subscriber<T>` 在 `onSubscribe` 方法中收到的 `Subscription` 对于每个 `Subscription` 都是唯一的。 新的 `Subscriber<T>` 实例创建新的 `Subscription` 实例。 订阅者将拥有三个不同的订阅。
+订阅是生产者和消费者、`Publisher<T>` 和 `Subscriber<T>` 之间的链接。 `Subscriber<T>` 使用 `Subscription` 通过 `request(int)` 数据请求更多数据。 最后一点很关键：订阅者控制数据流和处理速度。
+发布者不会产生比订阅者请求的数量更多的数据。 订阅者不能被淹没（如果它被淹没，只能怪自己）。
+
+您是否使用过消息队列，例如 Apache Kafka 或 RabbitMQ？ 消息队列是分布式系统的重要组成部分。它们通过缓冲消息确保分离的组件保持活动状态，允许这些消息的消费者尽可能地使用消息，但不会更快。 这种规范的数据消费就是流量控制。
+
+您曾经使用 TCP/IP 或 UDP 编写过网络协议吗？ 当您设计网络协议时，您需要考虑创建消息帧（通过网络发送的消息的结构），并且您需要考虑当网络交换的一方比另一方移动得更快时会发生什么。然后你进入缓冲等的讨论。 这种规范的数据消费就是流量控制。
+
+订阅允许订阅者在准备好处理数据时请求更多数据。 这种规范的数据消费就是流量控制。
+
+在响应式编程的世界里，有时流量控制 - 作为营销问题可能与其他任何事情一样 - 这被称为背压。
+
+.The Reactive Streams Processor<T,R> interface.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Processor<T, R> extends Subscriber<T>, Publisher<R> {
+
+}
+----
+
+`Processor<T>` 是 Reactive Streams 规范中的最后一个接口。实现了 `Publisher<T>` 和 `Subscriber<T>` 之间的连接。 它是生产者和消费者，source 和 sink。 就是这样。
+
+这些类型很有用。 它们填补了我们工作中的一个重大空白。 它们非常有用，从第 9 版开始，它们已被合并到 JDK 中，作为 `java.util.concurrent.Flow` 顶级类型的一部分。 这些类型在其他方面是相同的。
+
+Reactive Streams 库中的最后一种类型 `org.reactivestreams.FlowAdapters` 是一个具体类，可帮助您在 Java 9 `Flow` 与 Reactive Streams 类型之间进行转换。
+
+== Reactor 项目
+
+Reactive Streams 类型是不够的，您需要更高阶的实现来支持过滤和转换等操作。 Pivotal 的 http://ProjectReactor.io[`Reactor` 项目] 是正确的选择； 它建立在 Reactive Streams 规范之上，充实了其 API 以支持日常处理任务。
+
+Reactor 项目是一个开源项目，主要由 Pivotal 赞助，如果你允许我吹嘘一下：它已经变得非常流行。 Facebook 在其 https://github.com/rsocket/rsocket-java[响应式网络协议 RSocket Java] 客户端中使用它。
+Salesforce 在其 https://github.com/salesforce/reactive-grpc[响应式 gRPC 实现] 中使用它。
+它实现了 Reactive Streams 规范，并且可以与支持 Reactive Streams 的其他技术互操作，
+例如 https://github.com/ReactiveX/RxJava/blob/2.x/src/main/java/io/reactivex/Flowable.java[Netflix 的 RxJava 2]、https://doc.akka.io/docs/akka/current/stream/operators/Sink/asPublisher.html#aspublisher[Lightbend 的 Akka Streams]
+ 和 https://vertx.io/docs/vertx-reactive-streams/java/[Eclipse Foundation 的 Vert.x] 项目。
+
+
+Reactor 是一个明智的选择。 Spring Framework 5 中的迭代是与 RxJava 2 一起共同开发的，并得到了 RxJava 负责人 David Karnok 的直接支持。 甚至在作为顶级组件模型在 Spring Framework 5 中首次亮相之前，
+Reactor 就是 2014 年发布的 Spring Framework 4 的一部分，以支持该版本中首次发布的 WebSocket 集成。 它在那里，但没有作为顶级抽象出现。
+在 Spring Framework 5 中，Reactor 处于前沿和中心位置。 它的 API 渗透到 Spring Webflux，这是在 Reactor 之上从头开始开发的全新响应式 Web 框架。
+
+当然，您可以使用 RxJava 2。 任何可以生成 `Publisher<T>` 的技术都可以与 Spring 一起正常工作。 我不会，因为它会成为 Spring Webflux 应用程序的额外类路径依赖项。 但你可以。 RxJava 是一个环境。
+它提供了许多相同的、高效的操作符，统一命名，Reactor 在旧版本的 Java 上也能做到。 Reactor 有一个 Java 8 基线版本。 RxJava 在 Android 和其他地方很流行，在这些地方很难确保您的程序可以在较新版本的 JVM 上运行。
+
+Reactor 提供了 `Publisher<T>` 的两个实现。 第一个是 `Flux<T>` ，它产生零个或多个值。 它是无限的。 第二个是 Mono<T>，它发出零或一个值。
+
+他们都是发布者，你可以这样对待他们，但他们比 Reactive Streams 规范走得更远。 它们都提供运算符和处理流值的方法。 Reactor 类型组合得很好 — 一个事物的输出可以是另一个事物的输入，如果一个类型需要与其他数据流一起工作，它们依赖于 `Publisher<T>` 实例。
+
+`Mono<T>` 和 `Flux<T>` 都实现了 `Publisher<T>`； 我们建议您的方法接受 `Publisher<T>` 实例但返回 `Flux<T>` 或 `Mono<T>` 以帮助客户端区分给定的数据类型。
+假如一个方法返回一个 `Publisher<T>`，您需要为该 `Publisher<T>` 呈现一个用户界面。 然后给定了一个 `CompletableFuture<T>`，您是否应该为一条记录提供详细信息页面？ 或者你应该呈现一个概览页面，用一个列表或网格以可分页的方式显示所有记录？ 这很难知道。
+另一方面，`Flux<T>` 和 `Mono<T>` 是明确的。 您知道在处理 `Flux<T>` 时呈现概览页面，在处理 `Mono<T>` 时呈现一个（或没有）记录的详细信息页面。 专业化具有不同的语义。
+
+在 Reactor 世界中，我们说流发出信号。 每次它发出新消息时，这就是一个信号。 每次订阅者获得新订阅时，这就是一个信号。 每次流异常中止时，这都是一个信号。 信号是这些类型的一个概念和接口的一部分，稍后我们将看到我们可以监听这些信号。
+
+== 创建新的 Reactive Streams
+
+您可以通过多种方式创建新的 `Publisher<T>`。 最糟糕的方法是自己实现 `Publisher<T>`。 无论结果如何，它都将是 Reactor 中不成熟的类型、指定不充分和有缺陷的版本。
+更不用说，这会很浪费时间！ 所以不要这样做。
+
+您可以通过 API 创建同步或异步发射多个元素的 `Flux<T>`。
+
+[source,java]
+----
+package rsb.reactor;
+
+import org.junit.Test;
+import org.reactivestreams.Publisher;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+import java.util.Arrays;
+import java.util.Date;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
+
+
+public class SimpleFluxFactoriesTest {
+
+    @Test
+    public void simple() {
+        // <1>
+        Publisher<Integer> rangeOfIntegers = Flux.range(0, 10);
+        StepVerifier.create(rangeOfIntegers).expectNextCount(10).verifyComplete();
+
+        // <2>
+        Flux<String> letters = Flux.just("A", "B", "C");
+        StepVerifier.create(letters).expectNext("A", "B", "C").verifyComplete();
+
+        // <3>
+        long now = System.currentTimeMillis();
+        Mono<Date> greetingMono = Mono.just(new Date(now));
+        StepVerifier.create(greetingMono).expectNext(new Date(now)).verifyComplete();
+
+        // <4>
+        Mono<Object> empty = Mono.empty();
+        StepVerifier.create(empty).verifyComplete();
+
+        // <5>
+        Flux<Integer> fromArray = Flux.fromArray(new Integer[] { 1, 2, 3 });
+        StepVerifier.create(fromArray).expectNext(1, 2, 3).verifyComplete();
+
+        // <6>
+        Flux<Integer> fromIterable = Flux.fromIterable(Arrays.asList(1, 2, 3));
+        StepVerifier.create(fromIterable).expectNext(1, 2, 3).verifyComplete();
+
+        // <7>
+        AtomicInteger integer = new AtomicInteger();
+        Supplier<Integer> supplier = integer::incrementAndGet;
+        Flux<Integer> integerFlux = Flux.fromStream(Stream.generate(supplier));
+        StepVerifier.create(integerFlux.take(3)).expectNext(1).expectNext(2).expectNext(3)
+                .verifyComplete();
+
+    }
+}
+----
+====
+
+<1> 创建一个新的 Flux，值在（有限）范围内
+<2> 创建一个新的 Flux，其值为文字字符串 A、B 和 C
+<3> 创建一个新的 Mono，其单个值为 `java.util.Date`
+<4> 创建一个空的 Mono
+<5> 创建一个 Flux，其元素来自 Java Array
+<6> 创建一个 Flux，其元素来自 Java Iterable，它包含了所有 `java.util.Collection` 子类，如 `List`、`Set` 等。
+<7> 从 Java 8 Stream 创建一个新的 Flux
+====
+
+您还可以使用各种工厂方法从 `java.util.concurrent.Flow.\*` 的类型中调整 Reactive Streams 类型。 如果您有 Java 9 `Flow.Publisher`，
+则可以使用 Reactor 特定的 `reactor.adapter.JdkFlowAdapter` 从 `Flow.Publisher` 实例创建 `Flux<T>` 和 `Mono<T>` 实例。 还有一种称为 `FlowAdapters` 的 Reactive Streams 类型，它将通用 Reactive Streams 类型与各种 Java 9 类型相互转换。
+这是一个演示如何与 `Flow.\*` 类型和 Reactive Streams 类型相互转换的示例。
+
+[source,java]
+----
+package rsb.reactor;
+
+import org.junit.Test;
+import org.reactivestreams.FlowAdapters;
+import org.reactivestreams.Publisher;
+import reactor.adapter.JdkFlowAdapter;
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
+import java.util.concurrent.Flow;
+
+public class FlowAndReactiveStreamsTest {
+
+    @Test
+    public void convert() { // <1>
+          Flux<Integer> original = Flux.range(0, 10);
+
+          Flow.Publisher<Integer> rangeOfIntegersAsJdk9Flow = FlowAdapters
+                  .toFlowPublisher(original);
+
+          Publisher<Integer> rangeOfIntegersAsReactiveStream = FlowAdapters
+                  .toPublisher(rangeOfIntegersAsJdk9Flow);
+
+          StepVerifier.create(original).expectNextCount(10).verifyComplete();
+
+          StepVerifier.create(rangeOfIntegersAsReactiveStream).expectNextCount(10)
+                  .verifyComplete();
+
+          // <2>
+          Flux<Integer> rangeOfIntegersAsReactorFluxAgain = JdkFlowAdapter
+                  .flowPublisherToFlux(rangeOfIntegersAsJdk9Flow);
+
+          StepVerifier.create(rangeOfIntegersAsReactorFluxAgain).expectNextCount(10)
+                  .verifyComplete();
+    } }
+----
+====
+<1> 前几行演示了使用 Reactive Streams 转换与 Reactive Streams 类型之间的转换
+<2> 第二几行演示了使用 Reactor 转换与 Reactor `Flux<T>` 和 `Mono<T>` 类型之间的转换
+====
+
+响应式编程特定是它给了你一种“东西” - 一个在异步世界中处理异步流的统一接口。 唯一的麻烦是，要让 Reactor 发挥它的魔力并支持您的用例，您需要将现实世界的异步事件调整为必需的 `Publisher<T>` 接口。
+您如何从 Spring Integration 入站适配器获取事件并将其转换为流？ 您如何从 JMS 代理获取事件并将其转换为流？ 您如何获取从现有线程应用程序发出的数据并将它们作为响应流进行处理？
+
+让我们看一个使用 `Flux.create` 工厂方法的例子。 工厂方法将消费者作为参数。 消费者包含对数据发射器的引用，类型为 `FluxSink<T>` 的事物。
+让我们看看为原始后台线程中发布的数据创建流是什么样的。 `Flux.create` 工厂方法是将非响应式代码逐段适应响应式世界的好方法。
+
+以下示例在流初始化时启动线程。 新线程存储对 `FluxSink<Integer>` 的引用，使用它在随机时间发出随机值，直到发出五个值为止。 然后，流完成。
+这个例子展示了如何使用一些方便的工厂方法使世界上的异步事物适应响应式流类型。
+
+[source,java]
+----
+
+package rsb.reactor;
+
+import lombok.extern.log4j.Log4j2;
+import org.junit.Assert;
+import org.junit.Test;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
+import reactor.test.StepVerifier;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Log4j2
+public class AsyncApiIntegrationTest {
+
+    private final ExecutorService executorService = Executors.newFixedThreadPool(1);
+
+    @Test
+    public void async() {
+        // <1>
+        Flux<Integer> integers = Flux.create(emitter -> this.launch(emitter, 5));
+        // <2>
+        StepVerifier.create(integers.doFinally(signalType -> this.executorService.shutdown()))
+            .expectNextCount(5)
+            .verifyComplete();
+    }
+
+
+    // <3>
+    private void launch(FluxSink<Integer> integerFluxSink, int count) {
+        this.executorService.submit(() -> {
+            var integer = new AtomicInteger();
+            Assert.assertNotNull(integerFluxSink);
+            while (integer.get() < count) {
+                double random = Math.random();
+                integerFluxSink.next(integer.incrementAndGet()); // <4>
+                this.sleep((long) (random * 1_000));
+            }
+            integerFluxSink.complete(); // <5>
+        });
+    }
+
+    private void sleep(long s) {
+        try {
+            Thread.sleep(s);
+        }
+        catch (Exception e) {
+            log.error(e);
+        }
+    }
+}
+----
+====
+<1> `Flux.create` 工厂传递对 `Consumer<FluxSink<T>>` 中 `FluxSink<T>` 的引用。 我们将使用 `FluxSink<T>` 在新元素可用时发射它们。 重要的是我们保存这个参考以备后用。
+<2> 一旦 Flux 完成其工作，拆除所有资源很重要。
+<3> `launch` 方法使用 `ExecutorService` 启动后台线程。 仅在回调内部执行开始后才设置与外部 API 的任何连接。
+<4> 每次有一个新元素时，使用 `FluxSink<T>` 发射一个新元素
+<5> 最后，一旦我们完成发射元素，我们就告诉 `Subscriber<T>` 实例。
+====
+
