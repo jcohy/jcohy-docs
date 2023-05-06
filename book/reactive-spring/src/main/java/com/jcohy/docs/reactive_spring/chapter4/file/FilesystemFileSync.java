@@ -1,6 +1,7 @@
-package com.jcohy.docs.reactive_spring.chapter4;
+package com.jcohy.docs.reactive_spring.chapter4.file;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.function.Consumer;
 
 /**
@@ -10,10 +11,11 @@ import java.util.function.Consumer;
  * </p>
  *
  * @author jiac
- * @version 2022.04.0 2023/5/4:15:16
+ * @version 2022.04.0 2023/5/5:16:37
  * @since 2022.04.0
  */
-public interface Reader {
+public interface FilesystemFileSync {
 
-    void read(File file , Consumer<Bytes> consumer, Runnable f)
+    void start(File source, Consumer<byte[]> handler) throws IOException;
+
 }
