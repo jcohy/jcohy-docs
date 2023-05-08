@@ -245,7 +245,8 @@ public class FlowAndReactiveStreamsTest {
 
           StepVerifier.create(rangeOfIntegersAsReactorFluxAgain).expectNextCount(10)
                   .verifyComplete();
-    } }
+    }
+}
 ----
 ====
 <1> 前几行演示了使用 Reactive Streams 转换与 Reactive Streams 类型之间的转换
@@ -950,4 +951,653 @@ public class SchedulersSubscribeOnTest {
 `Schedulers.elastic()` 针对更长的执行时间进行了优化，并且是活动任务和线程数量无限增长的阻塞任务的替代方案。 这是一个无界线程池。
 `Schedulers.boundedElastic()` 针对更长的执行时间进行了优化，并且是活动任务（和线程）数量受限的阻塞任务的替代方案。
 如果这些都不适合您的用例，您始终可以使用 `Schedulers.fromExecutorService(ExecutorService)` 来创建一个新的调度程序。
+
+== Hot 和 Cold Streams
+
+到目前为止，我们看到的大多数流都是我们所说的 cold 流 - 它们代表了一系列数据，这些数据在我们开始订阅数据时就具体化了。
+我们可以再次订阅并取回相同的数据。数据源由订阅行为产生。 在这种情况下，数据的生产者是由消费者创建的。
+
+当数据的消费者不创建数据的生产者时，就说流是 hot 的。 这是一个自然的场景，例如当数据流独立于任何特定订阅者而存在时。 一连串的股票行情更新、状态更改事件、时间等。
+这些对于任何订阅者来说都是相同的，无论订阅者何时订阅它。 订阅股票当前价格的消费者不会获得该股票曾经有过的第一个价格，只会得到当前价格，无论何时何地。 热流更像是我们对真正的水流的概念：
+每次你踏入（或者，在本例中，订阅）它，你就进入了不同的流。
+
+此示例说明如何使用 `EmitterProcessor`（类似于同步 `Queue<T>`）发布三个数据。 第一个订阅者看到前两个元素。 第二个订阅者订阅。 然后发布第三个元素，第一个和第二个订阅者都可以看到它。 生产者 hot 意味着第二个订阅者只观察到最后一个元素，而不是前两个。
+
+[source,java]
+----
+public class HotStreamTest1 {
+
+    @Test
+    public void hot() {
+
+        var first = new ArrayList<Integer>();
+        var second = new ArrayList<Integer>();
+
+        var emitter = EmitterProcessor.<Integer>create(2);
+        var sink = emitter.sink();
+
+        emitter.subscribe(collect(first));
+        sink.next(1);
+        sink.next(2);
+
+        emitter.subscribe(collect(second));
+        sink.next(3);
+        sink.complete();
+
+        Assertions.assertTrue(first.size() > second.size());// <1>
+
+    }
+
+    Consumer<Integer> collect(List<Integer> collection) {
+        return collection::add;
+    }
+
+}
+----
+
+第一个订阅者的集合中捕获的元素应该多于第二个订阅者的集合，因为第二个订阅者只观察到一个元素。
+
+这个例子有点复杂。 它使用一个实际的异步 `Consumer` 来订阅一个 hot 流两次。 第一个订阅者会看到自开始订阅以来的所有元素。 该示例将十个整数发布到流中，每个项目延迟十毫秒。
+第一个订阅者立即订阅并看到所有值。 一点时间过去了。 第二个订阅者订阅并仅观察自订阅以来发布的值。
+
+这个例子有点复杂，因为它强制两个异步订阅者与 `CountDownLatch` 收敛，然后评估来自第一个订阅者的观察到的元素的第一个存储是否比来自第二个订阅者的项目的第二个存储更大。
+
+[source,java]
+----
+public class HotStreamTest2 {
+
+    private static final Logger log = LoggerFactory.getLogger(HotStreamTest2.class);
+
+
+    @Test
+    public void hot() throws Exception {
+        var factor = 10;
+        log.info("start");
+        var cdl = new CountDownLatch(2);
+        var live = Flux.range(0,10).delayElements(Duration.ofMillis(factor)).share();
+        var one = new ArrayList<Integer>();
+        var two = new ArrayList<Integer>();
+        live.doFinally(signalTypeConsumer(cdl)).subscribe(collect(one));
+
+        Thread.sleep(factor * 2);
+        live.doFinally(signalTypeConsumer(cdl)).subscribe(collect(two));
+        cdl.await(5, TimeUnit.SECONDS);
+        Assertions.assertTrue(one.size() > two.size());
+        log.info("stop");
+    }
+
+    private Consumer<SignalType> signalTypeConsumer(CountDownLatch cdl) {
+
+        return signal -> {
+            if (signal.equals(SignalType.ON_COMPLETE)) {
+                try {
+                    cdl.countDown();
+                    log.info("await()...");
+                }
+                catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+    }
+
+    private Consumer<Integer> collect(List<Integer> ints) {
+        return ints::add;
+    }
+
+}
+----
+
+这显示了如何使用 `publish` 操作符创建一个 `Publisher<T>`，它允许您 "pile on"  订阅者直到达到限制。 然后，所有订阅者都可以观察结果。
+
+[source,java]
+----
+public class HotStreamTest3 {
+
+    private List<Integer> one = new ArrayList<Integer>();
+
+    private List<Integer> two = new ArrayList<Integer>();
+
+    private List<Integer> three = new ArrayList<Integer>();
+
+    private Consumer<Integer> subscribe(List<Integer> list) {
+        return list::add;
+    }
+
+    @Test
+    public void publish() {
+
+        Flux<Integer> pileOn = Flux.just(1, 2, 3).publish().autoConnect(3).subscribeOn(Schedulers.immediate()); // <1>
+
+        pileOn.subscribe(subscribe(one));
+        Assertions.assertEquals(this.one.size(), 0);
+
+        pileOn.subscribe(subscribe(two));
+        Assertions.assertEquals(this.two.size(), 0);
+
+        pileOn.subscribe(subscribe(three));
+        Assertions.assertEquals(this.three.size(), 3);
+        Assertions.assertEquals(this.two.size(), 3);
+        Assertions.assertEquals(this.three.size(), 3);
+    }
+}
+----
+====
+<1> 在同一个线程上强制订阅，我们可以观察交互。
+====
+
+== Context
+
+Reactor 提供了一系列的操作符来支持对数据流的操作，并且它们可以轻松地跨线程工作，因为它需要支持高效处理。
+这是响应式编程目标的重要组成部分：高效的多线程处理。 我们认为，您可能在应用程序中执行的大多数操作在这种新的多线程安排下看起来和感觉起来都是一样的。
+
+有一些例外。 在这个新的无缝多线程世界中， `ThreadLocal` 在哪里？ `ThreadLocal` 就像一个映射，其键是当前客户端线程的名称，值是特定于线程的（或 "local"）值。 `ThreadLocals` 在以前的非响应式的世界中非常有用，可以存储对当前线程中的所有内容可见的值。
+这对各种各样的事情都很有用，比如当前的存储、正在进行的交易、存储当前经过身份验证的用户； 记录上下文； 与当前请求关联的请求追踪图信息等。Spring 大量使用它们来支持重要值的解析。
+通常有一个众所周知的 `ThreadLocal` 类型的静态字段，将给定线程上的当前请求的唯一值存储在 `ThreadLocal` 中，以便 Spring 框架代码可以找到它，无论您处于处理链的哪一层。
+
+但这在响应式世界中不起作用。
+
+Reactor 提供了一个名为 `Context` 的解决方案。 它也是一个 map，支持绑定到当前发布者的任意数量的键和值。 上下文中的值对于当前发布者是唯一的，而不是当前线程。
+
+这是一个可以访问上下文的简单响应式发布者的示例。 每次发出一个新值时，我们都会在当前上下文中询问它应该在上下文中的值，即字符串 `value1`。
+
+[source,java]
+----
+public class ContextTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ContextTest.class);
+
+    @Test
+    public void context() throws InterruptedException {
+        var observedContextValues = new ConcurrentHashMap<String, AtomicInteger>();
+
+        var max = 3;
+        var key = "key1";
+        var cdl = new CountDownLatch(max);
+
+        var context = Context.of(key,"value1");
+
+        var just = Flux.range(0,max)
+                .delayElements(Duration.ofMillis(1))
+                .doOnEach((Signal<Integer> integerSignal) -> { // <1>
+                    var currentContext = integerSignal.getContextView();
+                    if(integerSignal.getType().equals(SignalType.ON_NEXT)) {
+                        String key1 = context.get(key);
+                        Assertions.assertNotNull(key1);
+                        Assertions.assertEquals(key1,"value1");
+                        observedContextValues.computeIfAbsent(key1, k -> new AtomicInteger(0)).incrementAndGet();
+                    }
+                })
+                .contextWrite(context);
+
+        just.subscribe(integer -> {
+            log.info("integer: " + integer);
+            cdl.countDown();
+        });
+
+        cdl.await();
+
+        Assertions.assertEquals(observedContextValues.get(key),max);
+    }
+
+}
+----
+====
+<1> `doOnEach` 操作符是获取当前 `Context` 的便捷方式，然后您可以检查其内容。
+====
+
+== Control Flow
+
+早些时候，我们讨论了组装时间与执行时间之间的区别。 我们定义 `Publisher<T>` 的时间与其执行时间不同。
+这种区别为 Reactor 提供了一些时间来代表我们进行干预。 它可以做一些令人惊奇的事情，比如将相似的操作合并到同一个线程上（称为“融合运算符”），并且它可以为我们修改我们的流。
+Reactor 有时间改变流的管道连接在一起的方式。
+
+在本节中，我们将了解一些支持数据流自然组合的模式和运算符。
+
+我们不可能涵盖所有这些，但我发现自己一直在寻找一些常见的微服务编排用例。 我们将在后续章节中更深入地讨论其中一些，但让我们在这里介绍其中的一些。
+
+=== 错误处理（Error Handlers）
+
+如果响应流错误，那么您可以捕获该错误并使用名称通常以 `on\*` 开头的各种操作符来决定会发生什么。
+
+使用 `onErrorResume` 操作符，应该从遇到错误的地方开始发出生成的 `Publisher`。
+
+[source,java]
+----
+public class OnErrorResumeTest {
+
+    private final Flux<Integer> resultInError = Flux.just(1,2,3)
+            .flatMap(counter -> {
+              if (counter == 2) {
+                  return Flux.error(new IllegalArgumentException("Oops!"));
+              } else {
+                  return Flux.just(counter);
+              }
+            });
+
+    @Test
+    public void onErrorResume() {
+        Flux<Integer> integerFlux = resultInError
+                .onErrorResume(IllegalArgumentException.class, e -> Flux.just(3,2,1));
+        StepVerifier.create(integerFlux)
+                .expectNext(1,3,2,1)
+                .verifyComplete();
+    }
+}
+----
+
+使用 `onErrorReturn` 操作符，要从遇到错误的地方开始生成发出的单个值。
+
+[source,java]
+----
+public class OnErrorReturnTest {
+
+    private final Flux<Integer> resultInError = Flux.just(1,2,3)
+            .flatMap(counter -> {
+                if (counter == 2) {
+                    return Flux.error(new IllegalArgumentException("Oops!"));
+                } else {
+                    return Flux.just(counter);
+                }
+            });
+
+    @Test
+    public void onErrorReturn() {
+        var integerFlux = resultInError.onErrorReturn(0);
+        StepVerifier.create(integerFlux)
+                .expectNext(1,0)
+                .verifyComplete();
+    }
+}
+----
+
+如果你想标准化错误，或者出于某种原因，将一个错误映射到另一个错误，请使用 `onErrorMap`。 您可以将它与其他操作符一起使用来过滤特定错误，然后将它们规范化，然后路由到共享错误处理程序。
+
+[source,java]
+----
+public class OnErrorMapTest {
+
+    static class GenericException extends RuntimeException {}
+
+    @Test
+    public void onErrorMap() {
+        var counter = new AtomicInteger();
+        Flux<Integer> resultOnError = Flux.error(new IllegalArgumentException("Oops!"));
+        Flux<Integer> errorHandlingStream = resultOnError.onErrorMap(IllegalArgumentException.class, ex -> new GenericException())
+                .doOnError(GenericException.class,ge -> counter.incrementAndGet());
+        StepVerifier.create(errorHandlingStream)
+                .expectError()
+                .verify();
+        Assertions.assertEquals(counter.get(),1);
+    }
+}
+----
+
+=== 重试（Retry）
+
+我喜欢认为我还很年轻，我也确实生活在一个电脑并非无处不在的世界里。 今天，即使思考它也很有趣，但曾经有一段时间，汽车、电话、电视和其他东西都是机械的，没有 CPU。
+但不是在我的时代。如果某些机械装置不起作用，有时您只需敲打它的侧面，它就会再次起作用。 `.retry()` 操作符让我想起了这一点。 它允许您指定要尝试重新订阅 `Publisher<T>`。
+如果在处理数据时第一次出现任何错误，它会尝试重新创建源。当然，网络就是计算机，但计算机并不完美。 网络不是无限快的。 一分钟前还在那里的主持人现在可能已经不在了。 无论是什么原因，您可能需要重试。
+
+假设您有一个失败的服务，并且您正试图从该服务中获取结果。 如果服务遇到某种暂时性错误 - 你知道类型：磁盘不足、没有更多的文件描述符、断开的网络链接等 - 那么如果你在一个（通常很小的）时间后重试请求，你可能会得到正确的结果。
+如果该服务部署在 Cloud Foundry 或 Kubernetes 上，它会立即启动并运行； 该平台将确保启动和部署应用程序的新实例。
+
+[source,java]
+----
+public class ControlFlowRetryTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ControlFlowRetryTest.class);
+
+    @Test
+    public void retry() {
+        var errored = new AtomicBoolean();
+
+       var producer = Flux.<String>create(sink -> {
+            if(!errored.get()) {
+                errored.set(true);
+                sink.error(new RuntimeException("Nope!"));
+                log.info("returning a " + RuntimeException.class.getName() + "!");
+            }
+            else {
+                log.info("we've already errored so here's the value");
+                sink.next("hello");
+            }
+            sink.complete();
+        });
+
+       var retryOnError = producer.retry();
+        StepVerifier.create(producer)
+                .expectNext("hello")
+                .verifyComplete();
+    }
+}
+----
+
+上面演示的重试是一个简单的例子。如果有任何错误时，它将重试请求。 您可以重试一定次数，此时会产生错误。 但是对于许多瞬态错误，此解决方案是可行的。
+有太多的客户会使用此服务的潜在风险，导致更多问题，并增加最终导致服务无法及时响应的负载。 惊群效应 - 服务或流程的稳定性由于需求的压倒性爆发而受损 - 再次来袭！
+
+引入一个不断增长的回退期，间隔每个后续请求，以避免惊群问题。 如果回退期在所有节点上都相同，那么仅此一项并不能帮助简单地延迟惊群效应。 您需要引入 jitter - 有时会随机化（非常巧妙地）请求之间的间隔。
+重试通过 `retryBackoff(long times, Duration duration)` 操作符支持这一点。
+
+如果 `Publisher<T>` 不发出数据并且不产生错误怎么办？ 使用 `repeatWhenEmpty()`，它会在 `Publisher<T>` 为空时尝试重新订阅 如果 `Publisher<T>` 为空，并且您不想重新订阅，只想生成默认值 , 使用 `defaultIfEmpty(T default)`。
+
+=== 合并（Merge）
+
+我在此处介绍 `merge(Publisher<Publisher<T>>... publishers)` 操作符，因为它的工作方式有点像 `flatMap(Publisher t)`，因为它将提供给它的 `Publisher<T>` 元素展平。
+假设您调用了 `3` 次返回 `Mono<Customer>` 的 Web 服务，现在您有三个 `Mono<Customer>` 实例。 您可以从它们中创建一个 `Publisher<T>`，然后使用 `merge` 将它们展平，生成一个 `Publisher<Customer>`，
+您现在可以在其上进行聚合操作。
+
+[source,java]
+----
+public class ControlFlowMergeTest {
+
+    @Test
+    public void merge() {
+        var fastest = Flux.just(5,6);
+        var secondFastest = Flux.just(1,2).delayElements(Duration.ofMillis(2));
+        var thirdFastest = Flux.just(3,4).delayElements(Duration.ofMillis(20));
+        var streamOfStreams = Flux.just(secondFastest,thirdFastest,fastest);
+        var merge = Flux.merge(streamOfStreams);
+
+        StepVerifier.create(merge)
+                .expectNext(5,6,1,2,3,4)
+                .verifyComplete();
+    }
+}
+----
+
+=== Zip
+
+`zip` 操作符有利于分散-聚集类型的处理。 假设您已经为一系列订单（传递订单 ID）发出了对一个数据库的调用，按它们的 ID 排序，并且您已经对另一个数据库发出了另一个调用以获取属于给定订单的客户信息。
+所以你有两个序列，长度相同，按相同的键（订单 ID）排序。 您可以使用 `zip` 将它们合并到 `Tuple*` 实例的 `Publisher<T>` 中。 此方法有多个重载版本，每个版本都有一长串用于常见场景的参数。
+在此示例中，我们只需要采用两个 `Publisher<T>` 元素并返回一个 `Tuple2` 元素。 给定 `Flux<Customer>` 客户和 `Flux<Order>` 订单，我们可以调用 `zip(orders, customers)` 并得到 `Flux<Tuple2<Order,Customer>>` 。
+`zip` 操作符从左侧的流中获取一个元素，从右侧的流中获取另一个操作符，并为它们分配（写入！）序号位置。
+
+下一个示例如何使用 `zip` 操作符从一个或多个流中的每一个中获取一个元素，并发出一个包含每个源流中的元素的新流。 `zip` 操作符步调一致，获取发出的值并将它们分组。
+
+[source,java]
+----
+public class ControlFlowZipTest {
+
+    @Test
+    public void zip() {
+        var first = Flux.just(1,2,3);
+        var second = Flux.just("a","b","c");
+        var zip = Flux.zip(first, second)
+                .map(tuple ->
+                    this.from(tuple.getT1(),tuple.getT2()));
+
+        StepVerifier.create(zip)
+                .expectNext("1:a","2:b","3:c")
+                .verifyComplete();
+    }
+
+    private String from(Integer i ,String s) {
+        return i + ":" + s;
+    }
+}
+----
+
+=== Timeout 和 First
+
+我在本节中介绍了两个操作符，`timeout(Duration)` 和 `first(Publisher<T> a, Pubisher<T> b, Publisher<T> c, ...)`。 它们可以单独使用，但我认为它们组合起来真的很棒。
+
+超时应该非常明显：如果在特定时间内未从 `Publisher<T>` 记录值，则返回 `java.util.concurrent.TimeoutException`。这是在一些运行缓慢、不稳定的服务到服务调用的极佳最后一道防线。
+
+服务中断的可能原因有很多。只要说您向其发出请求的服务已关闭就足够了，并且您有一个客户端依赖于此下游服务的响应。 许多组织都有必须遵守的严格服务级别协议 (SLA)。 SLA 可能要求在特定时间段内返回响应。
+如果您想对可能容易出错或停滞的请求进行时间限制，那么超时运算符非常有用，如果请求花费的时间超过您的 SLA 时间，则中止。
+
+[source,java]
+----
+public class ControlFlowTimeoutTest {
+
+    @Test
+    public void timeout() {
+        var ids = Flux.just(1,2,3)
+                .delayElements(Duration.ofSeconds(1))
+                .timeout(Duration.ofMillis(500))
+                .onErrorResume(this::given);
+
+        StepVerifier.create(ids)
+                .expectNext(0)
+                .verifyComplete();
+    }
+
+    public Flux<Integer> given(Throwable t) {
+        Assertions.assertTrue(t instanceof TimeoutException,"this exception should be a " + TimeoutException.class.getName());
+        return Flux.just(0);
+    }
+}
+----
+
+超时在浅层服务拓扑结构中运行良好，其中一项服务可能调用另一项服务。便于简单，假设服务 A 通告 10 秒的 SLA。 如果服务 A 调用服务 B，则可以通过两种不同的方式使用超时。
+在第一种情况下，它可能用于在十秒后返回错误值。 很简单：只需等待十秒钟，然后在超时时返回。 它的作用有点像断路器，错误条件是时间间隔。稍微有点想法的客户可能不会简单地默认错误，而是重试调用。
+不过，在这种情况下，客户端会发出调用，然后中止，并留出足够的时间至少重试请求一次。客户端只能重试请求一次。 因此，服务 A 的 SLA 为 10 秒。 接下来，服务 B 需要有 5 秒的 SLA，以便服务 A 可以尝试调用然后重试，并且仍然在其 SLA 范围内。
+
+现在假设服务 B 依次调用服务 C。同样的计算适用。 服务 C 需要在 2.5 秒内响应，以便服务 B 可以重试！ 如果每个客户端都能获得尽可能多的超时时间不是很好吗？
+
+第一个操作符给了我们一个有价值的选择。 第一个操作符是我能找到的最接近 `POSIX` 选择函数的东西。 在 POSIX 中，当一个或多个文件描述符准备好进行无阻塞的输入和输出操作时，`select` 函数返回。
+换句话说：它可以阻塞，直到数据在许多文件描述符中的任何一个可用为止。 当然，第一个操作符不会阻塞，但它可以帮助您实现相同的效果：它从多个发出数据的 `Publisher<T>` 实例中返回第一个 `Publisher<T>`。
+更好的是，首先将背压应用于其他 `Publisher<T>` 实例。 我承认，起初很难理解您为什么要使用它，但它对于支持我最喜欢的模式之一至关重要：服务对冲。
+
+假设您需要保证在调用下游服务时满足您的 SLA。 如果请求是幂等的 - 也就是说，请求是一次读取或者可以多次发出而没有任何不当的可观察到的副作用 - 那么服务对冲可以成为你工具箱中的一个方便的模式。
+您可以通过调用相同的服务来降低响应缓慢的风险，否则相同地部署在多个主机上并保持最快的响应。 即使一个节点变慢，其他节点中的一个也一定会及时做出响应。
+
+[source,java]
+----
+public class ControlFlowFirstTest {
+
+    @Test
+    public void first() {
+        var slow = Flux.just(1,2,3).delayElements(Duration.ofMillis(200));
+        var fast = Flux.just(4,5,6,7).delayElements(Duration.ofMillis(100));
+        var first = Flux.firstWithSignal(slow,fast);
+        StepVerifier.create(first)
+                .expectNext(4,5,6,7)
+                .verifyComplete();
+    }
+}
+----
+
+== 调试（Debugging）
+
+响应式编程给你带来了很多好处（我已经证实了这一点，并且我将在本书的平衡中不断地强调它！），但如果我不得不选择一个可能会带来不小的问题，那就是响应式应用程序可能很难调试。错误发生在哪里？ 如何跟踪错误到错误的来源？
+Reactor 可以做什么来帮助我找到错误？ 而且，考虑到 Reactor 在我的代码中所有响应式操作的核心位置享有令人羡慕的地位，它能给我提供什么样的可见性，让我了解我还没有的应用程序的行为，如果有的话？
+
+如果您想捕获有关给定期望的日志的详细信息，请使用 `Hooks.onOperatorDebug()`。 它会将你的堆栈跟踪变成更容易理解的东西。 `Hooks.onOperatorDebug` 会在发生错误时为您提供额外的运行时信息，但这会降低您的性能。
+
+[source,java]
+----
+public class HooksOnOperatorDebugTest {
+
+    @Test
+    public void onOperatorDebug() {
+        Hooks.onOperatorDebug();
+        var stackTrace = new AtomicReference<String>();
+        var errorFlux = Flux
+                .error(new IllegalArgumentException("Oops!"))
+                .checkpoint()
+                .delayElements(Duration.ofMillis(1));
+
+        StepVerifier.create(errorFlux)
+                .expectErrorMatches(ex -> {
+                    stackTrace.set(stackTraceToString(ex));
+                    return ex instanceof IllegalArgumentException;
+                })
+                .verify();
+
+        Assertions.assertTrue(stackTrace.get().contains("Flux.error ⇢ at " + HooksOnOperatorDebugTest.class.getName()));
+    }
+
+    private static String stackTraceToString(Throwable throwable) {
+        try(var sw = new StringWriter();var pw = new PrintWriter(sw)) {
+            throwable.printStackTrace(pw);
+            return sw.toString();
+        }
+        catch (Exception ioEx) {
+            throw new RuntimeException(ioEx);
+        }
+    }
+
+}
+----
+
+`Hooks.onOperatorDebug()` 调用虽然很昂贵！ 它增加了每个操作的开销。 如果您想要更细粒度地隔离流中的错误，请使用 `checkpoint()` 功能。
+
+[source,java]
+----
+public class CheckpointTest {
+
+    @Test
+    public void checkPoint() {
+
+        var stackTrace = new AtomicReference<String>();
+
+        var checkPoint = Flux
+                .error(new IllegalArgumentException("Oops!"))
+                .checkpoint()
+                .delayElements(Duration.ofMillis(1));
+
+        StepVerifier.create(checkPoint)
+                .expectErrorMatches(ex -> {
+                    stackTrace.set(stackTraceToString(ex));
+                    return ex instanceof IllegalArgumentException;
+                })
+                .verify();
+
+        Assertions.assertTrue(stackTrace.get().contains("Error has been observed at the following site(s):"));
+    }
+
+    private static String stackTraceToString(Throwable throwable) {
+        try(var sw = new StringWriter(); var pw = new PrintWriter(sw)) {
+            throwable.printStackTrace(pw);
+            return sw.toString();
+        }
+        catch (Exception ioEx) {
+            throw new RuntimeException(ioEx);
+        }
+    }
+}
+----
+
+`checkpoint` 操作符在运行时比 `Hooks.onOperatorDebug()` 更高效，因为它将 Reactor 捕获堆栈跟踪的位置与您放置检查点的位置隔离开来。
+也就是说，如果您能两全其美，那不是很好吗？ 快速、生产优化的性能以及之前显示的调试信息中存在的丰富、详细的堆栈跟踪？
+
+如果您真的想要所有操作符的调试信息，但又想避免操作符的性能成本怎么办？ 好消息，我们也可以吃蛋糕了！ 将 Reactor Tools 依赖添加到类路径中。 Reactor Tools 是一个非常有用的库，您会发现我们在本节中讨论的几乎所有内容都需要它。 添加以下依赖项：
+
+* io.projectreactor : reactor-tools
+
+你需要调用 `ReactorDebugAgent.init()`; 在你的早期代码。 您可能会考虑为您的 Spring Boot 应用程序使用 `public static void main(String [] args)` 方法。 让我们看看 `Blockhound`，它可以帮助您找到应用程序中阻塞线程的任何代码。
+
+Reactor 工具作为一种 Java 代理提供，它在代码加载到 JVM 之前作用于您的代码。 我们提供了另一个这样的库 `Blockhound`，它可以帮助您找出对阻塞 API 的调用。它会在您调用阻塞操作的任何地方抛出异常。 将库添加到类路径。
+
+将以下依赖添加到您的构建中：
+
+* io.projectreactor.tools : blockhound : 1.0.1.RELEASE
+
+查看 Blockhound 的运行非常简单：只在不该阻塞的地方阻塞！
+
+[source,java]
+----
+public class BlockhoundTest {
+
+    private final static AtomicBoolean BLOCKHOUND = new AtomicBoolean();
+
+    @BeforeEach
+    public void before() {
+
+        BLOCKHOUND.set(true);
+
+        var integerations = new ArrayList<BlockHoundIntegration>();
+        var services = ServiceLoader.load(BlockHoundIntegration.class);
+
+        services.forEach(integerations::add);
+
+        integerations.add(builder -> builder.blockingMethodCallback(blockingMethod -> {
+            if (BLOCKHOUND.get()) {
+                throw new BlockingCallError(blockingMethod.toString());
+            }
+        }));
+
+        BlockHound.install(integerations.toArray(new BlockHoundIntegration[0]));
+    }
+
+    @Test
+    public void notOk() {
+        StepVerifier
+                .create(this.buildBlockingMono().subscribeOn(Schedulers.parallel()))
+                .expectErrorMatches( e -> e instanceof BlockingCallError)
+                .verify();
+    }
+
+    @Test
+    public void ok() {
+        StepVerifier
+                .create(this.buildBlockingMono().subscribeOn(Schedulers.boundedElastic()))
+                .expectNext(1L)
+                .verifyComplete();
+    }
+
+    @AfterEach
+    public void after() {
+        BLOCKHOUND.set(false);
+    }
+
+
+    Mono<Long> buildBlockingMono() {
+        return Mono.just(1L)
+                .doOnNext(it -> block());
+    }
+
+    void block() {
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static class BlockingCallError extends Error {
+        public BlockingCallError(String msg) {
+            super(msg);
+        }
+    }
+}
+----
+
+如果您使用的是 Java 13 或更高版本，则需要在运行 JVM 时将 `-XX:+AllowRedefinitionToAddDeleteMethods` 添加到您的 VM 选项。 我在构建中配置了一个 Maven 配置文件，它添加了虚拟机选项，并在检测到时响应 Java 13 或更高版本。
+您不需要使用 `-P` 显式指定配置文件。
+
+此 Maven 配置演示了如果在运行测试时检测到 Java 13 或更高版本，如何有条件地配置构建以支持 `Blockhound`。
+
+[source,xml]
+----
+  <profile>
+      <id>blockhound-java-13</id>
+      <activation>
+          <jdk>[13,)</jdk>
+      </activation>
+      <build>
+          <plugins>
+              <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-surefire-plugin</artifactId>
+                  <configuration>
+                      <argLine>-XX:+AllowRedefinitionToAddDeleteMethods</argLine>
+                  </configuration>
+              </plugin>
+          </plugins>
+      </build>
+  </profile>
+----
+
+
+有了这些工具，隔离和理解响应式管道中的错误应该会容易得多。
+
+== 下一步
+
+在本章中，我们了解了如何使用 Project Reactor 构建响应流。 我们研究了工厂来创建新实例。 我们研究了使一种流适应另一种流的方法。 我们研究了在响应式管道中控制数据流的方法。 我们研究了组合管道的方法。
+我们还研究了调试响应流的方法。你将在日常使用响应式 API 的工作中大量使用你在本章中学到的知识。本书的其余部分假定您已经通读并吸收了本章的大部分内容。 我们将在后续章节中扩展此处介绍的一些想法。
+
+
 
