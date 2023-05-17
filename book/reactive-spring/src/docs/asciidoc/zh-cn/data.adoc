@@ -844,7 +844,7 @@ JOOQ 的创始人 Lukas Eder 考虑过有一天可能会支持 R2DBC。 如果�
 
 这些有时不太灵活的数据模型，它会是阻碍我们的原因吗？ 不会。但是，它们提供性能和规模，如果这是促使您做出决定的考虑因素，那么您应该考虑响应式编程。 它会让您从数据库客户端代码中榨取所有最后的效率。
 
-数据越大，响应式编程越有利。 当某些东西可能会独占线程时，反应式编程最有价值。 响应式数据库客户端可能是一个 Web 服务器节点和五个之间的区别！
+数据越大，响应式编程越有利。 当某些东西可能会独占线程时，响应式编程最有价值。 响应式数据库客户端可能是一个 Web 服务器节点和五个之间的区别！
 
 === Reactive R2DBC 中的事务
 
@@ -854,7 +854,58 @@ JOOQ 的创始人 Lukas Eder 考虑过有一天可能会支持 R2DBC。 如果�
 
 [source,java]
 ----
+@Service
+public class CustomerService {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomerService.class);
+
+    private final SimpleCustomerRepository repository;
+
+    private final TransactionalOperator operator;
+
+    private final CustomerDatabaseInitializer initializer;
+
+    Publisher<Void> resetDatabase() {
+        return this.initializer.resetCustomerTable();
+    }
+
+    public CustomerService(SimpleCustomerRepository repository,
+                           TransactionalOperator operator,
+                           CustomerDatabaseInitializer initializer) {
+        this.repository = repository;
+        this.operator = operator;
+        this.initializer = initializer;
+    }
+
+    // <1>
+    public Flux<Customer> upsert(String email) {
+        var customers = this.repository
+                .findAll()
+                .filter(customer -> customer.email().equalsIgnoreCase(email))
+                .flatMap(match -> this.repository.update(new Customer(match.id(), email)))
+                .switchIfEmpty(this.repository.save(new Customer(null,email)));
+
+        var validateResults = erroeIfEmailsAreInvalid(customers);
+        return this.operator.transactional(validateResults);
+    }
+
+    // <2>
+    @Transactional
+    public Flux<Customer> normalizeEmails() {
+        return erroeIfEmailsAreInvalid(this.repository.findAll()
+                .flatMap( x -> this.upsert(x.email().toUpperCase())));
+    }
+
+    private static Flux<Customer> erroeIfEmailsAreInvalid(Flux<Customer> input) {
+        return input.filter(c -> c.email().contains("@"))
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("the email needs to be of the form a@b.com")))
+    }
+}
 ----
+====
+<1> `upsert` 通过其电子邮件查找现有记录，如果不存在，则添加新记录
+<2> `normalizeEmails` 方法遍历数据库中的所有数据并确认每个电子邮件都是正确的。
+====
 
 
 第一个操作 `upsert`，委托给 `SimpleCustomerRepository` 的底层实例来查找现有数据库中的所有记录（是的，我意识到我们可能应该使用带有谓词的 SQL 查询），在 Java 代码中过滤以查找其记录 电子邮件与电子邮件参数匹配。
@@ -872,6 +923,469 @@ cold stream（没有任何订阅者的流）和 hot stream（至少有一个订�
 如果您想要从包含在事务中的方法返回值流，您可以使用 `@Transactional` 修饰该方法，这是 `normalizeAllEmails` 所采用的方法。
 
 您可以自己使用这两种方法或其中一种方法：尝试在数据中某处处理无效电子邮件，然后看看会发生什么。 我敢打赌！
+
+=== MongoDB
+
+我们已经研究了 Spring 生态系统中以 RDBMS 为中心的响应式 SQL 编程的最佳选择。现在让我们看看响应式 NoSQL 选项。
+在探索 NoSQL 时，很少有技术 - 能像 MongoDB 一样容易地浮现在脑海中。 它的名气有一部分是由于它的资格和围绕它发展起来的热闹社区。
+十年前使用 MongoDB 会是一个有争议的选择，但如今它已成为一项成功的业务，越来越多地迎合与甲骨文、IBM 和微软追求的相同企业市场，而且通常收入水平相似。
+MongoDB 只是 NoSQL 领域的众多选择之一，但它是我们将重点关注的，因为它熟悉、有用且易于上手。
+
+我不想给人留下这样的印象，即 MongoDB 可以与 NoSQL 空间中的无数替代方案互换 - 恰恰相反！ NoSQL 数据存储通常是非典型的。 它们唯一统一的特性是它们不是以 SQL 为中心的 RDBMS。
+因此，本节并不是要介绍带有 Spring 的 NoSQL。 相反，它旨在介绍响应式 Spring Data 模块的一些习语。
+MongoDB 是响应式 NoSQL 数据存储的典型集成，但它也是一个有趣的地方，因为它有几个感觉使用响应式编程更自然地表达的特性。 让我们看一些示例，首先是应用于 NoSQL 数据存储的典型 Spring Data 习语，然后是在响应式世界中闪耀的 MongoDB 的一些细节。
+
+=== Spring Data MongoDB
+
+让我们先搭建舞台。 我们有一些您在 Spring Data 集成中期望的更常见的东西：一个映射到数据存储中的记录并由存储库支持的对象。 在 MongoDB 中，记录称为文档，它们主要是表格行（在 MongoDB 中称为 _collection_s）。
+我们将从一个名为 `Order` 的文档映射实体开始。
+
+[source,java]
+----
+// <1>
+@Document
+public record Order(@Id String id, String productId) { // <2>
+}
+----
+====
+<1> Spring Data MongoDB 特定的 @Document 注解将此对象标记为 MongoDB 集合中的文档。
+<2> Spring Data @Id 注解将此字段标记为文档的键。
+====
+
+很简单。 现在我们需要一个存储库实现 `OrderRepository`。
+
+[source,java]
+----
+// <1>
+public interface OrderRepository extends ReactiveCrudRepository<Order,String> {
+
+    Flux<Order> findByProductId(String productId);
+
+}
+----
+====
+<1> 这个存储库扩展了 `ReactiveCrudRepository` 接口，就像 R2DBC 一样。 有一个 `ReactiveMongoRepository` 接口，其中包含对 MongoDB 的一些特定存储库支持，但您可能不需要它。
+====
+
+这种没有什么特别之处。 我们不需要配置任何特别的东西来使 Spring Data 工作。 Spring Boot 自动配置会处理这个问题。
+
+我们也有一个 `OrderRepository` 的测试用例。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest
+class OrderRepositoryTest {
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    private final Collection<Order> orders = List.of(
+            new Order(UUID.randomUUID().toString(),"1"),
+            new Order(UUID.randomUUID().toString(),"2"),
+            new Order(UUID.randomUUID().toString(),"2")
+    );
+
+    private final Predicate<Order> predicate = order ->
+      this.orders
+              .stream()
+              .filter(candidateOrder -> candidateOrder.id().equalsIgnoreCase(order.id()))
+              .anyMatch(candidateOrder -> candidateOrder.productId().equalsIgnoreCase(order.productId()));
+
+
+    @BeforeEach
+    public void before() {
+        var saveAll = this.orderRepository
+                .deleteAll()
+                .thenMany(this.orderRepository.saveAll(this.orders));
+
+        StepVerifier // <1>
+                .create(saveAll)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .verifyComplete();
+    }
+
+    @Test
+    public void findAll() {
+        StepVerifier // <2>
+                .create(this.orderRepository.findAll())
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .verifyComplete();
+    }
+
+    @Test
+    public void findByProductId() {
+        StepVerifier // <3>
+                .create(this.orderRepository.findByProductId("2"))
+                .expectNextCount(2)
+                .verifyComplete();
+    }
+}
+----
+====
+<1> 向数据库写入一些数据
+<2> 然后再次确认我们写入数据库的内容出来了
+<3> 然后确认我们的自定义查询按设计工作，在本例中返回其 `productId` 与 Order 实体上的 `productId` 匹配的记录。
+====
+
+** 为事务和可跟踪查询设置 MongoDB **
+
+我们有一个基本的存储库。该存储库可以与 4.0 或更高版本的 MongoDB 的任何旧实例一起使用。我们将研究一些更适合响应式开发人员使用 MongoDB、事务和可跟踪查询的机会，这些机会需要您使用副本集启动 MongoDB。
+副本集是一种分发机制。 您可以运行只有一个节点的副本集，这对于开发来说已经足够了，但您至少需要这样做才能尝试这些功能。
+
+这是我用来在我的机器上启动单实例副本集的脚本。 我也为我的持续集成设置做了类似的事情。
+
+使用 MongoDB 初始化单节点副本集。
+
+[source,text]
+----
+mongo --eval "rs.initiate({_id: 'rs0', members:[{_id: 0, host: '127.0.0.1:27017'}]});"
+----
+
+** Reactive Transactions in MongoDB **
+
+到目前为止，一切都很好。 人们对 MongoDB 和响应式编程提出的一个常见问题是：事务呢？
+
+许多 NoSQL 数据存储确实支持事务，并且 Spring 在适当的非响应式上下文中支持资源本地事务管理。 在响应上下文中，还有一个用于 MongoDB 的 `ReactiveTransactionManager` 层次结构实现。
+
+MongoDB 中事务的使用很有趣，尽管大部分是可选的，因为对单个文档及其子文档的更新是原子的。 MongoDB 支持并可以说是鼓励非规范化和嵌入式子文档来捕获数据之间的关系。
+MongoDB 的事务支持可以方便地更新多个离散文档，或者当您希望多个文档的读取之间保持一致时。
+
+我们首先需要配置一些 bean 来演示与 MongoDB 的事务。
+
+[source,java]
+----
+@Configuration
+@EnableTransactionManagement
+public class TransactionConfiguration {
+
+    @Bean // <1>
+    public TransactionalOperator transactionalOperator(ReactiveTransactionManager txm) {
+        return TransactionalOperator.create(txm);
+    }
+
+    @Bean // <2>
+    public ReactiveTransactionManager reactiveTransactionManager(ReactiveMongoDatabaseFactory rbf) {
+        return new ReactiveMongoTransactionManager(rbf);
+    }
+}
+----
+====
+<1> 你之前已经看过这个...
+<2> 我们配置 `ReactiveTransactionManager` 层次结构的特定于 MongoDB 的变体。
+====
+
+我们已经有了一个 `OrderRepository` 来处理与数据库的单独交互 - 日常数据操作，如查询、插入、更新和读取。 让我们在支持将多条记录写入数据库的 `OrderRepository` 之上构建一个 `OrderService` 服务。
+如果给定参数为空，我们将使用它通过回滚写入来演示事务。 如果我们在 `N-1` 条记录为 `null` 的地方写入 `N` 条记录，则会导致一个错误，该错误反过来回滚所有 `N` 条写入，包括 `null` 和 `all`。
+
+[source,java]
+----
+@Service
+public class OrderService {
+
+    private final ReactiveMongoTemplate template;
+
+    private final TransactionalOperator operator;
+
+    public OrderService(ReactiveMongoTemplate template, TransactionalOperator operator) {
+        this.template = template;
+        this.operator = operator;
+    }
+
+    // <1>
+    public Flux<Order> createOrders(String... productIds) {
+        return this.operator.execute(status -> buildOrderFlux(template::insert,productIds));
+    }
+
+    private Flux<Order> buildOrderFlux(Function<Order, Mono<Order>> callback, String[] productIds) {
+        return Flux
+                .just(productIds)
+                .map(pid -> {
+                    Assert.notNull(pid,"the product ID should't be null");
+                    return pid;
+                })
+                .map( x -> new Order(null,x))
+                .flatMap(callback);
+    }
+}
+----
+====
+<1> `createOrders` 方法使用 `TransactionalOperator#execute` 方法。 我们已经看过声明式事务
+====
+
+让我们在测试中使用该服务。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest // <1>
+@Import({TransactionConfiguration.class,OrderService.class})
+public class OrderServicesTest {
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    //
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private OrderRepository repository;
+
+    @Autowired
+    private OrderService service;
+
+    @Autowired
+    private ReactiveMongoTemplate template;
+
+    @BeforeEach // <2>
+    public void configureCollectionBeforeTests() {
+        var createIfMissing = template.collectionExists(Order.class)
+                .filter(x -> !x)
+                .flatMap(exists -> template.createCollection(Order.class))
+                .thenReturn(true);
+
+        StepVerifier
+                .create(createIfMissing)
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test // <3>
+    public void createOrders() {
+        var orders = this.repository
+                .deleteAll()
+                .thenMany(this.service.createOrders("1","2","3"))
+                .thenMany(this.repository.findAll());
+
+        StepVerifier
+                .create(orders)
+                .expectNextCount(3)
+                .verifyComplete();
+    }
+
+    @Test // <4>
+    public void transactionalOperatorRollback() {
+        this.runTransactionalTest(this.service.createOrders("1","2",null));
+    }
+
+    private void runTransactionalTest(Flux<Order> ordersInTx) {
+        var orders = this.repository
+                .deleteAll()
+                .thenMany(ordersInTx)
+                .thenMany(this.repository.findAll());
+
+        StepVerifier
+                .create(orders)
+                .expectNextCount(0)
+                .verifyError();
+
+        StepVerifier
+                .create(this.repository.findAll())
+                .expectNextCount(0)
+                .verifyComplete();
+
+    }
+}
+----
+====
+<1> 此测试使用 `@DataMongoTest` 测试切片。
+<2> 此代码检查 MongoDB 集合是否存在，如果不存在，则创建它。
+<3> 此测试演示写入三个非空值应该会产生三个新记录。
+<4> 此测试表明，写入三个记录（其中一个为空）会导致回滚，并且没有明显的副作用。
+====
+
+多文档事务仅适用于副本集。 分片集群的事务是为 MongoDB 4.2.x 或更高版本具有的。
+
+** 可跟踪查询 **
+
+在 24/7 全天候互联的世界中，数据一直在变化。以批处理为中心的将数据处理限制在有限制的时间内，这意味着总会有一些尚未处理的数据帧。 如果期望系统始终可用，则这种滞后是有问题的。
+越来越多的组织正在转向流处理模型，其中反馈给客户端在数据可用时处理来自数据源的数据。 流式数据处理颠覆了传统的、以批处理为中心的数据处理方法。 在流式架构中，数据被推送到客户端，其中更传统的以批处理为中心的模型，数据从源头拉取，分批累积，然后进行处理。
+
+数据流是不断演变的事件序列，其中每个事件代表新数据。 订阅流的客户端只需要处理新数据，避免对现有数据进行重新处理。 以流为中心的处理减轻了对昂贵的客户端轮询的需求。
+
+这种对流处理的模糊描述听起来是不是很熟悉？ 在我看来，这听起来像是响应式编程。 我们可以更进一步，将其扩展到具有 Reactor 接口功能的复杂事件处理 (CEP)。
+
+流处理有很多好处。 有几种方法可以实现流处理。 一种方法使用分阶段事件驱动架构，其中组件轮询数据源，然后将增量发布到下游客户端。 组件仍然进行轮询，但是代表所有客户端和多个订阅者进行一次轮询。
+这种方法减少了数据源的负载，因为只有一个轮询查询，同时简化了下游客户端的工作——他们不需要自己担心跟踪增量。
+
+一些数据源可以告诉客户发生了什么变化； 他们可以告诉客户有关匹配谓词或查询的新数据。 Apache Geode 和 Oracle Coherence 都是分布式数据网格类型。
+他们支持连续查询。 连续查询颠覆了客户端和数据源之间的传统轮询安排。 客户端向数据网格注册连续查询，数据网格根据查询断言网格中的任何新数据。 如果有任何新数据与查询匹配，数据网格会通知订阅的客户端。
+
+MongoDB 支持类似连续查询的东西，但给它同样的描述性名称 `tailable` 查询。 它类似于在命令行上使用 `tail -f` 命令将输出跟踪到文件中。 在 MongoDB 中，客户端连接到数据库并发出查询。
+`Tailable` 查询会忽略索引，因此第一次读取可能会很慢，具体取决于与查询匹配的数据量。 即使在读取初始结果集之后，客户端的游标仍保持与数据源的连接，并且客户端会使用任何新的后续记录。
+
+你可能真的想要那个索引。 我明白！ 您需要手动重新查询记录，使用记录的最后一个偏移量来仅检索在偏移量之后插入的那些记录。
+
+现在，假设您决定使用 MongoDB 的 tailable 查询。 这里有很多可能性！ 您可以使用 MongoDB 进行轻量级发布/订阅集成。 你可以实现一个聊天系统。 您可以广播传感器数据或股票代码。
+
+无论您决定做什么，都可以通过可跟踪查询轻松完成。 让我们看一个例子。 我们将查询给定集合 `customers` 中的所有文档，其名称属性与给定值匹配。
+
+Tailable 查询需要上限集合。 上限集合是一个固定大小的集合，支持根据插入顺序插入和检索文档的高吞吐量操作。 Capped collections 的工作方式类似于循环缓冲区：一旦一个集合填满了它分配的空间，
+它就会通过覆盖集合中最旧的文档来为新文档腾出空间。
+
+让我们首先看一下 Customer 实体 - 这没什么奇怪的。
+
+[source,java]
+----
+public record Customer(@Id String id,String name) {
+}
+----
+
+存储库是事情变得有趣的地方 - 它是我们传达我们要为 MongoDB 创建可跟踪查询的想法的第一个地方。
+
+[source,java]
+----
+public interface CustomerRepository extends ReactiveMongoRepository<Customer,String> {
+
+    @Tailable // <1>
+    Flux<Customer> findByName(String name);
+}
+----
+====
+<1> @Tailable 注解告诉 Spring Data 在执行从 finder 方法派生的查询时不要关闭客户端游标。
+====
+
+Tailable 查询需要上限集合。 在我们开始使用它之前，我们需要确保创建上限集合。 我们不能依赖 Spring Data 自动为我们创建上限集合。 我们将在下面的测试中在 `@Before` 方法中明确地这样做。
+您可以在其他地方将其实现为初始化步骤。 在生产环境中，它可能首先作为部署数据库所涉及的脚本的一部分来完成。 上限集合是 MongoDB 中为数不多的涉及 MongoDB 提前配置的事物之一。
+MongoDB 是无模式的，但这消除了所有前期配置。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest
+public class TailableCustomerQueryTest {
+
+    private static final Logger log = LoggerFactory.getLogger(TailableCustomerQueryTest.class);
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    //
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private ReactiveMongoTemplate template;
+
+    @Autowired
+    private CustomerRepository repository;
+
+    @BeforeEach
+    public void before() {
+        // <1>
+        var capped = CollectionOptions.empty()
+                .size(1024 * 1024)
+                .maxDocuments(100)
+                .capped();
+
+        var recreateCollection = template
+                .collectionExists(Order.class)
+                .flatMap(exists -> exists ? template.dropCollection(Customer.class) : Mono.just(exists))
+                .then(template.createCollection(Customer.class,capped));
+
+        StepVerifier
+                .create(recreateCollection)
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test
+    public void tail() throws InterruptedException {
+
+        // <2>
+        var people = new ConcurrentLinkedDeque<Customer>();
+
+        // <3>
+        StepVerifier
+                .create(this.write().then(this.write()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // <4>
+        this.repository.findByName("1")
+                .doOnNext(people::add)
+                .doOnComplete(() -> log.info("complete"))
+                .doOnTerminate(() -> log.info("terminated"))
+                .subscribe();
+
+        Assertions.assertThat(people).hasSize(2);
+
+        // <5>
+        StepVerifier
+                .create(this.write().then(this.write()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // <6>
+        Thread.sleep(1_000);
+        Assertions.assertThat(people).hasSize(4);
+    }
+
+
+    private Mono<Customer> write() {
+        return repository.save(new Customer(UUID.randomUUID().toString(),"1"));
+    }
+}
+----
+====
+<1> 我们显式创建一个上限集合
+<2> 此测试将上限集合和 tailable 查询的结果累积到队列中。
+<3> 将两条记录写入数据库中现在原始的集合。
+<4> 运行返回一个 `Publisher<Customer>` 的 tailable 查询，我们将订阅它。 当新记录到达时，我们将它们捕获到先前定义的队列中。
+<5> 订阅后，确认前两条记录在集合中，我们再写两条
+<6> 确认对队列的更新（无需重新运行查询。）
+====
+
+
+很酷，是吗？ 现在请记住，tailable 游标在某些情况下会断开连接。 如果查询没有返回任何记录，那么游标就死了。 如果游标返回集合“末尾”处的文档，然后应用程序删除该文档，那么游标也会失效。
+
+如果不是万能的，MongoDB 就什么都不是。 它可以事务性地保存和查询记录和关系。 我有没有提到它还支持可扩展的文件系统？ 您可以使用 MongoDB 的 GridFS 写入类文件数据并安全地横向扩展。
+
+MongoDB 还支持地理空间查询。 Foursquare 提供像 Swarm 和 Foursquare 这样的应用程序，主要目的是让您的朋友知道您在哪里并弄清楚他们在哪里。 Foursquare 游戏化地理。 Foursquare 为 MongoDB 的初始地理空间支持做出了很大贡献。
+
+== 回顾
+
+在本章中，我们介绍了响应式 SQL 和 NoSQL 数据访问。 我们在 Spring Framework 5.2+ 中引入了 `ReactiveTransactionManager` 层次结构及其支持。
+我们研究了 R2DBC，一个新的 SPI 和支持以 R2DBC 为中心的响应式数据访问的实现。 我认为非常酷的是，在接近 2020 年的时候，我们仍然可以在全新的（响应式）上下文中讨论 SQL 和事务。
+我们还研究了响应式 NoSQL，重点是 MongoDB。 我们研究了事务划分，研究了 tailable 查询，这两者都是 MongoDB 在受支持的响应式 NoSQL 选项中所独有的。
+
+== 下一步
+
+在本章中，我们了解了如何使用响应式编程连接到基于 SQL 的数据存储（使用 R2DBC 和 Spring Data R2DBC）以及如何连接到众多受支持的 NoSQL 数据存储之一 MongoDB。
+响应式编程使开发人员更容易高效地使用数据。 响应式编程是必要的，因为数据几乎是所有应用程序的核心。 如果您要在数据访问层进行节流，那么您的 Web 层、安全性和网关的响应性如何都没有关系。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

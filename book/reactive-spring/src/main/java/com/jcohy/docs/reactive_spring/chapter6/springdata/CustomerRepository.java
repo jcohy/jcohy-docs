@@ -1,7 +1,8 @@
-package com.jcohy.docs.reactive_spring.chapter6.r2dbc;
+package com.jcohy.docs.reactive_spring.chapter6.springdata;
 
 import com.jcohy.docs.reactive_spring.chapter6.common.Customer;
-import org.springframework.data.jdbc.repository.query.Query;
+import io.r2dbc.spi.Parameter;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 
@@ -12,13 +13,11 @@ import reactor.core.publisher.Flux;
  * </p>
  *
  * @author jiac
- * @version 2022.04.0 2023/5/9:16:04
+ * @version 2022.04.0 2023/5/17:16:14
  * @since 2022.04.0
  */
-// <1>
-public interface CustomerRepository extends ReactiveCrudRepository<Customer,Integer> {
+public interface CustomerRepository extends ReactiveCrudRepository<Customer, Integer> {
 
-    // <2>
-    @Query("select id, email from customer c where c.email = $1")
+    @Query("select id, email from customer  c where c.email = $1")
     Flux<Customer> findByEmail(String email);
 }

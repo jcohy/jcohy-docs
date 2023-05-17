@@ -1,4 +1,4 @@
-package com.jcohy.data;
+package com.jcohy.data.testing;
 
 import com.jcohy.docs.reactive_spring.chapter6.common.Customer;
 import com.jcohy.docs.reactive_spring.chapter6.common.SimpleCustomerRepository;
