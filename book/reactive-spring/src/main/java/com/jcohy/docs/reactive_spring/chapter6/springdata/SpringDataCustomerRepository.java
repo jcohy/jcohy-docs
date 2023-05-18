@@ -2,7 +2,6 @@ package com.jcohy.docs.reactive_spring.chapter6.springdata;
 
 import com.jcohy.docs.reactive_spring.chapter6.common.Customer;
 import com.jcohy.docs.reactive_spring.chapter6.common.SimpleCustomerRepository;
-import com.jcohy.docs.reactive_spring.chapter6.r2dbc.CustomerRepository;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
