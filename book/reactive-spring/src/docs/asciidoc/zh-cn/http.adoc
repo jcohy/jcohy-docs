@@ -858,13 +858,361 @@ window.addEventListener('load', function (e) {
 </html>
 ----
 
+== Websockets
+
+服务发送事件（Server-sent events）和 HTTP 可能就是您所需要的。 将 HTTP 请求和服务器发送出的事件关联起来有点奇怪； 它使会话协议变得更加困难，除非您愿意将传入的 HTTP 请求和服务发送事件串联在一起。
+
+服务发送事件对于二进制数据不是特别重要，因为每个有效负载都是编码文本。
+
+如果您需要更双向的东西，Websockets 提供了更好的方式。 Websockets 是一种不同于 HTTP 的协议，但它们可以很好地与 HTTP 配合使用。
+
+WebSocket 客户端连接到 HTTP 端点，然后协商升级到 WebSocket 协议。 JavaScript 也很好地支持 Websockets。
+
+Websocket 应用程序比我们目前看到的稍微复杂一些，但也不是很多。 通常，基于 WebSocket 的应用程序需要三个不同的 bean。
+
+* WebSocketHandler：这是应用程序的业务逻辑所在的地方。 这是从一个 WebSocket 应用程序到另一个 WebSocket 应用程序的独特之处。
+* WebSocketHandlerAdapter：这是框架完成其工作所需的机制。 老实说，我从来不需要配置或定制它，但你可能需要，这就是为什么它不是默认的。
+* HandlerMapping：这个 bean 告诉 Spring 如何将 WebSocket 逻辑挂载到一个 URI。
+
+对于这两个应用程序，`WebSocketHandlerAdapter` 都是不变的，因此我将在此处重现其配置，仅一次。 `WebSocketHandlerAdapter` 接受传入的 HTTP 请求并处理升级。
+您可以覆盖它和下游的 `WebsocketService`，如果您愿意，Spring Boot 会自动为我们配置它。 我没有，所以不会。
+
+[source,java]
+----
+@Configuration
+public class WebsocketConfiguration {
+
+    @Bean
+    WebSocketHandlerAdapter webSocketHandlerAdapter() {
+        return new WebSocketHandlerAdapter();
+    }
+}
+----
+
+我已经为应用程序中的所有 WebSocket 端点定义了一次。
+
+让我们看几个 WebSocket 示例。
+
+=== Echos of Websockets Past
+
+第一个示例是对经典 echo 协议稍微复杂一点的转折。 服务器启动数据流，将其发送给客户端，然后客户端回复相同的值并以 `reply` 为后缀。
+在这种情况下，消费者是做回声的东西。 要生成值，我们将再次转向 `IntervalMessageProducer`。
+
+[source,java]
+----
+@Configuration
+public class EchoWebsocketConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(EchoWebsocketConfiguration.class);
+
+    @Bean // <1>
+    HandlerMapping echoHm() {
+        return new SimpleUrlHandlerMapping(Map.of("/ws/echo",echoWsh()),10);
+    }
+
+    @Bean // <2>
+    WebSocketHandler echoWsh() {
+        return session -> { // <3>
+
+            Flux<WebSocketMessage> out = IntervalMessageProducer //
+                    .produce()
+                    .doOnNext(log::info)
+                    .map(session::textMessage)// <4>
+                    .doFinally(signalType -> log.info("outbound connection" + signalType)); // <5>
+
+            Flux<String> in = session
+                    .receive()
+                    .map(WebSocketMessage::getPayloadAsText) // <6>
+                    .doFinally(signalType -> {
+                        log.info("inbound connection" + signalType);
+                        if(signalType.equals(SignalType.ON_COMPLETE)) {
+                            session.close().subscribe();
+                        }
+                    })
+                    .doOnNext(log::info);
 
 
+          return session.send(out).and(in);  // <7>
+        };
+    }
+}
+----
+====
+<1> 我非常希望 `SimpleUrlHandlerMapping` 有一个构造函数，该构造函数将 URI 的顺序和映射映射到 `WebSocketHandler` 实现，或者至少是一个工厂对象。 它没有。
+我倾向于在扩展它的地方使用匿名类样式，然后在相同的表达式中配置它，避免创建中间变量。
+<2> 这是完成的最重要的工作。
+<3> `WebsocketHandler` 被赋予对 `WebSocketSession` 的引用，如果需要，您可以将其存储起来以供稍后参考。 您也可以在其他线程中将数据泵入该 `WebSocketSession`。 `WebSocketSession` 为每个客户端创建一次，有点像 HTTP 会话。
+<4> 在连接时，此处理程序通过使用 `WebSocketSession.textMessage` 工厂方法将每个生成的消息从 `IntervalMessageProducer` 映射到 `WebSocketMessage` 来创建冷数据流 `Flux<WebSocketMessage>`。
+有一个变体 `WebSocketSession.binaryMessage` 可以传送二进制数据。
+<5> 当 WebSocket 客户端（如浏览器中的 JavaScript 应用程序）断开连接或用户导航到另一个页面时，可能存在要拆除的应用程序状态。 使用 `doFinally` 运算符进行干预。
+<6> 我们可以要求 `WebSocketSession` 给我们一个发布者来开始接收数据。 此示例接受任何传入请求，将有效负载转换为文本，并将其记录在 `doOnNext` 运算符中。
+<7> 链接两个冷流并使用 `and(Publisher<T>)` 将它们组合成 `Mono<Void>` 使它们成为热流。
+====
+
+就是这样！ 诚然，它可能看起来很多，但它只有三个 beans，而且真正导入的唯一一个是 `WebsocketHandler`。 现在让我们看另一个 HTML 示例，它在结构上与之前的 SSE 示例相似。
+
+[source,javascript]
+----
+function log(msg) {
+    var messagesDiv = document.getElementById('messages');
+    var elem = document.createElement('div');
+    var txt = document.createTextNode(msg);
+    elem.appendChild(txt);
+    messagesDiv.append(elem);
+}
+var websocket = null;
+document
+    .getElementById('close')
+    .addEventListener('click', function (evt) {
+      evt.preventDefault();
+      websocket.close();
+      return false;
+});
+window.addEventListener('load', function (e) { // <1>
+  websocket = new WebSocket('ws://localhost:8080/ws/echo');
+  websocket.addEventListener('message', function (e) {
+    var msg = e.data;
+    log(msg);
+    websocket.send(msg + ' reply'); // <2>
+}); });
+----
+====
+1 该程序使用 JavaScript WebSocket 和 `ws://` 协议连接到 WebSocket 端点。
+2 当 JavaScript 程序看到一条新的传入消息时，它会将其记录下来，然后使用 WebSocket 对象将其立即发回，并以 "reply" 为后缀。
+====
+
+现在让我们看一下 JavaScript 程序的 HTML 页面。
+
+`/echo.html` 页面必需的 HTML 元素
+
+[source,html]
+----
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>
+        this is a test
+        </title>
+    </head>
+<body>
+    <a href="#" id="close"> Close Session </a>
+    <script src="/echo.js"></script>
+    <div id="messages"></div>
+</body>
+</html>
+----
+
+好吧！ 这是一个很好的章节，伙计！ 好游戏。 下一章见！
+
+...
+
+你还在这里做什么？ 得到！ 去！
+
+...
+
+...
+好的！ 好的！ 美好的。 我不想这样做，但我知道你想要什么。 你需要什么。 最后一个示例有力地演示了典型 WebSocket 应用程序中的移动部件。
+您肯定在想，我们需要一个聊天示例！ 如果没有必要的聊天示例，我们不可能完成对 WebSockets 的讨论。 我很乐意效劳。
+
+=== The Chatastic Websocket Example
+
+我们将要考虑的是什么来取代您最喜欢的聊天应用程序？ 可能不会。 它确实有效。 此示例是一个相当长的玩具应用程序或一个小型生产应用程序。 让我们来解决它。
+
+聊天与 `Connection` 实例一起工作，这些实例是给定客户端连接及其对应的 `WebSocketSession` 的包装器。
+
+[source,java]
+----
+public record Connection(String id, WebSocketSession socketSession) {
+}
+----
+
+当客户端发送消息时，我们将其调整为 `Message` 对象。 消息实例存储客户端 ID、消息本身的文本和时间戳。
+
+[source,java]
+----
+public record Message(String clientId, String text, Date when) {
+}
+----
+
+大部分聊天实现位于 `ChatWebsocketConfiguration` 中。
+
+[source,java]
+----
+@Configuration
+public class ChatWebsocketConfiguration {
 
 
+    // <1>
+    ChatWebsocketConfiguration(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
+    private final ObjectMapper objectMapper;
+
+    // <2>
+    private final Map<String,Connection> sessions = new ConcurrentHashMap<>();
+
+    // <3>
+    private final BlockingQueue<Message> messages = new LinkedBlockingQueue<>();
+
+    @Bean
+    WebSocketHandler chatWsh() {
+        // <4>
+        var messagesToBroadcast = Flux.<Message>create(sink -> {
+            var submit = Executors.newSingleThreadExecutor().submit(() -> {
+                while (true) {
+                    try {
+                        sink.next(this.messages.take());
+                    } catch (InterruptedException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+            });
+            sink.onCancel(() -> submit.cancel(true));
+        })
+                .share();
+
+        return session -> { // <5>
+          var sessionId = session.getId();
+          this.sessions.put(sessionId,new Connection(sessionId,session));
+
+          var in = session // <6>
+                  .receive()
+                  .map(WebSocketMessage::getPayloadAsText)
+                  .map(this::messageFromJson)
+                  .map(msg -> new Message(sessionId,msg.text(),new Date()))
+                  .map(this.messages::offer)
+                  .doFinally(st -> { // <7>
+                     if(st.equals(SignalType.ON_COMPLETE)) {
+                         this.sessions.remove(sessionId);
+                     }
+                  });
+
+            var out = messagesToBroadcast // <8>
+                    .map(this::jsonFromMessage)
+                    .map(session::textMessage);
+
+            return session.send(out).and(in);
+        };
+    }
+
+    // <9>
+    private Message messageFromJson(String json) {
+        try {
+            return this.objectMapper.readValue(json,Message.class);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String jsonFromMessage(Message msg) {
+        try {
+            return this.objectMapper.writeValueAsString(msg);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Bean
+    HandlerMapping chatHm() {
+        return new SimpleUrlHandlerMapping(Map.of("/ws/chat" , chatWsh()),2);
+    }
+}
+----
+====
+<1> 我们将在几个不同的地方使用 Jackson 的 `ObjectMapper`
+<2> 新连接实例的存储。 `Connection` 是给定连接 ID 和 `WebSocketSession` 的持有者。 我们需要引用所有已连接的 `WebSocketSession` 连接，以向给定聊天中的每个人广播消息。
+<3> 当客户端将消息发送到应用程序时，将它们排入队列以在 `Queue<Message>` 中进行传递。 我们稍后从这个 `Queue<T>` 创建一个 `Publisher<T>` 并使用它向其他 `WebSocket` 会话广播消息。
+<4> 这可能是整个应用程序中最棘手的部分。 我们稍后会重新讨论 `Flux.create` 的使用。 此示例演示了我们如何将外部事件源与我们的响应式 API 桥接起来。 它是如何将 `Queue<T>` 变成 `Publisher<T>`。
+<5> `WebSocketHandler` 接口有一个抽象方法，它引用在客户端连接到应用程序时创建的 `WebSocketSession`。 您可以存储对该 `WebSocketSession` 的引用，并使用它向单个客户端发送消息。 我们在这里通过获取传入会话、记录其 ID 并将其包装在 Connection 实例中，然后将该连接存储在之前建立的 Map<String, Connection> 中来做到这一点。 每个新的 WebSocket 客户端都会在此 Map<String, Connection> 中产生另一个条目。 我们必须确保这个 Map<String, Connection> 不仅为新连接扩展，而且在客户端断开连接或离开页面时收缩。
+<6> 这里有两个问题，所以我将它们提取到两个不同的管道中。 第一个处理传入的消息，将它们转换为文本，然后将它们转换为 `Message` 实例，然后将这些 `Message` 实例插入（“提供”）到我们的 `Queue<Message>` 中。
+<7> 当客户端断开连接时，浏览器向服务器发送信号，我们使用 `doFinally` 运算符处理断开连接，其中我们注意从 `Map<String, Connection>` 存储中删除与当前会话关联的 `WebSocketSession`。
+<8> 出站数据流利用全局共享的 `messsagesToBroadcast Publisher<T>`，在每个新值到达时获取它们，将它们转换为字符串，然后使用 `WebSocketSession` 将这些字符串转换为 `WebSocketMessage` 实例。
+<9> 有很多将 String 对象编组为 `Message` 对象以及将 `Message` 对象编组回 JSON 字符串的过程。 我已经将这些逻辑隐藏在这些小的辅助方法中。
+====
 
 
+`Flux.create` 的使用值得回顾。 此方法采用 `Consumer<FluxSink<T>>`。 我们在 `Consumer` 中的工作是存储对 `FluxSink<T>` 的引用以备后用。
+您可以隐藏此引用以供在任何其他线程中使用。 任何引用它的人都可以发出此 `Publisher<T>` 的订阅者可以看到的项目。 这种方法非常适合桥接以事件为中心的系统。
+一种可能性是将出站适配器从 Spring Integration 中的 `IntegrationFlow` 挂起，并且对于传递的每条新消息，将该消息转发到 `FluxSink<T>`。
+Spring Integration 与各种事件源和接收器进行对话。 您可以构建一个 `WebSocket` 应用程序，当新文件落在 FTP 服务器上、XMPP 消息到达、电子邮件发送或推文提及用户时通知您。 可能性是无止境！
 
+在此示例中，T 指的是 `Message` 的实例。 我们在整个应用程序中定义了一次 `Publisher<Message>`。 此循环运行并不断轮询 `Queue<T>`。 `Queue.take()` 阻塞（发出嘶嘶声！）控制线程，直到有一个项目要返回。
+出于这个原因，我们需要将这个循环放在一个单独的线程中。 当新项目到达时，此 while 循环从 `Queue<T>` 中排出项目，然后将它们交给 `FluxSink<T>` 进行发布。
+该示例有几个主要组成部分：
+
+* 将一个以事件为中心的系统桥接到响应式代码。
+* 围绕 WebSocketHandler 本身传输数据流
+* 显式记录客户端会话
+
+此示例只有一个全局的 "room" (or "topic") ，但您没有理由不能将各个客户端链接到房间，然后仅向与特定房间关联的那些客户端广播请求。
+如果您了解所有这些，那么剩下的就很容易了。 让我们看看支持聊天的 JavaScript 和 HTML 客户端。
+
+[source,html]
+----
+
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="utf-8">
+      <title>Chat</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="stylesheet" href="chat.css"/>
+  </head>
+  <body style="padding: 10px">
+  <div id="messages"></div>
+  <div>
+      <textarea name="message" id="message"></textarea>
+      <button id="send">Send</button>
+  </div>
+  <script src="/chat.js"></script>
+  </body>
+  </html>
+----
+
+HTML 页面定义了一个消息元素，其中包含新的附加消息。 它还定义了一个文本框，用户可以在其中撰写消息。 该页面依赖于 CSS 样式来改善外观（只是轻微的！），并且依赖于 JavaScript 将其连接到我们的 WebSocket 代码。
+
+[source,javascript]
+----
+  window
+      .addEventListener('load', function (e) {
+        var messages = document.getElementById('messages');
+        var button = document.getElementById('send');
+        var message = document.getElementById('message');
+        var websocket = new WebSocket('ws://localhost:8080/ws/chat'); // <1>
+          websocket.addEventListener('message', function (e) {
+              var element = document.createElement('div');
+              element.innerText = e.data;
+              messages.appendChild(element);
+        });
+        // <2>
+          function send() {
+              var value = message.value;
+              message.value = '';
+              websocket.send(JSON.stringify({'text': value.trim()}));
+          }
+        // <3>
+          message.addEventListener('keydown', function (e) {
+              var key = e.key;
+              if (key === 'Enter') {
+                  send();
+              }
+          });
+          button.addEventListener('click', function (e) {
+              send();
+              e.preventDefault();
+              return false;
+          });
+}) ;
+----
+====
+<1> JavaScript WebSocket 对象连接到我们的聊天端点并监听新消息。
+<2> 发送函数获取文本框中的任何文本，并使用隐藏的方法将其发送到服务器 WebSocket 参考。
+<3> 应用程序的其余部分涉及将 UI 中的元素连接到发送功能。 点击进入文本框，或单击“发送”按钮，您的消息将被发布。
+====
+
+我什至不打算在这里复制应用程序的样式信息，因为它是最小的并且与应用程序的功能无关。 而且，这很糟糕。 太可怕了。 名副其实的悲伤风格级联。 令人困惑的低级风格。 CSS。 我需要 CSS 方面的帮助，而且我还没有大到不敢承认这一点。
 
 
 
