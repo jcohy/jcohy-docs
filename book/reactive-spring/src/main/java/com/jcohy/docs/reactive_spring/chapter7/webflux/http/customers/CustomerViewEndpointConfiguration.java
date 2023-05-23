@@ -1,11 +1,12 @@
-package com.jcohy.docs.reactive_spring.chapter7.webflux.http.customer;
+package com.jcohy.docs.reactive_spring.chapter7.webflux.http.customers;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.ServerResponse;
 
-import static org.springframework.web.reactive.function.server.RequestPredicates.path;
+import java.util.Map;
+
 import static org.springframework.web.reactive.function.server.RouterFunctions.route;
 
 /**
@@ -15,20 +16,21 @@ import static org.springframework.web.reactive.function.server.RouterFunctions.r
  * </p>
  *
  * @author jiac
- * @version 2022.04.0 2023/5/18:11:55
+ * @version 2022.04.0 2023/5/23:15:49
  * @since 2022.04.0
  */
 @Configuration
-public class CustomerApiEndpointConfiguration {
+public class CustomerViewEndpointConfiguration {
 
     @Bean
-    RouterFunction<ServerResponse> customerApis(CustomerHandler handler) {
+    RouterFunction<ServerResponse> customerViews(CustomerRepository repository) {
         return route()
-                .nest(path("/fn/customers"),builder -> builder
-                        .GET("/{id}",handler::handlerFindCustomerById)
-                        .GET("",handler::handlerFindAll)
-                        .POST("",handler::handlerCreateCustomer))
+                .GET("/fn/customers.php",r -> {
+                    var map = Map.of("customers",repository.findAll(), // <1>
+                            "type","Functional Reactive"
+                    );
+                    return ServerResponse.ok().render("customers",map); // <2>
+                })
                 .build();
     }
-
 }

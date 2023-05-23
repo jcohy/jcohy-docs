@@ -1,4 +1,4 @@
-package com.jcohy.docs.reactive_spring.chapter7.webflux.http.customer;
+package com.jcohy.docs.reactive_spring.chapter7.webflux.http.customers;
 
 import org.springframework.data.annotation.Id;
 

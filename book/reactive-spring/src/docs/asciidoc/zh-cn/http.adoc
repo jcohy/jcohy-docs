@@ -1214,13 +1214,212 @@ HTML 页面定义了一个消息元素，其中包含新的附加消息。 它�
 
 我什至不打算在这里复制应用程序的样式信息，因为它是最小的并且与应用程序的功能无关。 而且，这很糟糕。 太可怕了。 名副其实的悲伤风格级联。 令人困惑的低级风格。 CSS。 我需要 CSS 方面的帮助，而且我还没有大到不敢承认这一点。
 
+== Reactive Views with Thymeleaf
+
+我们已经研究了 WebSockets 和服务发送事件，并介绍了一些服务端的一些端点。 到目前为止，我们看到的任何用户界面都仅限于 `src/main/resources/static` 文件夹中的静态 `.html`、`.js` 和 `.css`，作为静态资源。
+
+在本节中，我们将着眼于响应式服务端视图，重点关注 `Thymeleaf`。
+
+`Thymeleaf` 是一项令人兴奋的技术，因为它是一种渲染模板，旨在促进具有服务器端业务逻辑的往返用户界面。 它让我想起了 Apache Tapestry 或 Apache Wicket，它们都提倡可往返的模板。
+与许多其他模板引擎相比，Thymeleaf 模板是有效的 HTML 标记，可以在 Adobe Dreamweaver 等 HTML 设计器中清晰地预览。
+
+`Thymeleaf` 是进入模板引擎世界的一个相当新的入口，还有其他选项，比如 Apache Velocity 和 Apache Freemarker 都有十多年的历史。 （Apache Velocity 和 Apache Freemarker 都是出色的渲染引擎，如果您愿意，应该使用它们。）
+
+`Thymeleaf` 是在其设计目标中以集成基于 Spring 的应用程序为中心而开发的，它的创建者 Daniel Fernandez 是 Spring 社区的朋友。 他和 Thymeleaf 的团队努力确保 Thymeleaf 能够很好、快速地集成到最新最好的 Spring 版本中。
+
+所以，我喜欢 Thymeleaf，但我会和你保持一致。 我不确定我是否需要在书中包含这一部分。 普遍的看法似乎是，如今对服务器端视图的需求越来越少，而丰富的客户端用户界面 (UI) 可以通过富 Web 框架（如 Vue.js、Angular 和 React）实现。
+这些丰富的客户端应用程序通常由内容分发网络 (CDN) 提供，调用服务器端 API 网关或后端服务器端 HTTP 应用程序中的端点。 要使该方法起作用，您需要在客户端技术中处理所有用户界面问题（如模板）。
+这是可能的，但您可能会发现构建一个丰富的 UI 更方便，该 UI 作为页面上的一种孤岛存在，其模板和主题应用程序使用由 Thymeleaf 等支持的服务器端视图驱动。 您可以使用 Spring Security 更轻松地保护服务器端视图。
+服务端视图简化了构建逐渐丰富且退化良好的 UI 元素的工作。 它使您可以更轻松地从您了解的技能入手，并根据需要添加更多动态行为。 此外，正如您将在本节中看到的那样，您仍然可以通过这种方式做一些非常动态的事情。
+
+=== Spring 的视图解析如何与 Thymeleaf 一起工作
+
+将 Thymeleaf 的 Spring Boot starter 添加到您的构建中：
+
+* org.sprinframework.boot : spring-boot-starter-thymeleaf
+
+Spring 的模板渲染安排对于 Spring MVC 和 Spring Webflux 都是一样的。
+
+请求进入 Spring 处理程序方法，`/some-url.do`，并调用 Spring 处理程序方法。 处理程序方法的工作是构建一个模型，基本上是一个包含键和模型属性的 `Map<String, Object>`，然后提供该模型以及框架的视图模板引用，以将其转换为呈现的模板。
+通常，视图模板引用是一些规范字符串，它被插入到视图解析器中，视图解析器将抽象的规范字符串转换为某个模板引擎支持的 `View` 对象。 Spring Boot 会自动为您配置其中的大部分内容。
+Spring Boot 的 Thymeleaf 集成在给定字符串 foo 的情况下解析 `src/main/resources/templates/foo.html`。
+
+让我们看一个简单的 .html 页面，它有一个响应式模型属性。
+
+=== 带有反应流的简单 HTML 视图
+
+您可以做的最简单的事情是呈现一个具有 `Publisher<T>` 支持的模型属性的页面。 Thymeleaf 将 `Publisher<T>` 视为任何其他类似集合的模型属性，让您迭代结果。 让我们重新审视我们的示例客户应用程序。
+我们将查看功能性反应端点和基于 `@Controller`-stereotype 的示例。 这两个处理程序都使用以下模板。
+
+`customers.html` Thymeleaf 模板
+
+[source,html]
+----
+<!DOCTYPE html>
+<html> // <1>
+<head>
+      <title>
+          A Reactive Thymeleaf View
+      </title>
+</head>
+<body>
+    <h1> [[${type}]] // <2>
+      Customers
+    </h1>
+<ol>
+<li data-th-each="customer : ${customers}"> // <3>
+          [[${customer.id}]]
+          [[${customer.name}]]
+      </li>
+  </ol>
+</body>
+</html>
+----
+====
+<1> 有一个 Thymeleaf HTML 命名空间，如果我们使用该变体，我们将在此处定义它。 我更喜欢为我的模板使用自定义的、更类似于 HTML5 的自定义属性。
+<2> type 是一个字符串模型属性，我们使用特殊的 `[[...]]` 语法在页面上内联。
+<3> 模型属性 customers 也是一个 `Publisher<Customer>`。 data-th-each 元素迭代 `Publisher<Customer>` 属性中的元素，为流中的每个元素呈现元素的主体。
+每次通过循环，属性 `customers` 可用于嵌套模板并包含迭代中的当前值。 我们在 `customers` 属性中访问每个客户，并呈现有关客户的信息，包括 ID 和名称。
+====
+
+让我们看一下第一个实现 `CustomerViewController`。
+
+[source,java]
+----
+@Controller
+public record CustomerViewController(CustomerRepository repository) {
 
 
+    @GetMapping("/c/customers.php")
+    String customersView(Model model) { // <1>
+        var modelMap = Map.of("customers",repository.findAll(),"type","@Controller"); // <2>
+        model.addAllAttributes(modelMap); // <3>
+        return "customers"; // <4>
+    }
 
+}
+----
+====
+<1> 您可以在您的处理程序方法中注入一个模型，一个美化的 `Map<String, Object>`
+<2> 我们在这里指定了两个属性，type 和 customers
+<3> 这会将所有属性从 `Map<String,Object>` 复制到模型
+<4> 返回值是一个字符串，是要使用视图解析器解析的视图名称。
+====
 
+很容易。 让我们看一下功能反应式处理程序。
 
+[source,java]
+----
+@Configuration
+public class CustomerViewEndpointConfiguration {
 
+    @Bean
+    RouterFunction<ServerResponse> customerViews(CustomerRepository repository) {
+        return route()
+                .GET("/fn/customers.php",r -> {
+                    var map = Map.of("customers",repository.findAll(), // <1>
+                            "type","Functional Reactive"
+                    );
+                    return ServerResponse.ok().render("customers",map); // <2>
+                })
+                .build();
+    }
+}
+----
+====
+<1> 我们需要一个模型，就像以前一样......
+<2> ...完成后，我们将呈现一个特定的模板，客户。
+====
 
+因此，假设您有一个持续时间有限的 `Publisher<T>`，Thymeleaf 会在内存中累积所有内容并呈现页面，一切都很好。 如果您有一个无限期的 `Publisher<T>`，就像我们的 `IntervalMessageProducer` 生成的那样，会怎样？
+在这种情况下，我们会陷入困境！ 人们在两秒钟后开始点击。 在讨论 zzzzzzz 时，我开始睡着三秒钟。 啊！ 您能想象要等上一辈子才能查看体育比分吗？ 我没有那种时间。 不，不。 相反，我们需要在新结果到达时就地更新视图。
 
+=== A Reactive View
 
+假设您有一个页面的一部分，其内容需要更新以反映新的、不断变化的值——股票代码、状态信息或聊天消息。 服务发送事件、WebSockets 或 JavaScript 是满足这些活跃度要求的理想解决方案。
+无论我们最终追求的解决方案是什么，最终都会在 JavaScript 代码中为每条新消息重建 UI DOM。 很遗憾，因为我们已经有了模板引擎和模板逻辑。
+如果 Thymeleaf 主要驱动我们的页面，那么尝试在客户端 JavaScript 方法中重现模板是一种浪费。 Thymeleaf 可以在这里帮助我们。
 
+在 Thymeleaf 中，片段是 HTML 标记的一部分，可以作为块进行引用和操作。 就像用户界面逻辑的小岛一样。 甚至可以将片段作为参数传递给其他片段。
+您可以在不需要成熟的组件模型的情况下做一些非常令人印象深刻的事情。 Thymeleaf 还允许您根据 `Publisher<T>` 中新发布的值重新呈现页面片段，
+并将更新的片段作为服务器发送的流进行流式传输。 你看到可能性了吗？ Thymeleaf 呈现标记和页面。 我们几乎完全按照没有动态元素的方式放置页面。
+我们需要引入一些 JavaScript 来让它工作，但不要太疯狂。
+
+让我们看一个示例，它会在 `IntervalMessageProducer` 创建的流发布新项目时不断重新呈现标记。 有两部分：模板和它后面的控制器端点。
+我们先来看模板。
+
+[source,html]
+----
+
+<!DOCTYPE html>
+<html>
+    <head><title>Tick Tock</title></head>
+    <body>
+    // <1>
+    <div id="updateBlock">
+        // <2>
+      <h1 data-th-each="update  : ${updates}">
+          [[${update}]]
+    </h1> </div>
+    <script src="/ticker.js"></script>
+    </body>
+</html>
+----
+====
+<1> 文档对象模型 (DOM) 有一个名为 `ticktock` 的 div 元素，稍后我们将在 JavaScript 代码和 Java 控制器中引用它。
+<2> div 元素内部是一个非常典型的循环 - 由 Thymeleaf 特定的 data-th-text 属性指示 - 迭代更新模型属性中的元素。 重要的是，如果没有名为 `updates` 的属性，则不会呈现循环内的任何内容。
+====
+
+JavaScript 代码为 `/ticker.js` 中更动态的逻辑提供支持。
+
+[source,javascript]
+----
+window.addEventListener('load', function (e) {
+    var tickTockBlock = document.getElementById('updateBlock');
+    var es = new EventSource('http://localhost:8080/ticker-stream');
+    es.addEventListener('message', function (update) {
+        tickTockBlock.innerHTML = update.data; // <1>
+    });
+})
+----
+====
+<1> 每当来自位于 `/ticker-stream` 的服务器发送事件流的新值出现时，页面就会更新上述 div 元素 `updateBlock`。
+====
+
+您以前见过所有这些 - JavaScript、服务器发送的事件、DOM 操作和 HTML 页面。 没什么可怕的。 现在让我们转向服务器端控制器的定义。
+
+[source,java]
+----
+@Controller
+public class TickerSseController {
+
+    // <1>
+    @GetMapping("/ticker.php")
+    String initialView() {
+        return "ticker";
+    }
+
+    // <2>
+    @GetMapping(produces = TEXT_EVENT_STREAM_VALUE,value = "ticker-stream")
+    String streamingUpdates(Model model) {
+        var updates = new ReactiveDataDriverContextVariable(IntervalMessageProducer.produce(),1); // <3>
+        model.addAttribute("updates",updates);
+        return "ticker :: #updateBlock";
+    }
+}
+----
+====
+<1> 第一个控制器呈现模板的初始视图。 它不为更新模型属性提供值。 客户端可以请求 `/ticker.php` 并获取模板布局。 当模板加载时，它将运行 JavaScript，这将依次流式传输来自...的更新标记。
+<2> ...此服务器发送的事件流使用 `ReactiveDataDriverContextVariable` 包装 `Publisher<T>` 并将其设置为返回视图的更新模型属性。
+控制器的返回值采用 Thymeleaf 使用的特殊格式，表示它应该呈现一个片段 - 在这种情况下，该片段指的是 div 元素，updateBlock，包含我们的循环 - 在包含视图 `ticker` 中找到。
+====
+
+该示例看起来像一个标准的控制器视图，但值得注意的是，映射规定此端点产生 `TEXT_EVENT_STREAM_VALUE` 更新，而不是您期望从控制器获得的典型文本 `/html` 标记。
+
+当您更新并在浏览器中加载 `/customers.php` 时，您会看到该元素中的数字一直向上递增，一次递增一秒。
+
+还不错吧？ 这些天我经常考虑客户端编程，主要是因为它变得比服务器端编程更复杂。 钟摆已经摆动，现在发现基于浏览器的客户端应用程序基本上是 JavaScript 并不少见，所有路由和渲染都在浏览器中进行。
+HTML 标记、样式等都是根据 JavaScript 代码定义的，例如，这在使用 Angular 和 React 时尤为常见。 客户端已经变得越来越动态。
+谷歌和其他搜索引擎需要标记来索引。 在所有 JavaScript 运行之后，他们没有那么容易的时间来索引生成的渲染页面。 一些客户端仍然不支持充满活力的 JavaScript 行为。
+因此，同构应用程序 - 在客户端呈现并在服务器端预呈现并且可以提供预呈现视图然后开始在客户端引入动态行为的应用程序 - 变得越来越普遍。 大多数时候，当人们谈论同构应用程序时，
+他们谈论的是采用客户端 Javascript 渲染器并在服务器上使用 Node.js。 我喜欢认为这个例子，使用服务发送事件来响应地更新 HTML 标记，演示了你可以获得同构应用程序，为简单的应用程序倒过来，并使用服务器端渲染，它在 客户端。
