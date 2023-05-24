@@ -1423,3 +1423,389 @@ HTML 标记、样式等都是根据 JavaScript 代码定义的，例如，这在
 谷歌和其他搜索引擎需要标记来索引。 在所有 JavaScript 运行之后，他们没有那么容易的时间来索引生成的渲染页面。 一些客户端仍然不支持充满活力的 JavaScript 行为。
 因此，同构应用程序 - 在客户端呈现并在服务器端预呈现并且可以提供预呈现视图然后开始在客户端引入动态行为的应用程序 - 变得越来越普遍。 大多数时候，当人们谈论同构应用程序时，
 他们谈论的是采用客户端 Javascript 渲染器并在服务器上使用 Node.js。 我喜欢认为这个例子，使用服务发送事件来响应地更新 HTML 标记，演示了你可以获得同构应用程序，为简单的应用程序倒过来，并使用服务器端渲染，它在 客户端。
+
+== A Reactive Servlet Container
+
+到目前为止，我们所看到的一切，实际上我们将看到的一切，都在默认的反应式 Web 运行时、Spring Webflux 的基于 HTTP 的 Netty Web 服务器上运行。
+这个运行时快速、精简、精简，是我们在 Spring Framework 5.0 中发布的新开发的运行时。 至关重要的是，它不是基于 Servlet API。
+假设你想运行在一个 Servlet 容器上？ Spring 团队试图务实，因此可以在 Servlet 容器之上运行。
+Spring Boot 仅通过操作依赖项就可以轻松地支持在例如 Apache Tomcat 上运行。 无需更改代码。
+
+* org.springframework.boot:spring-boot-starter-tomcat
+* org.springframework.boot:spring-boot-starter-webflux
+
+添加 `spring-boot-starter-webflux` 时，请务必从其传递依赖项中排除 `org.springframework.boot:spring-boot-starter-reactor-netty`。
+
+而且……就是这样！ 您现在在 Apache Tomcat 上运行并且可以像往常一样利用它。 这是一个简单的功能响应式 HTTP 端点，只是为了很好的衡量标准。
+
+[source,java]
+----
+@SpringBootApplication
+public class TomcatWebfluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(TomcatWebfluxApplication.class,args);
+    }
+}
+
+record Greetings(String message) {
+    static Mono<Greetings> greet(String contextPath,String name) {
+        return Mono.just(new Greetings("Hello, " + name + " from " + contextPath + "!"));
+    }
+}
+
+@Configuration
+class GreetingsRouteConfiguration {
+    @Bean
+    RouterFunction<ServerResponse> routes() {
+        return route()
+                .GET("/hello/functional/{name}",request -> {
+                    var reply = Greetings.greet("functional", request.pathVariable("name"));
+                    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON).body(reply,Greetings.class);
+                })
+                .build();
+    }
+}
+
+@RestController
+class GreetingsController {
+
+    @GetMapping(value = "/hello/controller/{name}",produces = MediaType.APPLICATION_JSON_VALUE)
+    Mono<Greetings> greet(ServerHttpRequest request, @PathVariable String name) {
+        return Greetings.greet("controller",name);
+    }
+}
+----
+
+如果您愿意，这种安排让您可以在著名的 Servlet 容器（例如 Apache Tomcat、IBM 的 Undertow 和 Eclipse Foundation 的 Jetty）上构建。 出于兼容性原因，您可能需要这样做。
+
+
+== The Reactive Client
+
+到目前为止，我们一直专注于在服务器上构建 HTTP 端点，但如果不讨论我们可以与其他基于 HTTP 的服务通信的方式，我们就无法结束本章。 Spring 提供了一个古老的客户端 `WebClient` 来提供帮助。
+`WebClient` 是 `RestTemplate` 的响应式继承者，但它有很大的不同，我认为这使它成为一个更令人兴奋的选择。 它是一个反应式的、非阻塞的客户端。
+当然，您可以使用它与非反应性 HTTP 服务（您之前会在其中使用 `RestTemplate`）或反应性 HTTP 服务进行对话。
+客户端使用 HTTP，因此它不关心您在 HTTP 协议的另一端使用的是同步 I/O 还是异步 I/O。
+
+古老的 `RestTemplate` 有大量模板样式的方法，这些方法针对常见情况进行了优化，并支持回调以支持更复杂的请求。 总觉得事情从那里变得非常复杂，非常迅速。
+许多回调的立场是您不希望 `RestTemplate` 为您做任何事情，因此会将您带到一个您可以（并且必须）做所有事情的地方。
+2009 年，当人们第一次转向以 HTTP 为中心的 RESTful 服务时，Spring Framework 3.0 引入了 `RestTemplate`。 它默认为同步和阻塞 IO，这是当时熟悉的姿势。
+
+`WebClient` 是一个构建器风格的客户端。 您将方法调用链接在一起以定义和进一步自定义给定的请求。 结果就是简单的请求直接了当，稍复杂的请求只会稍微复杂一点。 它的复杂性呈线性上升。
+
+`WebClient` 可以做 `RestTemplate` 可以做的所有事情，也可以做一些它不能做的事情。 举个例子：众所周知，很难让 RestTemplate 流式传输服务器发送的事件，
+因为 `RestTemplate` 的默认行为是等待完整的响应，然后尝试使用配置的 `HttpMessageConverters` 转换它。 现在不是问题！
+
+=== An HTTP Endpoint
+
+我们将使用 `WebClient`，但我们需要一些可以向其发出请求的东西。 我们将设置三个端点：一个返回标准 JSON，另一个端点返回服务器发送的事件流。
+
+[source,java]
+----
+@RestController
+public class HttpController {
+
+    // <1>
+    @GetMapping("/greet/single/{name}")
+    Publisher<Greeting> greetSingle(@PathVariable String name) {
+        return Mono.just(greeting(name));
+    }
+
+    // <2>
+    @GetMapping(value = "/greet/many/{name}" ,produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    Publisher<Greeting> greetMany(@PathVariable String name) {
+        return Flux.fromStream(Stream.generate(() -> greeting(name))).delayElements(Duration.ofSeconds(1));
+    }
+
+    private Greeting greeting(String name) {
+        return new Greeting("Hello " + name + " @ " + Instant.now());
+    }
+}
+----
+====
+<1> 第一个 HTTP 端点产生内容类型为 `application/json` 的响应
+<2> 第二个 HTTP 端点产生内容类型 `text/event-stream` 的响应
+====
+
+还有一个空的 `public static void main(String [] args)` 类可用于运行应用程序。
+
+=== Take a Walk on the Client-Side
+
+让我们换个角度，看看使用非阻塞 HTTP `WebClient` 会是什么样子。 我们的客户调用我们的服务。 您需要确保已启动 `HttpServiceApplication` 应用程序正在运行。
+
+** 配置 **
+
+主机和端口以及用户名和密码都已指定，您可以使用默认值，但如果您更改任何内容，则需要更新客户端的配置值。 我创建了一个简单的 `@ConfigurationProperties`-annotated bean 来捕获这些值。
+
+[source,java]
+----
+@ConfigurationProperties(prefix = "client")
+public class ClientProperties {
+
+    public ClientProperties(Http http) {
+        this.http = http;
+    }
+
+    public ClientProperties() {
+    }
+
+    private Http http = new Http();
+
+    public static class Http{
+
+        private Basic basic = new Basic();
+
+        // <1>
+        private String rootUrl;
+
+        public static class Basic {
+            private String username;
+
+            // <2>
+            private String password;
+
+            public String getUsername() {
+                return username;
+            }
+
+            public Basic setUsername(String username) {
+                this.username = username;
+                return this;
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public Basic setPassword(String password) {
+                this.password = password;
+                return this;
+            }
+        }
+
+        public Basic getBasic() {
+            return basic;
+        }
+
+        public Http setBasic(Basic basic) {
+            this.basic = basic;
+            return this;
+        }
+
+        public String getRootUrl() {
+            return rootUrl;
+        }
+
+        public Http setRootUrl(String rootUrl) {
+            this.rootUrl = rootUrl;
+            return this;
+        }
+    }
+
+    public Http getHttp() {
+        return http;
+    }
+
+    public ClientProperties setHttp(Http http) {
+        this.http = http;
+        return this;
+    }
+}
+
+----
+====
+<1> 这会捕获所有请求的根 URL 的值（本质上是主机和端口）。
+<2> 这也会捕获经过身份验证的端点的用户名和密码。
+====
+
+=== It’s Your (HTTP) Call
+
+我们将查看三个场景，每个场景都展示了一些有趣的东西。 在每个 HTTP 调用中，我们将注入一个 `WebClient.Builder` 并对其进行初始化，然后使用构建器构建一个 `WebClient`。
+我在构造函数中初始化 `WebClient`，因为它们很昂贵，而且我不想在每次发出请求时都重新创建它们。 您可能非常合理地更进一步，将您的 WebClient 对象拉入 `@Bean` 提供程序方法中，
+这样您就可以在需要的任何地方注入共享引用。 在此示例中，我需要两个 `WebClient` 实例：一个预先配置用于身份验证，一个没有。 我本可以轻松地将它们拉入单独的 bean 方法并使用限定符注入正确的方法。
+这种方法有助于使示例更清晰、更简洁。
+
+在这些实例中的每一个中，我们注入 `WebClient.Builder` 然后进一步自定义它，这是一种熟悉的模式。 Spring Boot 定义了 `WebClient.Builder`，
+但没有定义 `WebClient`，因为在您最终创建 `WebClient` 之前，某些自动配置可能想要为 WebClient 提供一些东西，例如过滤器。 这些自动配置只需要注入 `WebClient.Builder` 并对其进行自定义。
+这样，随后使用该 `WebClient.Builder` 构建的所有客户端都将从该配置中受益。 Spring Cloud 使用这种机制支持客户端负载均衡。 您也可以配置一个支持 OAuth 的客户端。
+在任何人使用它来构建 `WebClient` 之前自定义 `WebClient.Builder` 实例很重要。 Spring Boot 提供了 `WebClientCustomizer` 接口。
+注册一个 `WebClientCustomizer` 类型的 bean，您将有机会尽早自定义 `WebClient.Builder` 引用。 Spring Boot 将调用定制器，为您提供对当前 `WebClient.Builder` 的引用。
+
+第一个演示单个 `application/json` 响应。
+
+第二个演示了 `text/event-stream`  服务器发送的事件流，对我来说是一个特别引人注目的用例。 `RestTemplate` 是第一个在 Spring 中打包的 HTTP 客户端，它不能轻易地支持这种用例，因为它被设计为获取整个响应，
+通过 `HttpMessageConverter` 传递整个事物并通过它产生一个对象。 一个 HTTP 请求进来了，一个，而且只有一个对象出现了。 这适用于大多数情况。 但不适用于服务器发送的事件。
+我想我让它工作了一次，那太可怕了。 多年来，Spring 一直支持服务器端的服务器发送事件！ Spring 只是缺少一种简单的方法来使用服务器发送的事件流。 自然地，服务器发送事件的预期用例一直是 JavaScript 客户端。 仍然！ 这一切的不对称！ 哦，我多么期待这个演示！
+
+让我们来看看这两个。
+
+我们将注入并配置两个唯一的 `WebClient` 实例和两个使用这些 `WebClient` 实例的客户端。 第一个实例指定了它的基本 URL，这样我们就不需要为每个后续请求重新指定它。
+
+[source,java]
+----
+@Configuration
+public class DefaultConfiguration {
+
+    @Bean
+    DefaultClient defaultClient(WebClient.Builder builder, ClientProperties clientProperties) {
+        var root = clientProperties.getHttp().getRootUrl();
+        return new DefaultClient(builder.baseUrl(root).build()); // <1>
+    }
+}
+----
+====
+<1> 注入所需的 `WebClient.Builder` 以配置 `DefaultClient`
+====
+
+
+[source,java]
+----
+public class DefaultClient {
+
+    private final WebClient client;
+
+    public DefaultClient(WebClient client) {
+        this.client = client;
+    }
+
+    public Mono<Greeting> getSingle(String name) {
+        // <1>
+        return client.get()
+                .uri("/greet/single/{name}", Map.of("name",name))
+                .retrieve()
+                .bodyToMono(Greeting.class);
+    }
+
+    public Flux<Greeting> getMany(String name) {
+        // <2>
+        return client
+                .get()
+                .uri("/greet/many/{name}",Map.of("name",name))
+                .retrieve()
+                .bodyToFlux(Greeting.class)
+                .take(10);
+    }
+}
+----
+====
+<1> 使用单个（应用程序/json）值
+<2> 从服务器发送的事件流中使用多个（可能无限！）值。 代码并没有太大的不同。 这就是魔术。 它只是一个发出更多项目的流。
+====
+
+还不错吧？ `WebClient` 有大量构建器方法，用于指定诸如 HTTP 动词（这里我们使用 `.get()`，但还有其他）之类的东西，以及您要发送的属性、标头和 cookie。
+您甚至可以插入自定义过滤器，正如我们在审查安全性时所看到的那样，这将非常有用。
+
+=== Teaching Your WebClient New Tricks
+
+那里有许多有用的过滤器，包括一个处理 HTTP BASIC 身份验证的过滤器，一个在发生错误时生成错误信号的过滤器，以及一个限制响应大小并在有更多返回时取消的过滤器。 Spring 试图预测常见的需求，
+但您也可以为您的目的创建自己的 `ExchangeFilterFunction`。 让我们看一个记录请求开始和请求结束的简单示例。
+
+该解决方案包含三个移动部分。 第一个是向构建器注册 `ExchangeFilterFunction` 的 `WebClientCustomizer`。
+
+[source,java]
+----
+@Component
+public class TimingWebClientCustomizer implements WebClientCustomizer {
+
+    @Override
+    public void customize(WebClient.Builder webClientBuilder) {
+        webClientBuilder.filter(new TimingExchangeFilterFunction()); // <1>
+    }
+}
+----
+====
+<1> 我们只是在此处将 `rsb.client.timer.TimingExchangeFilterFunction` 注册为过滤器。
+====
+
+`TimingExchangeFilterFunction` 获取当前请求，将其包装在包装类 (`rsb.client.timer.TimingClientResponseWrapper`) 中，然后让过滤器链中的所有后续过滤器都对当前请求进行破解。
+
+
+[source,java]
+----
+public class TimingExchangeFilterFunction implements ExchangeFilterFunction {
+    @Override
+    public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
+        return next.exchange(request).map( clientResponse -> new TimingClientResponseWrapper(clientResponse)); // <1>
+    }
+}
+----
+====
+<1> 取当前的 `response`，让 filter 链中所有后续的 filter 在当前请求处产生破解的结果，使用 `TimingClientResponseWrapper` 进行包装
+====
+
+包装器执行拦截正文生成并进入生成的 Reactor `Mono<T>` 或 `Flux<T>` 的反应式生命周期的实际工作。
+
+[source,java]
+----
+public class TimingClientResponseWrapper extends ClientResponseWrapper {
+
+    private static final Logger log = LoggerFactory.getLogger(TimingClientResponseWrapper.class);
+    /**
+     * Create a new {@code ClientResponseWrapper} that wraps the given response.
+     *
+     * @param delegate the response to wrap
+     */
+    public TimingClientResponseWrapper(ClientResponse delegate) {
+        super(delegate);
+    }
+
+    private void start() {
+        log.info("start @ " + Instant.now().toString());
+    }
+
+    private void stop() {
+        log.info("stop @ " + Instant.now());
+    }
+
+    // <1>
+    private <T> Mono<T> log(Mono<T> c) {
+        return c.doOnSubscribe( s -> start()).doFinally(s -> stop());
+    }
+
+    private <T> Flux<T> log(Flux<T> c) {
+        return c.doOnSubscribe(s -> start()).doFinally(s -> stop());
+    }
+
+    // <2>
+    @Override
+    public <T> T body(BodyExtractor<T, ? super ClientHttpResponse> extractor) {
+        T body = super.body(extractor);
+
+        if (body instanceof Flux f) {
+            return (T) log(f);
+        }
+        if (body instanceof Mono m) {
+            return (T) log(m);
+        }
+        return body;
+    }
+
+    @Override
+    public <T> Mono<T> bodyToMono(Class<? extends T> elementClass) {
+
+        return log(super.bodyToMono(elementClass));
+    }
+
+    @Override
+    public <T> Mono<T> bodyToMono(ParameterizedTypeReference<T> elementTypeRef) {
+        return log(super.bodyToMono(elementTypeRef));
+    }
+
+    @Override
+    public <T> Flux<T> bodyToFlux(Class<? extends T> elementClass) {
+        return log(super.bodyToFlux(elementClass));
+    }
+
+    @Override
+    public <T> Flux<T> bodyToFlux(ParameterizedTypeReference<T> elementTypeRef) {
+        return log(super.bodyToFlux(elementTypeRef));
+    }
+}
+
+----
+====
+<1> 名为 log 的方法只是采用 Reactor `Mono` 或 `Flux` 并将它们包装起来。
+<2> `body*` 开头的方法拦截当前请求并包装。
+====
+
+运行带有这些的客户端应用程序，您将在控制台上看到计时。 简单的！
