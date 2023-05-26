@@ -1809,3 +1809,175 @@ public class TimingClientResponseWrapper extends ClientResponseWrapper {
 ====
 
 运行带有这些的客户端应用程序，您将在控制台上看到计时。 简单的！
+
+== Security
+
+安全是一个非常重要的问题 - 即使有人如此倾向于——也不应该手动滚动。 通常，Spring Web 堆栈与 Spring Security 集成得很好。 事实上，您甚至可以说 Spring Security 存在于网络上。
+请记住，Spring 的第一行与构建 Web 应用程序有关！ 因此，当澳大利亚人 Ben Alex 决定创建 Acegi Security（一个构建在 Spring 上以保护 Web 应用程序的框架）时，很自然地引入了支持构建 Web 应用程序的最令人兴奋的新功能。
+当然，Acegi Security 后来更名为 Spring Security，它在几乎所有应用程序中都发挥着重要作用。 事实上，在 Spring Boot 出现之前，Spring Security 是第二受欢迎的 Spring 模块，仅次于 Spring Framework 本身，
+这可能只是因为 Spring Security 又依赖于 Spring Framework。 很难说。
+
+Spring Security 的巨大流行归功于什么？ 当然，我只能推测，但这是我在 2000 年代初 Spring 首次崭露头角时对世界的感觉。
+当时的 JVM 生态系统有点像今天的 JavaScript 生态系统，似乎每隔一天就会出现新的 Web 框架。 J2EE（当时称为 Jakarta EE）引入了对应用程序安全性的绝对最低限度支持，将其留给各个应用程序服务器来填补相当大的空白。
+
+这意味着您必须向您的应用程序服务器供应商支付一大笔钱才能获得良好的安全性。 当然，无论您做出何种安排，都将专用于该应用程序服务器。
+Spring Security 提供了一个一致的接口，以真正可移植的方式在所有应用程序服务器上工作。 它还支持不是基于 Spring 的应用程序的应用程序。
+您可以使用 Spring Security 来保护 Apache Struts 应用程序或任何其他基于 Servlet 的应用程序。 Apache Tomcat 迅速成为 JVM 生态系统中最普遍的 Web 服务器（到 2020 年仍然如此）。
+
+这个公式中有很多承诺：使用您选择的 Web 框架编写应用程序，使用 Spring 处理事务服务组件模型，也许引入 Hibernate 来管理持久性，并使用 Spring Security 来保护整个事情。
+谁需要 EJB？ 从那时起，Spring Security 就成为了事实上的标准。 JVM 生态系统中有一些有趣的替代方案。 尽管如此，尽管我们可以在这里或那里争论细微的改进，但没有什么比 Spring Security 更能提供全面的集成。
+
+“好吧，乔希。我们明白了！Spring Security 会变得很强大！” 我听到你惊呼，被激怒了。 我的朋友们，这正是重点。 huuuge。 它集成了所有内容：OAuth、Active Directory、LDAP、OIDC、SAML 等。
+
+如果您正在构建与所有这些集成兼容的应用程序，那么这种丰富的集成是很可爱的。 反应式编程改变了一切。 请记住：我们已经确定有些事情不适合响应式应用程序。 Spring Security 传统上使用 Java ThreadLocal<T> 实例来存储当前经过身份验证的 java.security.Principal，所有下游组件代码都可以找到它。 那将不再起作用！ 必须使用 Reactor 上下文。 当然，我们还有密码学问题，这是天生的 CPU 密集型工作。 你不能再那样做了！ 或者至少，我们不能在 Reactor `Scheduler 的非阻塞线程上这样做。
+
+Spring Security 5 引入了新的支持，以在必要时使用 Reactor Context 传播经过身份验证的 `java.security.Principal`。 它添加了一个 `ReactiveAuthenticationManager`，它为我们将密码学繁重的身份验证行为转移到阻塞线程池。
+所以，好消息是，从 API 的角度来看，一切都尽其所能。 但它们实际上不起作用。 也就是说，这里没有灵丹妙药。 我们不能只是对我们的安全性进行被动反应，然后让它的可扩展性呈指数级增长。
+当您构建反应式应用程序时，您需要注意何时何地引入阻塞密码学。 这一直都是真的——如果你不注意的话，`BCrypt` 可以将整整几秒添加到请求的热路径中！
+至少现在，在基于 Reactor 的 API 中，我们拥有支持做正确事情的工具和约定。
+
+我们可以而且应该利用这种范式转变来重新评估我们的安全措施。 我们是否需要对我们服务线程池中的每个请求进行极其缓慢的加密？ 或者我们可以切换到 OAuth 并验证每个请求的令牌，
+委托给我们可以更轻松地横向扩展的独立授权服务吗？ 获得更好的可扩展性结果并获得更好的安全态势在生活中是很少见的。
+反应式应用程序中的 OAuth 之类的东西为我们提供了这一点，我鼓励您探索 OAuth 和 Spring Security 5.0 的 OAuth 支持。
+
+然而，在这个例子中，我们将尽可能简单地进行演示。 您需要了解 Spring Security 解决了两个正交问题：身份验证（谁在发出给定请求）和授权（给定客户端在系统中必须拥有哪些权限、权利、权限或权利）。
+
+因此，我们将使用 Spring Security 来解决我们简单的 HTTP API 的这两个问题。 首先，我们需要将 Spring Security 依赖项添加到我们的构建中。
+
+*  org.springframework.boot:spring-boot-starter-security
+
+
+为了让事情更简单，我将客户端和服务实现都放在我们代码中的同一个 Maven 模块中。 我将在属性文件 (`application-service.properties`) 下加载配置以为服务配置特定端口并覆盖 `application.properties` 中的默认设置端口（0，它告诉 Spring Boot 查找任何随机未使用的端口）。
+
+首先，让我们看一下服务的主类。
+
+[source,java]
+----
+@SpringBootApplication
+public class ServiceApplication {
+
+    public static void main(String[] args) {
+        System.setProperty("spring.profiles.active","service"); // <1>
+        SpringApplication.run(ServiceApplication.class,args);
+    }
+}
+
+----
+====
+<1> 此配置文件导致 `application-service.properties` 加载，应用程序将在固定端口 `8080` 上运行。
+====
+
+下面介绍一下 Spring Security 的配置。
+
+[source,java]
+----
+@Configuration
+public class SecurityConfiguration {
+
+    // <1>
+    @Bean
+    MapReactiveUserDetailsService authentication() {
+        UserDetails jlong = User.withDefaultPasswordEncoder().username("jlong").password("pw").roles("USER").build();
+        UserDetails rwinch = User.withDefaultPasswordEncoder().username("rwinch").password("pw").roles("USER","ADMIN").build();
+        return new MapReactiveUserDetailsService(jlong,rwinch);
+    }
+
+    // <2>
+    @Bean
+    SecurityWebFilterChain authorization(ServerHttpSecurity http) {
+        return http
+                .httpBasic(Customizer.withDefaults()) // <3>
+                .authorizeExchange(ae -> ae // <4>
+                        .pathMatchers("/greetings").authenticated() // <5>
+                        .anyExchange().permitAll() // <6>
+                )
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .build();
+    }
+}
+----
+====
+<1> 第一个 bean 建立了一个硬编码的（gasp！）内存中的用户和密码存储库。 不要在生产应用程序中这样做！ 这是最简单的方法。 如果您了解我们所看到的一切如何融入 Spring Security 应用程序，那么当您替换其他更成熟的身份验证（也称为身份提供者）时，您就会明白您在寻找什么。
+<2> 此 bean 安装一个过滤器，以确保只有授权的人才能访问 /greetings 端点。 这个 bean 为我们的应用程序提供授权。
+<3> 在此应用程序中，我们将使用纯 HTTP BASIC，一种基于用户名和密码的方案。
+<4> authorizeExchange配置方法告诉Spring Security如何锁定各种资源 - 端点 - 在应用程序中。
+<5> 我们希望 /greetings 端点明确拒绝未经身份验证的请求。 这是一个特殊且非常具体的配置。
+<6> 这个 fallthrough 规则说每个其他端点都是可访问的。
+====
+
+让我们重新访问熟悉的 `GreetingsController`，我们将限制访问并使用当前经过身份验证的用户主体信息来通知响应消息中显示的名称。
+
+[source,java]
+----
+@RestController
+public class GreetingsController {
+
+    @GetMapping("/greetings")
+    Mono<Map<String,String>> greet(@AuthenticationPrincipal Mono<UserDetails> user) { // <1>
+        return user
+                .map(UserDetails::getUsername)
+                .map(name -> Map.of("greetings","Hello" + name + " @ " + Instant.now() + "!"));
+    }
+}
+----
+====
+<1> `@AuthenticationPrincipal` 注解告诉 Spring 将当前经过身份验证的 `Principal` 作为参数注入到 Web 控制器处理程序方法中。 您也可以在功能反应式风格时调用 `principal()` 。 此端点将在问候语中使用经过身份验证的用户名进行响应。
+====
+
+让我们看看客户端。
+
+[source,java]
+----
+@SpringBootApplication
+public class ClientApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientApplication.class);
+
+    public static void main(String[] args) {
+        SpringApplication.run(ClientApplication.class,args);
+    }
+
+    // <1>
+    @Bean
+    WebClient webClient(WebClient.Builder builder) {
+        var username = "jlong";
+        var password = "pw";
+        var basicAuthentication = ExchangeFilterFunctions.basicAuthentication(username,password);
+        return builder
+                .filter(basicAuthentication)
+                .build();
+    }
+
+    // <2>
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> client(WebClient securityHttpClient) {
+        return event -> securityHttpClient
+                .get()
+                .uri("http://localhost:8080/greetings")
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String,String>>() {
+                }) // <3>
+                .subscribe(map -> log.info("greeting: " + map.get("greetings")));
+    }
+}
+----
+====
+<1> 在这里，我们构建反应式 `WebClient` 并配置过滤器......
+<2> ...处理 HTTP BASIC 身份验证
+<3> 我们期望返回的数据是 JSON，虽然我们可以使用熟悉的 `GreetingResponse`，但我认为我们可以轻松地将其转换为 `Map<String, String>`，我们可以从中取消引用一个键 `greeting`。 （只是想让你保持警惕！）
+====
+
+那很简单！ 运行该服务，然后运行客户端，您将在控制台上看到用户名 jlong 的问候语。 我们才刚刚开始触及 Spring Security 的皮毛，因为它适用于基于 HTTP 的服务。 这里还有另一本书要写！ 或者，至少，当我们稍后查看 RSocket 和 Spring Security 时，有很多话要说。
+
+== 下一步
+
+在本章中，我们了解了如何使用 REST 端点、控制器和视图构建响应式 HTTP 应用程序。 我们研究了新的功能反应端点样式。 我们研究了 `WebSockets` 以构建生动、交互式的 HTTP 客户端。
+我们学习了如何使用 `WebClient`，一个新的非阻塞 HTTP 客户端。 我们学习了如何在 Servlet 容器上使用全新的反应式组件模型 Spring Webflux。
+这仅仅是个开始。 HTTP 构成了现代微服务应用程序的基础层。 当我们调查边缘服务、测试等时，你在这里学到的东西将为你服务。
+
+
+
+
+
+
+
