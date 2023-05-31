@@ -1,0 +1,816 @@
+= RSocket
+
+您可能听说过 RSocket。 当然，我们 Spring 团队一直在谈论它，但如果没有，那么这一章就是为你准备的！ RSocket 是一种二进制、跨平台、跨语言的网络协议，
+可以自然地映射到 Reactive Streams API。
+
+== RSocket 的动机
+
+到目前为止，我们已经研究了使用 Reactive Streams 规范来描述我们如何在生产者和消费者之间处理数据。 这个 API 为我们提供了一个协议——一种理解系统中两个参与者之间关系的方法。
+它不一定描述实现 API 的网络协议，甚至暗示网络通信。 到目前为止，我们在本书中看到的大部分内容都采用了可以根据 Reactive Streams API 忠实实现的现有协议。
+我们已经了解了以异步 IO 为中心的数据访问、以异步 IO 为中心的 HTTP 服务和 WebSocket 服务等。如果一个 API 包装了以异步 IO 为中心的基础，
+那么它可以映射到 Reactive Streams 是一个很好的选择—— 兼容的API。 好吧，通常。 并非所有协议的设计都是一样的。 映射并不总是准确的。
+HTTP 与 Reactive Streams 背后的思想并不理想。
+
+=== HTTP or Not HTTP
+
+HTTP 并不真正了解网络协议级别的背压。 我们所能期望的最好结果是，当 HTTP 客户端与响应式 HTTP 服务断开连接时，HTTP 服务会感知到客户端套接字已断开连接，
+并将背压传播到所有相关的产生 HTTP 响应的事物。 我们可以希望的最好的是像 `org.reactivestreams.Subscription#cancel` 这样的东西。
+这是一次性交易：它忽略了 Reactive Streams 规范中最好的部分之一：`Subscription#request`，它为我们提供了一种机制，可以在我们最有能力的时候恢复我们的请求。
+如果请求最终被取消，则必须重试。 想象一下，调用 `Subscription#request(long)`，处理那些发出的值，然后——虽然无法处理更多——只是暂时停止再次调用 `request`，
+等待事情稳定下来，那该有多酷。 如果以后事情安定下来，客户端会从最后一个偏移量开始恢复请求。 会话恢复很方便，尤其是在微服务和物联网 (IoT) 中，其中节点不断通信并冒着一个节点压倒另一个节点的真正风险。
+
+HTTP 只支持一种消息交换模式：请求/响应。 客户端连接到服务，客户端发起导致响应的请求。 HTTP 则不可能相反； 客户端节点必须首先连接到服务。
+不可能进行即发即弃的消息传递 - 客户端发送消息，然后既不等待也不期望请求的确认或来自服务的响应。 总会有一个响应——即使只是一个 HTTP 200 OK 来确认请求。
+Reactive Streams 规范假设事物是异步的——当我们假设异步的、以消息传递为中心的交互时，系统会更自然地组合。 HTTP 假定同步的、以请求-响应为中心的交互，
+这种模型不一定更适合以请求-响应为中心的通信。 对于暗示异步架构的通知之类的事情，它显然是范式限制。
+
+HTTP 1.x 的连接效率低下。 HTTP 1.0 一次只允许每个连接处理一个请求。 HTTP 1.1 通过流水线对请求在连接上进行序列化进行了一些改进，但这只是一个很小的改进。
+大或慢的反应仍然可以阻止其他人在它后面。 具体来说，这是一个问题，因为浏览器有有限数量的连接（根据我的经验，从四个到八个），它们可以专用于单一来源。
+HTTP 页面通常需要数十个（或数百个！）HTTP 资源才能完全正确地呈现。 请求必须按连接数划分，然后排队。 想要渲染 DOM，但还没有加载页面的 CSS 文件？ 祝你好运。
+
+创建网络连接非常便宜（如果您不介意持续的网络连接、设置和销毁成本），但这并不意味着它是免费的。 在某些时候，您的操作系统必须优先考虑连接，
+这可能会影响系统上的其他网络应用程序。 有用的是，HTTP 2.0 支持多路复用——在同一个连接上发送多个请求和响应。
+
+=== RSocket：一种反应式网络协议
+
+RSocket 的设计初衷是为了实现服务之间快速、可扩展且操作友好的交互。 RSocket 的工作始于 Netflix，然后在其背后的工程师转移到 Facebook 时继续进行。
+它的动机是希望用开销较小的协议取代低效且不灵活的 HTTP。
+
+在 RSocket 术语中，一个节点是另一个节点响应者的请求者。 一旦连接，任何一方都可以发起对话。 RSocket 尽可能避免使用术语“客户端”或“服务器”，
+因为它们暗示客户端推进会话状态，在 RSocket 中，任何一方都可以这样做。 我将在本章的代码中大量使用“客户端”和“服务”来阐明这些示例在体系结构中可能扮演的逻辑角色，
+即使从技术上讲任何一方都可以扮演任何角色。 RSocket 支持多种对称交互模型，通过单个连接传递异步消息。 他们是：
+
+
+
+* Request/Response: a requester may send a single request to a responder who may respond with a unique value.
+* Request/Stream: a requester may send a single request to a responder who may respond with many (or infinite) values.
+* Channel: a requester may send multiple values to a responder who may return with multiple values. This describes a bi-directional stream of interactions.
+* Fire-and-forget: a requester may send a request to a responder, which does not produce a response.
+
+RSocket 连接是有状态的； 一旦请求者连接到响应者，它就会保持连接。 连接是多路复用的，因此无需始终如一地建立和拆除网络连接。 一个连接可用于多个逻辑事务。 RSocket 也支持会话恢复； 请求者可以跨不同的传输连接恢复长期存在的流。
+这对于连接可能脆弱且非持久的移动到服务器的交互很有用。
+
+RSocket 协议使用较低级别的传输协议来承载 RSocket 帧。 RSocket 可以在 TCP、WebSockets、HTTP/2 Streams 和 Aeron 等传输上运行。
+所有 RSocket 传输协议都必须支持可靠的单播传输。 它们必须是面向连接的并保持帧顺序。 在帧 B 之前发送的帧 A 必须按源顺序到达。
+假定 RSocket 传输协议在传输协议或每个 MAC 层跃点上支持 FCS（帧校验序列）。 在本章中，我们将假设默认的 TCP 实现。
+
+也就是说，其他交通工具令人兴奋，值得您探索。 WebSocket 实现尤其意味着您可以构建使用 RSocket 的 HTML 5 客户端。 我有没有提到 RSocket 是跨平台的，
+并且有多种语言的客户端可用，包括但不限于 C++、Java 和 JavaScript？ 因此，JavaScript 应用程序可以使用 RSocket.js 和 RSocket Java 与通过 WebSockets 传输的帧的 Java 应用程序对话。
+有用：JVM 的 RSocket 客户端构建在 Project Reactor 之上。
+
+帧是包含请求、响应或协议处理的单个消息。 片段是应用程序消息的一部分，已被分区以包含在帧中。 流是一个操作单元（请求/响应、通道等）。
+RSocket 实现可能支持帧校验序列 (FCS)。 FCS 是添加到帧中的错误检测代码。
+
+每个请求或响应都有零个或多个与流关联的有效负载。 RSocket 不关心你在网络上的有效载荷中放置了什么。
+它可能是 Google Protocol Buffs、CBOR、JSON、XML 等。编码和解码有效载荷取决于您。 请求或响应可能携带多个有效载荷。
+在 Reactive Streams 上下文中，订阅者在 `Subscriber#onNext(T)` 方法中处理每个有效负载。 `Subscriber#onComplete()` 事件表示流的成功完成。
+
+RSocket 负载可能包含数据和元数据。 元数据的编码方式可能与数据本身不同。 元数据与连接（在连接设置时）和单个消息相关。 元数据是传播安全令牌等带外信息的自然场所。
+您可以将任何您想要的内容放入元数据有效负载中，有点像其他协议中的标头。
+
+== 原始 RSocket 的通用基础设施
+
+在本章中，我们将查看大量不同的示例。 我们将在各种示例中重用一些东西，所以我将它们提取到一个自动配置模块中。 自动配置激活响应名为 `BootifulProperties` 的类中的配置属性。 这些属性稍后会有用，
+因为它们为我们提供了一种为我们所有的许多 RSocket 服务指定主机和端口的方法。
+
+[source,java]
+----
+@ConfigurationProperties("bootiful") // <1>
+public class rsb.rsocket.BootifulProperties {
+
+    private final RSocket rSocket = new RSocket();
+
+    public RSocket getrSocket() {
+        return rSocket;
+    }
+
+    public class RSocket {
+        private String hostname = "localhost"; // <2>
+        private int port = 8182; // <3>
+
+
+        public String getHostname() {
+            return hostname;
+        }
+
+        public RSocket setHostname(String hostname) {
+            this.hostname = hostname;
+            return this;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public RSocket setPort(int port) {
+            this.port = port;
+            return this;
+        }
+    }
+}
+----
+====
+<1> 本章我所有自定义属性的前缀都是bootiful
+<2> 默认主机名将是 localhost，尽管您可以使用 bootiful.hostname 更改它
+<3> 默认端口将是 port，尽管您可以使用 bootiful.port 更改它
+====
+
+我们将主要在本章的第一部分中使用这些值，我们将在其中查看低级 RSocket 并且必须手动建立某些基础结构。 我为这些配置属性提供了一些默认值。
+你仍然可以按照通常的方式覆盖它们（如果你已经在默认端口上运行了一些东西或者想用另一个网络接口来处理你的服务）。
+
+自动配置注册了我们的配置属性和一个 `EncodingUtils` 类型的 bean，在查看原始 RSocket 的部分中，我将使用它来对有效负载进行编码和解码。 这是自动配置。
+
+[source,java]
+----
+@Configuration
+@EnableConfigurationProperties(rsb.rsocket.BootifulProperties.class)
+public class BootifulAutoConfiguration {
+
+    // <1>
+    @Bean
+    rsb.rsocket.EncodingUtils encodingUtils(ObjectMapper objectMapper) {
+        return new rsb.rsocket.EncodingUtils(objectMapper);
+    }
+
+}
+----
+====
+<1> 我们需要自己处理数据和元数据的编码，尤其是在开始的时候，所以这个方便的助手减少了一些单调。
+====
+
+`EncodingUtils` 的中心思想是让我们免除与使用 Jackson `ObjectMapper` 读取数据有效负载的任意值和读取元数据的 `Map<String, T>` 值相关的所有繁琐的异常处理。
+
+[source,java]
+----
+public class rsb.rsocket.EncodingUtils {
+
+    private final ObjectMapper objectMapper;
+
+    private final ObjectReader objectReader;
+
+    private final TypeReference<Map<String,Object>> typeReference = new TypeReference<>(){};
+
+    public rsb.rsocket.EncodingUtils(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+        this.objectReader = this.objectMapper.readerFor(typeReference);
+    }
+
+    public <T> T decode(String json, Class<T> clazz) throws JsonProcessingException {
+        return this.objectMapper.readValue(json,clazz);
+    }
+
+    public <T> String encode(T object) throws JsonProcessingException {
+        return this.objectMapper.writeValueAsString(object);
+    }
+
+    public String encodeMetadata(Map<String,Object> metadata) throws JsonProcessingException {
+        return this.objectMapper.writeValueAsString(metadata);
+    }
+
+    public Map<String,Object> decodeMetadata(String json) throws JsonProcessingException {
+        return this.objectReader.readValue(json);
+    }
+}
+----
+
+我希望 Spring Boot 尽快为我安装所有这些，所以我将其填充到它自己的 .jar 中并创建一个 `META-INF/spring.factories` 文件，
+我们可以将其添加到示例的类路径中 在这一章当中。
+
+== Raw RSocket
+
+我们可以使用低级 RSocket 和 Project Reactor 做一些开箱即用的令人兴奋的事情。 从 Spring Framework 5.2 和 Spring Boot 2.2 开始，在了解 Spring 中更强大的本地组件模型和集成之前，
+从这个角度看一些简单的示例是有指导意义的。 在 Spring 发布其简化的组件模型之前，我花了一年多的时间对 Spring 和 RSocket 进行实时编码演示。
+没那么难——连我都能做到！
+
+我什至讨论过要写这一部分是为了查看低级 RSocket。 在本书的 HTTP 章节中，我没有对 HTTP 进行类似的处理。
+我认为您在职业生涯的这个阶段（或什至只是作为一个人的生活）已经熟悉了 HTTP。 毫无疑问，您已经在浏览器中使用过它，如果不出意外的话。
+希望您甚至了解一些 HTTP 动词及其用法以及 HTTP 的概念（标头、正文、cookie、会话等）。 但是，您不太可能已经对 RSocket 有类似的了解。
+
+在大多数（如果不是全部）这些示例中，我们将查看两个代码片段，一个客户端和一个服务。 是的，
+我知道我只是花了一些时间来证明 RSocket 的好处之一是它不需要客户端和服务拓扑； 两个 RSocket 节点一旦连接就是请求者和响应者。 这仍然是事实。
+但毫无疑问，您将以面向服务的方式使用 RSocket，这有助于让事情变得更清楚，以区分先调用先调用。 在这些示例中，当您看到服务时，您就会知道它应该在客户端之前运行。
+
+我选择将客户端和服务作为单独的 Spring Boot 应用程序保留在同一个 Maven 模块中。 这更多是为了便于参考和实施。
+它使我不必设置冗余的 Maven 项目。 在适当的面向服务的体系结构中，您无疑会将该服务梳理成一个独立于客户端的可部署工件。
+
+使用 RSocket 时，您需要做的第一件事是连接到另一个节点。 让我们看一个简单的请求/响应示例，因为这将是最容易掌握的。
+
+=== A Request/Response Example
+
+让我们看一下第一个服务的骨架 Spring Boot 应用程序类。 几乎我们所有的应用程序都会有一个与这个相同的类。 这里只有一件重要的事情值得注意：我们必须保持 Java 进程运行，因为我们的 RSocket 服务不会。
+我求助于最简单的方法：`Thread.currentThread().join()`。 就是这样。
+
+[NOTE]
+====
+确保你的服务都有一个 `Thread.currentThread().join()` 调用来保持它们运行，否则它们会启动，然后在任何有趣的事情发生之前迅速退出！
+====
+
+[source,java]
+----
+@SpringBootApplication
+public class RequestResponseApplication {
+
+    public static void main(String[] args) throws InterruptedException {
+        SpringApplication.run(RequestResponseApplication.class,args);
+        Thread.currentThread().join(); // <1>
+    }
+}
+----
+====
+确保你的服务都有一个 `Thread.currentThread().join()` 调用来保持它们运行，否则它们会启动，然后在任何有趣的事情发生之前迅速退出！
+====
+
+这是我们最后一次在接下来的几个示例中看到该文件，因为它们是多余的。 请求/响应服务实现如下。
+
+[source,java]
+----
+@Component
+public record Service(BootifulProperties properties) {
+
+    private static final Logger log = LoggerFactory.getLogger(Service.class);
+
+    @EventListener(ApplicationReadyEvent.class) // <1>
+    public void ready() {
+        // <2>
+        var transport = TcpServerTransport.create(properties.getrSocket().getHostname(),
+                properties.getrSocket().getPort());
+
+        RSocketServer
+                .create(SocketAcceptor.forRequestResponse( p -> Mono.just(DefaultPayload.create("Hello, " + p.getDataUtf8())))) // <3>
+                .bind(transport)
+                .doOnNext( cc ->
+                    log.info("server started on the address " + cc.address()))
+                .block();
+    }
+}
+----
+====
+<1> 我们的大多数应用程序安装主题并开始服务以响应 ApplicationReadyEvent Spring 上下文事件。
+<2> 我们要在什么传输上处理请求？ 在这里，我们使用 TcpServerTransport 来使用 TCP 传输，尽管 - 正如我们之前提到的 - 其他传输至少支持 Aeron 和 WebSockets。
+<3> 每个 RSocket 实例都可以通过覆盖 AbstractRsocket 中提供的方法之一以任何常用方式进行响应 - 请求/响应、即发即弃、流等。 我们重写回调方法以响应单个传入有效负载的请求，从而提供唯一的有效负载响应。
+====
+
+转向客户端，我们也有一个样板类来容纳我们的主要方法，就像服务一样。
+
+[source,java]
+----
+@SpringBootApplication
+public class RequestResponseApplication {
+
+    public static void main(String[] args) throws InterruptedException {
+        SpringApplication.run(RequestResponseApplication.class,args);
+        Thread.currentThread().join();
+    }
+}
+----
+====
+确保你的服务都有一个 `Thread.currentThread().join()` 调用来保持它们运行，否则它们会启动，然后在任何有趣的事情发生之前迅速退出！
+====
+
+[source,java]
+----
+@Component
+public class Client {
+
+    private static final Logger log = LoggerFactory.getLogger(Client.class);
+
+
+    private final BootifulProperties properties;
+
+    public Client(BootifulProperties properties) {
+        this.properties = properties;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        log.info("starting " + Client.class.getName() + ".");
+
+        var source = RSocketConnector.create().reconnect(Retry.backoff(50, Duration.ofMillis(500)))
+                .connect(TcpClientTransport.create(this.properties.getrSocket().getHostname(),
+                        this.properties.getrSocket().getPort()));
+
+        RSocketClient.from(source).requestResponse(Mono.just(DefaultPayload.create("Reactive Spring")))
+                .doOnNext( d -> {
+                    log.info("Received response data {} ", d.getDataUtf8());
+                    d.release();
+                }).repeat(10).blockLast();
+    }
+}
+----
+
+如果到目前为止你都明白了，那是个好消息！ 几乎所有其他消息交换模式实际上是相同的。 从此示例到即发即弃、请求/流或通道示例的增量几乎为零。
+让我们回顾一下其他的，如果只是为了后代的话。
+
+=== A Fire-and-Forget Example
+
+即发即弃调用是客户端不期望或接收到来自服务的响应的调用。 当您不需要确认消息时，这是一个很好的选择。
+当您处理可能短暂的非关键数据时，这是典型的。 在建筑中有大量这样的例子。
+
+* 位置更新：假设您的客户绘制某人在固定路线上的马拉松比赛或他们在视频游戏场上的运动。 您可能会错过一条消息，但这没关系，因为下一条消息很快就会到来。
+* 心跳事件：大多数服务都有某种针对有状态客户端的心跳事件。 错过太多心跳可能会导致断开连接，但错过一个可能是可以接受的。
+* 点击流处理：想在您的应用程序或HTTP 服务上对用户鼠标的实时移动进行复杂的事件处理？ 伟大的。 但是，如果您错过了几个像素，您仍然可以绘制出一幅全面的图画。
+* 视频帧：当然，您想要每秒全部 30 或 60 帧，但用户可能不会注意到一两个丢失的帧，而当他们注意到时，他们已经进入了接下来的几帧 秒的镜头。
+* 可观察性事件：这是告诉不询问架构（或 CQRS）的常见结果，其中组件广播状态更改。 在这种情况下，系统中的其他方、其他微服务可能会感兴趣地了解组件中的状态更改。 不过，您无需负责确保他们这样做。
+您所能做的就是将状态更改放在那里并希望它们全部消耗掉。
+* 即发即弃消息传递：是的，我知道这似乎是多余的，但是如果您使用反应式 API 与其他支持即发即弃语义的东西对话，例如返回 void 的 RPC 服务或消息队列 （如 Apache Kafka、Apache RocketMQ、RabbitMQ 等）您不等待响应，那么这是一个自然映射。
+
+理解你为什么要使用即发即弃比你如何使用它要有趣得多。 你如何使用它与请求和响应有细微的不同。 这是我们的即发即弃服务。
+
+[source,java]
+----
+public record Service(EncodingUtils encodingUtils, BootifulProperties properties) {
+
+    private static final Logger log = LoggerFactory.getLogger(Service.class);
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        var transport = TcpServerTransport.create(this.properties.getrSocket().getHostname(),
+                this.properties.getrSocket().getPort());
+
+        var socket = new RSocket() {
+            @Override
+            public Mono<Void> fireAndForget(Payload payload) {
+                var request = payload.getDataUtf8();
+                log.info("received " + request + ".");
+                return Mono.empty(); // <1>
+            }
+        };
+
+        var socketAcceptor = SocketAcceptor.with(socket);
+
+        RSocketServer
+                .create()
+                .bind(transport)
+                .doOnNext( cc -> log.info("server started on the address " + cc.address()))
+                .block();
+    }
+}
+----
+====
+<1> 唯一值得注意的是我们要返回 `Mono<Void>`。 就是这样！
+====
+
+这里是客户端
+
+[source,java]
+----
+@Component
+public record Client(BootifulProperties properties) {
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        var source = RSocketConnector.create()
+                .reconnect(Retry.backoff(50, Duration.ofMillis(500)))
+                .connect(TcpClientTransport.create(this.properties.getrSocket().getHostname(),
+                        this.properties.getrSocket().getPort()));
+
+        RSocketClient.from(source)
+                .fireAndForget(Mono.just(DefaultPayload.create("Reactive Spring!"))) // <1>
+                .block();
+    }
+}
+----
+====
+<1> 没有后续！ 这在高尔夫中很糟糕，但在高频消息传递中却很棒。 我们可以对从此方法返回的 Mono<Void> 做的唯一有用的事情就是订阅它，我们最终会这样做。
+====
+
+=== A Streaming (Channel) Example
+
+下一个例子有点复杂。 双方将发送结果流 - `Flux<T>`。 我们将在这里使用它来演示乒乓球的经典游戏。 频道流是模拟正在进行的对话状态的好方法。
+有很多互动可以从这种动态中受益。 您典型的 WebSocket 交互看起来像这样。 聊天应用程序看起来像这样。 视频游戏中的游戏状态变化如下所示。
+我们开始偏离一些我们可能最熟悉的来自 HTTP 的消息交换模式。
+
+在这个例子中，服务是 Pong 类，它会在收到来自客户端 Ping 类的 ping 时做出响应。 这是服务，错误，Pong，类。
+
+[source,java]
+----
+package rsb.rsocket.channel.service;
+import io.rsocket.*;
+import io.rsocket.transport.netty.server.TcpServerTransport;
+import io.rsocket.util.DefaultPayload;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.reactivestreams.Publisher;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import rsb.rsocket.BootifulProperties;
+
+@Log4j2
+@Component
+@RequiredArgsConstructor
+class Pong implements SocketAcceptor, ApplicationListener<ApplicationReadyEvent> {
+
+    private final BootifulProperties properties;
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent applicationReadyEvent) {
+        RSocketFactory //
+            .receive() //
+            .acceptor(this)//
+            .transport(TcpServerTransport.create(
+                this.properties.getRsocket().getHostname(),
+                this.properties.getRsocket().getPort()))
+            .start() //
+            .subscribe();
+    }
+    public Mono<RSocket> accept(ConnectionSetupPayload connectionSetupPayload, RSocket rSocket) {
+        var rs = new AbstractRSocket() {
+
+            @Override
+            public Flux<Payload> requestChannel(Publisher<Payload> payloads) { // <1>
+                return Flux //
+                    .from(payloads) //
+                    .map(Payload::getDataUtf8) //
+                    .doOnNext(
+                        str -> log.info("received " + str + " in " + getClass()))
+                    .map(request -> "pong") // <2>
+                    .map(DefaultPayload::create);
+            }
+        };
+
+        return Mono.just(rs);
+    }
+}
+----
+====
+<1> 给定一个无限的传入有效负载流（所有这些都是 ping）...
+<2> 返回一个无限的传出 `pong' 流。
+====
+
+这是客户端，错误，Ping，类。
+
+[source,java]
+----
+package rsb.rsocket.channel.client;
+import io.rsocket.Payload;
+import io.rsocket.RSocketFactory;
+import io.rsocket.transport.netty.client.TcpClientTransport;
+import io.rsocket.util.DefaultPayload;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import rsb.rsocket.BootifulProperties;
+import java.time.Duration;
+
+@Log4j2
+@Component
+@RequiredArgsConstructor
+class Ping implements ApplicationListener<ApplicationReadyEvent> {
+
+    private final BootifulProperties properties;
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent applicationReadyEvent) {
+        Flux<Payload> ping = Flux // <1>
+            .interval(Duration.ofSeconds(1)).map(i -> DefaultPayload.create("ping"));
+
+    RSocketFactory//
+        .connect()//
+        .transport(TcpClientTransport.create(
+            this.properties.getRsocket().getHostname(),
+            this.properties.getRsocket().getPort()))//
+        .start()//
+        .flatMapMany(socket -> socket // <2>
+            .requestChannel(ping)//
+            .map(Payload::getDataUtf8)//
+            .doOnNext(str -> log
+                .info("received " + str + " in " + getClass().getName()))
+            .take(10))//
+    .subscribe();
+    }
+}
+----
+====
+<1> 客户端生成无限的 ping 消息流...
+<2> 并使用客户端 RSocket 实例触发它们。
+====
+
+响应客户端就像将传入流映射或平面映射到响应流中一样简单，然后将流直接引导回客户端。 我花了很长时间才
+
+欣赏这种简单。 在这个简单的示例中，我发回了一个 `String，但我没有理由不能启动数据库调用或调用其他 RSocket 端点，然后将结果 flatMap。
+
+还有另一种消息交换模式 - 请求/流 - 这是通道案例的特例； 客户端发送单个有效载荷，服务以 Flux<Payload> 响应。 我不会打扰一个例子。
+
+到目前为止，我们已经根据一个节点发起请求完成了所有操作，该请求可能会也可能不会产生响应。 RSocket 的真正强大之处在于它允许任何一方在他们想要的任何时间点开始请求。 让我们探讨一下这种可能性。
+
+=== A Bidirectional Example
+
+
+下一个例子更进一步。 在这个例子中，客户端和服务都产生了一个值流。 客户端连接到服务并请求 `GreetingResponse` 的流。 该服务连接到客户端并请求表示客户端健康状况的 `ClientHealthState` 实例流。
+该服务将生成无限的 `GreetingResponse` 实例流，但前提是客户端遥测流指示没有错误。 我们将使用过滤器测试来自客户端流的每个结果，看它是否指示错误。
+理想情况下，该流的每个结果都将表明一切正常。 如果我们过滤掉除错误之外的所有 `ClientHealthState` 实例，那么理想情况下，流将为空。
+一旦客户端流不为空（表示错误），服务就应该停止流式传输。 因此，实际上，两个节点之间存在两个正在进行的交互。 客户端启动与服务的对话，
+但服务随后开始在侧通道中与客户端通信。 这就是我们所说的双向交换的意思。 更好的是，这个例子需要一个通信流来改变或响应另一个。
+
+此示例以两个正在进行的交互为特征，每个交互都可以是任何已经检查过的消息交换模式：即发即弃、请求-响应、请求流或通道。 这里的新颖之处不在于消息交换模式本身，
+而是其中有两个，并且每一方都发起一个。 “客户端”或“服务”的概念很模糊，因为双方都是客户端，双方都是服务。 他们既是请求者又是响应者。
+
+这个例子需要一些常见的类型。 当给定一个 `GreetingRequest` 实例时，该服务（第一响应者）产生一个无限的 `GreetingResponse` 对象流。
+我们将在本章中多次看到这些类型，因此我不会为每个后续示例重印它们。 我已将它们放在客户端和服务代码的通用包中。
+
+这是请求的类型：
+
+[source,java]
+----
+public record GreetingRequest(String name) {
+}
+----
+
+这是响应的类型：
+
+[source,java]
+----
+public record GreetingResponse(String message) {
+}
+----
+
+一旦客户端连接到服务，客户端就会开始将 `ClientHealthState` 实例流式传输到服务。
+
+[source,java]
+----
+public record ClientHealthState(String state) {
+
+    public static final String STARTED = "started";
+
+    public static final String STOPPED = "stopped";
+}
+
+----
+
+虽然实现有更多的代码，但它们只是更长，因为它们同时做两件事。 它们结合了我们已经遇到的概念。 这是服务。
+
+[source,java]
+----
+@Component
+public class Service implements SocketAcceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(Service.class);
+
+    private final BootifulProperties properties;
+
+    private final EncodingUtils encodingUtils;
+
+    public Service(BootifulProperties properties, EncodingUtils encodingUtils) {
+        this.properties = properties;
+        this.encodingUtils = encodingUtils;
+    }
+
+    @Override
+    public Mono<RSocket> accept(ConnectionSetupPayload setup, RSocket clientSocket) {
+
+        // <1>
+        return Mono.just(new RSocket() {
+            @Override
+            public Flux<Payload> requestStream(Payload payload) {
+
+                // <2>
+                var clientHealthStateFlux = clientSocket
+                        .requestStream(DefaultPayload.create(new byte[0]))
+                        .map(p -> encodingUtils.decode(p.getDataUtf8(), ClientHealthState.class))
+                        .filter(chs -> chs.state().equalsIgnoreCase(ClientHealthState.STOPPED));
+
+                // <3>
+                var replyPayloadFlux = Flux
+                        .fromStream(Stream.generate(() -> {
+                            var greetingRequest = encodingUtils.decode(payload.getDataUtf8(), GreetingRequest.class);
+                            var message = "Hello, " + greetingRequest.name() + " @ " + Instant.now() + "!";
+                            return new GreetingResponse(message);
+                        }))
+                        .delayElements(Duration.ofSeconds(Math.max(3,(long) (Math.random() * 10))))
+                        .doFinally(signalType -> log.info("finished."));
+
+                return replyPayloadFlux // <4>
+                        .takeUntilOther(clientHealthStateFlux)
+                        .map(encodingUtils::encode)
+                        .map(DefaultPayload::create);
+            }
+        });
+    }
+}
+----
+====
+<1> 我之前已经说过，但值得重复：这是进行一些连接设置的理想点。 您可能有不同的客户端，每个客户端都有自己的 RSocket 连接。 您可以将该连接映射存储在 Map<K, V> 中，然后使用它来保存每个客户端的会话状态。
+<2> 如果存在 `ClientHealthState.STOPPED` 事件，此流将仅发出一个值。 如果该事件从未发生，则该流实际上是空的。
+<3> 这将发出无限的 `GreetingResponse` 值流，但我们希望它最终停止...
+<4> 我们使用方便的 `takeUntilOther` 运算符仅在 `ClientHealthState` 流为空时获取新值。 只要 `ClientHealthState` 流中有值，`GreetingResponse` 流就会停止发出新值。 方便，嗯？
+====
+
+我喜欢这个例子！ 那那个接线员呢，嗯？ 惊人的！ 这是 Reactor 的各种运算符可以让生活变得轻松的另一个例子，当生活如此艰难时，你为什么不接受友好图书馆的一点帮助呢？
+我们正在做的事情相对复杂，并且在非反应性示例中以多线程方式编写的代码不会很有趣。
+
+客户端很吸引人，只是因为它具有您以前见过的东西，而不是您迄今为止见过的标准布置。 我们的客户是一个客户——因为它请求服务的某些东西——但它也是一个服务 - 因为它实现了 SocketAcceptor；
+它既提出问题又回答问题。
+
+[source,java]
+----
+// <1>
+public record Client(EncodingUtils encodingUtils,String uid,String serviceHostname, int servicePort) {
+
+    Flux<GreetingResponse> getGreetings() {
+        var greetingRequestPayload = this.encodingUtils.encode(new GreetingRequest("Client #" + this.uid));
+
+        return RSocketConnector
+                .create()
+                .acceptor(new MySocketAcceptor())
+                .connect(TcpClientTransport.create(this.serviceHostname,this.servicePort))
+                .flatMapMany(instance -> instance // <2>
+                        .requestStream(DefaultPayload.create(greetingRequestPayload))
+                        .map(payload -> encodingUtils.decode(payload.getDataUtf8(), GreetingResponse.class)));
+    }
+
+    // <3>
+    private class MySocketAcceptor implements SocketAcceptor {
+
+        @Override
+        public Mono<RSocket> accept(ConnectionSetupPayload setup, RSocket sendingSocket) {
+            return Mono.just(new RSocket() {
+                @Override
+                public Flux<Payload> requestStream(Payload payload) {
+                    var start = new Date().getTime();
+                    var delayInSecond = ((long) (Math.random() * 30)) * 1000;
+                    var stateFlux =  Flux
+                            .fromStream(Stream.generate(() -> {
+                                var now = new Date().getTime();
+                                var stop = ((start + delayInSecond) < now) && Math.random() > .8;
+                                return new ClientHealthState(stop? ClientHealthState.STOPPED : ClientHealthState.STARTED);
+                            }))
+                            .delayElements(Duration.ofSeconds(5));
+                    return stateFlux
+                            .map(encodingUtils::encode)
+                            .map(DefaultPayload::create);
+                }
+            });
+        }
+    }
+}
+----
+====
+<1> 这个客户端需要一些参数，这些参数不是通过正常的 Spring 依赖注入提供的。 `ClientLauncher` 在实例化 Client 类的实例时传递这些值。 我们马上就会谈到这一点。
+<2> 我们使用 RSocket 客户端实例从服务请求 "GreetingResponse" 流。
+<3> Client 类还实现了 `SocketAcceptor`，因此它本身可以响应已建立的连接并提供值流作为响应。 在这里，客户端发送一个 `ClientHealthState` 对象流，这些对象在一个随机时间窗口后终止。
+客户端默认响应 `ClientHealthState.STARTED` 消息。 在 30 秒的某个部分后，任何一条消息成为 `ClientHealthState.STOPPED` 消息的可能性小于 20%。
+因此，您可能需要稍等片刻才能看到它停止。 这对于我们想要可视化正在发生的事情的演示非常有用。
+====
+
+为了模拟针对我们服务的实际、随机的客户端活动，我们将从 `ClientLauncher` 类以随机间隔启动几个实例。
+
+[source,java]
+----
+@Component
+public record ClientLauncher(EncodingUtils encodingUtils, BootifulProperties properties) {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientLauncher.class);
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        var maxClients = 10;
+        var nestedMax = Math.max(5,(int) (Math.random() * maxClients));
+        var hostname = this.properties.getrSocket().getHostname(); // <1>
+        var port = this.properties.getrSocket().getPort();
+
+        log.info("launching " + nestedMax + " clients connecting to " + hostname + ':' + port + ".");
+
+        Flux.fromStream(IntStream.range(0,nestedMax).boxed()) // <2>
+                .map(id -> new Client(this.encodingUtils,Long.toString(id),hostname,port)) // <3>
+                .flatMap(client -> Flux.just(client).delayElements(Duration.ofSeconds((long) (30 * Math.random())))) // <4>
+                .flatMap(Client::getGreetings) // <5>
+                .map(GreetingResponse::toString) // <6>
+                .subscribe(log::info);
+    }
+}
+----
+====
+<1> 每个客户端都有一个唯一的ID，并接收要连接的服务的主机和端口。
+<2> Java 8 Stream API 为我们提供了一种方便的方法来创建一系列值，我们将这些值转换为 Flux<T>。 （这只是 for 循环的一个多余替代品！）
+<3> 我们将在这里实例化每个客户端。 注意：我们不会启动或启动每个客户端！ 只是构建实例。
+<4> 此行将每个 Client 实例包装在 Publisher<T> 中，该 Publisher<T> 仅在使用方便的 delayElements(Duration) 运算符模拟延迟后发出 - 可供订阅者处理 - 。
+<5> 我们将在客户端的每个实例发出后立即启动每个客户端。
+<6> 最后两行将发出的值映射到一个字符串，然后将其注销。
+====
+
+=== Metadata
+
+下一个例子是我们迄今为止所见一切的直接演变。 我们将把元数据推送到服务，以便消费者可以使用它。 我们需要对数据进行编码，就像我们对消息的有效负载所做的那样。 元数据是我们交流带外信息的机会，就像我们使用 HTTP 标头或 RabbitMQ 标头一样。 您可以使用它来传输身份验证或跟踪信息等内容。 RSocket 的元数据旨在被推送给接收者，让对方有机会响应状态变化，而不管它在应用程序的主要流程中做什么。 您可以在一个连接上使用元数据，独立于您对该连接所做的任何其他事情。
+
+我们将需要处理从客户端到服务的元数据编码。 我们将使用元数据来传达一些众所周知的标头，这些标头的键很好地建立了一个单独的类，并且在生产者和消费者之间共享。
+
+我们将假设我们的元数据实际上是一个 Java Map<K, V>，其键是我们解码的字符串值。
+
+[source,java]
+----
+public class Constants {
+
+    public static String CLIENT_ID_HEADER = "client-id";
+
+    public static String LANG_HEADER = "lang";
+
+}
+----
+
+让我们看看我们的服务。 其中大部分与我们之前看到的完全相同，只有一小部分主要与传输元数据有关。
+
+我们将使用元数据来传达客户想要使用的人类语言（或语言环境）（日语、中文、法语等）。 该服务将客户端 ID 的 `Map<String, Object>` 保存为人类语言。
+客户端可以通过向服务发送元数据来更新首选项。
+
+[source,java]
+----
+@Component
+public record Service(EncodingUtils encodingUtils, BootifulProperties properties) {
+
+    private static final Logger log = LoggerFactory.getLogger(Service.class);
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        var rsocket = properties.getrSocket();
+        var transport = TcpServerTransport.create(rsocket.getHostname(),rsocket.getPort());
+
+        var socket = new RSocket(){
+            @Override
+            public Mono<Void> metadataPush(Payload payload) {
+                var metadataUtf8 = payload.getMetadataUtf8();
+                var metadata = encodingUtils.decodeMetadata(metadataUtf8); // <1>
+                var clientId = (String) metadata.get(Constants.CLIENT_ID_HEADER);
+                // <2>
+                var stringBuilder = new StringBuilder()
+                        .append(System.lineSeparator())
+                        .append(String.format("(%s) %s",clientId,"--------------------------------"))
+                        .append(System.lineSeparator());
+
+                metadata.forEach((k,v) -> stringBuilder
+                        .append(String.format("(%s) %s",clientId, k + "=" + v))
+                        .append(System.lineSeparator()));
+
+                log.info(stringBuilder.toString());
+
+                return Mono.empty();
+            }
+        };
+
+        var socketAcceptor = SocketAcceptor.with(socket);
+        RSocketServer
+                .create(socketAcceptor)
+                .bind(transport)
+                .doOnNext(cc -> log.info("server started on thhe address " + cc.address()))
+                .block();
+
+    }
+}
+----
+====
+<1> 服务将传入的元数据解码为 Map<K, V>
+<2> 然后相应地更新本地状态。
+====
+
+客户端利用元数据工具以三种不同的语言通知服务其语言环境的更改。 运行这两个应用程序，您应该会看到服务在几秒钟内记录新的区域设置更改。
+
+元数据是一种通用机制，旨在服务于多种用例中的任何一种。 我们在元数据有效负载中传达什么以及我们传达什么编码完全取决于我们。 稍后，我们将看到 Spring 利用 MIME 类型和复合元数据机制来简化这种特殊的麻烦。
+
+我们已经介绍了所有消息交换模式。 我们已经介绍了元数据等概念。 我们还了解了 RSocket 应用程序以请求者/响应者为中心，而不一定以客户端/服务器为中心的想法的含义。
+
+我可以整天编写这种代码 - 如果我愿意，它只是一个 API 足以轻松完成某些事情。 接下来，我们将看到在 Spring 的帮助下，事情可以而且确实变得更加简洁。
+
+== Bootiful RSocket
+
+[source,java]
+----
+----
+====
+====
+
+
+[source,java]
+----
+----
+====
+====
+
+[source,java]
+----
+----
+====
+====
+
+[source,java]
+----
+----
+====
+====
+
+[source,java]
+----
+----
+====
+====
+
+[source,java]
+----
+----
+====
+====
+
