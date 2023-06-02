@@ -34,7 +34,7 @@ public class SetupController {
         return Mono.just("Hello, " + name + "!");
     }
 
-    // <1>
+    // <2>
     @MessageMapping("setup")
     public void setup(@Payload String setupPayload, @Headers Map<String,Object> headers) {
         log.info("setup payload: " + setupPayload);

@@ -21,6 +21,7 @@ public class Constants {
 
     public static final MimeType CLIENT_ID = MimeType.valueOf(CLIENT_ID_VALUE);
 
+    // <2>
     public static final String LANG_HEADER = "lang";
 
     public static final String LANG_VALUE = "message/x.bootiful." + LANG_HEADER;

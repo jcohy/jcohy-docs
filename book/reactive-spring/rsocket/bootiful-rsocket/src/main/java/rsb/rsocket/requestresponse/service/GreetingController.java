@@ -23,12 +23,13 @@ import java.util.Map;
  * @version 2022.04.0 2023/5/31:15:49
  * @since 2022.04.0
  */
+// <1>
 @Controller
 public class GreetingController {
 
     private static final Logger log = LoggerFactory.getLogger(GreetingController.class);
 
-    // <2>
+    // <2> <3>
     @MessageMapping("greeting")
     Mono<String> greet(@Headers Map<String,Object> headers, // <4>
                        @Payload String name ) { // <5>
