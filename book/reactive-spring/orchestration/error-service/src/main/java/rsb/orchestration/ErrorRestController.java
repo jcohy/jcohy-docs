@@ -4,6 +4,7 @@ import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -20,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @version 2022.04.0 2023/6/2:16:53
  * @since 2022.04.0
  */
-
+@RestController
 public class ErrorRestController {
 
     // <1>
@@ -49,6 +50,7 @@ public class ErrorRestController {
         return Mono.just(Map.of("greeting",String.format("greeting attempt %s from port %s",countThusFar,this.port.get())));
     }
 
+    // <4>
     @GetMapping("/retry")
     Mono<Map<String,String>> retryEndpoint(@RequestParam() String uid) {
         var countThusFar = this.registerClient(uid);
@@ -57,6 +59,7 @@ public class ErrorRestController {
                 : Mono.error(new IllegalArgumentException());
     }
 
+    // <5>
     @GetMapping("/cb")
     Mono<Map<String,String>> circuitBreakerEndpoint(@RequestParam String uid) {
         registerClient(uid);

@@ -26,18 +26,18 @@ public class PredicateConfiguration {
         return builder
                 .routes()
                 .route(routeSpec -> routeSpec
-                        .path("/")
+                        .path("/") // <1>
                         .uri("http://httpbin.org/")
                 )
                 .route(routeSpec -> routeSpec
-                        .header("X-RSB")
+                        .header("X-RSB") // <2>
                         .uri("http://httpbin.org/")
                 )
                 .route(routeSpec -> routeSpec
-                        .query("uid")
+                        .query("uid") // <3>
                         .uri("http://httpbin.org/")
                 )
-                .route(routeSpec -> routeSpec
+                .route(routeSpec -> routeSpec // <4>
                         .asyncPredicate(serverWebExchange -> Mono.just(Math.random() > .5)).and().path("/test")
                         .uri("http://httpbin.org/")
                 )

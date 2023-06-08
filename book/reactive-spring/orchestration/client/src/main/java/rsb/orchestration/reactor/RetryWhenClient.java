@@ -2,6 +2,7 @@ package rsb.orchestration.reactor;
 
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -16,6 +17,7 @@ import java.time.Duration;
  * @version 2022.04.0 2023/6/6:17:14
  * @since 2022.04.0
  */
+@Component
 public record RetryWhenClient(OrderClient client) {
 
     @EventListener(ApplicationReadyEvent.class)

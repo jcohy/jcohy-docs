@@ -25,7 +25,7 @@ public class SimpleProxyFilterRouteConfiguration {
         return builder
                 .routes()
                 .route(routeSpec -> routeSpec
-                        .path("/http")
+                        .path("/http") // <1>
                         .filters(fs -> fs.setPath("/forms/post")).uri("http://httpbin.org")
                 )
                 .build();
