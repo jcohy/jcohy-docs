@@ -62,13 +62,9 @@ SecurityFilterChain web(HttpSecurity http) throws Exception {
 	http
 		// ...
 		.authorizeHttpRequests(authorize -> authorize                                  // <1>
-			.mvcMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
-			.mvcMatchers("/admin/**").hasRole("ADMIN")                             // <3>
-			.mvcMatchers("/db/**").access((authentication, request) ->
-			    Optional.of(hasRole("ADMIN").check(authentication, request))
-			        .filter((decision) -> !decision.isGranted())
-			        .orElseGet(() -> hasRole("DBA").check(authentication, request));
-			)   // <4>
+			.requestMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
+			.requestMatchers("/admin/**").hasRole("ADMIN")                             // <3>
+			.requestMatchers("/db/**").access(new WebExpressionAuthorizationManager("hasRole('ADMIN') and hasRole('DBA')"))   // <4>
 			.anyRequest().denyAll()                                                // <5>
 		);
 
@@ -103,13 +99,14 @@ SecurityFilterChain web(HttpSecurity http, AuthorizationManager<RequestAuthoriza
 
 @Bean
 AuthorizationManager<RequestAuthorizationContext> requestMatcherAuthorizationManager(HandlerMappingIntrospector introspector) {
+    MvcRequestMatcher.Builder mvcMatcherBuilder = new MvcRequestMatcher.Builder(introspector);
     RequestMatcher permitAll =
             new AndRequestMatcher(
-                    new MvcRequestMatcher(introspector, "/resources/**"),
-                    new MvcRequestMatcher(introspector, "/signup"),
-                    new MvcRequestMatcher(introspector, "/about"));
-    RequestMatcher admin = new MvcRequestMatcher(introspector, "/admin/**");
-    RequestMatcher db = new MvcRequestMatcher(introspector, "/db/**");
+                    mvcMatcherBuilder.pattern("/resources/**"),
+                    mvcMatcherBuilder.pattern("/signup"),
+                    mvcMatcherBuilder.pattern("/about"));
+    RequestMatcher admin = mvcMatcherBuilder.pattern("/admin/**");
+    RequestMatcher db = mvcMatcherBuilder.pattern("/db/**");
     RequestMatcher any = AnyRequestMatcher.INSTANCE;
     AuthorizationManager<HttpRequestServlet> manager = RequestMatcherDelegatingAuthorizationManager.builder()
             .add(permitAll, (context) -> new AuthorizationDecision(true))
@@ -135,7 +132,7 @@ AuthorizationManager<RequestAuthorizationContext> requestMatcherAuthorizationMan
 SecurityFilterChain web(HttpSecurity http) throws Exception {
     http
         .authorizeHttpRequests((authorize) -> authorize
-            .mvcMatchers("/my/authorized/endpoint").access(new CustomAuthorizationManager());
+            .requestMatchers("/my/authorized/endpoint").access(new CustomAuthorizationManager());
         )
         // ...
 
@@ -155,11 +152,244 @@ SecurityFilterChain web(HttpSecurity http) throws Exception {
 SecurityFilterChain web(HttpSecurity http) throws Exception {
     http
         .authorizeHttpRequests((authorize) -> authorize
-            .anyRequest.access(new CustomAuthorizationManager());
+            .anyRequest().access(new CustomAuthorizationManager());
         )
         // ...
 
     return http.build();
 }
 ----
+====
+
+默认情况下，`AuthorizationFilter` 适用于所有 dispatcher 类型。 我们可以使用 `shouldFilterAllDispatcherTypes` 方法将 Spring Security 配置为不将授权规则应用于所有 dispatcher 类型：
+
+.Set shouldFilterAllDispatcherTypes to false
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .shouldFilterAllDispatcherTypes(false)
+            .anyRequest().authenticated()
+        )
+        // ...
+
+    return http.build();
+}
+----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun web(http: HttpSecurity): SecurityFilterChain {
+    http {
+        authorizeHttpRequests {
+            shouldFilterAllDispatcherTypes = false
+            authorize(anyRequest, authenticated)
+        }
+    }
+    return http.build()
+}
+----
+====
+
+建议的方法不是将 `shouldFilterAllDispatcherTypes` 设置为 `false`，而是自定义调度 dispatcher 的授权。 例如，您可能希望授予对调度程序类型为 `ASYNC` 或 `FORWARD` 的请求的所有访问权限。
+
+.Permit ASYNC and FORWARD dispatcher type
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.FORWARD).permitAll()
+            .anyRequest().authenticated()
+        )
+        // ...
+
+    return http.build();
+}
+----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun web(http: HttpSecurity): SecurityFilterChain {
+    http {
+        authorizeHttpRequests {
+            authorize(DispatcherTypeRequestMatcher(DispatcherType.ASYNC, DispatcherType.FORWARD), permitAll)
+            authorize(anyRequest, authenticated)
+        }
+    }
+    return http.build()
+}
+----
+====
+
+您还可以自定义它以要求 dispatcher 类型具有特定角色：
+
+.Require ADMIN for Dispatcher Type ERROR
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests((authorize) -> authorize
+            .dispatcherTypeMatchers(DispatcherType.ERROR).hasRole("ADMIN")
+            .anyRequest().authenticated()
+        )
+        // ...
+
+    return http.build();
+}
+----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+open fun web(http: HttpSecurity): SecurityFilterChain {
+    http {
+        authorizeHttpRequests {
+            authorize(DispatcherTypeRequestMatcher(DispatcherType.ERROR), hasRole("ADMIN"))
+            authorize(anyRequest, authenticated)
+        }
+    }
+    return http.build()
+}
+----
+====
+
+== Request Matchers
+
+`RequestMatcher` 接口用于确定请求是否匹配给定规则。 我们使用 `securityMatchers` 来确定给定的 `HttpSecurity` 是否应该应用于给定的请求。
+同样，我们可以使用 `requestMatchers` 来确定我们应该应用于给定请求的授权规则。 看下面的例子：
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+	@Bean
+	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+		http
+			.securityMatcher("/api/**")                            <1>
+			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers("/user/**").hasRole("USER")       <2>
+				.requestMatchers("/admin/**").hasRole("ADMIN")     <3>
+				.anyRequest().authenticated()                      <4>
+			)
+			.formLogin(withDefaults());
+		return http.build();
+	}
+}
+----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Configuration
+@EnableWebSecurity
+open class SecurityConfig {
+
+    @Bean
+    open fun web(http: HttpSecurity): SecurityFilterChain {
+        http {
+            securityMatcher("/api/**")                                           <1>
+            authorizeHttpRequests {
+                authorize("/user/**", hasRole("USER"))                           <2>
+                authorize("/admin/**", hasRole("ADMIN"))                         <3>
+                authorize(anyRequest, authenticated)                             <4>
+            }
+        }
+        return http.build()
+    }
+
+}
+----
+====
+
+<1> 配置 `HttpSecurity`， 仅应用于以 `/api/` 开头的 URL
+<2> 允许具有 `USER` 角色的用户访问以 `/user/` 开头的 URL
+<3> 允许具有 `ADMIN` 角色的用户访问以 `/admin/` 开头的 URL
+<4> 任何其他不符合上述规则的请求都需要身份验证
+
+`securityMatcher(s)` 和 `requestMatcher(s)` 方法将决定哪个 `RequestMatcher` 实现最适合您的应用程序：如果 Spring MVC 在类路径中，则将使用 `MvcRequestMatcher`，否则将使用 `AntPathRequestMatcher`。
+您可以在此处阅读有关 <<mvc,Spring MVC>> 集成的更多信息。
+
+如果您想使用特定的 `RequestMatcher`，只需将实现传递给 `securityMatcher` 和/或 `requestMatcher` 方法：
+
+====
+.Java
+[source,java,role="primary"]
+----
+import static org.springframework.security.web.util.matcher.AntPathRequestMatcher.antMatcher; <1>
+import static org.springframework.security.web.util.matcher.RegexRequestMatcher.regexMatcher;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+	@Bean
+	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+		http
+			.securityMatcher(antMatcher("/api/**"))                              <2>
+			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(antMatcher("/user/**")).hasRole("USER")         <3>
+				.requestMatchers(regexMatcher("/admin/.*")).hasRole("ADMIN")     <4>
+				.requestMatchers(new MyCustomRequestMatcher()).hasRole("SUPERVISOR")     <5>
+				.anyRequest().authenticated()
+			)
+			.formLogin(withDefaults());
+		return http.build();
+	}
+}
+
+public class MyCustomRequestMatcher implements RequestMatcher {
+
+    @Override
+    public boolean matches(HttpServletRequest request) {
+        // ...
+    }
+}
+----
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher.antMatcher <1>
+import org.springframework.security.web.util.matcher.RegexRequestMatcher.regexMatcher
+
+@Configuration
+@EnableWebSecurity
+open class SecurityConfig {
+
+    @Bean
+    open fun web(http: HttpSecurity): SecurityFilterChain {
+        http {
+            securityMatcher(antMatcher("/api/**"))                               <2>
+            authorizeHttpRequests {
+                authorize(antMatcher("/user/**"), hasRole("USER"))               <3>
+                authorize(regexMatcher("/admin/**"), hasRole("ADMIN"))           <4>
+                authorize(MyCustomRequestMatcher(), hasRole("SUPERVISOR"))       <5>
+                authorize(anyRequest, authenticated)
+            }
+        }
+        return http.build()
+    }
+
+}
+----
+<1> 从 `AntPathRequestMatcher` 和 `RegexRequestMatcher` 导入静态工厂方法来创建 `RequestMatcher` 实例。
+<2> 使用 `AntPathRequestMatcher` 将 `HttpSecurity` 配置为仅应用于以 `/api/` 开头的 URL
+<3> 使用 `AntPathRequestMatcher` 允许具有 `USER` 角色的用户访问以 `/user/` 开头的 URL
+<4> 使用 `RegexRequestMatcher` 允许具有 `ADMIN` 角色的用户访问以 `/admin/` 开头的 URL
+<5> 使用自定义 `RequestMatcher` 允许具有 `SUPERVISOR` 角色的用户访问与 `MyCustomRequestMatcher` 匹配的 URL
 ====

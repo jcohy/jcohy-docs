@@ -6,8 +6,10 @@
 .Redirecting to Asserting Party Authentication
 image::{figures}/saml2webssoauthenticationrequestfilter.png[]
 
-
-上图基于<<servlet-securityfilterchain,`SecurityFilterChain`>> 和 <<servlet-authentication-abstractprocessingfilter, `AbstractAuthenticationProcessingFilter`>> 图:
+[NOTE]
+====
+上图基于 <<servlet-securityfilterchain,`SecurityFilterChain`>> 和 <<servlet-authentication-abstractprocessingfilter, `AbstractAuthenticationProcessingFilter`>> 图:
+====
 
 image:{image-resource}/icons/number_1.png[] 首先， 用户对未经授权的 `/private` 资源进行身份验证请求.
 
@@ -23,25 +25,30 @@ image:{image-resource}/icons/number_5.png[] 然后， 浏览器将使用此 `<sa
 
 image:{image-resource}/icons/number_6.png[] 然后， 浏览器将 `<saml2:Response>` POST 到 assertion consumer service endpoint.
 
+下图显示了 Spring Security 如何验证 `<saml2:Response>`。
+
 [[servlet-saml2login-authentication-saml2webssoauthenticationfilter]]
 .Authenticating a `<saml2:Response>`
 image::{figures}/saml2webssoauthenticationfilter.png[]
 
+[NOTE]
+====
 该图基于 <<servlet-securityfilterchain,`SecurityFilterChain`>> 图.
+====
 
 image:{image-resource}/icons/number_1.png[] 当浏览器提交 `<saml2:Response>` 到应用程序时, 它将 <<servlet-saml2login-authenticate-responses, 委托给 `Saml2WebSsoAuthenticationFilter` 处理>>.
 此过滤器调用其配置的 `AuthenticationConverter` 并通过从 `HttpServletRequest` 中提取响应去创建一个 `Saml2AuthenticationToken`.
 此转换器另外解析了 <<servlet-saml2login-relyingpartyregistration, `RelyingPartyRegistration`>> 并将其提供给 `Saml2AuthenticationToken`.
 
 image:{image-resource}/icons/number_2.png[] 接下来, 过滤器将令牌传递给配置的 <<servlet-authentication-providermanager,`AuthenticationManager`>>.
-默认情况下, 它将使用 <<servlet-saml2login-architecture,`OpenSAML authentication provider`>>.
+默认情况下, 它将使用 <<servlet-saml2login-architecture,`OpenSamlAuthenticationProvider`>>.
 
-image:{image-resource}/icons/number_3.png[] 如果身份验证失败， 则 __失败__
+image:{image-resource}/icons/number_3.png[] 如果身份验证失败， 则 __Failure__
 
 * <<servlet-authentication-securitycontextholder, `SecurityContextHolder`>> 被清除.
 * 调用 <<servlet-authentication-authenticationentrypoint,`AuthenticationEntryPoint`>> 以重新启动身份验证过程.
 
-image:{image-resource}/icons/number_4.png[] 如果身份验证成功, 则 __成功__.
+image:{image-resource}/icons/number_4.png[] 如果身份验证成功, 则 __Success__.
 
 * 在 <<servlet-authentication-securitycontextholder, `SecurityContextHolder`>> 中设置 <<servlet-authentication-authentication, `Authentication`>>.
 * `Saml2WebSsoAuthenticationFilter` 调用 `FilterChain#doFilter(request,response)` 继续应用程序逻辑的其余部分.
@@ -54,15 +61,22 @@ SAML 2.0 服务提供商支持位于 `spring-security-saml2-service-provider` �
 [[servlet-saml2login-minimalconfiguration]]
 == 最小配置
 
-使用 https://spring.io/projects/spring-boot[Spring Boot] 时， 将应用程序配置为服务提供商包括两个基本步骤.  首先， 包括所需的依赖， 第二， 指示必要的 asserting party 元数据.
+使用 https://spring.io/projects/spring-boot[Spring Boot] 时， 将应用程序配置为服务提供商包括两个基本步骤.
+
+. 包括所需的依赖
+. 指示必要的 asserting party 元数据.
 
 [NOTE]
+====
 另外， 这假定您已经在 <<servlet-saml2login-metadata,  asserting party 中注册了  relying party 为前提>>.
+====
 
+[[saml2-specifying-identity-provider-metadata]]
 === 指定身份提供者元数据
 
 在 Spring Boot 应用程序中， 要指定身份提供者的元数据， 只需执行以下操作: :
 
+====
 [source,yml]
 ----
 spring:
@@ -78,6 +92,7 @@ spring:
               singlesignon.url: https://idp.example.com/issuer/sso
               singlesignon.sign-request: false
 ----
+====
 
 where
 
@@ -89,24 +104,27 @@ where
 就这样简单!
 
 [NOTE]
+====
 Identity Provider 和 Asserting Party 是同义词， 也是服务提供商和 relying party .  这些通常分别缩写为 AP 和 RP.
+====
 
 === Runtime Expectations
 
-如上所配置， 应用程序处理包含 `SAMLResponse` 参数的任何 `+POST /login/saml2/sso/{registrationId}+`  请求:
+<<saml2-specifying-identity-provider-metadata,如上所配置>>， 应用程序处理包含 `SAMLResponse` 参数的任何 `+POST /login/saml2/sso/{registrationId}+`  请求:
 
-[source,html]
+====
+[source,http]
 ----
 POST /login/saml2/sso/adfs HTTP/1.1
 
 SAMLResponse=PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZ...
 ----
+====
 
 有两种方法可以看到引导你的 asserting party 来生成  `SAMLResponse`:
 
-* 首先， 您可以导航到您的 asserting party.  对于每个注册的 relying party ， 它可能有一些链接或按钮可以单击以发送 `SamlResponse`.
-
-* 其次， 您可以导航到应用程序中的受保护页面， 例如， `http://localhost:8080`.  然后， 您的应用程序重定向到配置的 asserting party， 然后发送 `SamlResponse`.
+* 您可以导航到您的 asserting party.  对于每个注册的 relying party ， 它可能有一些链接或按钮可以单击以发送 `SamlResponse`.
+* 您可以导航到应用程序中的受保护页面， 例如， `http://localhost:8080`.  然后， 您的应用程序重定向到配置的 asserting party， 然后发送 `SamlResponse`.
 
 从这里， 考虑跳到:
 
@@ -119,18 +137,12 @@ SAMLResponse=PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZ...
 
 Spring Security 的 Saml 2.0 支持有几个设计目标:
 
-* 首先, 需要依赖操作 SAML 2.0 和 domain objects 的库.为实现这一目标, Spring Security 使用 OpenSAML.
-* 第二, 确保使用 Spring Security 的 SAML 支持不需要此库.为了达成此目的, 在 Spring Security  约定使用的任何 OpenSAML 中的类或接口都保留封装.这使得您可以将 OpenSAML 切换到其他一些库， 甚至是 OpenSAML 不受支持的版本.
+* 需要依赖操作 SAML 2.0 和 domain objects 的库.为实现这一目标, Spring Security 使用 OpenSAML.
+* 确保使用 Spring Security 的 SAML 支持不需要此库.为了达成此目的, 在 Spring Security  约定使用的任何 OpenSAML 中的类或接口都保留封装.这使得您可以将 OpenSAML 切换到其他一些库， 甚至是 OpenSAML 不受支持的版本.
 
-作为上述两个目标的结果， Spring Security 的 SAML API 相对于其他模块非常小.  相反， 像 `OpenSaml4AuthenticationRequestFactory` 和 `OpenSaml4AuthenticationProvider`  这样的类暴露了自定义身份验证过程中各个步骤的 `Converter`.
+作为上述两个目标的结果， Spring Security 的 SAML API 相对于其他模块非常小.  相反， 像 `OpenSamlAuthenticationRequestFactory` 和 `OpenSamlAuthenticationProvider`  这样的类暴露了自定义身份验证过程中各个步骤的 `Converter`.
 
-例如， 一旦应用程序接收到 `SAMLResponse` 并委托给 `Saml2WebSsoAuthenticationFilter`， 该过滤器将委托给 `OpenSaml4AuthenticationProvider`.
-
-[NOTE]
-为了向后兼容，Spring Security 默认使用最新的 OpenSAML 3。
-请注意，尽管 OpenSAML 3 已达到其生命周期的尽头，并且建议更新到 OpenSAML 4.x。
-因此，Spring Security 同时支持 OpenSAML 3.x 和 4.x。
-如果您将 OpenSAML 依赖项管理到 4.x，那么 Spring Security 将选择其 OpenSAML 4.x 实现。
+例如， 一旦应用程序接收到 `SAMLResponse` 并委托给 `Saml2WebSsoAuthenticationFilter`， 该过滤器将委托给 `OpenSamlAuthenticationProvider`.
 
 .Authenticating an OpenSAML `Response`
 image:{figures}/opensamlauthenticationprovider.png[]
@@ -263,7 +275,7 @@ companion object {
 [[servlet-saml2login-sansboot]]
 == 如何覆盖或替换的 Spring Boot 自动配置
 
-Spring Boot 有两 个 `@Bean` 为 relying party 生成.
+Spring Boot 有两个 `@Bean` 对象为 relying party 生成.
 
 第一个是 `WebSecurityConfigurerAdapter`， 它将应用程序配置为 relying party .  在包括 `Spring-Security-Saml2-Service-Provider` 时， `WebSecurityConfigurerAdapter` 看起来像:
 
@@ -272,30 +284,34 @@ Spring Boot 有两 个 `@Bean` 为 relying party 生成.
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
         .authorizeHttpRequests(authorize -> authorize
             .anyRequest().authenticated()
         )
         .saml2Login(withDefaults());
+    return http.build();
 }
 ----
 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
     http {
         authorizeRequests {
             authorize(anyRequest, authenticated)
         }
         saml2Login { }
     }
+    return http.build()
 }
 ----
 ====
 
-如果应用程序未暴露 `WebSecurityConfigurerAdapter` Bean， 则 Spring 将暴露上述默认值.
+如果应用程序未暴露 `SecurityFilterChain` Bean， 则 Spring 将暴露上述默认值.
 
 您可以通过在应用程序中暴露 bean 来替换它:
 
@@ -304,15 +320,18 @@ fun configure(http: HttpSecurity) {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class MyCustomSecurityConfiguration {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorize -> authorize
-                .mvcMatchers("/messages/**").hasAuthority("ROLE_USER")
+                .requestMatchers("/messages/**").hasAuthority("ROLE_USER")
                 .anyRequest().authenticated()
             )
             .saml2Login(withDefaults());
+        return http.build();
     }
 }
 ----
@@ -320,9 +339,11 @@ public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class MyCustomSecurityConfiguration {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             authorizeRequests {
                 authorize("/messages/**", hasAuthority("ROLE_USER"))
@@ -331,6 +352,7 @@ class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
             saml2Login {
             }
         }
+        return http.build()
     }
 }
 ----
@@ -440,7 +462,9 @@ open fun relyingPartyRegistrations(): RelyingPartyRegistrationRepository {
 ====
 
 [NOTE]
+====
 `X509Support` 属于 OpenSAML 类, 为了简洁， 这里使用了这个部分代码
+====
 
 [[servlet-saml2login-relyingpartyregistrationrepository-dsl]]
 
@@ -451,17 +475,20 @@ open fun relyingPartyRegistrations(): RelyingPartyRegistrationRepository {
 .Java
 [source,java,role="primary"]
 ----
+@Configuration
 @EnableWebSecurity
-public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter {
-    protected void configure(HttpSecurity http) {
+public class MyCustomSecurityConfiguration {
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authorize -> authorize
-                .mvcMatchers("/messages/**").hasAuthority("ROLE_USER")
+                .requestMatchers("/messages/**").hasAuthority("ROLE_USER")
                 .anyRequest().authenticated()
             )
             .saml2Login(saml2 -> saml2
                 .relyingPartyRegistrationRepository(relyingPartyRegistrations())
             );
+        return http.build();
     }
 }
 ----
@@ -469,9 +496,11 @@ public class MyCustomSecurityConfiguration extends WebSecurityConfigurerAdapter 
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
+@Configuration
 @EnableWebSecurity
-class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
-    override fun configure(http: HttpSecurity) {
+class MyCustomSecurityConfiguration {
+    @Bean
+    open fun filterChain(http: HttpSecurity): SecurityFilterChain {
         http {
             authorizeRequests {
                 authorize("/messages/**", hasAuthority("ROLE_USER"))
@@ -481,13 +510,16 @@ class MyCustomSecurityConfiguration : WebSecurityConfigurerAdapter() {
                 relyingPartyRegistrationRepository = relyingPartyRegistrations()
             }
         }
+        return http.build()
     }
 }
 ----
 ====
 
 [NOTE]
+====
 通过在 `RelyingPartyRegistrationRepository` 中注册多个 relying party ， relying party  可以是多租户的.
+====
 
 [[servlet-saml2login-relyingpartyregistration]]
 == RelyingPartyRegistration
@@ -523,12 +555,16 @@ RelyingPartyRegistration relyingPartyRegistration = RelyingPartyRegistration.wit
 ----
 
 [TIP]
+====
 顶级元数据方法是关于 relying party 的详细信息. `assertingPartyDetails` 内部的方法是关于 asserting party 的详细信息.
+====
 
 [NOTE]
+====
 relying party 期望 SAML 响应的位置是 Assertion Consumer Service Location.
+====
 
- relying party  `entityId` 的默认值是 `+{baseUrl}/saml2/service-provider-metadata/{registrationId}+`.  这是配置 asserting party 了解您的 relying party 时所需的值.
+relying party  `entityId` 的默认值是 `+{baseUrl}/saml2/service-provider-metadata/{registrationId}+`.  这是配置 asserting party 了解您的 relying party 时所需的值.
 
 默认的 `assertionConsumerServiceLocation` 是 `+/login/saml2/sso/{registrationId}+`.  它默认映射到过滤器链中的 <<servlet-saml2login-authentication-saml2webssoauthenticationfilter,`Saml2WebSsoAuthenticationFilter`>>.
 
@@ -564,7 +600,7 @@ relying party 期望 SAML 响应的位置是 Assertion Consumer Service Location
 [[servlet-saml2login-rpr-credentials]]
 === Credentials(凭据)
 
-您还有可能注意到使用的凭证.
+在 <<servlet-saml2login-relyingpartyregistration,前面>> 显示的示例中，您可能还注意到了所使用的凭据。
 
 通常，  relying party 会使用相同的密钥对有效载荷进行签名和解密. 或者它将使用相同的密钥来验证有效载荷并加密它们.
 
@@ -599,7 +635,9 @@ try (InputStream is = resource.getInputStream()) {
 ----
 
 [TIP]
+====
 当您将这些文件的位置指定为适当的 Spring Boot 属性时， Spring Boot 将为您执行这些转换
+====
 
 [[servlet-saml2login-rpr-relyingpartyregistrationresolver]]
 === 解决请求中的 relying party
@@ -630,7 +668,9 @@ public class SingleRelyingPartyRegistrationResolver
 然后， 您可以将此解析器提供给产生 <<servlet-saml2login-sp-initiated-factory, produce `<saml2:AuthnRequest>` s>>， 验证 `<saml2:Response>` s>> 的过滤器， <<servlet-saml2login-metadata, 并生成 `<saml2:SPSSODescriptor>` 元数据>>.
 
 [NOTE]
+====
 请记住， 如果您在 `RelyingPartyRegistration` 中有任何占位符， 您的 resolver 实现需要解决他们.
+====
 
 [[servlet-saml2login-rpr-duplicated]]
 === 重复 Relying Party 配置
@@ -647,6 +687,7 @@ public class SingleRelyingPartyRegistrationResolver
 
 首先， 在 YAML 中可以通过 references 来缓解这种情况， 如下所示:
 
+====
 [source,yaml]
 ----
 spring:
@@ -656,7 +697,7 @@ spring:
         okta:
           signing.credentials: &relying-party-credentials
             - private-key-location: classpath:rp.key
-            - certificate-location: classpath:rp.crt
+              certificate-location: classpath:rp.crt
           identityprovider:
             entity-id: ...
         azure:
@@ -664,6 +705,7 @@ spring:
           identityprovider:
             entity-id: ...
 ----
+====
 
 其次， 在数据库中， 没有必要复制 `RelyingPartyRegistration` model.
 

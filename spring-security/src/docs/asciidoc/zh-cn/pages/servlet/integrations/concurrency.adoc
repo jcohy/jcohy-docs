@@ -2,12 +2,13 @@
 = 并发支持
 
 在大多数环境中,安全性是基于每个线程存储的.  这意味着当在新线程上完成工作时,`SecurityContext` 将丢失.  Spring Security 提供了一些基础架构来帮助用户轻松实现这一点.
-Spring Security 提供了用于在多线程环境中使用 Spring Security 的底层抽象.  实际上,这就是 Spring Security 与名为 <<servletapi-start-runnable,"`AsyncContext.start(Runnable) `">> 和的部分和进行 <<mvc-async,第 15.6.4 节 "Spring MVC 异步集成">> 集成的基础.
+Spring Security 提供了用于在多线程环境中使用 Spring Security 的底层抽象.  实际上,这就是 Spring Security 与名为 <<servletapi-start-runnable,"`AsyncContext.start(Runnable)`">> 和的部分和进行 <<mvc-async,第 15.6.4 节 "Spring MVC 异步集成">> 集成的基础.
 
 == DelegatingSecurityContextRunnable
 
 Spring Security 并发支持中最基本的构建块之一是 `DelegatingSecurityContextRunnable`.  它包装了一个委托 `Runnable`,以便使用为委托指定的 `SecurityContext` 初始化 `SecurityContextHolder`.  然后,它将调用委托 `Runnable`,以确保随后清除 `SecurityContextHolder`.  `DelegatingSecurityContextRunnable` 看起来像这样:
 
+====
 [source,java]
 ----
 public void run() {
@@ -19,6 +20,7 @@ try {
 }
 }
 ----
+====
 
 尽管非常简单,但可以无缝地将 `SecurityContext` 从一个线程传输到另一个线程.  这很重要,因为在大多数情况下,`SecurityContextHolder` 会基于每个线程进行操作.
 例如,您可能已使用 Spring Security 的 <<nsa-global-method-security,global-method-security>> 支持部分来保护您的一项服务.
@@ -50,6 +52,7 @@ new Thread(wrappedRunnable).start();
 
 由于在 `SecurityContextHolder` 中使用 `SecurityContext` 创建 `DelegatingSecurityContextRunnable` 很普遍,因此有一个快捷方式构造函数. 以下代码与上面的代码相同:
 
+====
 [source,java]
 ----
 Runnable originalRunnable = new Runnable() {
@@ -63,6 +66,7 @@ DelegatingSecurityContextRunnable wrappedRunnable =
 
 new Thread(wrappedRunnable).start();
 ----
+====
 
 我们拥有的代码易于使用,但仍然需要了解我们正在使用 Spring Security. 在下一节中,我们将研究如何利用 `DelegatingSecurityContextExecutor` 隐藏我们正在使用 Spring Security 的事实.
 
@@ -72,11 +76,12 @@ new Thread(wrappedRunnable).start();
 
 `DelegatingSecurityContextExecutor` 的设计与 `DelegatingSecurityContextRunnable` 的设计非常相似,只是它接受委托 `Executor` 而不是委托 `Runnable`.  您可以在下面查看如何使用它的示例:
 
+====
 [source,java]
 ----
 SecurityContext context = SecurityContextHolder.createEmptyContext();
 Authentication authentication =
-	new UsernamePasswordAuthenticationToken("user","doesnotmatter", AuthorityUtils.createAuthorityList("ROLE_USER"));
+	UsernamePasswordAuthenticationToken.authenticated("user","doesnotmatter", AuthorityUtils.createAuthorityList("ROLE_USER"));
 context.setAuthentication(authentication);
 
 SimpleAsyncTaskExecutor delegateExecutor =
@@ -92,14 +97,22 @@ public void run() {
 
 executor.execute(originalRunnable);
 ----
+====
 
-该代码执行以下步骤:
+该代码:
 
-* 创建要用于我们的 `DelegatingSecurityContextExecutor` 的 `SecurityContext`.  请注意,在此示例中,我们仅手动创建了 `SecurityContext`.  但是,无论在何处或如何获取 `SecurityContext` 都无关紧要(也就是说,如果需要,我们可以从 `SecurityContextHolder` 获取它) .
-* 创建一个负责执行提交的可运行对象的委托 Actuator
-* 最后,我们创建一个 `DelegatingSecurityContextExecutor`,它负责使用 `DelegatingSecurityContextRunnable` 包装传递给 `execute` 方法的所有 `Runnable`.  然后,它将包装的 `Runnable` 传递给委托 Actuator.  在这种情况下,相同的 `SecurityContext` 将用于提交给我们的 `DelegatingSecurityContextExecutor` 的每个 `Runnable`.  如果我们正在运行需要由特权较高的用户运行的后台任务,那就很好.
-* 在这一点上,您可能会问自己 "这如何屏蔽我的代码,使其不了解 Spring Security? " 代替在我们自己的代码中创建 `SecurityContext` 和 `DelegatingSecurityContextExecutor`,我们可以注入一个已经初始化的 `DelegatingSecurityContextExecutor` 实例.
+请注意,在此示例中,我们仅手动创建了 `SecurityContext`.  但是,无论在何处或如何获取 `SecurityContext` 都无关紧要(也就是说,如果需要,我们可以从 `SecurityContextHolder` 获取它) .
 
+* 创建一个 `delegateExecutor` 负责执行提交的 `Runnable` 对象。
+* 最后,我们创建一个 `DelegatingSecurityContextExecutor`,它负责使用 `DelegatingSecurityContextRunnable` 包装传递给 `execute` 方法的所有 `Runnable`.
+然后,它将包装的 `Runnable` 传递给委托 Actuator.  在这种情况下,相同的 `SecurityContext` 将用于提交给我们的 `DelegatingSecurityContextExecutor` 的每个 `Runnable`.
+如果我们正在运行需要由特权较高的用户运行的后台任务,那就很好.
+* 在这一点上,您可能会问自己 "这如何屏蔽我的代码,使其不了解 Spring Security? " 代替在我们自己的代码中创建 `SecurityContext` 和 `DelegatingSecurityContextExecutor`，
+我们可以注入一个已经初始化的 `DelegatingSecurityContextExecutor` 实例.
+
+考虑以下示例：
+
+====
 [source,java]
 ----
 @Autowired
@@ -114,29 +127,33 @@ Runnable originalRunnable = new Runnable() {
 executor.execute(originalRunnable);
 }
 ----
+====
 
 现在我们的代码不知道 `SecurityContext` 正在传播到线程,然后执行 `originalRunnable`,然后清除 `SecurityContextHolder`.  在此示例中,使用同一用户执行每个线程.
 如果我们想在调用 `executor.execute(Runnable)` (即当前登录的用户) 来处理 `originalRunnable` 时使用 `SecurityContextHolder` 中的用户怎么办?  这可以通过从 `DelegatingSecurityContextExecutor` 构造函数中删除 `SecurityContext` 参数来完成.  例如:
 
+====
 [source,java]
 ----
 SimpleAsyncTaskExecutor delegateExecutor = new SimpleAsyncTaskExecutor();
 DelegatingSecurityContextExecutor executor =
 	new DelegatingSecurityContextExecutor(delegateExecutor);
 ----
+====
 
 现在,无论何时执行 `executor.execute(Runnable)`,都首先由 `SecurityContextHolder` 获得 `SecurityContext`,然后使用该 `SecurityContext` 创建我们的 `DelegatingSecurityContextRunnable`.  这意味着我们将使用用于调用 `executor.execute(Runnable)` 代码的同一用户执行 `Runnable`.
 
 == Spring Security Concurrency Classes
 
-有关与 Java 并发 API 和 Spring Task 抽象的其他集成,请参考 Javadoc.  一旦您理解了先前的代码,它们就非常不言自明.
+有关与 Java 并发 API 和 Spring Task 抽象的其他集成,请参考 {security-api-url}index.html[Javadoc].  一旦您理解了先前的代码,它们就非常不言自明.
 
-* `DelegatingSecurityContextCallable`
-* `DelegatingSecurityContextExecutor`
-* `DelegatingSecurityContextExecutorService`
-* `DelegatingSecurityContextRunnable`
-* `DelegatingSecurityContextScheduledExecutorService`
-* `DelegatingSecurityContextSchedulingTaskExecutor`
-* `DelegatingSecurityContextAsyncTaskExecutor`
-* `DelegatingSecurityContextTaskExecutor`
-* `DelegatingSecurityContextTaskScheduler`
+* {security-api-url}org/springframework/security/concurrent/DelegatingSecurityContextCallable.html[`DelegatingSecurityContextCallable`]
+* {security-api-url}org/springframework/security/concurrent/DelegatingSecurityContextExecutor.html[`DelegatingSecurityContextExecutor`]
+* {security-api-url}org/springframework/security/concurrent/DelegatingSecurityContextExecutorService.html[`DelegatingSecurityContextExecutorService`]
+* {security-api-url}org/springframework/security/concurrent/DelegatingSecurityContextRunnable.html[`DelegatingSecurityContextRunnable`]
+* {security-api-url}org/springframework/security/concurrent/DelegatingSecurityContextScheduledExecutorService.html[`DelegatingSecurityContextScheduledExecutorService`]
+* {security-api-url}org/springframework/security/scheduling/DelegatingSecurityContextSchedulingTaskExecutor.html[`DelegatingSecurityContextSchedulingTaskExecutor`]
+* {security-api-url}org/springframework/security/task/DelegatingSecurityContextAsyncTaskExecutor.html[`DelegatingSecurityContextAsyncTaskExecutor`]
+* {security-api-url}org/springframework/security/task/DelegatingSecurityContextTaskExecutor.html[`DelegatingSecurityContextTaskExecutor`]
+* {security-api-url}org/springframework/security/scheduling/DelegatingSecurityContextTaskScheduler.html[`DelegatingSecurityContextTaskScheduler`]
+

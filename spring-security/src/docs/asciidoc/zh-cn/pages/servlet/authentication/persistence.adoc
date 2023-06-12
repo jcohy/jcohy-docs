@@ -1,0 +1,212 @@
+[[persistant]]
+= 持久身份验证
+:figures: servlet/authentication
+
+用户第一次请求受保护的资源时，系统会 <<servlet-authentication-authenticationentrypoint,提示他们输入凭据>>。 提示输入凭据的最常见方法之一是将用户重定向到 <<servlet-authentication-form,登录页面>>。
+未经身份验证的用户请求受保护资源的 HTTP Exchange 摘要可能如下所示：
+
+.Unauthenticated User Requests Protected Resource
+====
+[source,http]
+----
+GET / HTTP/1.1
+Host: example.com
+Cookie: SESSION=91470ce0-3f3c-455b-b7ad-079b02290f7b
+----
+
+[source,http]
+----
+HTTP/1.1 302 Found
+Location: /login
+----
+====
+
+用户提交他们的用户名和密码。
+
+.Username and Password Submitted
+====
+[source,http]
+----
+POST /login HTTP/1.1
+Host: example.com
+Cookie: SESSION=91470ce0-3f3c-455b-b7ad-079b02290f7b
+
+username=user&password=password&_csrf=35942e65-a172-4cd4-a1d4-d16a51147b3e
+----
+====
+
+在对用户进行身份验证后，用户将关联到一个新的会话 ID 以防止 <<ns-session-fixation,会话固定攻击>>。
+
+.Authenticated User is Associated to New Session
+====
+[source,http]
+----
+HTTP/1.1 302 Found
+Location: /
+Set-Cookie: SESSION=4c66e474-3f5a-43ed-8e48-cc1d8cb1d1c8; Path=/; HttpOnly; SameSite=Lax
+----
+====
+
+后续请求包括会话 cookie，用于在会话的剩余部分对用户进行身份验证。
+
+.Authenticated Session Provided as Credentials
+====
+[source,http]
+----
+GET / HTTP/1.1
+Host: example.com
+Cookie: SESSION=4c66e474-3f5a-43ed-8e48-cc1d8cb1d1c8
+----
+====
+
+
+[[securitycontextrepository]]
+== SecurityContextRepository
+
+// FIXME: api documentation
+在 Spring Security 中，与用户未来请求的关联是使用 {security-api-url}org/springframework/security/web/context/SecurityContextRepository.html[`SecurityContextRepository`] 进行的。
+`SecurityContextRepository` 的默认实现是 {security-api-url}org/springframework/security/web/context/DelegatingSecurityContextRepository.html[`DelegatingSecurityContextRepository`] ， 它委托给以下内容：
+
+* <<httpsecuritycontextrepository,`HttpSessionSecurityContextRepository`>>
+* <<requestattributesecuritycontextrepository,`RequestAttributeSecurityContextRepository`>>
+
+[[httpsecuritycontextrepository]]
+=== HttpSessionSecurityContextRepository
+
+{security-api-url}org/springframework/security/web/context/HttpSessionSecurityContextRepository.html[`HttpSessionSecurityContextRepository`] 将 <<servlet-authentication-securitycontext,`SecurityContext`>> 关联到 `HttpSession`。
+如果用户希望以其他方式或根本不将用户与后续请求相关联，则可以将 `HttpSessionSecurityContextRepository` 替换为 `SecurityContextRepository` 的另一个实现。
+
+[[nullsecuritycontextrepository]]
+=== NullSecurityContextRepository
+
+如果不希望将 `SecurityContext` 关联到 `HttpSession`（即，当使用 OAuth 进行身份验证时），则 {security-api-url}org/springframework/security/web/context/NullSecurityContextRepository.html[`NullSecurityContextRepository`] 是 `SecurityContextRepository` 的一个实现，它什么也不做。
+
+[[requestattributesecuritycontextrepository]]
+=== RequestAttributeSecurityContextRepository
+
+{security-api-url}org/springframework/security/web/context/RequestAttributeSecurityContextRepository.html[`RequestAttributeSecurityContextRepository`]  将 `SecurityContext` 保存为请求属性，以确保 `SecurityContext` 可用于那些可能清除 `SecurityContext` 分发类型的单个请求。
+
+例如，假设客户端发出请求，经过身份验证，然后发生错误。 根据 servlet 容器实现，错误意味着已建立的任何 `SecurityContext` 都被清除，然后进行错误分发。 进行错误分发时，没有建立 `SecurityContext`。 这意味着错误页面不能使用 `SecurityContext` 进行授权或显示当前用户，除非 `SecurityContext` 以某种方式持久化。
+
+.Use RequestAttributeSecurityContextRepository
+====
+.Java
+[source,java,role="primary"]
+----
+public SecurityFilterChain filterChain(HttpSecurity http) {
+	http
+		// ...
+		.securityContext((securityContext) -> securityContext
+			.securityContextRepository(new RequestAttributeSecurityContextRepository())
+		);
+	return http.build();
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http security-context-repository-ref="contextRepository">
+	<!-- ... -->
+</http>
+<b:bean name="contextRepository"
+	class="org.springframework.security.web.context.RequestAttributeSecurityContextRepository" />
+----
+====
+
+[[delegatingsecuritycontextrepository]]
+=== DelegatingSecurityContextRepository
+
+{security-api-url}org/springframework/security/web/context/DelegatingSecurityContextRepository.html[`DelegatingSecurityContextRepository`]  将 `SecurityContext` 保存到多个 `SecurityContextRepository` 委托中，并允许以指定顺序从任何委托中检索。
+
+最有用的安排是使用以下示例配置的，它允许同时使用 <<requestattributesecuritycontextrepository,`RequestAttributeSecurityContextRepository`>> 和 <<httpsecuritycontextrepository,`HttpSessionSecurityContextRepository`>>。
+
+.Configure DelegatingSecurityContextRepository
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+	http
+		// ...
+		.securityContext((securityContext) -> securityContext
+			.securityContextRepository(new DelegatingSecurityContextRepository(
+				new RequestAttributeSecurityContextRepository(),
+				new HttpSessionSecurityContextRepository()
+			))
+		);
+	return http.build();
+}
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+@Bean
+fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+	http {
+		// ...
+		securityContext {
+			securityContextRepository = DelegatingSecurityContextRepository(
+				RequestAttributeSecurityContextRepository(),
+				HttpSessionSecurityContextRepository()
+			)
+		}
+	}
+	return http.build()
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<http security-context-repository-ref="contextRepository">
+	<!-- ... -->
+</http>
+<bean name="contextRepository"
+	class="org.springframework.security.web.context.DelegatingSecurityContextRepository">
+		<constructor-arg>
+			<bean class="org.springframework.security.web.context.RequestAttributeSecurityContextRepository" />
+		</constructor-arg>
+		<constructor-arg>
+			<bean class="org.springframework.security.web.context.HttpSessionSecurityContextRepository" />
+		</constructor-arg>
+</bean>
+----
+====
+
+[NOTE]
+====
+在 Spring Security 6 中，上面显示的示例是默认配置。
+====
+
+[[securitycontextpersistencefilter]]
+== SecurityContextPersistenceFilter
+
+{security-api-url}org/springframework/security/web/context/SecurityContextPersistenceFilter.html[`SecurityContextPersistenceFilter`] 负责使用 <<securitycontextrepository,`SecurityContextRepository`>> 在请求之间保留 SecurityContext。
+
+image::{figures}/securitycontextpersistencefilter.png[]
+
+. 在运行应用程序的剩余部分之前，`SecurityContextPersistenceFilter` 从 `SecurityContextRepository` 加载 `SecurityContext` 并将其设置在 `SecurityContextHolder` 上。
+. 接下来，运行应用程序。
+. 最后，如果 `SecurityContext` 已更改，我们使用 `SecurityContextPersistenceRepository` 保存 `SecurityContext`。 这意味着在使用 `SecurityContextPersistenceFilter` 时，只需设置 `SecurityContextHolder` 即可确保使用 `SecurityContextRepository` 持久化 `SecurityContext`。
+
+在某些情况下，响应会在 `SecurityContextPersisteneFilter` 方法完成之前提交并写入客户端。 例如，如果将重定向发送到客户端，则响应会立即写回客户端。 这意味着在步骤 3 中无法建立 `HttpSession`，因为会话 ID 无法包含在已写入的响应中。
+另一种可能发生的情况是，如果客户端身份验证成功，则在 `SecurityContextPersistenceFilter` 完成之前提交响应，并且客户端在 `SecurityContextPersistenceFilter` 完成之前发出第二个请求，第二个请求中可能存在错误的身份验证。
+
+为了避免这些问题，`SecurityContextPersistenceFilter` 包装了 `HttpServletRequest` 和 `HttpServletResponse` 以检测 `SecurityContext` 是否已更改，如果已更改，则在提交响应之前保存 `SecurityContext`。
+
+[[securitycontextholderfilter]]
+== SecurityContextHolderFilter
+
+{security-api-url}org/springframework/security/web/context/SecurityContextHolderFilter.html[`SecurityContextHolderFilter`]  负责使用 `SecurityContextRepository` 在请求之间加载 `SecurityContext`。
+
+image::{figures}/securitycontextholderfilter.png[]
+
+. 在运行应用程序的剩余部分之前，`SecurityContextHolderFilter` 从 `SecurityContextRepository` 加载 `SecurityContext` 并将其设置在 `SecurityContextHolder` 上。
+. 接下来，运行应用程序。
+
+与 <<securitycontextpersistencefilter,`SecurityContextPersistenceFilter`>> 不同，`SecurityContextHolderFilter` 只加载 `SecurityContext`，它不保存 `SecurityContext`。 这意味着在使用 `SecurityContextHolderFilter` 时，需要显式保存 `SecurityContext`。
+
+include::../../../partials/servlet/architecture/security-context-explicit.adoc[]

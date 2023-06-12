@@ -1,6 +1,10 @@
 :spring-framework-docs: https://docs.spring.io/spring/docs/{spring-framework-version}/spring-framework-reference
 :spring-framework-javadoc: https://docs.spring.io/spring/docs/{spring-framework-version}/javadoc-api
 
+ifndef::store[]
+:store: Jpa
+endif::[]
+
 [[repositories]]
 = 使用 Spring Data Repositories
 
@@ -10,13 +14,16 @@ Spring Data 存储库抽象层的目标是减少为各种持久性存储实现�
 ====
 _Spring 数据存储库文档和你的模块_
 
-本章介绍 Spring Data 存储库的核心概念和接口. 本章中的信息来自 Spring Data Commons 模块. 它使用 Java 持久性 API (JPA) 模块的配置和代码示例. 您应该将 XML 命名空间声明和要扩展的类型调整为您使用的特定模块的等同项. "`<<repositories.namespace-reference,命名空间参考>>`" 涵盖了所有支持存储库 API 的 Spring Data 模块支持的 XML 配置.
-"`<<repository-query-keywords,存储库查询关键字>>`" 一般涵盖了存储库抽象支持的查询方法关键字. 有关模块特定功能的详细信息,请参阅本文档的该模块章节.
+本章介绍 Spring Data 存储库的核心概念和接口. 本章中的信息来自 Spring Data Commons 模块. 它使用 Jakarta 持久性 API (JPA) 模块的配置和代码示例. 您应该将 XML 命名空间声明和要扩展的类型调整为您使用的特定模块的等同项。
+ifeval::[{include-xml-namespaces} != false]
+"`<<repository-namespace-reference.adoc#repositories.namespace-reference,命名空间参考>>`" 涵盖了所有支持存储库 API 的 Spring Data 模块支持的 XML 配置.
+endif::[]
+"`<<repository-query-keywords-reference.adoc#repository-query-keywords,存储库查询关键字>>`" 一般涵盖了存储库抽象支持的查询方法关键字. 有关模块特定功能的详细信息,请参阅本文档的该模块章节.
 ====
 
 [[repositories.core-concepts]]
 == 核心概念
-Spring Data 存储库抽象中的中心接口是 `Repository`. 它需要 domain 类以及 domain 的 ID 类型作为类型参数. 该接口主要作为标记接口来捕获要使用的类型,并帮助您发现该接口的子接口.  `CrudRepository` 实现了实体类复杂的 CRUD 功能.
+Spring Data 存储库抽象中的中心接口是 `Repository`. 它需要 domain 类以及 domain 的 ID 类型作为类型参数. 该接口主要作为标记接口来捕获要使用的类型,并帮助您发现该接口的子接口.  `CrudRepository` 和 https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/ListCrudRepository.html[`ListCrudRepository`] 接口提供了复杂的 CRUD 功能.
 
 [[repositories.repository]]
 .`CrudRepository` 接口
@@ -48,15 +55,17 @@ public interface CrudRepository<T, ID> extends Repository<T, ID> {
 <6> 判断是否存在具有给定ID的实体.
 ====
 
+`ListCrudRepository` 提供等效的方法，但它们返回 `List`，而 `CrudRepository` 方法返回一个 `Iterable`。
+
 NOTE: 我们还提供持久性技术的特定抽象,如 `JpaRepository` 或 `MongoRepository`. 这些接口扩展 `CrudRepository` 并暴露了持久化技术的基本功能,以及通用的持久化技术,例如 `CrudRepository`.
 
-除此之外 `CrudRepository`,还有一个 https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/PagingAndSortingRepository.html[`PagingAndSortingRepository`] 的抽象的接口,来简化对实体的分页操作:
+除了 `CrudRepository`, 还有一个 https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/repository/PagingAndSortingRepository.html[`PagingAndSortingRepository`] 的抽象的接口,来简化对实体的分页操作:
 
 .`PagingAndSortingRepository` 接口
 ====
 [source,java]
 ----
-public interface PagingAndSortingRepository<T, ID> extends CrudRepository<T, ID> {
+public interface PagingAndSortingRepository<T, ID>  {
 
   Iterable<T> findAll(Sort sort);
 
@@ -129,23 +138,20 @@ interface PersonRepository extends Repository<Person, Long> {
 ====
 
 . 使用 Spring  <<repositories.create-instances.java-config,JavaConfig>> 或 <<repositories.create-instances,XML 配置>> 为这些接口创建代理实例.
-
-.. 要使用 Java 配置,请创建类似于以下的类:
 +
 ====
-[source,java]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
 ----
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.data.….repository.config.Enable{store}Repositories;
 
-@EnableJpaRepositories
+@Enable{store}Repositories
 class Config { … }
 ----
-====
 
-.. 要使用XML配置,请定义一个类似于以下的 bean:
-+
-====
-[source, xml]
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -156,15 +162,18 @@ class Config { … }
      http://www.springframework.org/schema/data/jpa
      https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
 
-   <jpa:repositories base-package="com.acme.repositories"/>
+   <repositories base-package="com.acme.repositories"/>
 
 </beans>
 ----
+endif::[]
 ====
 +
+ifeval::[{include-xml-namespaces} != false]
 这个例子中使用了 JPA 命名空间. 如果您想使用其他的存储库,则需要将其更改为相应的命名空间声明. 换句话说,你应该替换 jpa,例如 `mongodb`.
-另请注意,JavaConfig 不会显式配置包,因为默认情况下会使用注解类的包. 定制要扫描的软件包,请使用 `basePackage…` 特定于数据存储库的 `@Enable${store}Repositories` 注解的一个属性.
+endif::[]
 +
+另请注意, JavaConfig 不会显式配置包,因为默认情况下会使用注解类的包. 定制要扫描的软件包,请使用 `basePackage…` 特定于数据存储库的 `@Enable${store}Repositories` 注解的一个属性.
 . 注入资源库实例并使用它,如以下示例所示:
 +
 ====
@@ -195,17 +204,28 @@ class SomeClient {
 [[repositories.definition]]
 == 定义 Repository  接口
 
-首先,定义一个 domain 类特定的 repository 接口. 该接口必须扩展 `Repository` 并且输入 domain 类和 `ID` 类型. 如果您想暴露该 domain 类型的 CRUD 方法,请扩展 `CrudRepository` 而不是 `Repository`.
+首先,定义一个 domain 类特定的 repository 接口. 该接口必须扩展 `Repository` 并且输入 domain 类和 `ID` 类型. 如果您想暴露该 domain 类型的 CRUD 方法,请扩展 `CrudRepository` 或其子类而不是 `Repository`.
 
 [[repositories.definition-tuning]]
 === 微调 Repository  定义
 
-通常情况下,您的 Repository  接口扩展了 `Repository`,`CrudRepository` 或 `PagingAndSortingRepository`. 如果您不想扩展 Spring Data 接口,也可以使用 `@RepositoryDefinition` 注解您的 Repository 接口.
-扩展 `CrudRepository` 暴露了一套完整的方法来操纵你的实体. 如果您想选择暴露的方法,请复制 `CrudRepository` 中要暴露的方法 到您的实体类 Repository 中.
+有几种变体可以让你开始使用你的 repository 接口。
 
-NOTE: 这样做可以让您在提供的 Spring Data Repositories 功能之上定义自己的抽象.
+典型的方法是继承 `CrudRepository`，它为你提供了 CRUD 功能的方法。CRUD 是指创建、读取、更新、删除。在 3.0 版本中，我们还引入了 `ListCrudRepository`，它与 `CrudRepository` 非常相似，但对于那些返回多个实体的方法，
+它返回一个 `List` 而不是一个 `Iterable`，你可能会发现它更容易使用。
 
-以下示例显示如何选择性地暴露 CRUD方法 (`findById` 以及 `save` 在这种情况下) :
+如果你使用的是响应式store，你可以选择 `ReactiveCrudRepository`，或者 `RxJava3CrudRepository`，这取决于你使用的是哪种响应式框架。
+
+如果你使用的是 Kotlin，你可以选择 `CoroutineCrudRepository`，它利用了 Kotlin 的 coroutine（协程）。
+
+额外的你可以扩展 `PagingAndSortingRepository`、`ReactiveSortingRepository`、`RxJava3SortingRepository` 或 `CoroutineSortingRepository`，如果你需要允许指定一个 `Sort` 抽象的方法，或者在第一种情况下是 `Pageable` 抽象。
+请注意，各种排序 repository 不再像 Spring Data 3.0 之前的版本那样扩展各自的 CRUD 库。因此，如果你想获得这两个接口的功能，你需要扩展这两个接口。
+
+如果你不想扩展 Spring Data 接口，你也可以用 `@RepositoryDefinition` 来注解你的 repository 接口。扩展 CRUD repository 接口之一会暴露出一套完整的方法来操作你的实体。如果你想对暴露的方法有所选择，可以从 CRUD repository 复制你想暴露的方法到你的 domain repository。
+这样做时，你可以改变方法的返回类型。如果可能的话，Spring Data 会尊重返回类型。例如，对于返回多个实体的方法，你可以选择 `Iterable<T>`、`List<T>`、`Collection<T>` 或 VAVR list。
+
+如果你的应用程序中的许多 repository 应该有相同的方法集，你可以定义你自己的基础接口来继承。这样的接口必须用 `@NoRepositoryBean` 注解。这可以防止 Spring Data 试图直接创建它的实例而导致异常，因为它仍然包含一个泛型变量，Spring data 无法确定该 repository 的实体。
+下面的例子展示了如何有选择地公开 CRUD 方法（本例中为 `findById` 和 `save`）。
 
 .选择性地暴露 CRUD 方法
 ====
@@ -313,7 +333,7 @@ class Person { … }
 在同一个 domain 类型上使用多个特定于持久性技术的注解是可能的,并且可以跨多种持久性技术重用 domain 类型.  但是,Spring Data 无法再确定用于绑定存储库的唯一模块.
 
 区分存储库的最后一种方法是确定存储库 `basePackages` 的范围.  `basePackages` 包定义了扫描存储库接口定义的起点,这意味着将存储库定义放在适当的软件包中.  默认情况下,注解驱动的配置使用配置类的包.
- <<repositories.create-instances.spring,基于 XML 的配置中>>中的 `basePackages` 是必需的.
+ <<repositories.create-instances.xml,基于 XML 的配置中>>中的 `basePackages` 是必需的.
 
 以下示例显示了基础包的注解驱动配置:
 
@@ -340,7 +360,11 @@ class Configuration { … }
 [[repositories.query-methods.query-lookup-strategies]]
 === 查询策略
 
-以下策略可用于存储库基础结构来解决查询. 使用 XML 配置,您可以通过 `query-lookup-strategy` 属性在命名空间中配置策略. 对于 Java 配置,可以使用 `Enable${store}Repositories` 注解的 `queryLookupStrategy` 属性. 某些数据存储可能不支持某些策略.
+以下策略可用于存储库基础结构来解决查询.
+ifeval::[{include-xml-namespaces} != false]
+使用 XML 配置,您可以通过 `query-lookup-strategy` 属性在命名空间中配置策略.
+endif::[]
+对于 Java 配置,可以使用 `Enable${store}Repositories` 注解的 `queryLookupStrategy` 属性. 某些数据存储可能不支持某些策略.
 
 
 - `CREATE` 尝试从查询方法名称构造特定于存储的查询. 通用方法是从方法名称中删除一组给定的前缀,然后解析该方法的其余部分. 您可以在 "`<<repositories.query-methods.query-creation,查询创建>>`" 中阅读有关查询构造的更多信息.
@@ -382,7 +406,7 @@ interface PersonRepository extends Repository<Person, Long> {
 解析查询方法的名称分为主题和断言.第一部分  (`find…By`, `exists…By`)  定义查询的主题,第二部分形成断言.
 Introduction子句 (主题) 可以包含其他表达式. 任何在 `find` (或其他 introducing 关键字) 和 `By` 之间的任何文本都被视为描述性语句,除非使用结果限制关键字之一 (例如,`Distinct` ) 在要创建的查询上设置 distinct 的标记,或者 <<repositories.limit-query-result,`Top`/`First`  以限制查询结果>>.
 
-附录包含 <<appendix.query.method.subject,查询方法主题关键字的完整列表>> 和 <<appendix.query.method.predicate,包括排序和字母大小写修饰符的查询方法断言关键字>>.
+附录包含 <<repository-query-keywords-reference.adoc#appendix.query.method.subject,查询方法主题关键字的完整列表>> 和 <<repository-query-keywords-reference.adoc#appendix.query.method.predicate,包括排序和字母大小写修饰符的查询方法断言关键字>>.
 但是,第一个 `By` 充当分隔符,以指示实际标准断言的开始. 在此基础上,您可以定义实体属性的条件,并将其与 `And` 和 `Or` 连接起来.
 
 解析该方法的实际结果取决于您为其创建查询的持久性存储. 但是,需要注意一些一般事项:
@@ -521,7 +545,7 @@ NOTE: 通过使用 `Sort` 参数将结果限制与动态排序结合使用,可�
 [[repositories.collections-and-iterables]]
 === 存储库方法返回集合或可迭代对象
 
-返回多个结果的查询方法可以使用标准的 Java `Iterable`,`List`,`Set`.  除此之外,我们还支持返回 Spring Data 的 `Streamable`,`Iterable` 的自定义扩展以及  https://www.vavr.io/[Vavr] 提供的集合类型.请参阅附录,了解所有可能的 <<appendix.query.return.types,查询方法返回类型>>.
+返回多个结果的查询方法可以使用标准的 Java `Iterable`,`List`,`Set`.  除此之外,我们还支持返回 Spring Data 的 `Streamable`,`Iterable` 的自定义扩展以及  https://www.vavr.io/[Vavr] 提供的集合类型.请参阅附录,了解所有可能的 <<repository-query-return-types-reference.adoc#appendix.query.return.types,查询方法返回类型>>.
 
 [[repositories.collections-and-iterables.streamable]]
 ==== 使用 Streamable 作为查询方法返回类型
@@ -612,7 +636,7 @@ https://www.vavr.io/[Vavr] 是一个包含 Java 中函数式编程概念的库. 
 * `io.vavr.control.Option`
 
 另外,查询方法可以选择不使用包装器类型.  然后,通过返回 `null` 指示查询结果不存在.  保证返回集合,集合替代项,包装器和流的存储库方法永远不会返回 `null`,而是会返回相应的空表示形式.
-有关详细信息,请参见 "`<<repository-query-return-types,存储库查询返回类型>>`" .
+有关详细信息,请参见 "`<<repository-query-return-types-reference.adoc#repository-query-return-types,存储库查询返回类型>>`" .
 
 [[repositories.nullability.annotations]]
 ==== 可空性注解
@@ -730,20 +754,45 @@ Future<User> findByFirstname(String firstname);               <1>
 
 @Async
 CompletableFuture<User> findOneByFirstname(String firstname); <2>
-
-@Async
-ListenableFuture<User> findOneByLastname(String lastname);    <3>
 ----
 <1> 使用 `java.util.concurrent.Future` 作为返回类型.
 <2> 使用 Java 8 `java.util.concurrent.CompletableFuture` 作为返回类型.
-<3> 使用 `org.springframework.util.concurrent.ListenableFuture` 作为返回类型.
 ====
 
 [[repositories.create-instances]]
 == 创建存储库实例
-在本部分中,将为已定义的存储库接口创建实例和 Bean 定义.  一种方法是使用支持存储库机制的每个 Spring Data 模块随附的 Spring 命名空间,尽管我们通常建议使用 Java 配置.
 
+本节介绍如何为定义的存储库接口创建实例和 bean 定义。
+
+[[repositories.create-instances.java-config]]
+=== Java Configuration
+
+在 Java 配置类上使用 store 特有的 `@Enable{store}Repositories` 注解来定义 repository 激活的配置。
+关于基于 Java 的 Spring 容器配置的介绍，请参见 {spring-framework-docs}/core.html#beans-java[Spring 参考文档中的 JavaConfig]。
+
+启用 Spring Data Repository 的示例配置类似于以下内容。
+
+.Sample annotation-based repository configuration
+====
+[source,java]
+----
+@Configuration
+@EnableJpaRepositories("com.acme.repositories")
+class ApplicationConfiguration {
+
+  @Bean
+  EntityManagerFactory entityManagerFactory() {
+    // …
+  }
+}
+----
+====
+
+NOTE:: 前面的例子使用了 JPA 特定的注解，你可以根据你实际使用的 store 模块来改变它。这同样适用于 `EntityManagerFactory` Bean的定义。请看涉及 store 特定配置的章节。
+
+ifeval::[{include-xml-namespaces} != false]
 [[repositories.create-instances.spring]]
+[[repositories.create-instances.xml]]
 === XML 配置
 每个 Spring Data 模块都包含一个 `repositories` 元素,可用于定义 Spring 为其扫描的基本包,如以下示例所示:
 
@@ -760,7 +809,7 @@ ListenableFuture<User> findOneByLastname(String lastname);    <3>
     http://www.springframework.org/schema/data/jpa
     https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
 
-  <repositories base-package="com.acme.repositories" />
+  <jpa:repositories base-package="com.acme.repositories" />
 
 </beans:beans>
 ----
@@ -768,37 +817,25 @@ ListenableFuture<User> findOneByLastname(String lastname);    <3>
 
 在前面的示例中,指示 Spring 扫描 `com.acme.repositories` 及其所有子包,以查找扩展 `Repository` 的接口或其子接口之一.  对于找到的每个接口,基础结构都会注册持久性技术特定的 `FactoryBean`,以创建处理查询方法调用的适当代理.
 每个 bean 都使用从接口名称扩展的 bean 名称进行注册,因此 `UserRepository` 的接口将注册在 `userRepository` 下.  `base-package` 属性允许使用通配符,以便您可以定义扫描程序包的模式.
+endif::[]
 
 [[repositories.using-filters]]
-==== 使用过滤器
+=== 使用过滤器
 
 默认情况下,Spring Data 会自动扫描配置路径下的 `Repository` 子接口的每个接口,并为其创建一个 bean 实例.  但是,您可能希望更精细地控制哪些接口具有为其创建的 Bean 实例.
-为此,请在 `<repositories />` 元素内使用 `<include-filter />` 和 `<exclude-filter />` 元素.  语义完全等同于 Spring 的上下文命名空间中的元素.  有关详细信息,请参见这些元素的 {spring-framework-docs}/core.html#beans-scanning-filters[Spring 参考文档] .
+要做到这一点，可以在 Repository 声明中使用 filter 元素。其语义与 Spring 的组件过滤器中的元素完全等同。  有关详细信息,请参见这些元素的 {spring-framework-docs}/core.html#beans-scanning-filters[Spring 参考文档] .
 
 例如,要将某些接口从实例中排除为存储库 Bean,可以使用以下配置:
 
-.使用 exclude-filter 元素
+.Using filters
 ====
-[source, xml]
-----
-<repositories base-package="com.acme.repositories">
-  <context:exclude-filter type="regex" expression=".*SomeRepository" />
-</repositories>
-----
-====
-
-前面的示例将所有以 `SomeRepository` 结尾的接口都排除在实例化之外.
-
-[[repositories.create-instances.java-config]]
-=== Java 配置
-还可以在 JavaConfig 类上使用特定于存储的 `@Enable${store}Repositories`  注解来触发存储库基础架构.  有关 Spring 容器的基于 Java 的配置的介绍,请参见 {spring-framework-docs}/core.html#beans-java[Spring 参考文档中的 JavaConfig].
-
-.基于注解的存储卡示例
-====
-[source,java]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
 ----
 @Configuration
-@EnableJpaRepositories("com.acme.repositories")
+@Enable{store}Repositories(basePackages = "com.acme.repositories",
+    includeFilters = { @Filter(type = FilterType.REGEX, pattern = ".*SomeRepository") },
+    excludeFilters = { @Filter(type = FilterType.REGEX, pattern = ".*SomeOtherRepository") })
 class ApplicationConfiguration {
 
   @Bean
@@ -807,13 +844,26 @@ class ApplicationConfiguration {
   }
 }
 ----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
+----
+<repositories base-package="com.acme.repositories">
+  <context:exclude-filter type="regex" expression=".*SomeRepository" />
+  <context:include-filter type="regex" expression=".*SomeOtherRepository" />
+</repositories>
+----
+endif::[]
 ====
 
-NOTE: 前面的示例使用特定于 JPA 的注解,您将根据实际使用的存储模块对其进行更改.  这同样适用于 `EntityManagerFactory` bean 的定义.  请参阅涵盖存储特定配置的部分.
+前面的例子排除了所有以 `SomeRepository` 结尾的接口被实例化，包括以 `SomeOtherRepository` 结尾的接口。
 
 [[repositories.create-instances.standalone]]
 === 独立使用
-您还可以在 Spring 容器之外使用存储库基础结构,例如在 CDI 环境中.  您的类路径中仍然需要一些 Spring 库,但是,通常,您也可以通过编程方式来设置存储库.  提供存储库支持的 Spring Data 模块附带了特定于持久性技术的 `RepositoryFactory`,您可以按以下方式使用它:
+
+你也可以在 Spring 容器之外使用资源库基础结构,例如，在 CDI 环境中。你仍然需要在你的 classpath 中使用一些 Spring 库，但是，一般来说，你也可以通过编程来设置 `Repository`。
+Repository 支持的 Spring Data 模块都有一个特定于持久化技术的 `RepositoryFactory`，你可以使用，如下所示。
 
 .repository 工厂的独立使用
 ====
@@ -968,16 +1018,29 @@ interface PersonRepository extends CrudRepository<Person, Long>, CustomizedSave<
 
 [[repositories.configuration]]
 ==== 配置
-如果使用命名空间配置,则存储库基础结构会尝试通过扫描发现存储库的包下方的类来自动检测自定义实现片段.  这些类需要遵循将命名空间元素的 `repository-impl-postfix` 属性附加到片段接口名称的命名约定.  此后缀默认为 `Impl`.  以下示例显示了使用默认后缀的存储库和为后缀设置自定义值的存储库:
+
+存储库会尝试通过扫描发现存储库的包下方的类来自动检测自定义实现片段，这些类需要添加 `Impl` 后缀的命名约定。
+
+以下示例显示了使用默认后缀的存储库和为后缀设置自定义值的存储库:
 
 .配置示例
 ====
-[source, xml]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
+----
+@Enable{store}Repositories(repositoryImplementationPostfix = "MyPostfix")
+class Configuration { … }
+----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository" />
 
 <repositories base-package="com.acme.repository" repository-impl-postfix="MyPostfix" />
 ----
+endif::[]
 ====
 
 上一示例中的第一个配置尝试查找一个名为 `com.acme.repository.CustomizedUserRepositoryImpl` 的类,以用作自定义存储库实现.  第二个示例尝试查找 `com.acme.repository.CustomizedUserRepositoryMyPostfix`.
@@ -1023,7 +1086,20 @@ class CustomizedUserRepositoryImpl implements CustomizedUserRepository {
 
 .手动织入自定义实现
 ====
-[source, xml]
+
+.Java
+[source,java,role="primary"]
+----
+class MyClass {
+  MyClass(@Qualifier("userRepositoryImpl") UserRepository userRepository) {
+    …
+  }
+}
+----
+
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository" />
 
@@ -1031,6 +1107,8 @@ class CustomizedUserRepositoryImpl implements CustomizedUserRepository {
   <!-- further configuration -->
 </beans:bean>
 ----
+endif::[]
+
 ====
 
 [[repositories.customize-base-repository]]
@@ -1064,29 +1142,29 @@ class MyRepositoryImpl<T, ID>
 ----
 ====
 
-CAUTION: 该类需要具有特定于存储库的存储库工厂实现使用的父类的构造函数.  如果存储库父类具有多个构造函数,则覆盖一个采用 `EntityInformation` 加上存储特定基础结构对象 (例如 `EntityManager` 或模板类) 的构造函数.
+CAUTION: 该类需要具有特定于存储库的存储库工厂实现使用的父类的构造函数。
+如果存储库父类具有多个构造函数,则覆盖一个采用 `EntityInformation` 加上存储特定基础结构对象 (例如 `EntityManager` 或模板类) 的构造函数.
 
-最后一步是使 Spring Data 基础结构了解定制的存储库基类.  在 Java 配置中,可以通过使用 `@Enable${store}Repositories` 注解的 `repositoryBaseClass` 属性来实现,如以下示例所示:
+最后一步是使 Spring Data 基础结构了解定制的存储库基类.  在配置中,可以通过使用  `repositoryBaseClass` 来实现,如以下示例所示:
 
-.使用 JavaConfig 配置自定义存储库基类
+.Configuring a custom repository base class
 ====
-[source,java]
+.Java
+[source,java,subs="attributes,specialchars",role="primary"]
 ----
 @Configuration
-@EnableJpaRepositories(repositoryBaseClass = MyRepositoryImpl.class)
+@Enable{store}Repositories(repositoryBaseClass = MyRepositoryImpl.class)
 class ApplicationConfiguration { … }
 ----
-====
 
-XML 命名空间中有相应的属性,如下例所示:
-
-.使用 XML 配置自定义存储库基类
-====
-[source, xml]
+ifeval::[{include-xml-namespaces} != false]
+.XML
+[source,xml,role="secondary"]
 ----
 <repositories base-package="com.acme.repository"
      base-class="….MyRepositoryImpl" />
 ----
+endif::[]
 ====
 
 [[core.domain-events]]
@@ -1179,24 +1257,19 @@ userRepository.findAll(predicate);
 支持存储库编程模型的 Spring Data 模块附带了各种 Web 支持.  与 Web 相关的组件要求 Spring MVC JAR 位于类路径上.  其中一些甚至提供与 https://github.com/SpringSource/spring-hateoas[Spring HATEOAS] 的集成.
 通常,通过在 JavaConfig 配置类中使用 `@EnableSpringDataWebSupport` 注解来启用集成支持,如以下示例所示:
 
-.启用 Spring Data web 支持
+.Enabling Spring Data web support
 ====
-[source,java]
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
 @EnableWebMvc
 @EnableSpringDataWebSupport
 class WebConfiguration {}
 ----
-====
 
-`@EnableSpringDataWebSupport` 注解注册了一些我们稍后将讨论的组件.  它还将在类路径上检测 Spring HATEOAS,并为其注册集成组件 (如果存在) .
-
-另外,如果您使用 XML 配置,则将 `SpringDataWebConfiguration` 或 `HateoasAwareSpringDataWebConfiguration` 注册为 Spring Bean,如以下示例所示 (对于 `SpringDataWebConfiguration`) :
-
-.在 XML中启用 Spring Data web 支持
-====
-[source, xml]
+.XML
+[source,xml,role="secondary"]
 ----
 <bean class="org.springframework.data.web.config.SpringDataWebConfiguration" />
 
@@ -1204,6 +1277,8 @@ class WebConfiguration {}
 <bean class="org.springframework.data.web.config.HateoasAwareSpringDataWebConfiguration" />
 ----
 ====
+
+`@EnableSpringDataWebSupport` 注解注册了一些我们稍后将讨论的组件.  它还将在类路径上检测 Spring HATEOAS,并为其注册集成组件 (如果存在) .
 
 [[core.web.basic]]
 ==== Basic Web 支持
@@ -1387,7 +1462,7 @@ org.springframework.data.geo.Polygon
 [[core.web.binding]]
 ==== Web 数据绑定支持
 
-通过使用 https://goessner.net/articles/JsonPath/[JSONPath] 表达式 (需要 https://github.com/json-path/JsonPath[Jayway JsonPath] 或 https://www.w3.org/TR/xpath-31/[XPath]表达式 (需要 https://xmlbeam.org/[XmlBeam]) ) ,可以使用 Spring Data 投影 (在 <<projections,Projections>> 中描述) 来绑定传入的请求有效负载,如以下示例所示:
+通过使用 https://goessner.net/articles/JsonPath/[JSONPath] 表达式 (需要 https://github.com/json-path/JsonPath[Jayway JsonPath] 或 https://www.w3.org/TR/xpath-31/[XPath]表达式 (需要 https://xmlbeam.org/[XmlBeam]) ) ,可以使用 Spring Data 投影 (在 <<repository-projections.adoc#projections,Projections>> 中描述) 来绑定传入的请求有效负载,如以下示例所示:
 
 .使用 JSONPath 或 XPath 表达式的 HTTP 有效负载绑定
 ====
@@ -1410,7 +1485,7 @@ public interface UserPayload {
 前面示例中显示的类型可以用作 Spring MVC 处理程序方法参数,也可以通过在 `RestTemplate` 的方法之一上使用 `ParameterizedTypeReference` 来使用.  前面的方法声明将尝试在给定文档中的任何位置查找名字.   `lastname` XML 查找是在传入文档的顶层执行的.
 JSON 首先尝试使用顶层 `lastname` ,但是如果前者不返回值,则还尝试嵌套在用户子文档中的 `lastname` .  这样,无需客户端调用暴露的方法即可轻松缓解源文档结构的更改 (通常是基于类的有效负载绑定的缺点) .
 
-如 <<projections,投影>>中所述,支持嵌套投影.  如果该方法返回复杂的非接口类型,则将使用 Jackson `ObjectMapper` 映射最终值.
+如 <<repository-projections.adoc#projections,投影>>中所述,支持嵌套投影.  如果该方法返回复杂的非接口类型,则将使用 Jackson `ObjectMapper` 映射最终值.
 
 对于 Spring MVC,`@EnableSpringDataWebSupport` 处于活动状态并且所需的依赖在类路径上可用后,会自动自动注册必要的转换器.  要与 `RestTemplate` 一起使用,请手动注册 `ProjectingJackson2HttpMessageConverter` (JSON)  或 `XmlBeamHttpMessageConverter`.
 
@@ -1502,6 +1577,7 @@ interface UserRepository extends CrudRepository<User, String>,
 
 TIP: 你可以注册一个 `QuerydslBinderCustomizerDefaults` bean 在应用来自存储库或 `@QuerydslPredicate` 的特定绑定之前持有默认的 Querydsl 绑定。
 
+ifeval::[{include-xml-namespaces} != false]
 [[core.repository-populators]]
 === 存储库填充器
 如果您使用 Spring JDBC 模块,则可能熟悉使用 SQL 脚本填充 `DataSource` 的支持.  尽管它不使用 SQL 作为数据定义语言,因为它必须独立于存储,因此可以在存储库级别使用类似的抽象.  因此,填充器支持XML (通过 Spring 的 OXM 抽象) 和 JSON  (通过 Jackson) 来定义用于填充存储库的数据.
@@ -1572,3 +1648,4 @@ TIP: 你可以注册一个 `QuerydslBinderCustomizerDefaults` bean 在应用来�
 </beans>
 ----
 ====
+endif::[]

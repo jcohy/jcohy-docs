@@ -3,23 +3,26 @@
 :figures: {image-resource}/servlet/authorization
 
 [NOTE]
+====
 `FilterSecurityInterceptor` 正在被 <<servlet-authorization-authorizationfilter,`AuthorizationFilter`>> 替换。 建议考虑使用它。
+====
 
 本节以 <<servlet-architecture, Servlet 架构和实现>> 为基础继续深入研究 <<servlet-authorization,authorization>> 在 Servlet 的应用程序中的工作方式。
 
 {security-api-url}org/springframework/security/web/access/intercept/FilterSecurityInterceptor.html[`FilterSecurityInterceptor`]  为 `HttpServletRequests` 提供 <<servlet-authorization,authorization>>  .
 它作为  <<servlet-security-filters>> 之一插入到 <<servlet-filterchainproxy,FilterChainProxy>> 中.
 
+下图展示了 `FilterSecurityInterceptor` 的作用：
+
 .Authorize HttpServletRequest
 image::{image-resource}/servlet/authorization/filtersecurityinterceptor.png[]
 
-* image:{image-resource}/icons/number_1.png[] 首先,`FilterSecurityInterceptor` 从 <<servlet-authentication-securitycontextholder,SecurityContextHolder>>  获得<<servlet-authentication-authentication>>.
-* image:{image-resource}/icons/number_2.png[] 第二步,`FilterSecurityInterceptor` 根据传递到 `FilterSecurityInterceptor` 中的 `HttpServletRequest`,`HttpServletResponse` 和 `FilterChain` 创建一个 {security-api-url}org/springframework/security/web/FilterInvocation.html[`FilterInvocation`].
-// FIXME: link to FilterInvocation
-* image:{image-resource}/icons/number_3.png[] 接下来,它将 `FilterInvocation` 传递给 `SecurityMetadataSource` 以获取 `ConfigAttributes`.
-* image:{image-resource}/icons/number_4.png[] 最后,它将 `Authentication`,`FilterInvocation` 和 `ConfigAttributes` 传递给 <<authz-access-decision-manager, `AccessDecisionManager`>>.
-** image:{image-resource}/icons/number_5.png[] 如果授权被拒绝,则抛出 `AccessDeniedException`.  在这种情况下,<<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>> 处理 `AccessDeniedException`.
-** image:{image-resource}/icons/number_6.png[] 如果授予访问权限,`FilterSecurityInterceptor` 继续执行 <<servlet-filters-review,FilterChain>>,该链接可允许应用程序正常处理.
+image:{image-resource}/icons/number_1.png[] `FilterSecurityInterceptor` 从 <<servlet-authentication-securitycontextholder,SecurityContextHolder>>  获得<<servlet-authentication-authentication>>.
+image:{image-resource}/icons/number_2.png[] `FilterSecurityInterceptor` 根据传递到 `FilterSecurityInterceptor` 中的 `HttpServletRequest`,`HttpServletResponse` 和 `FilterChain` 创建一个 {security-api-url}org/springframework/security/web/FilterInvocation.html[`FilterInvocation`].
+image:{image-resource}/icons/number_3.png[] 它将 `FilterInvocation` 传递给 `SecurityMetadataSource` 以获取 `ConfigAttributes`.
+image:{image-resource}/icons/number_4.png[] 它将 `Authentication`,`FilterInvocation` 和 `ConfigAttributes` 传递给 <<authz-access-decision-manager, `AccessDecisionManager`>>.
+image:{image-resource}/icons/number_5.png[] 如果授权被拒绝,则抛出 `AccessDeniedException`.  在这种情况下,<<servlet-exceptiontranslationfilter,`ExceptionTranslationFilter`>> 处理 `AccessDeniedException`.
+image:{image-resource}/icons/number_6.png[] 如果授予访问权限,`FilterSecurityInterceptor` 继续执行 <<servlet-filters-review,FilterChain>>,该链接可允许应用程序正常处理.
 
 // configuration (xml/java)
 
@@ -31,12 +34,14 @@ image::{image-resource}/servlet/authorization/filtersecurityinterceptor.png[]
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 	http
 		// ...
 		.authorizeRequests(authorize -> authorize
 			.anyRequest().authenticated()
 		);
+	return http.build();
 }
 ----
 
@@ -52,13 +57,15 @@ protected void configure(HttpSecurity http) throws Exception {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
     http {
         // ...
         authorizeRequests {
             authorize(anyRequest, authenticated)
         }
     }
+    return http.build()
 }
 ----
 ====
@@ -70,15 +77,17 @@ fun configure(http: HttpSecurity) {
 .Java
 [source,java,role="primary"]
 ----
-protected void configure(HttpSecurity http) throws Exception {
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 	http
 		// ...
 		.authorizeRequests(authorize -> authorize                                  // <1>
-			.mvcMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
-			.mvcMatchers("/admin/**").hasRole("ADMIN")                             // <3>
-			.mvcMatchers("/db/**").access("hasRole('ADMIN') and hasRole('DBA')")   // <4>
+			.requestMatchers("/resources/**", "/signup", "/about").permitAll()         // <2>
+			.requestMatchers("/admin/**").hasRole("ADMIN")                             // <3>
+			.requestMatchers("/db/**").access("hasRole('ADMIN') and hasRole('DBA')")   // <4>
 			.anyRequest().denyAll()                                                // <5>
 		);
+	return http.build();
 }
 ----
 
@@ -101,7 +110,8 @@ protected void configure(HttpSecurity http) throws Exception {
 .Kotlin
 [source,kotlin,role="secondary"]
 ----
-fun configure(http: HttpSecurity) {
+@Bean
+open fun filterChain(http: HttpSecurity): SecurityFilterChain {
    http {
         authorizeRequests { // <1>
             authorize("/resources/**", permitAll) // <2>
@@ -113,11 +123,51 @@ fun configure(http: HttpSecurity) {
             authorize(anyRequest, denyAll) // <5>
         }
     }
+    return http.build()
 }
 ----
-====
 <1> 指定了多个授权规则.  每个规则均按其声明顺序进行考虑.
 <2> 我们指定了任何用户都可以访问的多个 URL 模式.  具体来说,如果URL以 "/resources/" 开头,等于 "/signup" 或等于 "/about",则任何用户都可以访问请求.
 <3> 以 `"/admin/"` 开头的任何 URL 都将限于角色为 `ROLE_ADMIN` 的用户.  您将注意到,由于我们正在调用 `hasRole` 方法,因此无需指定 `ROLE_` 前缀.
 <4> 任何以 "/db/" 开头的 URL 都要求用户同时具有 "ROLE_ADMIN" 和 "ROLE_DBA".  您会注意到,由于我们使用的是 `hasRole` 表达式,因此不需要指定 "ROLE_" 前缀.
 <5> 任何尚未匹配的 URL 都会被拒绝访问.  如果您不想意外忘记更新授权规则,这是一个很好的策略.
+====
+
+[[filtersecurityinterceptor-every-request]]
+== 使用 Dispatcher Types 配置 FilterSecurityInterceptor
+
+默认情况下，`FilterSecurityInterceptor` 适用于每个请求。
+这意味着，如果请求是从已过滤的请求中 dispatched 的，则 `FilterSecurityInterceptor` 将对 dispatched 的请求执行相同的授权检查。
+在某些情况下，您可能不想对某些调度程序类型应用授权：
+
+.Permit ASYNC and ERROR dispatcher types
+====
+.Java
+[source,java,role="primary"]
+----
+@Bean
+SecurityFilterChain web(HttpSecurity http) throws Exception {
+    http
+        .authorizeRequests((authorize) -> authorize
+            .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+            .anyRequest.authenticated()
+        )
+        // ...
+
+    return http.build();
+}
+----
+.XML
+[source,xml]
+----
+<http auto-config="true">
+    <intercept-url request-matcher-ref="dispatcherTypeMatcher" access="permitAll" />
+    <intercept-url pattern="/**" access="authenticated"/>
+</http>
+
+<b:bean id="dispatcherTypeMatcher" class="org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher">
+    <b:constructor-arg value="ASYNC"/>
+    <b:constructor-arg value="ERROR"/>
+</b:bean>
+----
+====

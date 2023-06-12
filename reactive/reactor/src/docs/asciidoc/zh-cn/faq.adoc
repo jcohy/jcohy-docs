@@ -69,10 +69,9 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 ====
 [source,java]
 ----
-Flux<String> secrets = Flux
-  .just("something", "chain")
-  .map(secret -> secret.replaceAll(".", "*"))
-  .subscribe(next -> System.out.println("Received: " + next));
+Flux.just("something", "chain")
+    .map(secret -> secret.replaceAll(".", "*"))
+    .subscribe(next -> System.out.println("Received: " + next));
 ----
 ====
 
@@ -149,7 +148,7 @@ Exponential backoff 的意思是进行的多次重试之间的间隔越来越长
 
 从 `3.3.4.RELEASE` 开始,Reactor 附带了用于此类重试的构建器,可与 `Flux#retryWhen`:`Retry.backoff` 一起使用.
 
-以下示例展示了构建器的简单用法,在重试尝试延迟之前和之后,hook 都记录了消息,每次重试的间隔都会递增 (伪代码: delay = attempt number * 100 milliseconds):
+以下示例展示了构建器的简单用法,在重试尝试延迟之前和之后,hook 都记录了消息,每次重试的间隔都会递增 (伪代码: delay = 100ms * 2^attempt_number_starting_at_zero):
 
 ====
 [source,java]
@@ -163,13 +162,13 @@ Flux.<String>error(new IllegalStateException("boom"))
 		})
 		.retryWhen(Retry
 				.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
-				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now() + ", attempt " + rs.totalRetries())) // <3>
 				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
 		);
 ----
 <1> 记录错误出现的时间;
 <2> 我们配置了重试 3 次的效果.
-<3> 我们还会记录重试发生的时间.
+<3> 我们还会记录重试发生的时间和重试次数（从 0 开始）
 <4> 默认情况下,将抛出 `Exceptions.retryExhausted`  异常,并以最后一个  `failure()` 为异常原因. 在这里,我们将其自定义为直接原因并作为 `onError` 发出.
 ====
 
@@ -177,23 +176,23 @@ Flux.<String>error(new IllegalStateException("boom"))
 
 ====
 ----
-java.lang.IllegalArgumentException at 18:02:29.338
-retried at 18:02:29.459 <1>
-java.lang.IllegalArgumentException at 18:02:29.460
-retried at 18:02:29.663 <2>
-java.lang.IllegalArgumentException at 18:02:29.663
-retried at 18:02:29.964 <3>
-java.lang.IllegalArgumentException at 18:02:29.964
+java.lang.IllegalStateException: boom at 00:00:00.0
+retried at 00:00:00.101, attempt 0 <1>
+java.lang.IllegalStateException: boom at 00:00:00.101
+retried at 00:00:00.304, attempt 1 <2>
+java.lang.IllegalStateException: boom at 00:00:00.304
+retried at 00:00:00.702, attempt 2 <3>
+java.lang.IllegalStateException: boom at 00:00:00.702
 ----
 <1> 第一次重试延迟大约 100ms
 <2> 第二次重试延迟大约 200ms
-<3> 第三次重试延迟大约 300ms
+<3> 第三次重试延迟大约 400ms
 ====
 
 [[faq.thread-affinity-publishon]]
 == 如何使用 `publishOn()` 确保线程 Affinity ?
 
-如  <<schedulers,Schedulers>> 所述,`publishOn()` 可以用来切换执行线程. `publishOn` 能够影响到其之后的操作符的执行线程,直到有新的 `publishOn` 出现. 所以 `publishOn` 的位置很重要.
+如  <<coreFeatures.adoc#schedulers,Schedulers>> 所述,`publishOn()` 可以用来切换执行线程. `publishOn` 能够影响到其之后的操作符的执行线程,直到有新的 `publishOn` 出现. 所以 `publishOn` 的位置很重要.
 
 考虑下面的例子:
 
@@ -233,7 +232,7 @@ source.publishOn(scheduler1)
 
 既然我们已经确定 MDC 并不是在声明性 API 中做出的最佳假设,那么如何在响应式流(`onNext`,`onError` 和 `onComplete`)中与事件相关地执行上下文化的日志语句?
 
-当人们想要以直接和明确的方式登录这些信号时,FAQ 的此项提供了一种可能的中间解决方案. 确保事先阅读  <<context>> 部分,尤其是如何在操作符链的底部进行写操作,以使上方的操作符可以看到它.
+当人们想要以直接和明确的方式登录这些信号时,FAQ 的此项提供了一种可能的中间解决方案. 确保事先阅读  <<advancedFeatures.adoc#context>> 部分,尤其是如何在操作符链的底部进行写操作,以使上方的操作符可以看到它.
 
 要从 `Context` 到 MDC 获取上下文信息,最简单的方法是使用一点样板代码将日志记录语句包装在 `doOnEach` 操作符中. 该样板取决于您选择的日志记录框架/摘要以及要放入 MDC 中的信息,因此它必须在您的代码库中.
 
@@ -257,7 +256,7 @@ public static <T> Consumer<Signal<T>> logOnNext(Consumer<T> logStatement) {
 }
 ----
 <1> `doOnEach` 信号包括 `onComplete` 和 `onError`. 在此示例中,我们仅对 `onNext` 感兴趣.
-<2> 我们将从Reactor `Context` 中提取一个有趣的值(请参见  <<context.api>> 部分)
+<2> 我们将从Reactor `Context` 中提取一个有趣的值(请参见  <<advancedFeatures.adoc#context.api>> 部分)
 <3> 在此示例中,我们使用 SLF4J 2 中的 `MDCCloseable`,允许在使用 log 语句后使用 try-with-source 语法自动清除 MDC.
 <4> 调用者以 `Consumer<T>` 的形式提供正确的日志语句(使用 onNext 值)
 <5> 如果未在 `Context` 中设置预期的密钥,我们将使用替代路径,即在 MDC 中不添加任何内容

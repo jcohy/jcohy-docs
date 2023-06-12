@@ -1,0 +1,175 @@
+= Authentication Migrations
+
+以下步骤涉及如何完成身份验证迁移。
+
+== 传播 ``AuthenticationServiceException``s
+
+{security-api-url}org/springframework/security/web/authentication/AuthenticationFilter.html[`AuthenticationFilter`] 将 {security-api-url}org/springframework/security/authentication/AuthenticationServiceException.html[``AuthenticationServiceException``]
+传播到 {security-api-url}org/springframework/security/authentication/AuthenticationEntryPoint.html[`AuthenticationEntryPoint`]。
+因为 AuthenticationServiceExceptions 表示服务器端错误而不是客户端错误，所以在 6.0 中，这会更改为将它们传播到容器。
+
+因此，如果您通过将 `rethrowAuthenticationServiceException` 设置为  `true` 来选择此行为，您现在可以像这样删除它：
+
+====
+.Java
+[source,java,role="primary"]
+----
+AuthenticationFilter authenticationFilter = new AuthenticationFilter(...);
+AuthenticationEntryPointFailureHandler handler = new AuthenticationEntryPointFailureHandler(...);
+handler.setRethrowAuthenticationServiceException(true);
+authenticationFilter.setAuthenticationFailureHandler(handler);
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authenticationFilter: AuthenticationFilter = new AuthenticationFilter(...)
+val handler: AuthenticationEntryPointFailureHandler = new AuthenticationEntryPointFailureHandler(...)
+handler.setRethrowAuthenticationServiceException(true)
+authenticationFilter.setAuthenticationFailureHandler(handler)
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<bean id="authenticationFilter" class="org.springframework.security.web.authentication.AuthenticationFilter">
+    <!-- ... -->
+    <property ref="authenticationFailureHandler"/>
+</bean>
+
+<bean id="authenticationFailureHandler" class="org.springframework.security.web.authentication.AuthenticationEntryPointFailureHandler">
+    <property name="rethrowAuthenticationServiceException" value="true"/>
+</bean>
+----
+====
+
+改为:
+
+====
+.Java
+[source,java,role="primary"]
+----
+AuthenticationFilter authenticationFilter = new AuthenticationFilter(...);
+AuthenticationEntryPointFailureHandler handler = new AuthenticationEntryPointFailureHandler(...);
+authenticationFilter.setAuthenticationFailureHandler(handler);
+----
+
+.Kotlin
+[source,kotlin,role="secondary"]
+----
+val authenticationFilter: AuthenticationFilter = new AuthenticationFilter(...)
+val handler: AuthenticationEntryPointFailureHandler = new AuthenticationEntryPointFailureHandler(...)
+authenticationFilter.setAuthenticationFailureHandler(handler)
+----
+
+.Xml
+[source,xml,role="secondary"]
+----
+<bean id="authenticationFilter" class="org.springframework.security.web.authentication.AuthenticationFilter">
+    <!-- ... -->
+    <property ref="authenticationFailureHandler"/>
+</bean>
+
+<bean id="authenticationFailureHandler" class="org.springframework.security.web.authentication.AuthenticationEntryPointFailureHandler">
+    <!-- ... -->
+</bean>
+----
+====
+
+[[servlet-opt-in-sha256-rememberme]]
+== 在 Remember Me 中使用 SHA-256
+
+在 6.0 中，`TokenBasedRememberMeServices` 使用 SHA-256 对令牌进行编码和匹配。 要完成迁移，可以删除任何默认值。
+
+例如，如果您选择使用 6.0 默认值并像这样：encodingAlgorithmmatchingAlgorithm
+
+In 6.0, the `TokenBasedRememberMeServices` uses SHA-256 to encode and match the token.
+To complete the migration, any default values can be removed.
+
+例如，如果您选择 `encodingAlgorithm` 和 `matchingAlgorithm` 作为默认值，则:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RememberMeServices rememberMeServices) throws Exception {
+        http
+                // ...
+                .rememberMe((remember) -> remember
+                    .rememberMeServices(rememberMeServices)
+                );
+        return http.build();
+    }
+    @Bean
+    RememberMeServices rememberMeServices(UserDetailsService userDetailsService) {
+        RememberMeTokenAlgorithm encodingAlgorithm = RememberMeTokenAlgorithm.SHA256;
+        TokenBasedRememberMeServices rememberMe = new TokenBasedRememberMeServices(myKey, userDetailsService, encodingAlgorithm);
+        rememberMe.setMatchingAlgorithm(RememberMeTokenAlgorithm.SHA256);
+        return rememberMe;
+    }
+}
+----
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+  <remember-me services-ref="rememberMeServices"/>
+</http>
+<bean id="rememberMeServices" class=
+"org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices">
+    <property name="userDetailsService" ref="myUserDetailsService"/>
+    <property name="key" value="springRocks"/>
+    <property name="matchingAlgorithm" value="SHA256"/>
+    <property name="encodingAlgorithm" value="SHA256"/>
+</bean>
+----
+====
+
+然后可以删除默认值:
+
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RememberMeServices rememberMeServices) throws Exception {
+        http
+                // ...
+                .rememberMe((remember) -> remember
+                    .rememberMeServices(rememberMeServices)
+                );
+        return http.build();
+    }
+    @Bean
+    RememberMeServices rememberMeServices(UserDetailsService userDetailsService) {
+        return new TokenBasedRememberMeServices(myKey, userDetailsService);
+    }
+}
+----
+.XML
+[source,xml,role="secondary"]
+----
+<http>
+  <remember-me services-ref="rememberMeServices"/>
+</http>
+<bean id="rememberMeServices" class=
+"org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices">
+    <property name="userDetailsService" ref="myUserDetailsService"/>
+    <property name="key" value="springRocks"/>
+</bean>
+----
+====
+
+== oauth2Login() 的默认权限
+
+在 Spring Security 5 中，为使用 OAuth2 或 OpenID Connect 1.0 提供程序（通过 `oauth2Login()`）进行身份验证的用户提供的默认 `GrantedAuthority` 是 `ROLE_USER`。
+
+在 Spring Security 6 中，为使用 OAuth2 提供程序进行身份验证的用户提供的默认权限是 `OAUTH2_USER`。 授予使用 OpenID Connect 1.0 提供程序进行身份验证的用户的默认权限是 `OIDC_USER`。
+如果您配置 `GrantedAuthoritiesMapper` 只是为了更新到 6.0，您可以完全删除它。

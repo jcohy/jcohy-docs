@@ -1,7 +1,7 @@
 
 [[el-access]]
 == 基于表达式的访问控制
-Spring Security 3.0 引入了使用 Spring EL 表达式作为授权机制的能力,此外还可以简单地使用配置属性和访问决定投票器.  基于表达式的访问控制基于相同的体系结构,但允许将复杂的布尔逻辑封装在单个表达式中.
+Spring Security 3.0 引入了使用 Spring Expression Language (SpEL) 表达式作为授权机制的能力,此外还可以简单地使用配置属性和访问决定投票器.  基于表达式的访问控制基于相同的体系结构,但允许将复杂的布尔逻辑封装在单个表达式中.
 
 
 === 概述
@@ -68,27 +68,27 @@ For example,
 |===
 
 
-
 [[el-access-web]]
 === Web Security 表达式
-要使用表达式保护单个URL,首先需要将 `<http>` 元素中的 `use-expressions` 属性设置为 `true`.  然后,Spring Security将期望 `<intercept-url>` 元素的访问属性包含 Spring EL 表达式.  表达式的计算结果应为布尔值,定义是否应允许访问.  例如:
+要使用表达式保护单个 URL,首先需要将 `<http>` 元素中的 `use-expressions` 属性设置为 `true`.  然后,Spring Security 将期望 `<intercept-url>` 元素的访问属性包含 Spring EL 表达式.
+每个表达式的计算结果应为布尔值,定义是否应允许访问.  例如:
 
+====
 [source,xml]
 ----
-
 <http>
 	<intercept-url pattern="/admin*"
 		access="hasRole('admin') and hasIpAddress('192.168.1.0/24')"/>
 	...
 </http>
-
 ----
+====
 
 在这里,我们定义了应用程序的 "admin" 区域(由URL模式定义) 仅对拥有授予权限 "admin" 并且其 IP 地址与本地子网匹配的用户可用.  在上一节中,我们已经看到了内置的 `hasRole` 表达式.  表达式 `hasIpAddress` 是特定于 Web 安全性的附加内置表达式.
 它由 `WebSecurityExpressionRoot` 类定义,在评估 Web 访问表达式时,将其实例用作表达式根对象.  该对象还直接在名称请求下暴露 `HttpServletRequest` 对象,因此您可以直接在表达式中调用该请求.  如果使用表达式,则将 `WebExpressionVoter` 添加到命名空间使用的 `AccessDecisionManager` 中.  因此,如果您不使用命名空间而想使用表达式,则必须在配置中添加其中之一.
 
 [[el-access-web-beans]]
-==== 在Web安全表达式中引用Bean
+==== 在 Web 安全表达式中引用 Bean
 
 如果您希望扩展可用的表达式,则可以轻松地引用您暴露的任何 Spring Bean.  例如,假设您有一个名称为 `webSecurity` 的 Bean,其中包含以下方法签名:
 
@@ -123,7 +123,7 @@ class WebSecurity {
 ----
 http
     .authorizeHttpRequests(authorize -> authorize
-        .antMatchers("/user/**").access("@webSecurity.check(authentication,request)")
+        .requestMatchers("/user/**").access("@webSecurity.check(authentication,request)")
         ...
     )
 ----
@@ -188,7 +188,7 @@ class WebSecurity {
 ----
 http
 	.authorizeHttpRequests(authorize -> authorize
-		.antMatchers("/user/{userId}/**").access("@webSecurity.checkUserId(authentication,#userId)")
+		.requestMatchers("/user/{userId}/**").access("@webSecurity.checkUserId(authentication,#userId)")
 		...
 	);
 ----
@@ -224,10 +224,12 @@ http {
 ==== @Pre 和 @Post 注解
 有四个注解支持表达式属性,以允许调用前和调用后的授权检查,还支持过滤提交的集合参数或返回值.  它们是 `@PreAuthorize`,`@PreFilter`,`@PostAuthorize` 和 `@PostFilter`.  通过 `global-method-security` 命名空间元素启用它们的使用:
 
+====
 [source,xml]
 ----
 <global-method-security pre-post-annotations="enabled"/>
 ----
+====
 
 ===== 使用 `@PreAuthorize` 和 `@PostAuthorize` 的访问控制
 最明显有用的注解是 `@PreAuthorize`,它决定是否可以实际调用方法.
@@ -249,7 +251,7 @@ fun create(contact: Contact?)
 ----
 ====
 
-这意味着只有角色为 "ROLE_USER" 的用户才能访问.  显然,使用传统配置和所需角色的简单配置属性可以轻松实现同一目标.  但是关于:
+这意味着只有角色为 "ROLE_USER" 的用户才能访问.  显然,使用传统配置和所需角色的简单配置属性可以轻松实现同一目标.  但是，请考虑以下示例：
 
 ====
 .Java
@@ -271,7 +273,8 @@ fun deletePermission(contact: Contact?, recipient: Sid?, permission: Permission?
 
 Spring Security 可以通过多种方式来解析方法参数.  Spring Security 使用 `DefaultSecurityParameterNameDiscoverer` 发现参数名称.  默认情况下,将对整个方法尝试以下选项.
 
-* I如果Spring Security 的 `@P` 注解出现在方法的单个参数上,则将使用该值.  这对于使用 JDK 8 之前的 JDK 编译的接口非常有用,该接口不包含有关参数名称的任何信息.  例如:
+* 如果 Spring Security 的 `@P` 注解出现在方法的单个参数上,则将使用该值.  这对于使用 JDK 8 之前的 JDK 编译的接口非常有用,该接口不包含有关参数名称的任何信息.
+以下示例使用了 `@P` 注解:
 
 +
 
@@ -300,13 +303,11 @@ fun doSomething(@P("c") contact: Contact?)
 ====
 
 +
-
 在后台使用 `AnnotationParameterNameDiscoverer` 实现此用法,可以对它进行自定义以支持任何指定注解的 `value` 属性.
 
-* 如果该方法的至少一个参数上存在 Spring Data 的 `@Param` 注解,则将使用该值.  这对于使用 JDK 8 之前的 JDK 编译的接口非常有用,该接口不包含有关参数名称的任何信息.  例如:
-
+* 如果该方法的至少一个参数上存在 Spring Data 的 `@Param` 注解,则将使用该值.  这对于使用 JDK 8 之前的 JDK 编译的接口非常有用,该接口不包含有关参数名称的任何信息.
+以下示例使用了 `@Param` 注解:
 +
-
 ====
 .Java
 [source,java,role="primary"]
@@ -364,9 +365,10 @@ fun doSomething(contact: Contact?)
 在这里,我们访问另一个内置表达式 `authentication`,这是存储在安全上下文中的 `Authentication`.  您也可以使用表达式 "principal" 直接访问其 `principal` 属性.  该值通常是 `UserDetails` 实例,因此您可以使用诸如 `principal.username` 或 `principal.enabled` 之类的表达式.
 
 .[[el-pre-post-annotations-post]]
---
-不太常见的是,您可能希望在调用该方法之后执行访问控制检查.  这可以使用 `@PostAuthorize` 注解来实现.  要从方法访问返回值,请在表达式中使用内置名称 `returnObject`.
---
+
+在这里，我们访问另一个内置表达式 `authentication`，它是存储在安全上下文中的 `Authentication`。
+您还可以使用 `principal` 表达式直接访问其 `principal` 属性。
+该值通常是一个 `UserDetails` 实例，因此您可以使用诸如 `principal.username` 或 `principal.enabled` 之类的表达式。
 
 ===== 使用 @PreFilter 和 @PostFilter 过滤器
 您可能已经知道,Spring Security 支持 collections, arrays, maps 和 streams 的过滤,现在可以使用表达式来实现.  这通常在方法的返回值上执行.  例如:
@@ -403,8 +405,9 @@ fun getAll(): List<Contact?>
 
 [[el-permission-evaluator]]
 ===== PermissionEvaluator 接口
-`hasPermission()` 表达式委托给 `PermissionEvaluator` 的实例.  它旨在在表达式系统和 Spring Security 的 ACL 系统之间架起桥梁,使您可以基于抽象权限在域对象上指定授权约束.  它对 ACL 模块没有明确的依赖,因此如果需要,您可以将其换成其他实现.  该接口有两种方法:
+`hasPermission()` 表达式委托给 `PermissionEvaluator` 的实例.  它旨在在表达式系统和 Spring Security 的 ACL 系统之间架起桥梁,使您可以基于抽象权限在领域对象上指定授权约束.  它对 ACL 模块没有明确的依赖,因此如果需要,您可以将其换成其他实现.  该接口有两种方法:
 
+====
 [source,java]
 ----
 boolean hasPermission(Authentication authentication, Object targetDomainObject,
@@ -413,12 +416,14 @@ boolean hasPermission(Authentication authentication, Object targetDomainObject,
 boolean hasPermission(Authentication authentication, Serializable targetId,
 							String targetType, Object permission);
 ----
+====
 
-它直接映射到表达式的可用版本,但不提供第一个参数(`Authentication` 对象) .  第一种方法用于已经控制访问的域对象已经加载的情况.  如果当前用户对该对象具有给定的权限,则 expression 将返回 `true`.
-第二种版本用于未加载对象但已知其标识符的情况.  还需要域对象的抽象 "type" 说明符,以允许加载正确的 ACL 权限.  传统上,这是对象的Java 类,但是不必与对象的权限加载方式一致.
+它直接映射到表达式的可用版本,但不提供第一个参数(`Authentication` 对象) .  第一种方法用于已经控制访问的领域对象已经加载的情况.  如果当前用户对该对象具有给定的权限,则 expression 将返回 `true`.
+第二种版本用于未加载对象但已知其标识符的情况.  还需要领域对象的抽象 "type" 说明符,以允许加载正确的 ACL 权限.  传统上,这是对象的Java 类,但是不必与对象的权限加载方式一致.
 
 要使用 `hasPermission()` 表达式,必须在应用程序上下文中显式配置 `PermissionEvaluator`.  看起来像这样:
 
+====
 [source,xml]
 ----
 <security:global-method-security pre-post-annotations="enabled">
@@ -430,6 +435,7 @@ boolean hasPermission(Authentication authentication, Serializable targetId,
 	<property name="permissionEvaluator" ref="myPermissionEvaluator"/>
 </bean>
 ----
+====
 
 其中 `myPermissionEvaluator` 是实现 `PermissionEvaluator` 的bean.  通常,这将是来自 ACL 模块(称为 `AclPermissionEvaluator`) 的实现.  有关更多详细信息,请参见 {gh-samples-url}/servlet/xml/java/contacts[Contacts]  示例应用程序配置.
 
@@ -437,10 +443,12 @@ boolean hasPermission(Authentication authentication, Serializable targetId,
 
 您可以使用元注解来保证方法的安全性,以使代码更具可读性.  如果发现在整个代码库中重复相同的复杂表达式,这将特别方便.  例如,考虑以下内容:
 
+====
 [source,java]
 ----
 @PreAuthorize("#contact.name == authentication.name")
 ----
+====
 
 无需在所有地方重复此操作,我们可以创建可以使用的元注解.
 

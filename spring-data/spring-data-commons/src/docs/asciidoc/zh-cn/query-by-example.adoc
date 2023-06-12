@@ -4,31 +4,32 @@
 [[query-by-example.introduction]]
 == 简介
 
-本章对 "按示例查询" 进行了介绍,并说明了如何使用它.
+本章对 "Example 查询" 进行了介绍,并说明了如何使用它.
 
-示例查询 (QBE) 是一种具有简单界面的用户友好查询技术.  它允许动态查询创建,并且不需要您编写包含字段名称的查询.  实际上,"示例查询" 根本不需要您使用存储库特定的查询语言编写查询.
+Example 查询（QBE） 是一种用户友好的查询技术，接口简单。  它允许动态创建查询,并且不需要您编写包含字段名称的查询.  实际上,"Example 查询" 根本不需要您使用特定存储库的查询语言编写查询.
 
 [[query-by-example.usage]]
 == 使用
 
-示例查询由三部分组成:
+Example 查询由四部分组成:
 
-* Probe: 带有填充字段的 domain 对象的实际示例.
+* `Probe`: 带有填充字段的 domain 对象的实际例子.
 * `ExampleMatcher`: `ExampleMatcher` 包含有关如何匹配特定字段的详细信息.  可以在多个示例中重复使用它.
-* `Example`: 示例包括探针和 `ExampleMatcher`.  它用于创建查询.
+* `Example`: 一个 Example 由 `Probe` 和 `ExampleMatcher` 组成。  它用于创建查询。
+* `FetchableFluentQuery`: `FetchableFluentQuery` 提供了一个流式 API，允许进一步自定义从 `Example` 衍生的查询。 使用流式的 API，您可以为查询指定排序投影和结果处理。
 
-示例查询非常适合几种用例:
+Example 查询非常适合几种用例:
 
 * 使用一组静态或动态约束来查询数据存储.
 * 频繁重构 domain 对象,而不必担心破坏现有查询.
 * 独立于基础数据存储 API 进行工作.
 
-示例查询也有一些限制:
+Example 查询也有一些限制:
 
 * 不支持嵌套或分组属性约束,例如 `firstname = ?0 or (firstname = ?1 and lastname = ?2)`.
 * 仅支持字符串的开始/包含/结束/正则表达式匹配,以及其他属性类型的完全匹配.
 
-在开始使用示例查询之前,您需要具有一个 domain 对象.  首先,为您的存储库创建一个接口,如以下示例所示:
+在开始使用 Example 查询之前,您需要具有一个 domain 对象.  首先,为您的存储库创建一个接口,如以下示例所示:
 
 .简单 Person 对象
 ====
@@ -47,10 +48,9 @@ public class Person {
 ----
 ====
 
-前面的示例显示了一个简单的域对象.  您可以使用它来创建一个 `Example`.  默认情况下,具有 `null` 的字段将被忽略,并且使用存储特定的默认值来匹配字符串.  可以使用工厂方法或使用 `ExampleMatcher` 构建示例.  例子是一成不变的.  以下清单显示了一个简单的示例:
+前面的示例显示了一个简单的领域对象.  您可以使用它来创建一个 `Example`.  默认情况下,具有 `null` 的字段将被忽略,并且使用存储特定的默认值来匹配字符串.  可以使用工厂方法或使用 `ExampleMatcher` 构建示例.  例子是一成不变的.  以下清单显示了一个简单的示例:
 
-NOTE: 由于可空性， 可以将属性包含在 "按示例查询" . 除非 <<query-by-example.matchers,忽略属性路径>>， 否则始终包括使用基本类型(`int`, `double`, …) 的属性 .
-
+NOTE: 由于可空性， 可以将属性包含在 "Example 查询" . 除非 <<query-by-example.matchers,`ExampleMatcher` 忽略属性路径>>， 否则始终包括使用基本类型(`int`, `double`, …) 的属性 .
 
 .简单示例
 ====
@@ -86,7 +86,7 @@ public interface QueryByExampleExecutor<T> {
 [[query-by-example.matchers]]
 == Example 匹配
 
-示例不限于默认设置.  您可以使用 `ExampleMatcher` 为字符串匹配,空值处理和特定于属性的设置指定自己的默认值,如以下示例所示:
+Example 不限于默认设置.  您可以使用 `ExampleMatcher` 为字符串匹配,空值处理和特定于属性的设置指定自己的默认值,如以下示例所示:
 
 .具有定制匹配的例子匹配器
 ====
@@ -103,16 +103,16 @@ ExampleMatcher matcher = ExampleMatcher.matching()     <3>
 Example<Person> example = Example.of(person, matcher); <7>
 
 ----
-<1> 创建域对象的新实例.
+<1> 创建领域对象的新实例.
 <2> 设置属性.
-<3> 创建一个 `ExampleMatcher` 以期望所有值都匹配.  即使没有进一步的配置,它也可以在此阶段使用.
+<3> 创建一个 `ExampleMatcher` 期望所有的值都能匹配.  即使没有进一步的配置,它也可以在此阶段使用.
 <4> 构造一个新的 `ExampleMatcher` 以忽略 `lastname` 属性路径.
 <5> 构造一个新的 `ExampleMatcher` 以忽略 `lastname` 属性路径并包含空值.
 <6> 构造一个新的 `ExampleMatcher` 以忽略 `lastname` 属性路径,包括空值,并执行后缀字符串匹配.
-<7> 基于域对象和配置的 `ExampleMatcher` 创建一个新的 `Example`.
+<7> 基于领域对象和配置的 `ExampleMatcher` 创建一个新的 `Example`.
 ====
 
-默认情况下,`ExampleMatcher` 期望设置的所有值都匹配.  如果要获取与隐式定义的任何断言匹配的结果,请使用  `ExampleMatcher.matchingAny()`.
+默认情况下,`ExampleMatcher` 希望 probe 上设置的所有值都能匹配。  如果要获取与隐式定义的任何断言匹配的结果,请使用  `ExampleMatcher.matchingAny()`.
 
 您可以为单个属性 (例如  "firstname" 和 "lastname",或者对于嵌套属性,"address.city") 指定行为.  您可以使用匹配选项和区分大小写对其进行调整,如以下示例所示:
 
@@ -127,7 +127,8 @@ ExampleMatcher matcher = ExampleMatcher.matching()
 ----
 ====
 
-配置匹配器选项的另一种方法是使用 lambda (在 Java 8 中引入) .  此方法创建一个回调,要求实现者修改匹配器.  您无需返回匹配器,因为配置选项保存在匹配器实例中.  以下示例显示了使用 lambda 的匹配器:
+配置 `matcher` 选项的另一种方法是使用 lambda (在 Java 8 中引入) .  此方法创建一个回调,要求实现者修改 `matcher`。  您无需返回 `matcher`,因为配置选项保存在 `matcher` 实例中.
+以下示例显示了使用 lambda 的 `matcher`:
 
 .用lambdas配置匹配器选项
 ====
@@ -167,3 +168,26 @@ ExampleMatcher matcher = ExampleMatcher.matching()
 | Property path
 
 |===
+
+[[query-by-example.fluent]]
+== Fluent API
+
+`QueryByExampleExecutor` 提供了另一种方法，我们目前尚未提及：`<S extends T, R> R findBy(Example<S> example, Function<FluentQuery.FetchableFluentQuery<S>, R> queryFunction)`。
+与其他方法一样，它执行从 `Example` 派生的查询。 但是，使用第二个参数，您可以控制您无法动态控制的执行的各个方面。
+您可以通过在第二个参数中调用 `FetchableFluentQuery` 的各种方法来实现。
+`sortBy` 允许您为结果指定排序。
+`as` 允许您指定要将结果转换为的类型。
+`project` 限制查询的属性。
+`first`, `firstValue`, `one`, `oneValue`, `all`, `page`, `stream`, `count` 和 `exists` 定义了你得到什么样的结果以及当更多的时候查询的行为 可用的结果数量超出预期。
+
+.使 fluent API 来获得可能是许多结果中的最后一个，按 lastname 排序。
+====
+[source,java]
+----
+Optional<Person> match = repository.findBy(example,
+    q -> q
+        .sortBy(Sort.by("lastname").descending())
+        .first()
+);
+----
+====

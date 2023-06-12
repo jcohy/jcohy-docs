@@ -3,20 +3,25 @@
 [[authz-arch]]
 = 授权体系结构
 
+本节介绍 Spring Security 授权架构。
+
 [[authz-authorities]]
 == Authorities
 正如我们在 <<servlet-authentication-authentication,`Authentication`>> 所看到,所有的 `Authentication` 实现都存储了 `GrantedAuthority` 列表. 这些代表已授予主体的权限.  `GrantedAuthority` 对象由 `AuthenticationManager` 插入 `Authentication` 对象,并在以后做出授权决策时由 `AccessDecisionManager` 读取.
 
 `GrantedAuthority` 接口只有一个方法:
 
+====
 [source,java]
 ----
 
 String getAuthority();
 
 ----
+====
 
-此方法使 `AuthorizationManager` 可以获取 `GrantedAuthority` 的 `String` 表示形式。通过以字符串形式返回,大多数 `AccessDecisionManager` 和 `AuthorizationManager` 都可以轻松地读取 `GrantedAuthority`.  如果 `GrantedAuthority` 无法精确地表示为 `String`,则 `GrantedAuthority` 被视为 "complex" ,并且 `getAuthority()` 必须返回 `null`.
+此方法使 `AuthorizationManager` 可以获取 `GrantedAuthority` 的 `String` 表示形式。通过以字符串形式返回,大多数 `AccessDecisionManager` 和 `AuthorizationManager` 都可以轻松地读取 `GrantedAuthority`.
+如果 `GrantedAuthority` 无法精确地表示为 `String`,则 `GrantedAuthority` 被视为 "complex" ,并且 `getAuthority()` 必须返回 `null`.
 
 "complex" `GrantedAuthority的` 示例将是一种实现,该实现存储适用于不同客户帐号的一系列操作和权限阈值.
 将复杂的 `GrantedAuthority` 表示为 String 会非常困难,因此 `getAuthority()` 方法应返回 `null`.  这将向任何 `AuthorizationManager` 指示它将需要特别支持 `GrantedAuthority` 实现,以便理解其内容.
@@ -36,6 +41,7 @@ Spring Security 提供了拦截器,用于控制对安全对象的访问,例如�
 ``AuthorizationManager``s 由 <<servlet-authorization-authorizationfilter,`AuthorizationFilter`>> 调用，并负责做出最终的访问控制决策。
 `AuthorizationManager` 接口包含两个方法:
 
+====
 [source,java]
 ----
 AuthorizationDecision check(Supplier<Authentication> authentication, Object secureObject);
@@ -45,6 +51,7 @@ default AuthorizationDecision verify(Supplier<Authentication> authentication, Ob
     // ...
 }
 ----
+====
 
 `AuthorizationManager` 的 `check` 方法传递了它需要的所有相关信息，以便做出授权决定。 特别是，传递安全 `Object`  可以检查包含在实际安全对象调用中的那些参数。
 例如，假设安全对象是 `MethodInvocation`。
@@ -114,7 +121,7 @@ public class AccessDecisionManagerAuthorizationManagerAdapter implements Authori
     @Override
     public AuthorizationDecision check(Supplier<Authentication> authentication, Object object) {
         try {
-            Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+            Collection<ConfigAttribute> attributes = this.securityMetadataSource.getAttributes(object);
             this.accessDecisionManager.decide(authentication.get(), object, attributes);
             return new AuthorizationDecision(true);
         } catch (AccessDeniedException ex) {
@@ -124,7 +131,7 @@ public class AccessDecisionManagerAuthorizationManagerAdapter implements Authori
 
     @Override
     public void verify(Supplier<Authentication> authentication, Object object) {
-        Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+        Collection<ConfigAttribute> attributes = this.securityMetadataSource.getAttributes(object);
         this.accessDecisionManager.decide(authentication.get(), object, attributes);
     }
 }
@@ -147,7 +154,7 @@ public class AccessDecisionVoterAuthorizationManagerAdapter implements Authoriza
 
     @Override
     public AuthorizationDecision check(Supplier<Authentication> authentication, Object object) {
-        Collection<ConfigAttributes> attributes = this.securityMetadataSource.getAttributes(object);
+        Collection<ConfigAttribute> attributes = this.securityMetadataSource.getAttributes(object);
         int decision = this.accessDecisionVoter.vote(authentication.get(), object, attributes);
         switch (decision) {
         case ACCESS_GRANTED:
@@ -182,7 +189,7 @@ AccessDecisionVoter hierarchyVoter() {
     hierarchy.setHierarchy("ROLE_ADMIN > ROLE_STAFF\n" +
             "ROLE_STAFF > ROLE_USER\n" +
             "ROLE_USER > ROLE_GUEST");
-    return new RoleHierarcyVoter(hierarchy);
+    return new RoleHierarchyVoter(hierarchy);
 }
 ----
 
@@ -240,6 +247,8 @@ boolean supports(Class clazz);
 === 基于 `AccessDecisionManager` 实现
 尽管用户可以实现自己的 `AccessDecisionManager` 来控制授权的各个方面,但是 Spring Security 包括几种基于投票策略的 `AccessDecisionManager` 实现.  图11.1 <<authz-access-voting,访问决策管理器>> 说明了相关的类.
 
+下图显示了 `AccessDecisionManager` 接口：
+
 [[authz-access-voting]]
 .Voting Decision Manager
 image::{image-resource}/servlet/authorization/access-decision-voting.png[]
@@ -249,6 +258,7 @@ image::{image-resource}/servlet/authorization/access-decision-voting.png[]
 
 `AccessDecisionVoter` 接口具有三种方法:
 
+====
 [source,java]
 ----
 int vote(Authentication authentication, Object object, Collection<ConfigAttribute> attrs);
@@ -257,6 +267,7 @@ boolean supports(ConfigAttribute attribute);
 
 boolean supports(Class clazz);
 ----
+====
 
 具体的实现返回一个 `int`,可能的值在 `AccessDecisionVoter` 的静态字段 `ACCESS_ABSTAIN`,`ACCESS_DENIED` 和 `ACCESS_GRANTED` 中.  如果对授权决定没有意见,则将返回 `ACCESS_ABSTAIN`.  如果确实有意见,则必须返回 `ACCESS_DENIED` 或 `ACCESS_GRANTED`.
 
@@ -277,13 +288,13 @@ Spring Security 提供的最常用的 `AccessDecisionVoter` 是 `RoleVoter`,它�
 ==== AuthenticatedVoter
 我们暗中看到的另一个投票者是 `AuthenticatedVoter`,它可用于区分匿名,完全认证和记住我的认证用户.  许多站点允许使用 "记住我" 身份验证进行某些受限访问,但是要求用户通过登录以进行完全访问来确认其身份.
 
-当我们使用属性 `IS_AUTHENTICATED_ANONYMOUSLY` 授予匿名访问权限时,此属性已由 `AuthenticatedVoter` 处理.  有关更多信息,请参见Javadoc.
+当我们使用属性 `IS_AUTHENTICATED_ANONYMOUSLY` 授予匿名访问权限时,此属性已由 `AuthenticatedVoter` 处理.  有关更多信息,请参见 {security-api-url}org/springframework/security/access/vote/AuthenticatedVoter.html[`AuthenticatedVoter`] Javadoc.
 
 
 [[authz-custom-voter]]
 ==== 自定义投票者
 显然,您还可以实现一个自定义的 `AccessDecisionVoter`,并且可以将几乎任何所需的访问控制逻辑放入其中.
-它可能特定于您的应用程序 (与业务逻辑相关) ,也可能实现某些安全管理逻辑.  例如,您会在Spring网站上找到一篇 https://spring.io/blog/2009/01/03/spring-security-customization-part-2-adjusting-secured-session-in-real-time[博客文章],其中描述了如何使用投票器实时拒绝帐户被暂停的用户的实时访问.
+它可能特定于您的应用程序 (与业务逻辑相关) ,也可能实现某些安全管理逻辑.  例如,您会在 Spring 网站上找到一篇 https://spring.io/blog/2009/01/03/spring-security-customization-part-2-adjusting-secured-session-in-real-time[博客文章],其中描述了如何使用投票器实时拒绝帐户被暂停的用户的实时访问.
 
 [[authz-after-invocation]]
 .调用后实现

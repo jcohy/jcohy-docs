@@ -1,0 +1,37 @@
+= 会话管理迁移
+
+以下步骤涉及如何完成会话管理迁移。
+
+== 需要显式保存 SecurityContextRepository
+
+在 Spring Security 5 中，默认行为是使用 `SecurityContextPersistenceFilter` 将 <<servlet-authentication-securitycontext,`SecurityContext`>> 自动保存到 <<securitycontextrepository,`SecurityContextRepository`>>。
+保存操作必须在提交 `HttpServletResponse` 和 <<securitycontextpersistencefilter,`SecurityContextPersistenceFilter`>> 之前完成。
+不幸的是，当 `SecurityContext` 在请求完成之前（即在提交 `HttpServletResponse` 之前）完成自动持久化时，可能会让用户感到惊讶。 跟踪状态以确定是否需要保存也很复杂，有时会导致不必要的写入 `SecurityContextRepository`（即 `HttpSession`）。
+
+在 Spring Security 6 中，默认行为是 <<securitycontextholderfilter,`SecurityContextHolderFilter`>> 只会从 `SecurityContextRepository` 中读取 `SecurityContext` 并将其填充到 `SecurityContextHolder` 中。 如果用户希望 `SecurityContext` 在请求之间持续存在，
+他们现在必须使用 `SecurityContextRepository` 显式保存 `SecurityContext`。 这通过仅在必要时才要求写入 `SecurityContextRepository`（即 `HttpSession`）来消除歧义并提高性能。
+
+如果您明确选择 Spring Security 6 的新默认值，则可以删除以下配置以接受 Spring Security 6 默认值。
+
+include::../../../partials/servlet/architecture/security-context-explicit.adoc[]
+
+== 多个 SecurityContextRepository
+
+在 Spring Security 5 中，默认的 <<securitycontextrepository,`SecurityContextRepository`>> 是 `HttpSessionSecurityContextRepository`。
+
+在 Spring Security 6 中，默认的 `SecurityContextRepository` 是 `DelegatingSecurityContextRepository`。 如果您配置 `SecurityContextRepository` 只是为了更新到 6.0，您可以完全删除它。
+
+== SecurityContextRepository 中的弃用
+
+此弃用没有进一步的迁移步骤。
+
+[[requestcache-query-optimization]]
+== 优化 `RequestCache` 查询
+
+在 Spring Security 5 中，默认是在每次请求时查询 <<savedrequests,保存请求>>。 这意味着在典型的设置中，为了使用 `RequestCache`，`HttpSession` 会在每个请求上被查询。
+
+在 Spring Security 6 中，默认情况下，如果定义了 HTTP 参数 `continue`，<<requestcache,RequestCache>> 只会查询缓存的请求。 这可以避免 Spring Security 使用 `RequestCache` 读取 `HttpSession`。
+
+在 Spring Security 5 中，默认使用 `HttpSessionRequestCache`，它将在每个请求上查询缓存请求。 如果您没有覆盖默认值（即使用 `NullRequestCache`），则可以使用以下配置显式选择 Spring Security 5.8 中的 Spring Security 6 行为：
+
+include::../../../partials/servlet/architecture/request-cache-continue.adoc[]

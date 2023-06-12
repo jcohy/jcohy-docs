@@ -11,6 +11,7 @@
 * <<scheduler-factory>>
 * <<hooks>>
 * <<context>>
+* <<context.propagation>>
 * <<null-safety>>
 * <<cleanup>>
 
@@ -181,7 +182,7 @@ hotSource.emitNext("orange", FAIL_FAST);
 hotSource.emitNext("purple", FAIL_FAST);
 hotSource.emitComplete(FAIL_FAST);
 ----
-<1> for more details about sinks, see <<sinks>>
+<1> for more details about sinks, see <<coreFeatures.adoc#sinks>>
 <2> side note: `orThrow()` here is an alternative to `emitNext` + `Sinks.EmitFailureHandler.FAIL_FAST`
 that is suitable for tests, since throwing there is acceptable (more so than in reactive
 applications).
@@ -502,7 +503,7 @@ parallel-2 -> 10
 [[scheduler-factory]]
 == 替换默认的 `Schedulers`
 
-就像我们在  <<schedulers>>(Schedulers) 这一节看到的那样, Reactor Core 内置许多 Scheduler 的具体实现. 你可以用形如 `new*` 的工厂方法来创建调度器,每一种调度器都有一个单例对象,
+就像我们在  <<coreFeatures.adoc#schedulers>>(Schedulers) 这一节看到的那样, Reactor Core 内置许多 Scheduler 的具体实现. 你可以用形如 `new*` 的工厂方法来创建调度器,每一种调度器都有一个单例对象,
 你可以使用单例工厂方法 (比如 `Schedulers.elastic()` 而不是 `Schedulers.newElastic()`)来获取它.
 
 当你不明确指定调度器的时候,那些需要调度器的操作符会使用这些默认的单例调度器对象.例如, `Flux#delayElements(Duration)` 使用的是 `Schedulers.parallel()` 调度器对象.
@@ -568,7 +569,7 @@ Reactor 还有另外一类可配置的应用于多种场合的回调,它们都�
 
 * `onNextDroppedFail()`: `onNextDropped` 通常会抛出 `Exceptions.failWithCancel()` 异常. 现在它默认还会以 DEBUG 级别对被丢弃的值记录日志.如果想回到原来的只是抛出异常的方式,使用 `onNextDroppedFail()`.
 
-* `onOperatorDebug()`: 这个方法会激活 <<debug-activate,debug mode>>.它与 `onOperatorError` hook 关联,所以调用 `resetOnOperatorError()` 同时也会重置它.不过它内部也用到了特别的识别符, 你可以通过 `resetOnOperatorDebug()` 方法来重置它.
+* `onOperatorDebug()`: 这个方法会激活 <<debugging.adoc#debug-activate,debug mode>>.它与 `onOperatorError` hook 关联,所以调用 `resetOnOperatorError()` 同时也会重置它.不过它内部也用到了特别的识别符, 你可以通过 `resetOnOperatorDebug()` 方法来重置它.
 
 [[context]]
 == 增加一个 Context 到响应式序列
@@ -607,7 +608,7 @@ IMPORTANT: 这是一个主要面向库开发人员的高级功能.这需要开�
 [[context.api]]
 === `Context` API
 
-`Context` 是一个类似于 `Map`(这种数据结构)的接口:它存储键值(key-value)对,你需要通过 key 来获取值，还提供了一个简化的 `ContextView`:
+`Context` 是一个类似于 `Map`(这种数据结构)的接口:它存储键值 (key-value)对,你需要通过 key 来获取值，还提供了一个简化的 `ContextView`:
 
 * key 和 value 都是 `Object` 类型,所以 `Context` (和 `ContextView` ) 可以包含任意数量的任意对象.
 * `Context` 是 不可变的(immutable).它公开了像 `put` 和 `putAll`  这样的写方法，但它们会产生一个新实例。
@@ -652,8 +653,8 @@ can be materialized using `Mono.deferContextual(Mono::just)`. Usually though, yo
 to perform meaningful work directly within the defer's lambda, eg. `Mono.deferContextual(ctx -> doSomethingAsyncWithContextData(v, ctx.get(key)))`
 where `v` is the value being flatMapped.
 
-TIP: In order to read from the `Context` without misleading users into thinking one can write to it
-while data is running through the pipeline, only the `ContextView` is exposed by the operators above.
+TIP: 为了不误导用户，认为可以写入的情况下从 `Context` 中读取，当数据通过管道运行时，上面的运算符只会暴露 `ContextView`。
+如果需要使用仍然需要 `Context` 的其余 API 之一，可以使用 `Context.of(contextView)` 进行转换。
 
 === 简单的 `Context` 例子
 
@@ -856,6 +857,8 @@ public void contextForLibraryReactivePut() {
 ----
 ====
 
+include::advanced-contextPropagation.adoc[leveloffset=1]
+
 [[cleanup]]
 == 处理需要清理的对象
 
@@ -923,7 +926,7 @@ Reactor 自身就用到了这些注解,你也可以将其用于任何基于 Reac
 
 NOTE: 对于 Kotlin 1.1.5+,需要(同时也推荐)在项目 classpath 中添加对 JSR 305 的依赖.
 
-它们也可在 Kotlin 中使用,Kotlin 原生支持 https://kotlinlang.org/docs/reference/null-safety.html[null safety].具体请参考 <<kotlin-null-safety,this dedicated section>> .
+它们也可在 Kotlin 中使用,Kotlin 原生支持 https://kotlinlang.org/docs/reference/null-safety.html[null safety].具体请参考 <<kotlin.adoc#kotlin-null-safety,this dedicated section>> .
 
 `reactor.util.annotation` 包提供以下注解:
 
