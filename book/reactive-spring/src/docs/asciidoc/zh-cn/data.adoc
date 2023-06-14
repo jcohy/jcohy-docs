@@ -4,21 +4,21 @@
 
 在本章中，我们将研究如何以原生响应式使用数据。响应式数据访问驱动程序和客户端使用异步 IO 并支持背压。 他们应该能够独立于线程扩展读写。
 
-Spring Data 可以在这里帮助我们。Spring Data 是一个综合项目，由许多支持 NoSQL 和 RDBMS 连接的模块组成，用于一些不同的数据存储和数据访问客户端。
+Spring Data 可以帮助我们。Spring Data 是一个综合项目，由许多支持 NoSQL 和 RDBMS 连接的模块组成，用于一些不同的数据存储和数据访问客户端。
 在某些情况下，对于某些 `RDBMSes`、`Cassandra`、`MongoDB`、`Couchbase` 和 `Redis`，Spring Data 支持传统的阻塞和响应式非阻塞。 这些响应式替代方案是使用异步或响应式驱动程序从头开始构建的。
-正是出于这个原因，我们还不一定有一些非响应性 Spring Data 模块的响应式替代方案。 例如，已经讨论了 Spring Data `Neo4j` 响应式模块。
+正是出于这个原因，我们还有一些非响应性 Spring Data 模块的响应式替代方案。 例如，已经讨论了 Spring Data `Neo4j` 响应式模块。
 
-我们将在本章中研究一些响应式选项。 响应式模块不是传统和阻塞选项的直接替代品，因此本章固有的现实是您可能需要重构现有的数据访问代码以支持响应式。 这也是一项非常重要的工作！
+我们将在本章中研究一些响应式选择。 响应式模块不是传统阻塞的替代品，因此本章固有的现实是您可能需要重构现有的数据访问代码以支持响应式。 这也是一项非常重要的工作！
 
 == 为什么需要响应式？
 
 那么，你为什么要这样做？ 为什么在处理数据时需要响应式。 在考虑响应式编程时，数据是主要动机。 响应式编程支持更高效地使用线程，并允许系统中的节点同时处理更多 IO 工作。
-响应式编程为您提供了更简洁的 API 来处理数据流。 它使您可以更自然地加入、拆分、过滤和以其他方式转换数据流。 响应式编程在 API 中支持显示错误处理和背压，为消费者提供一致的表面级 API，通过该 API 处理导致系统不稳定的极端情况。
+响应式编程为您提供了更简洁的 API 来处理数据流。 它使您可以更自然地加入、拆分、过滤和以其他方式转换数据流。 响应式编程 API 支持显示错误处理和背压，为消费者提供一致的表面 API，通过该 API 处理导致系统不稳定的极端情况。
 
-最后一点至关重要。 请记住，所有系统都存在这种不稳定性，但我们往往无法在我们的阻塞代码中解决它。我们简化的抽象让我们对机器和网络的现实视而不见。 这里的观察力是我们是优秀的开发人员，但很容易看不到这些问题。
+最后一点至关重要。 请记住，所有系统都存在这种不稳定性，我们往往无法在我们的阻塞代码中解决它。我们简化的抽象让我们对机器和网络的现实视而不见。 一切都靠我们开发人员的观察力，但很容易看不到这些问题。
 响应式编程使我们能够以一种一致的、易于理解的方式来面对这些问题。
 
-如今，以数据为中心的应用程序已成为必需品。 组织正在通过网络将越来越多的数据从一项服务移动到另一项服务，并且它们正在以越来越快的速度生成更多数据。 传感器数据、移动网络、社交网络活动、大数据和分析、点击流跟踪、机器学习、人工智能，
+如今，以数据为中心的应用程序已成为必需品。 通过网络将越来越多的数据从一项服务移动到另一项服务，并且它们正在以越来越快的速度生成更多数据。 传感器数据、移动网络、社交网络活动、大数据和分析、点击流跟踪、机器学习、人工智能，
 当然还有存储冗余数据的成本不断下降，这些都促进了我们应用程序和组织中产生的数据的增长。 响应式编程让我们尽可能高效地管理尽可能多的数据。
 
 底线：响应式编程可能会提供一种更优雅的数据处理方式，并且它可能会提供一种方式来处理具有相同资源（连接、线程和硬件）的更多用户。
@@ -32,10 +32,11 @@ Spring Data 可以在这里帮助我们。Spring Data 是一个综合项目，�
 
 SQL 数据存储符合 ACID 标准。 它们支持原子地提交或撤销事务。 在使用 SQL 数据存储时，我们用于 SQL 数据访问的任何方法都需要支持事务。
 
-NoSQL 数据存储不支持事务是一种常见的误解。虽然这在历史上有一定道理，但情况正在改善。 例如，Google 的 `Spanner` 以声称支持地理分布式规模的分布式事务而闻名。 `Neo4J` 支持事务。 `MongoDB 4.0` 也引入了事务支持。
+NoSQL 数据存储不支持事务，这是一种常见的误解。虽然这在历史上有一定道理，但情况正在改善。 例如，Google 的 `Spanner` 以声称支持地理分布式规模的分布式事务而闻名。 `Neo4J` 支持事务。 `MongoDB 4.0` 也引入了事务支持。
 
 对于同步或阻塞 API，Spring 长期以来一直支持 `PlatformTransactionManager` 以进行资源本地事务划分。当 NoSQL 数据存储引入事务支持时，我们会很快为该特定资源提供 `PlatformTransactionManager` 抽象的实现。
-除了那些以 JDBC 为中心的数据访问，如 `DataSourceTransactionManager`，Spring Data 支持许多不同的资源本地事务类型。 在许多其他方面，有 Apache Geode (`GemfireTransactionManager`)、Neo4J (`Neo4jTransactionManager`) 和 - 对我们有用的 - MongoDB (`MongoTransactionManager`) 的实现。
+除了那些以 JDBC 为中心的数据访问，如 `DataSourceTransactionManager`，Spring Data 支持许多不同的资源本地事务类型。 在许多其他方面，有 Apache Geode (`GemfireTransactionManager`)、Neo4J (`Neo4jTransactionManager`) 和 -
+对我们有用的 - MongoDB (`MongoTransactionManager`) 的实现。
 Spring 的 `PlatformTransactionManager` 抽象帮助开发人员以无缝方式将事务划分一致地集成到非响应式 Spring 应用程序中。
 
 [source,java]
@@ -44,139 +45,35 @@ package org.springframework.transaction;
 
 import org.springframework.lang.Nullable;
 
-/**
- * This is the central interface in Spring's imperative transaction infrastructure.
- * Applications can use this directly, but it is not primarily meant as an API:
- * Typically, applications will work with either TransactionTemplate or
- * declarative transaction demarcation through AOP.
- *
- * <p>For implementors, it is recommended to derive from the provided
- * {@link org.springframework.transaction.support.AbstractPlatformTransactionManager}
- * class, which pre-implements the defined propagation behavior and takes care
- * of transaction synchronization handling. Subclasses have to implement
- * template methods for specific states of the underlying transaction,
- * for example: begin, suspend, resume, commit.
- *
- * <p>The default implementations of this strategy interface are
- * {@link org.springframework.transaction.jta.JtaTransactionManager} and
- * {@link org.springframework.jdbc.datasource.DataSourceTransactionManager},
- * which can serve as an implementation guide for other transaction strategies.
- *
- * @author Rod Johnson
- * @author Juergen Hoeller
- * @since 16.05.2003
- * @see org.springframework.transaction.support.TransactionTemplate
- * @see org.springframework.transaction.interceptor.TransactionInterceptor
- * @see org.springframework.transaction.ReactiveTransactionManager
- */
+
 public interface PlatformTransactionManager extends TransactionManager {
 
-	/**
-	 * Return a currently active transaction or create a new one, according to
-	 * the specified propagation behavior.
-	 * <p>Note that parameters like isolation level or timeout will only be applied
-	 * to new transactions, and thus be ignored when participating in active ones.
-	 * <p>Furthermore, not all transaction definition settings will be supported
-	 * by every transaction manager: A proper transaction manager implementation
-	 * should throw an exception when unsupported settings are encountered.
-	 * <p>An exception to the above rule is the read-only flag, which should be
-	 * ignored if no explicit read-only mode is supported. Essentially, the
-	 * read-only flag is just a hint for potential optimization.
-	 * @param definition the TransactionDefinition instance (can be {@code null} for defaults),
-	 * describing propagation behavior, isolation level, timeout etc.
-	 * @return transaction status object representing the new or current transaction
-	 * @throws TransactionException in case of lookup, creation, or system errors
-	 * @throws IllegalTransactionStateException if the given transaction definition
-	 * cannot be executed (for example, if a currently active transaction is in
-	 * conflict with the specified propagation behavior)
-	 * @see TransactionDefinition#getPropagationBehavior
-	 * @see TransactionDefinition#getIsolationLevel
-	 * @see TransactionDefinition#getTimeout
-	 * @see TransactionDefinition#isReadOnly
-	 */
 	TransactionStatus getTransaction(@Nullable TransactionDefinition definition)
 			throws TransactionException;
 
-	/**
-	 * Commit the given transaction, with regard to its status. If the transaction
-	 * has been marked rollback-only programmatically, perform a rollback.
-	 * <p>If the transaction wasn't a new one, omit the commit for proper
-	 * participation in the surrounding transaction. If a previous transaction
-	 * has been suspended to be able to create a new one, resume the previous
-	 * transaction after committing the new one.
-	 * <p>Note that when the commit call completes, no matter if normally or
-	 * throwing an exception, the transaction must be fully completed and
-	 * cleaned up. No rollback call should be expected in such a case.
-	 * <p>If this method throws an exception other than a TransactionException,
-	 * then some before-commit error caused the commit attempt to fail. For
-	 * example, an O/R Mapping tool might have tried to flush changes to the
-	 * database right before commit, with the resulting DataAccessException
-	 * causing the transaction to fail. The original exception will be
-	 * propagated to the caller of this commit method in such a case.
-	 * @param status object returned by the {@code getTransaction} method
-	 * @throws UnexpectedRollbackException in case of an unexpected rollback
-	 * that the transaction coordinator initiated
-	 * @throws HeuristicCompletionException in case of a transaction failure
-	 * caused by a heuristic decision on the side of the transaction coordinator
-	 * @throws TransactionSystemException in case of commit or system errors
-	 * (typically caused by fundamental resource failures)
-	 * @throws IllegalTransactionStateException if the given transaction
-	 * is already completed (that is, committed or rolled back)
-	 * @see TransactionStatus#setRollbackOnly
-	 */
 	void commit(TransactionStatus status) throws TransactionException;
 
-	/**
-	 * Perform a rollback of the given transaction.
-	 * <p>If the transaction wasn't a new one, just set it rollback-only for proper
-	 * participation in the surrounding transaction. If a previous transaction
-	 * has been suspended to be able to create a new one, resume the previous
-	 * transaction after rolling back the new one.
-	 * <p><b>Do not call rollback on a transaction if commit threw an exception.</b>
-	 * The transaction will already have been completed and cleaned up when commit
-	 * returns, even in case of a commit exception. Consequently, a rollback call
-	 * after commit failure will lead to an IllegalTransactionStateException.
-	 * @param status object returned by the {@code getTransaction} method
-	 * @throws TransactionSystemException in case of rollback or system errors
-	 * (typically caused by fundamental resource failures)
-	 * @throws IllegalTransactionStateException if the given transaction
-	 * is already completed (that is, committed or rolled back)
-	 */
 	void rollback(TransactionStatus status) throws TransactionException;
 
 }
 ----
 
 事务的生命周期短而直接：事务开始，当工作完成后事务提交，或回滚（通常是因为发生了一些异常）。 有 `try/catch` 块和异常，以及涉及的一些错误处理。 您需要实例化事务本身，然后对其进行管理。
-这一切都是令人困惑的东西，让大多数人渴望更简单、没有花里胡哨的客户端编程世界，他们只是逃到那里，然后发现自己以 UI 绑定框架的形式管理着无限复杂的状态机。 但是，我跑题了。
-您可以使用 Spring 的 `TransactionTemplate` 简化管理事务的工作。 `TransactionTemplate` 实例为您管理状态机，让您专注于事务中要完成的工作单元，将您的工作单元块封装在事务中。 如果封闭块中没有异常，则 Spring 提交事务。 否则，Spring 回滚事务。
+这一切都是令人困惑的东西，让大多数人都渴望拥有更简单、没有花里胡哨的客户端编程世界，然后发现自己以 UI 绑定框架的形式管理着无限复杂的状态机。 但是，我跑题了。
+您可以使用 Spring 的 `TransactionTemplate` 简化管理事务的工作。 `TransactionTemplate` 实例为您管理状态机，让您专注于事务中要完成的工作单元，将您的工作单元块封装在事务中。
+如果封闭块中没有异常，则 Spring 提交事务。 否则，Spring 回滚事务。
 最好的是命令式事务管理！ 当您需要在给定方法的范围内管理各个工作单元时，Spring 的支持非常出色。
 
 将 `@EnableTransactionManagement` 添加到 `@Configuration-annotated` 类以启用声明式事务管理。 您可以使用 `@Transactional` 注解单个方法或整个类。
-Spring 自动将您的方法调用包含在一个事务中。 如果该方法无异常地完成，Spring 将提交事务，并且方法调用主体中的所有工作都将随之进行。 如果有任何异常，Spring 将回滚事务。
+Spring 自动将您的方法调用包含在一个事务中。 如果该方法无异常地完成，Spring 将提交事务，则执行方法内的所有工作。 如果有任何异常，Spring 将回滚事务。
 
 Spring 的 `PlatformTransactionManager` 使用 `ThreadLocal` 将当前事务的状态绑定到当前线程，因此事务中完成的任何工作都需要在该线程上进行。
-这种每个线程事务的方法不适合响应式数据访问，在响应式这种情况下，执行可以而且经常会跨线程。
+这种每个线程事务的方法不适合响应式数据访问，在响应式这种情况下，执行可能会经常跨线程。
 
 Spring Framework 5.2 引入了一个新的层次结构，以 `ReactiveTransactionManager` 类型为基础，以支持事务。
 
 [source,java]
 ----
-/*
- * Copyright 2002-2020 the original author or authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 
 package org.springframework.transaction;
 
@@ -184,92 +81,13 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.lang.Nullable;
 
-/**
- * This is the central interface in Spring's reactive transaction infrastructure.
- * Applications can use this directly, but it is not primarily meant as an API:
- * Typically, applications will work with either transactional operators or
- * declarative transaction demarcation through AOP.
- *
- * @author Mark Paluch
- * @author Juergen Hoeller
- * @since 5.2
- * @see org.springframework.transaction.reactive.TransactionalOperator
- * @see org.springframework.transaction.interceptor.TransactionInterceptor
- * @see org.springframework.transaction.PlatformTransactionManager
- */
 public interface ReactiveTransactionManager extends TransactionManager {
 
-	/**
-	 * Emit a currently active reactive transaction or create a new one, according to
-	 * the specified propagation behavior.
-	 * <p>Note that parameters like isolation level or timeout will only be applied
-	 * to new transactions, and thus be ignored when participating in active ones.
-	 * <p>Furthermore, not all transaction definition settings will be supported
-	 * by every transaction manager: A proper transaction manager implementation
-	 * should throw an exception when unsupported settings are encountered.
-	 * <p>An exception to the above rule is the read-only flag, which should be
-	 * ignored if no explicit read-only mode is supported. Essentially, the
-	 * read-only flag is just a hint for potential optimization.
-	 * @param definition the TransactionDefinition instance,
-	 * describing propagation behavior, isolation level, timeout etc.
-	 * @return transaction status object representing the new or current transaction
-	 * @throws TransactionException in case of lookup, creation, or system errors
-	 * @throws IllegalTransactionStateException if the given transaction definition
-	 * cannot be executed (for example, if a currently active transaction is in
-	 * conflict with the specified propagation behavior)
-	 * @see TransactionDefinition#getPropagationBehavior
-	 * @see TransactionDefinition#getIsolationLevel
-	 * @see TransactionDefinition#getTimeout
-	 * @see TransactionDefinition#isReadOnly
-	 */
 	Mono<ReactiveTransaction> getReactiveTransaction(@Nullable TransactionDefinition definition)
 			throws TransactionException;
 
-	/**
-	 * Commit the given transaction, with regard to its status. If the transaction
-	 * has been marked rollback-only programmatically, perform a rollback.
-	 * <p>If the transaction wasn't a new one, omit the commit for proper
-	 * participation in the surrounding transaction. If a previous transaction
-	 * has been suspended to be able to create a new one, resume the previous
-	 * transaction after committing the new one.
-	 * <p>Note that when the commit call completes, no matter if normally or
-	 * throwing an exception, the transaction must be fully completed and
-	 * cleaned up. No rollback call should be expected in such a case.
-	 * <p>If this method throws an exception other than a TransactionException,
-	 * then some before-commit error caused the commit attempt to fail. For
-	 * example, an O/R Mapping tool might have tried to flush changes to the
-	 * database right before commit, with the resulting DataAccessException
-	 * causing the transaction to fail. The original exception will be
-	 * propagated to the caller of this commit method in such a case.
-	 * @param transaction object returned by the {@code getTransaction} method
-	 * @throws UnexpectedRollbackException in case of an unexpected rollback
-	 * that the transaction coordinator initiated
-	 * @throws HeuristicCompletionException in case of a transaction failure
-	 * caused by a heuristic decision on the side of the transaction coordinator
-	 * @throws TransactionSystemException in case of commit or system errors
-	 * (typically caused by fundamental resource failures)
-	 * @throws IllegalTransactionStateException if the given transaction
-	 * is already completed (that is, committed or rolled back)
-	 * @see ReactiveTransaction#setRollbackOnly
-	 */
 	Mono<Void> commit(ReactiveTransaction transaction) throws TransactionException;
 
-	/**
-	 * Perform a rollback of the given transaction.
-	 * <p>If the transaction wasn't a new one, just set it rollback-only for proper
-	 * participation in the surrounding transaction. If a previous transaction
-	 * has been suspended to be able to create a new one, resume the previous
-	 * transaction after rolling back the new one.
-	 * <p><b>Do not call rollback on a transaction if commit threw an exception.</b>
-	 * The transaction will already have been completed and cleaned up when commit
-	 * returns, even in case of a commit exception. Consequently, a rollback call
-	 * after commit failure will lead to an IllegalTransactionStateException.
-	 * @param transaction object returned by the {@code getTransaction} method
-	 * @throws TransactionSystemException in case of rollback or system errors
-	 * (typically caused by fundamental resource failures)
-	 * @throws IllegalTransactionStateException if the given transaction
-	 * is already completed (that is, committed or rolled back)
-	 */
 	Mono<Void> rollback(ReactiveTransaction transaction) throws TransactionException;
 
 }
@@ -284,18 +102,18 @@ Spring 还支持使用 `@Transactional` 注解的声明式事务划分，只要�
 
 == 响应式 SQL 数据访问
 
-在过去的几年里，我一直在与世界各地的工程师交谈，因为我将一个接一个的组织介绍响应式编程，第一个问题总是：它支持 JDBC 吗？ 有没有一种方法可以响应式地使用 JDBC？
-我一直不得不给出的答案是非常诚实的，如果令人失望的话：JDBC 是一个基本同步和阻塞的 API。 如果 Spring 团队要包装它并在 Reactive Streams 类型中调整它，它就不会为任何人服务。
+在过去的几年里，我一直在与世界各地的工程师交谈，我一个接一个的组织介绍响应式编程，遇到的第一个问题总是：它支持 JDBC 吗？ 有没有一种方法可以响应式地使用 JDBC？
+我一直不得不给出一个令人失望的话：JDBC 是一个基本同步和阻塞的 API。 如果 Spring 团队要包装它并在 Reactive Streams 类型中调整它，它就不会为任何人服务。
 它不会更具可扩展性，而且 API 会更麻烦，因为您必须使用线程来扩展事务。 更不用说，它甚至没有与最初期待 JDBC 的更广泛的工具生态系统集成。 何必呢？
 
-有些人会颓然离开，显然对我帮助他们“啊哈！”感到沮丧。 响应式编程的那一刻才彻底破灭了他们的希望。 响应式编程不是他们的解决方案； 他们绝望了。 还没有。 有点遗憾！
+有些人会颓然离开，显然对我帮助他们感到沮丧。 响应式编程的那一刻才彻底破灭了他们的希望。 响应式编程不是他们的解决方案； 他们绝望了。 还没有。 有点遗憾！
 如果做得好，响应式 SQL 客户端可以提供 NoSQL 数据存储所追求的一些东西，即性能和可伸缩性。
 
 所以：就目前而言，JDBC 对于响应式数据访问来说并不是一个很好的选择。 现在，这并不是说您不能响应式地与 SQL 数据存储对话 - 恰恰相反。 你不能用 JDBC 做到这一点。
 但是，如果您真的非常想使用 JDBC，您可能会有一些伪响应式的选项。 `Lightbend` 在这方面有一个令人兴奋的项目，叫做 `Slick`。 `Slick` 最终会采用 JDBC 并尝试为您隐藏一些线程。
 它的主要目的似乎不是为基于 SQL 的数据访问提供响应式 API，而是支持友好的、以 `Scala` 为中心和类型安全的抽象来处理 SQL 数据存储。
 它还为您提供了一种在响应式代码中运行良好的编程模型，并且通过使用调度程序甚至可以对客户端隐藏一些阻塞代码。 您不会获得响应式编程应能带来的横向扩展优势，但至少编程模型是友好的。
-这是半步，但可能值得您考虑。
+这已经完成了一半，但可能值得您考虑。
 
 === 响应式关系数据库连接 (R2DBC)
 
@@ -303,7 +121,7 @@ Spring 还支持使用 `@Transactional` 注解的声明式事务划分，只要�
 
 响应式数据库访问的一个选择可能是 Oracle 的 `ADBA` 项目。 Oracle 在 JavaOne 2016 上宣布了 `ADBA`（异步数据库 API）项目。当时它还不能用，但至少人们承认需要一些东西来填补这个空白。
 一年后，在 JavaOne 2017 上，Oracle 有一个基于 Java 8 的 `CompletionStage` 之类的原型项目。 `CompletionStage`（和 `CompletableFuture`）支持单个值的异步解析。
-它们不支持值流的异步解析，也不支持背压。 他们不是被动的。
+它们不支持流值的异步解析，也不支持背压。 他们不是被动的。
 
 Java 9 版本将 Reactive Streams 规范中的核心接口添加到 `java.util.concurrent.Flow` 类型中，作为嵌套类型。 因此，`org.reactivestreams.Publisher` 变为 `java.util.concurrent.Flow.Publisher`，
 `org.reactivestreams.Subscriber` 变为 `java.util.concurrent.Flow.Subscriber`，`org.reactivestreams.Processor` 变为 `java.util.concurrent.Flow.Processor`。·
@@ -314,11 +132,11 @@ R2DBC 是一个开源项目，许多人已经为此做出了贡献。 我们在�
 
 在撰写本文时，`ADBA` 和 `R2DBC` 都处于早期阶段，（还）不适合生产。 R2DBC 还包含一个适配器模块，它将 ADBA 模块与 R2DBC 集成在一起，这样，如果 ADBA 变得具有生产价值，那么那些构建在 R2DBC 上的选项就不会短缺。
 
-R2DBC 试图为基于 SQL 的数据存储访问定义一个响应式 SPI。 它不是现有 JDBC 之上的外观，而是意在利用罕见的本地响应 SQL 数据库驱动程序。 强调稀有！ 许多常见数据库都有 SPI 的实现，包括由 Pivotal 工程团队驱动的 `H2`、`Microsoft` `SQL Server` 和 `PostgreSQL`。
+R2DBC 试图为基于 SQL 的数据存储访问定义一个响应式 SPI。 它不是建立在现有 JDBC 之上，而是意在利用罕见的本地响应 SQL 数据库驱动程序。 强调稀有！ 许多常见数据库都有 SPI 的实现，包括由 Pivotal 工程团队驱动的 `H2`、`Microsoft` `SQL Server` 和 `PostgreSQL`。
 还有一个名为 `JAsync` 的第三方项目支持的 MySQL 的 R2DBC 实现。 我知道许多其他大型数据库供应商也在致力于 R2DBC 支持。 在撰写本文时，至少有五家其他数据库供应商正在开发 R2DBC 驱动程序。 （不，据我所知，其中没有一个是 `Oracle`）。
 
 从广义上讲，当我提到 R2DBC 时，我指的是至少三个抽象级别。 低级 SPI 的工作方式或多或少类似于原始 JDBC API。 `DatabaseClient` 或多或少类似于 Spring 的 `JdbcTemplate`。
-最后，Spring Data R2DBC 提供了类似 ORM 的体验，将实体声明性映射到记录，并支持内置的声明性存储库对象。
+最后，Spring Data R2DBC 提供了类似 ORM 的体验，将实体声明映射到记录，并支持内置的声明性存储库对象。
 
 === 建立连接
 
@@ -340,7 +158,7 @@ spring.r2dbc.username=orders
 spring.r2dbc.password=orders
 ----
 
-您可能不想将该信息保存在应用程序的属性文件中。 相反，考虑将其保存在外部。 您可以使用 `--` 参数、环境变量、Spring Cloud Config Server、Hashicorp Vault 等。
+您可能不想将该信息保存在应用程序的属性文件中。 相反，如果考虑将其保存在外部。 您可以使用 `--` 参数、环境变量、Spring Cloud Config Server、Hashicorp Vault 等。
 
 === Database Schema
 
@@ -368,10 +186,10 @@ create table customer (
 
 === Repository Interface(存储库接口)
 
-让我们构建一个存储库来管理对我们数据的访问。存储库将较高级别的业务逻辑与较低级别的持久性和数据管理事务隔离开来。为了最好地展示各种 R2DBC 抽象的独特应用，我们将实现相同的存储库接口三次。
+构建一个存储库来管理数据访问。存储库将较高级别的业务逻辑与较低级别的持久性和数据管理事务隔离开来。为了最好地展示各种 R2DBC 抽象的独特应用，我们将实现相同的存储库接口三次。
 存储库模式描述了封装访问数据源所需逻辑的类。 它们集中了标准数据访问要求（创建、读取、更新、删除），提供更好的可维护性并将用于访问数据库的基础设施与领域模型层分离。
 
-这是我们将在游览中使用的存储库接口。 它支持各种常见用例，包括查找记录、保存（或更新）记录和删除记录。
+这是我们将使用的存储库接口。 它支持各种常见用例，包括查找记录、保存（或更新）记录和删除记录。
 
 [source,java]
 ----
@@ -408,7 +226,7 @@ public record Customer(@Id Integer id, String email) {
 
 我们将使用测试来练习各种存储库实现。
 
-让我们首先看一下我们的存储库实现的基础测试。我们将实现多个存储库，因此我们的测试都扩展了我们的 Base 测试并使用 template 模式来交换存储库实现。
+让我们首先看一下我们的存储库实现的基础测试。我们将实现多个存储库，因此我们的测试都扩展了我们的 Base 测试并使用 template 来交换存储库实现。
 
 [source,java]
 ----
@@ -529,7 +347,8 @@ public abstract class BaseCustomerRepositoryTest {
 
 使用 `ConnectionFactory` 的 base 存储库
 
-在第一个实现中，我们将直接注入一个 `ConnectionFactory` 实例，并使用它向数据源提供新的连接。 在一个重要的示例中，我们将使用一个连接池，因此 Spring Boot 自动配置将我们的 `ConnectionFactory` 包装在一个连接池中，假设我们在某处定义了一个有效的 `ConnectionFactory`。
+在第一个实现中，我们将直接注入一个 `ConnectionFactory` 实例，并使用它向数据源提供新的连接。
+在一个重要的示例中，我们将使用一个连接池，因此 Spring Boot 自动配置将我们的 `ConnectionFactory` 包装在一个连接池中，假设我们在某处定义了一个有效的 `ConnectionFactory`。
 
 我们要看的第一个例子是与我们的数据库交互的最低级别的方式。 此实现中的所有 `SimpleCustomerRepository` 接口方法的流程都是相同的：
 
@@ -717,14 +536,13 @@ public interface CustomerRepository extends ReactiveCrudRepository<Customer,Inte
 ----
 ====
 <1> 支持我们的测试所需的一切都在 `ReactiveCrudRepository` 中。
-<2> 那么，为什么我们需要 `findByEmail`？ 我们没有！ 我只是想向您展示使用自定义查询中定义自定义查询方法并将这些方法中的参数绑定到查询本身是多么容易。
-在这种情况下，电子邮件是创建查询的参数。
+<2> 那么，为什么我们需要 `findByEmail`？ 我只是想向您展示使用自定义查询中，定义自定义查询方法并将这些方法中的参数绑定到查询本身是多么容易。 在这种情况下，电子邮件是创建查询的参数。
 ====
 
 就是这样！ Spring Data R2DBC 可以映射其他表。我们需要更多实体和更多存储库。 看？ 即使给定 `SimpleCustomerRepository` 和 `R2dbcConfiguration`，就代码行而言，我们仍然领先于第一个基本的 `CustomerRepository`！ 遥遥领先。
 这个新版本甚至支持自定义查找方法，提供比以前更多的功能。 几分钟的工作还不错。
 
-复杂性大幅降低的一个重要原因是我们的存储库扩展的基础接口 `ReactiveCrudRepository`。 你会在 Spring Data 中经常看到这个接口。 它的定义如下所示：
+大幅降低复杂性的一个重要原因是我们的存储库扩展的基础接口 `ReactiveCrudRepository`。 你会在 Spring Data 中经常看到这个接口。 它的定义如下所示：
 
 [source,java]
 ----
@@ -772,7 +590,8 @@ public interface ReactiveCrudRepository<T, ID> extends Repository<T, ID> {
 他们删除了将记录映射到对象的工作。我们需要做的就是在方法的原型中提供查询和可选参数。
 
 你可能会抗议：“如果你只是想在这里结束，为什么要向我们展示前两种方法呢？” 公平的问题！ 关系数据库管理系统 (RDBMS) 在开发人员的心中占有特殊的位置。 据统计，我们中的大多数人从事任何后端或服务器端工作都是从 RDBMS 开始我们的旅程。
-它是最根深蒂固的一种数据库，也是您在职业生涯中最需要熟悉的一种数据库，至少在可预见的未来是这样。社区中存在关于 ORM 在应用程序架构中的作用的争论。也有许多不同的方法可以使用 RDBMS。 您是否正在使用您的分析和数据仓库？ 联机事务处理？ 作为事务存储？ 您是否使用 SQL '99 功能，或者您是否精通 `PostgreSQL` `PL/pgSQL` 或 `Oracle` PL/SQL？
+它是最根深蒂固的一种数据库，也是您在职业生涯中最需要熟悉的一种数据库，至少在可预见的未来是这样。社区中存在关于 ORM 在应用程序架构中的作用的争论。也有许多不同的方法可以使用 RDBMS。 您是否正在使用您的分析和数据仓库？ 联机事务处理？
+作为事务存储？ 您是否使用 SQL '99 功能，或者您是否精通 `PostgreSQL` `PL/pgSQL` 或 `Oracle` PL/SQL？
 您使用的是 `PostgreSQL` XML 类型还是 `PostGIS` 地理空间索引？ 你在使用存储过程吗？ 典型 RDBMS 的丰富性使得很难规定特定的抽象级别。 首先，我更喜欢在 Spring Data 存储库方面使用这些技术，并且能够在需要时下降到较低的抽象级别。
 
 我们有一个存储库，我们的测试呢？ 精明的读者注意到我们的存储库没有实现 `SimpleCustomerRepository` 接口。 我不想让事情复杂化，所以我将本机 Spring Data 存储库调整为 `SimpleCustomerRepository` 接口，将调用转发到底层 Spring Data 存储库。
@@ -948,8 +767,8 @@ public record Order(@Id String id, String productId) { // <2>
 }
 ----
 ====
-<1> Spring Data MongoDB 特定的 @Document 注解将此对象标记为 MongoDB 集合中的文档。
-<2> Spring Data @Id 注解将此字段标记为文档的键。
+<1> Spring Data MongoDB 特定的 `@Document` 注解将此对象标记为 MongoDB 集合中的文档。
+<2> Spring Data `@Id` 注解将此字段标记为文档的键。
 ====
 
 很简单。 现在我们需要一个存储库实现 `OrderRepository`。
