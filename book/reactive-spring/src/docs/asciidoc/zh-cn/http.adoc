@@ -1,0 +1,1983 @@
+= HTTP
+
+在本章中，我们将了解 Spring 如何构建以 HTTP 为中心的响应式服务。 我说的中心是因为我们将研究基于 HTTP 的应用程序所产生的问题，这是典型的 Web 应用程序，
+包括但不限于 WebSockets、REST 等。
+
+[NOTE]
+====
+本章重点介绍 HTTP 1.1 中的概念和细节。
+====
+
+== HTTP 关键字
+
+HTTP 是一个非常简单的协议。它的一个目的是支持文档检索。 它支持请求-响应交互模型，但不支持任何应用级流控机制。 在 HTTP 中，请求被发送到服务器，然后服务器响应。
+
+=== HTTP 请求
+
+HTTP 请求消息以 `off` 开头，起始行包括 HTTP 动词（如 `PUT`、`POST`、`GET`、`OPTIONS` 和 `DELETE`）、目标 `URI` 和 HTTP 版本。
+然后标题跟随起始行。 header 是位于不同行的键值对（由 : 和空格分隔）。 HTTP 响应如果没有这些 header（如 `Host`、`User-Agent` 和 `Accept*`），则将包含在 HTTP 请求中。 标题后有两个换行符。
+最后，HTTP 请求可能有一个 HTTP 正文。 一个 HTTP 正文可能包含一个资源，例如 JSON 文档。 它还可能包含多个资源，称为多部分正文，每个包含不同的信息位。 HTML 表单通常具有多部分 body。
+
+. 一个简单的请求示例
+[source,txt]
+----
+GET /rc/customers HTTP/1.1
+Host: localhost:8080
+User-Agent: the-reactive-spring-book/1.0.0
+Accept: */*
+----
+
+此请求请求 `/rc/customers` 资源中可用的数据。
+
+=== HTTP 响应
+
+HTTP 响应的起始行称为状态行。 它包含 HTTP 协议版本、状态代码和状态文本。 有许多常见的状态代码，如 `200("OK")`、`201("CREATED")`、`404("ERROR"/"NOT FOUND")`、`401("UNAUTHORIZED")`  和
+`302("FOUND")`。 状态文本是状态代码的文本描述，可帮助人们理解 HTTP 消息。
+
+接下来是 HTTP header，它看起来就像请求中的 header。
+
+最后是一个可选的 body 元素。 Web 服务器可以在已知长度的单个资源中一次发送带有正文的响应，或者它可以将响应作为未知长度的单个资源发送，由 `Transfer-Encoding` 设置为 `chunked` 的块编码，或者作为 一个多部分的 body。
+
+. 一个简单的响应示例
+[source,text]
+----
+HTTP/1.1 200 OK
+transfer-encoding: chunked
+Content-Type: application/hal+json;charset=UTF-8
+[
+    {"id":"5c8151c4c24dae6677437751","name":"Dr. Who"},
+    {"id":"5c8151c4c24dae6677437752","name":"Dr. Strange"}
+]
+
+----
+
+=== HTTP 目标 Serve... Pages
+
+如果您从事提供 HTTP 文档的业务，那么 HTTP 是专门为您构建的，并且具有大量出色的功能。 以下是 HTTP 控制的一些内容。
+
+缓存：缓存描述了客户端如何缓存文档。 该决定包括缓存什么以及缓存多长时间。
+
+身份验证：某些页面仅供 HTTP 请求以标准方式编码其身份的特定客户端使用。 Web 服务器发送 `WWW-Authenticate` header，详细说明支持的身份验证类型，以及指示客户端未经授权的 401 状态代码。 然后，客户端发送包含凭据的授权标头以获取访问权限。
+
+代理和隧道：客户端或服务器通常位于 Intranet 上并掩盖其真实 IP 地址。 HTTP 请求可以透明地从一个节点代理到另一个节点。
+
+会话：HTTP cookie 是根据客户端或驻留在客户端中的服务器的请求启动的数据容器。 客户端会根据后续请求自动将 HTTP cookie 重新传输到服务。 服务使用这种永久状态来关联其他离散的请求。
+
+HTTP 提供所有原语以构建用于（安全地）有效检索资源的平台。
+
+== HTTP Scales（规模）
+
+HTTP 的扩展性很好。 Web 规模化是因为 HTTP 是一种无状态协议。 当客户端发出请求时，只要客户端断开连接，服务器就可以自由地忘记它所知道的关于客户端的所有信息。
+
+我们失忆的 Web 服务器可能不关心特定于客户端的状态，但我们开发人员确实关心！ 所以，我们找到了使用 HTTP 会话、cookie 和 OAuth 将客户端请求与服务器端状态相关联的方法。 让我们暂时忽略这些可能性，专注于其他无状态 HTTP。
+
+如果不要求请求在特定节点上的状态，即请求是无状态的，那么任何节点都可以处理任何请求。如果客户端点击服务器 A 上的一个端点，然后点击刷新，则服务器中不一定有任何状态需要复制到服务器 B，以便在纳秒后在服务器 B 上处理下一个相同的请求。
+
+每个客户端连接到网络服务器，服务器发送回字节作为响应。 每次有新客户端时，服务器都会回复一个新的字节流。 如果有两个请求，则服务器必须同时发回两个数据流。 服务器可以为每个请求创建一个新线程。
+只要我们能够比收到新请求更快地产生回复，添加线程来适应请求就可以很好地工作。 如果新请求的速率超过可用线程数，服务器就会变得受限。 这种构建应用程序的传统方法已经扩展得很好。
+HTTP 请求传统上是短暂的（毕竟您的单个 `.html` 页面可以有多少数据？）并且不频繁（毕竟您从一个 HTTP 页面点击到另一个 HTTP 页面的频率是多少？）
+
+应用程序开发人员通过基于 HTTP 设计 API 来利用这种可伸缩性。 REST，representational state transfer 的缩写，是对 HTTP 的约束，旨在规定如何使用 HTTP 表示应用程序所需的资源。 REST API 享有与 HTTP 相同的可扩展性。
+
+在我的书 O’Reilly’s Cloud Native Java 中，我主张微服务。 微服务是通常使用 REST 构建的小型独立 API。 微服务很容易根据容量需求进行扩展，因为我们尽可能保持 API 无状态。
+然而，好事终究会过去。 随着微服务、大数据和物联网 (IoT) 的出现，扩展 Web 应用程序的动力突然发生了变化。 对于呈现的每个 `.html` 页面，普通 Web 服务器现在要应对大量的 HTTP 调用。
+JavaScript 的 Megabytes 和 megabytes！ 反过来，大部分 JavaScript 都会对 HTTP 端点进行 HTTP 调用（还记得“Ajax”吗？），只会让事情变得更糟。 用户点击之间以前断断续续的、相对较小的请求现在变得频繁，而大请求正在发生。
+
+我们通过向负载平衡器轮换添加更多节点来扩展 HTTP 服务。 使用 Cloud Foundry、Amazon Web Services、Microsoft Azure 和 Google Cloud 等云平台扩展以这种无状态方式构建的服务很便宜，但不是免费的。
+这种横向扩展是一个很好的中间立场。 它使我们能够以合理低廉的价格每秒处理更多请求。 它不需要我们重新思考我们编写软件的方式。
+
+通过转向异步 I/O 和响应式编程，我们也许可以做得更好，处理更多的请求。 我不必说服你！ 否则，你就不会读这本书，Reactive Spring！ 传统的基于 Servlet 的应用程序使用同步和阻塞 IO。
+Web 服务器从 InputStream 读取传入请求并将响应写入 OutputStream。 读取或写入的每个字节都会阻塞网络服务器宝贵的几个线程之一。 这里的瓶颈，即我们可以创建的线程数量，早在它们可能使用异步 I/O 和响应式编程之前就已经成为问题。
+
+需要的是支持异步 IO 和响应式编程的 Web 框架和运行时。 Spring Webflux 是 Spring Framework 5 中的一个全新的响应式 Web 运行时和框架，它是我们从遗留到光速的方式。
+Spring Webflux 是指运行在 Web 服务器之上的组件模型和框架，以及基于 Netty 的运行时。
+
+== REST
+
+REST 是对 HTTP 协议的约束。 在 REST 的最小实现中，数据的生命周期映射到 HTTP 动词。 您 `POST` 到 `HTTP` 资源以创建新实体。 `DELETE` 到资源以删除实体。 `PUT` 更新实体。 `GET` 读取一个或多个实体。
+HTTP 状态代码用于向客户端发出操作成功或失败的信号。 HTTP 使用 header 支持 content negotiation ，客户端和服务器可以就它们可以智能交换的内容类型达成一致。
+
+HTTP 支持 URI。 URI 是唯一寻址单个资源的字符串。 这些 URI 为 Web 上的资源提供了一个规范地址，使它们可引用和导航。 如果您曾经单击过 HTML 文档中的链接，那么您肯定使用过 HTTP URI。
+HTTP 链接是一种将一种资源与另一种资源相关联的自然方式。 REST，正如 Roy Fielding 博士在其博士论文中所介绍的那样，强调使用链接作为显示 HTTP 资源关系的一种方式。
+虽然这是 REST 最初定义的一部分，但它并不是一种应有的普遍做法。 HATEOAS（超媒体作为应用程序状态引擎）通常用于区分真正符合 REST 的 API 和那些不使用相关资源链接的 API。
+
+== Spring WebFlux：全新的响应式 Web 运行时
+
+Spring MVC 建立在 Servlet 规范之上。 Servlet 规范中的默认是阻塞线程，即事情是同步的。 Servlet 规范请求阻塞线程或请求是不需要异步 I/O 的短期交互。 如果你想要异步I/O，是可以得到的，但不是默认的，而且比较受限。
+Servlet API 的其余部分（例如，用于检索 HTTP 会话和 cookie）不支持异步 I/O。 Spring Framework 5 引入了一个全新的基于 Netty 的响应式 web 运行时（哇！多啰嗦！试着说快十倍！）和一个框架，两者都称为 Spring WebFlux。
+Spring Framework 5 存在 Java 8 和 lambda。
+
+Spring Webflux 默认一切都是异步的。 默认情况下，Spring Webflux 中的所有内容都是响应式的，这一事实有一些有趣的含义。 如果要返回一个包含八条记录的简单 JSON 节，则返回一个 `Publisher<T>`。
+很简单。 如果你想做一些长期存在的事情，比如 WebSockets 或服务器发送的事件，异步 I/O 是更好的选择，你也可以使用 `Publisher<T>`！ （我使用这个方便的助记符：当你不确定时，使用 `Publisher`！）
+
+现在的生活简单多了。 在 Spring MVC 中，创建长期服务器发送事件响应的方式与创建其他 HTTP 响应的方式完全不同。 同上 WebSockets。 Websockets 是一种完全不同的编程模型。
+使用 Apache Kafka 或 RabbitMQ 的开发人员比使用 Spring MVC 的开发人员更熟悉这种体验！ 在 Spring MVC 中，服务器发送事件和 WebSockets 要求开发人员参与管理线程的业务……在 Servlet 容器中。
+一切正常，但您认为 Servlet 规范和其上的 Spring MVC 已针对同步、阻塞情况进行了优化，这是情有可原的。
+
+=== 一个简单的示例
+
+在介绍后续之前，让我们创建一个示例的领域实体 `Customer` 和一个支持存储库 `CustomerRepository`。 假设我们有一个实体 `Customer`，它有两个字段，`id` 和 `name`：
+
+[source,java]
+----
+public record Customer(@Id  String id,String name) {
+}
+----
+
+这里没什么特别的。 继续。 我们还有一个模拟存储库，它使用 `Map<K,V>` 实现来处理 `Customer` 实体的“持久性”：
+
+[source,java]
+----
+@Repository
+public class CustomerRepository {
+
+    private final Map<String,Customer> data = new ConcurrentHashMap<>();
+
+    Mono<Customer> findById(String id) {
+        return Mono.just(this.data.get(id));
+    }
+
+    Mono<Customer> save(Customer customer) {
+        var uuid = UUID.randomUUID().toString();
+        this.data.put(uuid,new Customer(uuid, customer.name()));
+        return Mono.just(this.data.get(uuid));
+    }
+
+    Flux<Customer> findAll() {
+        return Flux.fromIterable(this.data.values());
+    }
+}
+----
+
+让我们开始使用这个实体构建 HTTP API。
+
+=== 构建 Spring MVC 风格的 HTTP 端点
+
+有几种方法可以在 Spring Webflux 中构建 HTTP 端点。第一个 - 作为一个端点映射到处理程序方法的类 - 对任何曾经使用过 Spring MVC 的人来说都很熟悉。
+创建一个类，用 `@Controller`（对于默认不需要消息转换的常规旧 HTTP 端点）或 `@RestController`（对于更多 REST-ful HTTP 端点）进行注解，然后定义处理程序方法。
+让我们看一个例子。
+
+[source,java]
+----
+@RestController // <1>
+@RequestMapping(value = "/rc/customers") // <2>
+record CustomerRestController(CustomerRepository repository) {
+
+    @GetMapping("/{id}") // <3>
+    Mono<Customer> byId(@PathVariable("id") String id) {
+        return this.repository.findById(id);
+    }
+
+    @GetMapping // <4>
+    Flux<Customer> all(){
+        return this.repository.findAll();
+    }
+
+    @PostMapping // <5>
+    Mono<ResponseEntity<?>> create(@RequestBody Customer customer) {
+        return this.repository.save(customer)
+                .map(customerEntity -> ResponseEntity
+                        .created(URI.create("/rc/customers/"+ customerEntity.id()))
+                        .build());
+    }
+}
+----
+====
+<1> `@RestController` 是一个构造型注解（它本身最终也使用 `@Component` 进行元注解），它向 Spring 表示此 bean 应该将其任何注解方法注册为 HTTP 处理程序
+<2> `@RequestMapping` 注解告诉 Spring 如何将配置它的任何方法映射到特定类型的 HTTP 请求。 如果将 `@RequestMapping` 放在控制器类本身上，则类中每个特定的方法的映射都会从类映射继承其映射配置。
+您可以使用 `@RequestMapping` 或特定于 HTTP 方法 的注解，如 `@GetMapping` 和 `@PostMapping`。 这些注解本身也用 `@RequestMapping` 进行注解。
+<3> 当 HTTP GET 请求到达 `http://localhost:8080/rc/customers/23` 时，框架将调用此处理程序。 框架在 `.../customers/` 之后匹配任意值，提取它，并将它作为参数传递给处理程序方法。
+框架将提取的路径变量 `\{id\}` 提供给用 `@PathVariable("id")` 注解的处理程序方法参数。
+<4> 当对 `/rc/customers` 的 HTTP GET 请求到达时，此端点返回所有客户实体
+<5> 此端点接受传入的 HTTP POST 请求。 POST 请求通常包含 HTTP 主体，这些 body 会自动转换为 Customer 类型并作为请求参数提供。
+====
+
+这里有很多力量！ `@RequestMapping` 注解可以匹配很多类型的请求。您可以指定处理程序应响应的 HTTP 方法（有时称为动词）。如果不指定方法，则匹配所有方法。 您可以指定资源的路径。 您可以指定传入请求中必须存在的请求头（"此请求必须具有指定 `application/json` 的 `Accept` 头"），
+并且您可以为响应提供 header 值（"此资源的 `Content-Type` 是 `application/ xml`")。你可以要求那些特定的参数存在。根据我的经验，你将能够以声明的方式匹配你的大部分请求。
+我很少遇到无法完成我想做的事情。
+
+`@RequestMapping` 有一些变体，如 `@GetMapping` 和 `@PostMapping`，它们在其他方面与 `@RequestMapping` 相同，但不需要方法。 这些是一些简便的注解，并没有为所有的 HTTP 提供方法，只有最常见的方法。
+您始终可以用稍微冗长的 `@RequestMapping` 替换其中一个更具体且可能更短的变体。
+
+这个控制器在其他方面很简单。它引入了很多关键概念。调用处理程序方法来处理传入的 HTTP 请求。 哪些 HTTP 请求由哪些处理程序方法处理，由请求映射注解管理。 在这个模型中，
+我们将所有这些都挂在一个 Spring bean 上，一个带有方法和注解的对象。 如果您使用的是 Spring，则方法和注解很熟悉。 这些概念对于在 Web 层中使用 Spring 至关重要。
+
+如果您曾经使用过 Spring MVC，这个类可能看起来很熟悉，但值得强调的是，这不是 Spring MVC。 事实上，如果你查阅日志，你会发现没有 Servlet 引擎。 虽然希望事情很熟悉，但不要误以为现有代码在 100% 的时间里都可以正常工作。
+
+一个关键的区别是：当一个处理程序方法在 Spring MVC 中返回时，对于大多数情况，需要解析以显示响应的所有内容都已存在。 值得注意的例外是偶尔出现的异步用例，例如 `WebSockets` 或服务器发送事件。
+在 Spring Webflux 中，通常情况恰恰相反。 在 Spring Webflux 中，处理程序方法的大多数返回值是尚未具体化的 `Publisher<T>` 实例。 框架最终将 `.subscribe()` 到实例并具体化响应，但您不应该编写假设太多的代码。
+它应该在处理程序方法返回后立即发生，但是在哪个线程上呢？ 多长时间？ 您可能在 Servlet 环境中做出的所有假设（例如将事物固定到 `ThreadLocal`）不再成立。 相反，您需要使用 `Reactor Context` 对象。
+
+=== Reactive Functional Endpoints(功能端点)
+
+我喜欢 Spring MVC 风格的控制器。 因为我对它们很熟悉，如果您有许多并置的处理程序方法，就像您可能有一些处理程序支持同一资源的不同 HTTP 方法一样，那么将它们全部定义在同一个类中是有意义的。
+不同的端点通常共享共同的依赖项，例如此处的 `CustomerRepository`。 您可以根据需要定义任意数量的控制器类，每个控制器类支持不同的资源，通常位于沿垂直业务划分的不同包中。
+
+但是，有一些限制。
+
+假设您想进一步自定义框架如何匹配请求。 假设您希望 URI 的路径不区分大小写，或者仅在某些数据库匹配中的某些条件下匹配？ 按以前那样，请求匹配由声明性注解中的规范规定。 注解是数据，并不暗示功能。
+Spring 查看注解并将您的规定转换为执行您的配置的匹配器。 注解在真空中没有任何意义。 它们是数据，而不是动词。 您可以自定义请求的匹配方式，但您必须将一个抽象级别放入请求处理机制中。
+正是在这一点上，抽象会让人感觉有漏洞，就像你正在以一种不相关的方式解决一个相关的问题。 电影绿野仙踪中的主人公多萝西最好地解释了使用漏洞抽象的迷惑感：“托托，我有一种感觉，我们已经不在堪萨斯了。”
+
+假设您想动态注册新资源（及其关联的请求匹配和处理程序逻辑）。照原样，端点与类中的方法一一对应。 你不能遍历 for 循环并向类中添加新方法！ 的确，这并不容易。（不，没有人想看到你使用 `ByteBuddy` 生成类字节码的简单技巧，Chad！我们讨论过这个！停止尝试让日常字节码操作发生！）
+
+最后，我认为如果您确实计划在一个给定的类中拥有多个 HTTP 端点，那么现有的控制器结构就可以了。 但是，如果您真的只有一个端点怎么办？ 另外，如果那个端点是一个普通的字符串 - "Hello world!" 怎么办？ 你最终会得到一个类，可能是一个构造函数，还有字段、注解和一个方法，所有这些都用来表达最终成为一个请求映射和一个请求处理程序的东西。
+当然，像 Kotlin 这样的语言可以解决很多问题。 这是事情的主要内容！ 一个完整的对象来表达什么可以是方法调用和 lambda 参数。 我们可以做得更好。
+
+您通常要构建单个 HTTP 端点应用程序吗？ 不。 当然不是。 也许在少数并置端点之后，行数被分摊到同一个类中的类似处理程序方法上。 这种摊销也可以通过方法或函数调用来实现。
+
+在 Java 生态系统和 .NET 生态系统中，通常将 HTTP 处理程序逻辑表示为（有时是有状态的）对象上的方法。 ASP.NET MVC 和 WebForms、Java Server Faces 和 Apache Struts 都以这种方式工作。 WebWork 也是如此。
+Spring MVC 也是如此。 框架反映了它们的宿主语言的能力。 在 Java 支持 lambda 之前构建的框架反映了这一点。 它们反映了 Java 语言的能力。
+
+** Lambdas 和方法引用，天啊！ **
+
+具有一流 lambda 支持的语言通常支持将请求匹配谓词与函数式风格的处理程序配对。这不难找到例子。 Ruby 生态中的 Sinatra、Groovy 生态中的 Ratpack、Scala 生态中的 Scalatra、Node.js 生态中的 Express.js、Python 生态中的 Flask 都是这样工作的。
+在相对较新的 Java 8 发布之前，Java 在这方面缺乏选择。Java 8 为我们提供了一种 lambda，而 Spring Framework 5 定义了 Java 8 基线。 此外，Spring Framework 5 是第一个正式确定 Spring 团队对 Kotlin 的拥抱的版本，将 Spring 拥有一流支持的语言增加到三种：Java、Groovy 和现在的 Kotlin。
+所有这三种语言都具有良好（或出色）的 lambda 支持。 很自然地，有了这个 lambda 友好、功能友好的基础，Spring Webflux 还支持功能性、lambda 响应式 HTTP 处理程序。 让我们看一些例子。
+
+[source,java]
+----
+@Configuration
+public class SimpleFunctionalEndpointConfiguration {
+
+    @Bean
+    RouterFunction<ServerResponse> customerApis(GreetingsHandlerFunction handler) {// <1>
+        // <2>
+       return route()
+               .GET("/hello/{name}",request -> { // <3>
+                   var nameVariable = request.pathVariable("name");
+                   var message = String.format("Hello %s",nameVariable);
+                   return ServerResponse.ok().body(message);
+               })
+               .GET("/hodor",handler) // <4>
+               .GET("/sup",handler::handle) // <5>
+               .build();
+
+    }
+}
+----
+====
+<1> 您可以根据需要注册任意数量的 `RouterFunction<ServerResponse` 类型的 bean。
+<2> 路由是使用 `RouterFunctions` 上的静态工厂方法定义的，例如 `route()`。 结果是您可以动态地向其添加新路由定义的构建器对象。
+<3> 第一个注册 `(/hello/\{name\})` 匹配传入的 HTTP GET 请求。 该路由需要使用给定的 `ServerRequest` 参数 request 的路径变量 (\{name\})。
+请求匹配时调用的处理程序逻辑作为 lambda 提供。 处理程序返回非响应性 HTTP 响应。 服务器发送带有 HTTP 状态 200 (OK) 的响应。
+<4> 如果内联 lambda 体比较大，那么很难弄清楚这么多的业务逻辑发生了什么。通常将此业务逻辑提取到功能接口的实现中， `HandlerFunction<ServerResponse>` 或......
+<5> 方法引用，具有结构相似的签名（相同的输入类型和返回类型）。
+====
+
+此示例依赖于 `GreetingsHandlerFunction` 类型的 bean：
+`GreetingsHandlerFunction` 是处理程序功能接口的实现，也是用作处理程序的方法引用的宿主。
+
+[source,java]
+----
+@Component
+public class GreetingsHandlerFunction implements HandlerFunction<ServerResponse> {
+
+    @Override
+    public ServerResponse handle(ServerRequest request) {
+        return ServerResponse.ok().body("Hodor!");
+    }
+}
+----
+
+在这个功能性响应示例中，所有注册和这些注册的业务逻辑都在附近。路由逻辑集中在这里，与 Spring MVC 风格的控制器形成鲜明对比，其中路由逻辑散布在代码库中，附加到各种对象、各种包中的处理程序方法。
+如果我想重写所有 URL 或更改资源 URI 的字符串，我不需要再看这个单个 bean 定义。 如果您只有一个或两个端点，那么这可能无关紧要。 如果您试图管理数百个端点，这可能会更重要。
+
+到目前为止，我向您展示的示例展示了我在代码中看到的典型进程。 一开始我倾向于使用内联 lambda，但是将业务逻辑与路由并置会导致包含内联 lambda 的整体 `RouterFunction` bean 定义。
+它很快变得，嗯，很难遵循代码。
+
+使用方法引用来提取处理程序逻辑。 一个标准约定是将这些处理程序方法提取到一个对象，一个处理程序类。 处理程序类不是一个特定的东西，就像 Spring 中的 `@RestController` 或 `@Service` 一样。
+它们只是常规的旧对象托管方法，我们将对功能响应端点的 HTTP 请求的处理委托给它们。 在第一个示例中，我将处理程序逻辑提取到类型为 `GreetingsHandlerFunction` 的 bean，
+其定义如下所示。 `GreetingsHandlerFunction` bean 有两种不同的使用方式：作为实现函数式接口的对象和作为承载我们引用的与函数式接口兼容的有效方法的对象。
+
+这个例子演示了如何使用函数式响应式风格来定义路由。 这些路由挂在由 `route(...)` 方法为我们定义的 `RouterFunctions.Builder` 构建器之外。 在此示例中，
+我将注册链接在一起以获得更简洁的代码，但没有理由不能将中间构建器存储在变量中，然后在 for 循环中或作为数据库查询的结果注册新端点 动态地在构建器上。
+
+当您调用 `GET(...)` 时，它会注册一个 `RequestPredicate`。 `RequestPredicate` 匹配传入的请求。 在这些示例中，我们使用静态工厂方法来描述带有 `RequestPredicate` 实现的常见请求类型。
+您可以匹配传入路径、HTTP 方法、header、路径扩展、查询参数以及任何东西。 我们稍后会更多地关注 `RequestPredicates`，以及如何编写你自己的。
+
+在前面的示例中，所有 HTTP 注册都是离散的。 他们没有太多共同点，也不依赖于另一个。 Spring Webflux 还支持分层（嵌套）注册，顶级注册管理嵌套注册的匹配方式。
+嵌套的请求谓词可以继承自它们的父请求谓词。 您可能希望针对同一资源路径为不同的 HTTP 方法定义不同的处理程序。 您可能希望针对根 URI (`/foo`) 定义不同的处理程序，
+然后区分嵌套的注册路径（如 `/foo/\{id\}` 和 `/foo/\{id\}/bars`）。 您可能希望通过接受的传入媒体类型来区分不同的处理程序。
+无论您的用例是什么，Spring Webflux 都会为您提供支持。 让我们看看如何使用嵌套注册来更自然地描述层次结构并避免冗余配置。
+
+这就是我们想要描述的。
+
+
+|===
+|HTTP Method |Root Path |Sub Path (if any) |Media-Type
+
+| GET
+|  /nested
+| ``
+| application/json
+
+| GET
+| /nested
+| ``
+| text/event-stream
+
+| GET
+| /nested
+| `/\{pv\}`
+| application/json
+|===
+
+以下是我们如何分层描述它。
+
+[source,java]
+----
+@Configuration
+public class NestedFunctionalEndpointConfiguration {
+
+    @Bean
+    RouterFunction<ServerResponse> nested(NestedHandler handler) {
+        // <1>
+        var jsonRP = accept(MediaType.APPLICATION_JSON).or(accept(MediaType.APPLICATION_JSON_UTF8));
+        var sseRP = accept(MediaType.TEXT_EVENT_STREAM);
+
+        return route() //
+                .nest(path("/nested"),builder ->
+                    builder.nest(jsonRP,nestedBuilder ->
+                       nestedBuilder.GET("/{pv}",handler::pathVariable) // <2>
+                               .GET("",handler::noPathVariable) // <3>
+                    )
+                            .add(route(sseRP,handler::sse)) // <4>
+                )
+                .build();
+
+    }
+}
+----
+====
+<1> jsonRP 是一个 `RequestPredicate`，它响应接受 `application/json` 或 `application/json;charset=UTF-8` 的传入请求。 sseRP 是一个 `RequestPredicate`，它响应接受 `text/event-stream` （服务器发送事件）的传入请求。
+<2> 这是一个嵌套处理函数，仅当客户端接受 `application/json` 或 `application/json;charset=UTF-8` 并且客户端使用 HTTP 方法 GET 请求路径 `/nested/\{pv\}` 时才响应。
+<3> 这是一个嵌套处理函数，仅当客户端接受 `application/json` 或 `application/json;charset=UTF-8` 并且客户端使用 HTTP 方法 GET 请求路径 `/nested`（没有尾随路径变量）时才响应。
+<4> 这是一个嵌套的处理程序函数，仅当客户端接受 `text/event-stream` 并且客户端使用 HTTP 方法 GET 请求路径 `/nested`（没有尾随路径变量）时才响应。
+====
+
+这里令人兴奋的是端点定义的嵌套。 我使用制表符来明确定义中隐含的层次结构。
+定义从 `/nested` 开始； 这是根。 我们将定义三个以其为根的端点。 在此之下，两个端点返回 `application/json` 数据。 这第一次注册注册了一个返回默认值的处理程序。
+下一个处理程序注册需要一个子路径，即要注册的名字，相对于 `/nested`: `/nested/\{pv\}`。
+
+[source,text]
+----
+  curl -H"accept: application/json" http://localhost:8080/nested
+----
+
+[source,text]
+----
+  curl -H"accept: application/json" http://localhost:8080/nested/World
+----
+
+最终处理程序挂起 `/nested` ，但它会生成服务器发送事件 (SSE) 流（`text/event-stream`）数据。 服务器发送的事件是描述发送到客户端的永无止境的数据流的便捷方式。 稍后我们将更深入地研究 SSE。
+
+[source,text]
+----
+  curl -H"accept: text/event-stream" http://localhost:8080/nested
+----
+
+您可以使用 `RouterFunction<ServerResponse>` DSL 表达各种层次结构。 在此示例中，我们遵循处理程序对象 `NestedHandler` 中的方法引用。
+
+[source,java]
+----
+@Component
+public class NestedHandler {
+
+    Mono<ServerResponse> sse(ServerRequest request) {
+        return ServerResponse.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(IntervalMessageProducer.produce(),String.class);
+    }
+
+    Mono<ServerResponse> pathVariable(ServerRequest request) {
+        return ServerResponse.ok()
+                .syncBody(greet(Optional.of(request.pathVariable("pv"))));
+    }
+
+    Mono<ServerResponse> noPathVariable(ServerRequest request) {
+        return ServerResponse.ok()
+                .syncBody(greet(Optional.ofNullable(null)));
+    }
+
+    private Map<String,String> greet(Optional<String> name) {
+        var finalName = name.orElse("world");
+        return Map.of("message",String.format("Hello %s",finalName));
+    }
+}
+----
+
+在 `NestedHandler` 中没有什么新东西可以建立。 让我们回到我们的 `Customer` HTTP API，这次是使用函数式响应式风格实现的。
+
+[source,java]
+----
+@Configuration
+public class CustomerApiEndpointConfiguration {
+
+    @Bean
+    RouterFunction<ServerResponse> customerApis(CustomerHandler handler) {
+        return route()
+                .nest(path("/fn/customers"),builder -> builder
+                        .GET("/{id}",handler::handlerFindCustomerById)
+                        .GET("",handler::handlerFindAll)
+                        .POST("",handler::handlerCreateCustomer))
+                .build();
+    }
+
+}
+----
+
+此处定义的注册在功能上与 `CustomerRestController` 中的注册行为相同，只是它们以 `/fn` 开头，而不是 `/rc`。 每个端点的逻辑位于处理程序对象 `CustomerHandler` 中。
+
+[source,java]
+----
+@Component
+public class CustomerHandler {
+
+    private final CustomerRepository repository;
+
+    CustomerHandler(CustomerRepository repository) {
+        this.repository = repository;
+    }
+
+    Mono<ServerResponse> handlerFindAll(ServerRequest request) {
+        var all = this.repository.findAll(); // <1>
+        return ServerResponse.ok().body(all, Customer.class); // <2>
+    }
+
+    Mono<ServerResponse> handlerFindCustomerById(ServerRequest request) {
+        var id = request.pathVariable("id");
+        var byId = this.repository.findById(id);
+        return ServerResponse.ok().body(byId, Customer.class);
+    }
+
+    Mono<ServerResponse> handlerCreateCustomer(ServerRequest request) {
+        return request.bodyToMono(Customer.class)
+                .flatMap(repository::save)
+                .flatMap(saved -> created(URI.create("/fn/customers/" + saved.id())).build());
+    }
+}
+----
+====
+<1> 返回 `Publisher<Customer>`。
+<2> 响应是使用 `ServerResponse` 对象上的静态导入方法构建的，例如 `ok(...)` 和 `created(...)`。 `ServerResponse.created(URI)` 是 `ServerResponse` 上针对常见场景的众多便捷方法之一。
+在 HTTP API 中返回 201 很常见。201 表示 POST 已导致在服务器上创建某些状态。 客户在阅读 201 状态代码后的下一个问题是，“好的，那么我在哪里可以找到新创建的资源？” 使用 URI 进行通信。
+====
+
+
+处理程序方法取决于我们的响应式 Spring Data MongoDB 存储库。 每个响应都派生自 `Publisher<T>`。 最终订阅我们的 `Publisher<T>` 实例。
+您可以为小型有效负载（如我们的端点服务 `application/json`）或流式有效负载（如端点服务 `text/event-stream`）返回 `Publisher<T>`。
+
+** Request Predicates **
+
+到目前为止，我们已经使用内置的 DSL 来创建请求谓词，这些谓词将常见的请求类型匹配，通过 HTTP 方法或接受的媒体类型来区分给定的 URI。 这些只是我们使用 DSL 和 `RequestPredicates` 类上的静态工厂方法构建的 `RequestPredicate` 实现。
+问题是，您不限于框架提供的那些变体。 您可以添加自己的或混合搭配其他人。
+
+让我们看看如何自定义传入请求的匹配。 我承认我很难想象一个尚未开箱即用的用例。 值得庆幸的是，与大多数事情一样，社区提供了帮助！ 我在一次会议上与某人交谈，他询问了不区分大小写的匹配。
+开箱即用，Spring MVC 和 Spring Webflux 在匹配路径时都是区分大小写的。 这是一个很好的、贴心的默认设置，但有时候，好吧，有时候，你想要一些更不敏感的东西。
+
+
+[source,java]
+----
+@Configuration
+public class CustomRoutePredicates {
+
+    private final HandlerFunction<ServerResponse> handler =
+            request -> ok().bodyValue("Hello," + request.queryParam("name").orElse("world") + "!");
+
+    @Bean
+    RouterFunction<ServerResponse> customerRequestPredicates() {
+        var aPeculiarRequestPredicate = GET("/test") // <1>
+                .and(accept(MediaType.APPLICATION_JSON_UTF8))
+                .and((this::isRequestForAValidUid));
+
+
+        var caseInsensitiveRequestPredicate = i(GET("/greetings/{name}")); // <2>
+
+        return route()
+                .add(route(aPeculiarRequestPredicate,this.handler))
+                .add(route(caseInsensitiveRequestPredicate,this.handler))
+                .build();
+    }
+
+    private boolean isRequestForAValidUid(ServerRequest request) {
+        var goodUids = Set.of("1","2","3");
+        return request.queryParam("uid")
+                .map(goodUids::contains)
+                .orElse(false);
+    }
+}
+----
+====
+<1> 此示例演示您可以组合（或否定，或两者） `RequestPredicate` 实现。 `RequestPredicate` 可以表达条件，例如“匹配 HTTP GET 请求并匹配自定义请求谓词”。 这里我们用方法引用代替 `RequestPredicate`。
+<2> 在这里，使用我创建的静态 `i()` 工厂方法，我将 `RequestPredicate` 包装并改编为另一个实现，该实现将请求的 URI 小写！ 不区分大小写的请求匹配。 我们将立即探讨实施细节。
+====
+
+最后一个示例介绍了一个自定义 `RequestPredicate` 包装器，它包装传入请求并规范化它们的 URI，以便它们与我们的全小写 `RequestPredicate` 实现匹配，而不管传入 URI 的大小写如何。
+我创建了一个工厂方法 `rsb.http.routes.CaseInsensitiveRequestPredicate.i`（i 表示不敏感），它采用目标 `RequestPredicate` 并对其进行调整。
+
+这是 `RequestPredicate` 的实现。
+
+[source,java]
+----
+public class CaseInsensitiveRequestPredicate implements RequestPredicate {
+
+    private final RequestPredicate target;
+
+    public static RequestPredicate i(RequestPredicate rp) {
+        return new CaseInsensitiveRequestPredicate(rp);
+    }
+
+    CaseInsensitiveRequestPredicate(RequestPredicate target) { // <1>
+        this.target = target;
+    }
+    @Override
+    public boolean test(ServerRequest request) {
+        return this.target.test(new LowercaseUriServerRequestWrapper(request));
+    }
+
+    @Override
+    public String toString() {
+        return this.target.toString();
+    }
+}
+----
+====
+<1> 我们的包装器 `RequestPredicate` 只是用 `LowercaseUriServerRequestWrapper` 包装传入的 `ServerRequest` 并将其转发到目标 `RequestPredicate`
+====
+
+`ServerRequest` 包装器完成了最艰巨的工作。 您可能想要扩展、包装和调整请求，因此 Spring Webflux 附带了一个方便的基类，称为 `ServerRequestWrapper`，它已经为目标 `ServerRequest` 提供了存储。 我们将使用它来包装传入请求，规范化其 URI，然后继续。
+
+[source,java]
+----
+public class LowercaseUriServerRequestWrapper extends ServerRequestWrapper {
+
+    public LowercaseUriServerRequestWrapper(ServerRequest target) {
+        super(target);
+    }
+
+    @Override
+    public URI uri() { // <1>
+        return URI.create(super.uri().toString().toLowerCase());
+    }
+
+    @Override
+    public String path() {
+        return uri().getRawPath();
+    }
+
+    @Override
+    public PathContainer pathContainer() {
+        return PathContainer.parsePath(path());
+    }
+}
+----
+====
+<1> 将请求 URI 小写并返回。
+====
+
+现在，假设您的 `RequestPredicate` 实现都使用小写字符串，这将为您提供不区分大小写的请求匹配。 向 `/greetings/\{name\}` 端点发出请求并确认它仍然有效。 将请求大写，然后重试。 您应该会看到相同的结果。
+
+
+=== Filter
+
+自定义请求谓词是实现不区分大小写 URI 的一种方法。 另一个可能是引入一个过滤器 - 一个拦截所有针对下游 Spring Webflux 组件的传入 HTTP 请求的对象 - 并以某种方式对其进行操作或转换。
+有几种不同的方法可以将类似过滤器的功能引入 Spring Webflux 应用程序。 您可以对所有类型的处理程序使用一般的 `WebFilter`，或者具体地为功能响应端点处理程序使用 `HandlerFilterFunction`。
+
+我将从 `WebFilter` 方法开始，因为它具有普遍性并且应该相当熟悉。
+
+让我们重新审视我们的不区分大小写的用例。 我们将在表示传入 HTTP 请求的 `ServerWebExchange` 上使用 `.mutate()` 操作将传入请求 URI 小写。
+
+[source,java]
+----
+@Component
+public class LowercaseWebFilter implements WebFilter {
+    @Override
+    public Mono<Void> filter(ServerWebExchange currentRequest, WebFilterChain chain) {
+
+        // <1>
+        var lowercaseUri = URI.create(currentRequest.getRequest().getURI().toString().toLowerCase());
+
+        var outgoingExchange = currentRequest.mutate() // <2>
+                .request(builder -> builder.uri(lowercaseUri)).build();
+        return chain.filter(outgoingExchange); // <3>
+    }
+}
+----
+====
+<1> 小写的传入 HTTP 请求
+<2> 改变传入请求，使用小写 URI 转发它
+<3> 在过滤器链中向前转发请求
+====
+
+WebFilter API 是引入通用的、横切关注点（如安全性、超时、压缩、消息丰富等）的好方法。 您可以通过调用其他一些端点来尝试此操作，例如同时使用小写和大写的 `/test`。
+
+我喜欢通用的 `WebFilter` 方法，因为它可以让我拦截所有进入我的应用程序的请求，并可能在任何响应之前为它们提供一些东西。 `WebFilter` 实例是安全等事情的理想场所。
+
+Spring Webflux 还支持挂起特定 `RouterFunction<ServerResponse>` 本身的目标过滤器。 框架在特定 URI 匹配后调用过滤器，但为时已晚，
+无法像我们在 `WebFilter` 中那样尝试规范化 URI。 目标过滤器 - 钩子 - 仍然非常适合安全性等横切功能。 让我们看一下 Spring Webflux 为处理传入请求而扩展的一些钩子。
+
+[source,java]
+----
+@Configuration
+public class LowercaseWebConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(LowercaseWebConfiguration.class);
+
+    @Bean
+    RouterFunction<ServerResponse> responseRouterFunction() {
+        var uuidKey = UUID.class.getName();
+
+        return route() // <1>
+                .GET("/hi/{name}",this::handler)
+                .GET("/hello/{name}",this::handler)
+                .filter((req,next) -> { // <2>
+                    log.info(".filter(): before");
+                    var reply = next.handle(req);
+                    log.info(".filter(): after");
+                    return reply;
+                })
+                .before(request -> {
+                    log.info(".before()"); // <3>
+                    request.attributes().put(uuidKey,UUID.randomUUID());
+                    return request;
+                })
+                .after(((request, serverResponse) -> {
+                    log.info(".after()"); // <4>
+                    log.info("UUID: " + request.attributes().get(uuidKey));
+                    return serverResponse;
+                }))
+                .onError(NullPointerException.class,(e,request) -> badRequest().build()) // <5>
+                .build();
+    }
+
+    private Mono<ServerResponse> handler(ServerRequest request) {
+        return ok().bodyValue(String.format("Hello %s",request.pathVariable("name")));
+    }
+}
+----
+====
+<1> 此配置定义了两个 HTTP 端点
+<2> `filter(HandlerFilterFunction<ServerResponse, ServerResponse>)` 方法看起来类似于我们的之前的 `WebFilter`。
+<3> `before()` 可让您预处理请求。 我利用这个机会来存储属性中的请求。
+<4> `after()` 允许您对请求进行后处理。 我可以提取该请求属性并确认它仍然存在。
+<5> `onError()` 支持两种变体，它们支持匹配特定类型的异常并为它们提供响应，另一种变体提供默认响应。
+====
+
+所以，如果你配置 `.before()` 和 .`filter()` 和 `.after()`，你可能想知道，哪个先发生？ 在上面的示例中，我们可以通过日志记录看到以下顺序：
+
+* .filter(): before
+* .before()
+* .filter(): after
+* .after()
+
+`HandlerFilterFunction` 的调用早于 `.before()` 和 `.after()`。 在此示例中，我还配置了一个 `onError()` 回调，如果请求出现问题，该回调将返回 HTTP 400。
+`onError()` 方法让我可以将繁琐的错误处理和清理逻辑与端点处理函数本身分开； 他们可以抛出异常并让它冒泡到 `onError` 中的集中式错误处理。
+
+** 功能响应端点的错误处理 **
+
+`.filter()` 操作符是集中所有端点的错误处理例程的好地方，这些端点挂在 `RouterFunction<ServerResponse>` 上。 最好的部分？ 我们可以使用我们已经熟悉的相同功能性响应习语。
+让我们看一个简单的例子，它有一个端点，可以通过 ID `/products/\{id\}` 读取产品记录。 请求 ID `1` 或 `2` 并触发 `ProductNotFoundException`。 其他一切都成功返回。
+我们会将一些错误处理逻辑附加到 `RouterFunction` 以捕获 `ProductNotFoundException` 异常并将它们转换为 HTTP 404（未找到）响应。
+
+[source,java]
+----
+@Configuration
+public class ErrorHandlingRouteConfiguration {
+
+    @Bean
+    RouterFunction<ServerResponse> errors() {
+        var productIdPathVariable = "productId";
+        return route()
+                .GET("/products/{" + productIdPathVariable + "}",request -> {
+                    var productId = request.pathVariable(productIdPathVariable);
+                    if(!Set.of("1","2").contains(productId)) {
+                        return ServerResponse.ok().syncBody(new Product(productId));
+                    } else {
+                        return Mono.error(new ProductNoFoundException(productId));
+                    }
+                })
+                .filter((request, next) -> next.handle(request) // <1>
+                        .onErrorResume(ProductNoFoundException.class,pnfe -> ServerResponse.notFound().build())) // <2>
+                .build();
+    }
+}
+
+record Product(String id) {}
+
+class ProductNoFoundException extends RuntimeException {
+    private final String productId;
+
+    public ProductNoFoundException(String productId) {
+        this.productId = productId;
+    }
+
+    public String getProductId() {
+        return productId;
+    }
+}
+
+----
+====
+<1> 我们将请求处理转发到链中的下一个过滤器。
+<2> 如果请求处理链中的任何一点出现问题，我们可以使用熟悉的 Reactor 操作符捕获异常并处理它。 在这种情况下，我们返回 HTTP 404（未找到）。
+====
+
+我已经将这些处理程序内联为 lambda，但你可以，而且很可能应该将它们提取到方法引用中。
+
+== 客户端长连接
+
+到目前为止，我们主要研究了如何构建响应请求然后断开连接的 HTTP 端点。 我们有一个独特的机会，通过异步 IO 和响应式编程，为支持长期客户端连接的端点提供服务。
+我们为什么要这样做？ 响应性！ 一旦客户端与端点断开连接，服务器就无法向其发送任何内容。 为了让客户端看到更新的服务器状态，它需要重新连接。
+这种重新连接效率低下，这意味着客户端需要请求服务重播自上次连接以来错过的任何更新。
+
+你为什么需要这个？ 想象一下任何数据活力至关重要的用例。 股票代码。 传感器更新。 聊天消息。 在场通知。 所有这些都假定消耗的更新是即时的。
+
+在 HTTP 堆栈中有几个不错的选项可供我们使用：服务器发送事件和 `WebSockets`。
+
+在我们深入研究并演示其中一些概念之前，我构建了一个实用程序类，用于发布永无止境的事件流。 你很快就会再次看到它，所以让我们在这里建立它以供参考。
+
+[source,java]
+----
+public abstract class IntervalMessageProducer {
+
+    public static Flux<String> produce(int c) {
+        return produce().take(c);
+    }
+
+    public static Flux<String> produce() {
+        return doProduceCountAndStrings().map(CountAndString::message);
+    }
+
+    private static Flux<CountAndString> doProduceCountAndStrings() {
+        var counter = new AtomicLong();
+        return Flux
+                .interval(Duration.ofSeconds(1)) // <1>
+                .map(i -> new CountAndString(counter.incrementAndGet()));
+    }
+}
+
+record CountAndString(String message,long count) {
+    CountAndString(long count) {
+        this("#" + count , count);
+    }
+}
+----
+====
+<1> 此端点使用 `Flux.interval` 运算符每秒生成新的 `CountAndString` 值。
+====
+
+让我们看看永无止境的数据流的两个可行选项之一。
+
+== 服务发送事件（SSE）
+
+服务发送事件 (SSE) 是一种描述要发送给客户端的（可能永无止境的）数据流的便捷方式。 客户端看到内容类型 `text/event-stream`，并且知道不要断开连接。
+它知道它应该保持套接字打开并继续读取数据。 SSE 是向客户端异步发送更新的绝佳方式。 它是一种单向通信方式，意味着它只适合生产者（服务器）与消费者（客户端）通信。 如果客户端想要响应，
+它应该只向另一个 HTTP 端点发送一条消息。 这是一个简单的协议，其中两个换行符描述了有效负载，然后是文本数据：。 然后是一些文本表示。
+
+简单，但它有效。 除了 HTTP 对整个消息的支持之外，消息本身没有 header 的概念。 服务器发送的事件是 HTTP 负载，因此它需要文本负载。
+我们有我们的 `IntervalMessageProducer`。 需要什么才能使其适应服务器发送的事件流？ 事实证明，没那么多！ 这是一个例子。
+
+[source,java]
+----
+@Configuration
+public class SseConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(SseConfiguration.class);
+
+    private final String countPathVariable = "count";
+
+    @Bean
+    RouterFunction<ServerResponse> routes() {
+        return route()
+                .GET("/sse/{" + this.countPathVariable + "}",this::handleSse)
+                .build();
+    }
+
+    Mono<ServerResponse> handleSse(ServerRequest request) {
+        var countPathVariable = Integer.parseInt(request.pathVariable(this.countPathVariable));
+        var publisher = IntervalMessageProducer.produce(countPathVariable).doOnComplete(() -> log.info("completed"));
+
+        return ServerResponse.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM) // <1>
+                .body(publisher,String.class);
+    }
+}
+----
+====
+<1> 这里唯一有趣的是我们使用的是 `text/event-stream` 媒体类型。 其他一切都如您之前所见。
+====
+
+我使用函数式响应式风格编写了这个示例。 如果我使用 `@GetMapping` 之类的 `@RequestMapping` 变体，我会指定 `produces = MediaType.TEXT_EVENT_STREAM_VALUE`。
+
+您可以使用 JavaScript 中的 `EventSource` 对象从 HTML 和 JavaScript 使用服务器发送的事件。 现在，因为我关心并希望你欣赏它的潜力，所以我将做一些我通常不会在有礼貌的公司做的事情：JavaScript。 （退后！）
+
+[source,javascript]
+----
+function log(msg) {
+    var messagesDiv = document.getElementById('messages');
+    var elem = document.createElement('div');
+    var txt = document.createTextNode(msg);
+    elem.appendChild(txt);
+    messagesDiv.append(elem);
+}
+window.addEventListener('load', function (e) {
+    log("window has loaded.");
+    var eventSource = new EventSource('http://localhost:8080/sse/10'); // <1>
+    eventSource.addEventListener('message', function (e) {
+        e.preventDefault();
+        log(e.data);
+    });
+    eventSource.addEventListener('error', function (e) { // <2>
+        e.preventDefault();
+        log('closing the EventSource...')
+        eventSource.close();
+    });
+});
+----
+====
+<1> 该程序连接到我们的 SSE 端点，使用 JavaScript `EventSource` 对象请求一系列有限的元素，并为消息事件注册一个侦听器。 当新消息到达时，处理程序调用 log 将新的文本行附加到具有名为 `messages` 的 `id` 的 div 元素。
+<2> 当 SSE 端点用完元素时，JavaScript 客户端触发错误。 在这里，我们以此为契机断开连接。
+====
+
+
+这是 JavaScript 的 HTML 页面。
+
+[source,html]
+----
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title> Server-Sent Events</title>
+</head>
+<body>
+<script src="/sse.js"></script>
+<div id="messages"></div>
+</body>
+</html>
+----
+
+== Websockets
+
+服务发送事件（Server-sent events）和 HTTP 可能就是您所需要的。 将 HTTP 请求和服务器发送出的事件关联起来有点奇怪； 它使会话协议变得更加困难，除非您愿意将传入的 HTTP 请求和服务发送事件串联在一起。
+
+服务发送事件对于二进制数据不是特别重要，因为每个有效负载都是编码文本。
+
+如果您需要更双向的东西，Websockets 提供了更好的方式。 Websockets 是一种不同于 HTTP 的协议，但它们可以很好地与 HTTP 配合使用。
+
+WebSocket 客户端连接到 HTTP 端点，然后协商升级到 WebSocket 协议。 JavaScript 也很好地支持 Websockets。
+
+Websocket 应用程序比我们目前看到的稍微复杂一些，但也不是很多。 通常，基于 WebSocket 的应用程序需要三个不同的 bean。
+
+* WebSocketHandler：这是应用程序的业务逻辑所在的地方。 这是从一个 WebSocket 应用程序到另一个 WebSocket 应用程序的独特之处。
+* WebSocketHandlerAdapter：这是框架完成其工作所需的机制。 老实说，我从来不需要配置或定制它，但你可能需要，这就是为什么它不是默认的。
+* HandlerMapping：这个 bean 告诉 Spring 如何将 WebSocket 逻辑挂载到一个 URI。
+
+对于这两个应用程序，`WebSocketHandlerAdapter` 都是不变的，因此我将在此处重现其配置，仅一次。 `WebSocketHandlerAdapter` 接受传入的 HTTP 请求并处理升级。
+您可以覆盖它和下游的 `WebsocketService`，如果您愿意，Spring Boot 会自动为我们配置它。 我没有，所以不会。
+
+[source,java]
+----
+@Configuration
+public class WebsocketConfiguration {
+
+    @Bean
+    WebSocketHandlerAdapter webSocketHandlerAdapter() {
+        return new WebSocketHandlerAdapter();
+    }
+}
+----
+
+我已经为应用程序中的所有 WebSocket 端点定义了一次。
+
+让我们看几个 WebSocket 示例。
+
+=== Echos of Websockets Past
+
+第一个示例是对经典 echo 协议稍微复杂一点的转折。 服务器启动数据流，将其发送给客户端，然后客户端回复相同的值并以 `reply` 为后缀。
+在这种情况下，消费者是做回声的东西。 要生成值，我们将再次转向 `IntervalMessageProducer`。
+
+[source,java]
+----
+@Configuration
+public class EchoWebsocketConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(EchoWebsocketConfiguration.class);
+
+    @Bean // <1>
+    HandlerMapping echoHm() {
+        return new SimpleUrlHandlerMapping(Map.of("/ws/echo",echoWsh()),10);
+    }
+
+    @Bean // <2>
+    WebSocketHandler echoWsh() {
+        return session -> { // <3>
+
+            Flux<WebSocketMessage> out = IntervalMessageProducer //
+                    .produce()
+                    .doOnNext(log::info)
+                    .map(session::textMessage)// <4>
+                    .doFinally(signalType -> log.info("outbound connection" + signalType)); // <5>
+
+            Flux<String> in = session
+                    .receive()
+                    .map(WebSocketMessage::getPayloadAsText) // <6>
+                    .doFinally(signalType -> {
+                        log.info("inbound connection" + signalType);
+                        if(signalType.equals(SignalType.ON_COMPLETE)) {
+                            session.close().subscribe();
+                        }
+                    })
+                    .doOnNext(log::info);
+
+
+          return session.send(out).and(in);  // <7>
+        };
+    }
+}
+----
+====
+<1> 我非常希望 `SimpleUrlHandlerMapping` 有一个构造函数，该构造函数将 URI 的顺序和映射映射到 `WebSocketHandler` 实现，或者至少是一个工厂对象。 它没有。
+我倾向于在扩展它的地方使用匿名类样式，然后在相同的表达式中配置它，避免创建中间变量。
+<2> 这是完成的最重要的工作。
+<3> `WebsocketHandler` 被赋予对 `WebSocketSession` 的引用，如果需要，您可以将其存储起来以供稍后参考。 您也可以在其他线程中将数据泵入该 `WebSocketSession`。 `WebSocketSession` 为每个客户端创建一次，有点像 HTTP 会话。
+<4> 在连接时，此处理程序通过使用 `WebSocketSession.textMessage` 工厂方法将每个生成的消息从 `IntervalMessageProducer` 映射到 `WebSocketMessage` 来创建冷数据流 `Flux<WebSocketMessage>`。
+有一个变体 `WebSocketSession.binaryMessage` 可以传送二进制数据。
+<5> 当 WebSocket 客户端（如浏览器中的 JavaScript 应用程序）断开连接或用户导航到另一个页面时，可能存在要拆除的应用程序状态。 使用 `doFinally` 运算符进行干预。
+<6> 我们可以要求 `WebSocketSession` 给我们一个发布者来开始接收数据。 此示例接受任何传入请求，将有效负载转换为文本，并将其记录在 `doOnNext` 运算符中。
+<7> 链接两个冷流并使用 `and(Publisher<T>)` 将它们组合成 `Mono<Void>` 使它们成为热流。
+====
+
+就是这样！ 诚然，它可能看起来很多，但它只有三个 beans，而且真正导入的唯一一个是 `WebsocketHandler`。 现在让我们看另一个 HTML 示例，它在结构上与之前的 SSE 示例相似。
+
+[source,javascript]
+----
+function log(msg) {
+    var messagesDiv = document.getElementById('messages');
+    var elem = document.createElement('div');
+    var txt = document.createTextNode(msg);
+    elem.appendChild(txt);
+    messagesDiv.append(elem);
+}
+var websocket = null;
+document
+    .getElementById('close')
+    .addEventListener('click', function (evt) {
+      evt.preventDefault();
+      websocket.close();
+      return false;
+});
+window.addEventListener('load', function (e) { // <1>
+  websocket = new WebSocket('ws://localhost:8080/ws/echo');
+  websocket.addEventListener('message', function (e) {
+    var msg = e.data;
+    log(msg);
+    websocket.send(msg + ' reply'); // <2>
+}); });
+----
+====
+1 该程序使用 JavaScript WebSocket 和 `ws://` 协议连接到 WebSocket 端点。
+2 当 JavaScript 程序看到一条新的传入消息时，它会将其记录下来，然后使用 WebSocket 对象将其立即发回，并以 "reply" 为后缀。
+====
+
+现在让我们看一下 JavaScript 程序的 HTML 页面。
+
+`/echo.html` 页面必需的 HTML 元素
+
+[source,html]
+----
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>
+        this is a test
+        </title>
+    </head>
+<body>
+    <a href="#" id="close"> Close Session </a>
+    <script src="/echo.js"></script>
+    <div id="messages"></div>
+</body>
+</html>
+----
+
+好吧！ 这是一个很好的章节，伙计！ 好游戏。 下一章见！
+
+...
+
+你还在这里做什么？ 得到！ 去！
+
+...
+
+...
+好的！ 好的！ 美好的。 我不想这样做，但我知道你想要什么。 你需要什么。 最后一个示例有力地演示了典型 WebSocket 应用程序中的移动部件。
+您肯定在想，我们需要一个聊天示例！ 如果没有必要的聊天示例，我们不可能完成对 WebSockets 的讨论。 我很乐意效劳。
+
+=== The Chatastic Websocket Example
+
+我们将要考虑的是什么来取代您最喜欢的聊天应用程序？ 可能不会。 它确实有效。 此示例是一个相当长的玩具应用程序或一个小型生产应用程序。 让我们来解决它。
+
+聊天与 `Connection` 实例一起工作，这些实例是给定客户端连接及其对应的 `WebSocketSession` 的包装器。
+
+[source,java]
+----
+public record Connection(String id, WebSocketSession socketSession) {
+}
+----
+
+当客户端发送消息时，我们将其调整为 `Message` 对象。 消息实例存储客户端 ID、消息本身的文本和时间戳。
+
+[source,java]
+----
+public record Message(String clientId, String text, Date when) {
+}
+----
+
+大部分聊天实现位于 `ChatWebsocketConfiguration` 中。
+
+[source,java]
+----
+@Configuration
+public class ChatWebsocketConfiguration {
+
+
+    // <1>
+    ChatWebsocketConfiguration(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
+    private final ObjectMapper objectMapper;
+
+    // <2>
+    private final Map<String,Connection> sessions = new ConcurrentHashMap<>();
+
+    // <3>
+    private final BlockingQueue<Message> messages = new LinkedBlockingQueue<>();
+
+    @Bean
+    WebSocketHandler chatWsh() {
+        // <4>
+        var messagesToBroadcast = Flux.<Message>create(sink -> {
+            var submit = Executors.newSingleThreadExecutor().submit(() -> {
+                while (true) {
+                    try {
+                        sink.next(this.messages.take());
+                    } catch (InterruptedException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+            });
+            sink.onCancel(() -> submit.cancel(true));
+        })
+                .share();
+
+        return session -> { // <5>
+          var sessionId = session.getId();
+          this.sessions.put(sessionId,new Connection(sessionId,session));
+
+          var in = session // <6>
+                  .receive()
+                  .map(WebSocketMessage::getPayloadAsText)
+                  .map(this::messageFromJson)
+                  .map(msg -> new Message(sessionId,msg.text(),new Date()))
+                  .map(this.messages::offer)
+                  .doFinally(st -> { // <7>
+                     if(st.equals(SignalType.ON_COMPLETE)) {
+                         this.sessions.remove(sessionId);
+                     }
+                  });
+
+            var out = messagesToBroadcast // <8>
+                    .map(this::jsonFromMessage)
+                    .map(session::textMessage);
+
+            return session.send(out).and(in);
+        };
+    }
+
+    // <9>
+    private Message messageFromJson(String json) {
+        try {
+            return this.objectMapper.readValue(json,Message.class);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String jsonFromMessage(Message msg) {
+        try {
+            return this.objectMapper.writeValueAsString(msg);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Bean
+    HandlerMapping chatHm() {
+        return new SimpleUrlHandlerMapping(Map.of("/ws/chat" , chatWsh()),2);
+    }
+}
+----
+====
+<1> 我们将在几个不同的地方使用 Jackson 的 `ObjectMapper`
+<2> 新连接实例的存储。 `Connection` 是给定连接 ID 和 `WebSocketSession` 的持有者。 我们需要引用所有已连接的 `WebSocketSession` 连接，以向给定聊天中的每个人广播消息。
+<3> 当客户端将消息发送到应用程序时，将它们排入队列以在 `Queue<Message>` 中进行传递。 我们稍后从这个 `Queue<T>` 创建一个 `Publisher<T>` 并使用它向其他 `WebSocket` 会话广播消息。
+<4> 这可能是整个应用程序中最棘手的部分。 我们稍后会重新讨论 `Flux.create` 的使用。 此示例演示了我们如何将外部事件源与我们的响应式 API 桥接起来。 它是如何将 `Queue<T>` 变成 `Publisher<T>`。
+<5> `WebSocketHandler` 接口有一个抽象方法，它引用在客户端连接到应用程序时创建的 `WebSocketSession`。 您可以存储对该 `WebSocketSession` 的引用，并使用它向单个客户端发送消息。 我们在这里通过获取传入会话、记录其 ID 并将其包装在 Connection 实例中，然后将该连接存储在之前建立的 Map<String, Connection> 中来做到这一点。 每个新的 WebSocket 客户端都会在此 Map<String, Connection> 中产生另一个条目。 我们必须确保这个 Map<String, Connection> 不仅为新连接扩展，而且在客户端断开连接或离开页面时收缩。
+<6> 这里有两个问题，所以我将它们提取到两个不同的管道中。 第一个处理传入的消息，将它们转换为文本，然后将它们转换为 `Message` 实例，然后将这些 `Message` 实例插入（“提供”）到我们的 `Queue<Message>` 中。
+<7> 当客户端断开连接时，浏览器向服务器发送信号，我们使用 `doFinally` 运算符处理断开连接，其中我们注意从 `Map<String, Connection>` 存储中删除与当前会话关联的 `WebSocketSession`。
+<8> 出站数据流利用全局共享的 `messsagesToBroadcast Publisher<T>`，在每个新值到达时获取它们，将它们转换为字符串，然后使用 `WebSocketSession` 将这些字符串转换为 `WebSocketMessage` 实例。
+<9> 有很多将 String 对象编组为 `Message` 对象以及将 `Message` 对象编组回 JSON 字符串的过程。 我已经将这些逻辑隐藏在这些小的辅助方法中。
+====
+
+
+`Flux.create` 的使用值得回顾。 此方法采用 `Consumer<FluxSink<T>>`。 我们在 `Consumer` 中的工作是存储对 `FluxSink<T>` 的引用以备后用。
+您可以隐藏此引用以供在任何其他线程中使用。 任何引用它的人都可以发出此 `Publisher<T>` 的订阅者可以看到的项目。 这种方法非常适合桥接以事件为中心的系统。
+一种可能性是将出站适配器从 Spring Integration 中的 `IntegrationFlow` 挂起，并且对于传递的每条新消息，将该消息转发到 `FluxSink<T>`。
+Spring Integration 与各种事件源和接收器进行对话。 您可以构建一个 `WebSocket` 应用程序，当新文件落在 FTP 服务器上、XMPP 消息到达、电子邮件发送或推文提及用户时通知您。 可能性是无止境！
+
+在此示例中，T 指的是 `Message` 的实例。 我们在整个应用程序中定义了一次 `Publisher<Message>`。 此循环运行并不断轮询 `Queue<T>`。 `Queue.take()` 阻塞（发出嘶嘶声！）控制线程，直到有一个项目要返回。
+出于这个原因，我们需要将这个循环放在一个单独的线程中。 当新项目到达时，此 while 循环从 `Queue<T>` 中排出项目，然后将它们交给 `FluxSink<T>` 进行发布。
+该示例有几个主要组成部分：
+
+* 将一个以事件为中心的系统桥接到响应式代码。
+* 围绕 WebSocketHandler 本身传输数据流
+* 显式记录客户端会话
+
+此示例只有一个全局的 "room" (or "topic") ，但您没有理由不能将各个客户端链接到房间，然后仅向与特定房间关联的那些客户端广播请求。
+如果您了解所有这些，那么剩下的就很容易了。 让我们看看支持聊天的 JavaScript 和 HTML 客户端。
+
+[source,html]
+----
+
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="utf-8">
+      <title>Chat</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="stylesheet" href="chat.css"/>
+  </head>
+  <body style="padding: 10px">
+  <div id="messages"></div>
+  <div>
+      <textarea name="message" id="message"></textarea>
+      <button id="send">Send</button>
+  </div>
+  <script src="/chat.js"></script>
+  </body>
+  </html>
+----
+
+HTML 页面定义了一个消息元素，其中包含新的附加消息。 它还定义了一个文本框，用户可以在其中撰写消息。 该页面依赖于 CSS 样式来改善外观（只是轻微的！），并且依赖于 JavaScript 将其连接到我们的 WebSocket 代码。
+
+[source,javascript]
+----
+  window
+      .addEventListener('load', function (e) {
+        var messages = document.getElementById('messages');
+        var button = document.getElementById('send');
+        var message = document.getElementById('message');
+        var websocket = new WebSocket('ws://localhost:8080/ws/chat'); // <1>
+          websocket.addEventListener('message', function (e) {
+              var element = document.createElement('div');
+              element.innerText = e.data;
+              messages.appendChild(element);
+        });
+        // <2>
+          function send() {
+              var value = message.value;
+              message.value = '';
+              websocket.send(JSON.stringify({'text': value.trim()}));
+          }
+        // <3>
+          message.addEventListener('keydown', function (e) {
+              var key = e.key;
+              if (key === 'Enter') {
+                  send();
+              }
+          });
+          button.addEventListener('click', function (e) {
+              send();
+              e.preventDefault();
+              return false;
+          });
+}) ;
+----
+====
+<1> JavaScript WebSocket 对象连接到我们的聊天端点并监听新消息。
+<2> 发送函数获取文本框中的任何文本，并使用隐藏的方法将其发送到服务器 WebSocket 参考。
+<3> 应用程序的其余部分涉及将 UI 中的元素连接到发送功能。 点击进入文本框，或单击“发送”按钮，您的消息将被发布。
+====
+
+我什至不打算在这里复制应用程序的样式信息，因为它是最小的并且与应用程序的功能无关。 而且，这很糟糕。 太可怕了。 名副其实的悲伤风格级联。 令人困惑的低级风格。 CSS。 我需要 CSS 方面的帮助，而且我还没有大到不敢承认这一点。
+
+== Reactive Views with Thymeleaf
+
+我们已经研究了 WebSockets 和服务发送事件，并介绍了一些服务端的一些端点。 到目前为止，我们看到的任何用户界面都仅限于 `src/main/resources/static` 文件夹中的静态 `.html`、`.js` 和 `.css`，作为静态资源。
+
+在本节中，我们将着眼于响应式服务端视图，重点关注 `Thymeleaf`。
+
+`Thymeleaf` 是一项令人兴奋的技术，因为它是一种渲染模板，旨在促进具有服务器端业务逻辑的往返用户界面。 它让我想起了 Apache Tapestry 或 Apache Wicket，它们都提倡可往返的模板。
+与许多其他模板引擎相比，Thymeleaf 模板是有效的 HTML 标记，可以在 Adobe Dreamweaver 等 HTML 设计器中清晰地预览。
+
+`Thymeleaf` 是进入模板引擎世界的一个相当新的入口，还有其他选项，比如 Apache Velocity 和 Apache Freemarker 都有十多年的历史。 （Apache Velocity 和 Apache Freemarker 都是出色的渲染引擎，如果您愿意，应该使用它们。）
+
+`Thymeleaf` 是在其设计目标中以集成基于 Spring 的应用程序为中心而开发的，它的创建者 Daniel Fernandez 是 Spring 社区的朋友。 他和 Thymeleaf 的团队努力确保 Thymeleaf 能够很好、快速地集成到最新最好的 Spring 版本中。
+
+所以，我喜欢 Thymeleaf，但我会和你保持一致。 我不确定我是否需要在书中包含这一部分。 普遍的看法似乎是，如今对服务器端视图的需求越来越少，而丰富的客户端用户界面 (UI) 可以通过富 Web 框架（如 Vue.js、Angular 和 React）实现。
+这些丰富的客户端应用程序通常由内容分发网络 (CDN) 提供，调用服务器端 API 网关或后端服务器端 HTTP 应用程序中的端点。 要使该方法起作用，您需要在客户端技术中处理所有用户界面问题（如模板）。
+这是可能的，但您可能会发现构建一个丰富的 UI 更方便，该 UI 作为页面上的一种孤岛存在，其模板和主题应用程序使用由 Thymeleaf 等支持的服务器端视图驱动。 您可以使用 Spring Security 更轻松地保护服务器端视图。
+服务端视图简化了构建逐渐丰富且退化良好的 UI 元素的工作。 它使您可以更轻松地从您了解的技能入手，并根据需要添加更多动态行为。 此外，正如您将在本节中看到的那样，您仍然可以通过这种方式做一些非常动态的事情。
+
+=== Spring 的视图解析如何与 Thymeleaf 一起工作
+
+将 Thymeleaf 的 Spring Boot starter 添加到您的构建中：
+
+* org.sprinframework.boot : spring-boot-starter-thymeleaf
+
+Spring 的模板渲染安排对于 Spring MVC 和 Spring Webflux 都是一样的。
+
+请求进入 Spring 处理程序方法，`/some-url.do`，并调用 Spring 处理程序方法。 处理程序方法的工作是构建一个模型，基本上是一个包含键和模型属性的 `Map<String, Object>`，然后提供该模型以及框架的视图模板引用，以将其转换为呈现的模板。
+通常，视图模板引用是一些规范字符串，它被插入到视图解析器中，视图解析器将抽象的规范字符串转换为某个模板引擎支持的 `View` 对象。 Spring Boot 会自动为您配置其中的大部分内容。
+Spring Boot 的 Thymeleaf 集成在给定字符串 foo 的情况下解析 `src/main/resources/templates/foo.html`。
+
+让我们看一个简单的 .html 页面，它有一个响应式模型属性。
+
+=== 带有反应流的简单 HTML 视图
+
+您可以做的最简单的事情是呈现一个具有 `Publisher<T>` 支持的模型属性的页面。 Thymeleaf 将 `Publisher<T>` 视为任何其他类似集合的模型属性，让您迭代结果。 让我们重新审视我们的示例客户应用程序。
+我们将查看功能性反应端点和基于 `@Controller`-stereotype 的示例。 这两个处理程序都使用以下模板。
+
+`customers.html` Thymeleaf 模板
+
+[source,html]
+----
+<!DOCTYPE html>
+<html> // <1>
+<head>
+      <title>
+          A Reactive Thymeleaf View
+      </title>
+</head>
+<body>
+    <h1> [[${type}]] // <2>
+      Customers
+    </h1>
+<ol>
+<li data-th-each="customer : ${customers}"> // <3>
+          [[${customer.id}]]
+          [[${customer.name}]]
+      </li>
+  </ol>
+</body>
+</html>
+----
+====
+<1> 有一个 Thymeleaf HTML 命名空间，如果我们使用该变体，我们将在此处定义它。 我更喜欢为我的模板使用自定义的、更类似于 HTML5 的自定义属性。
+<2> type 是一个字符串模型属性，我们使用特殊的 `[[...]]` 语法在页面上内联。
+<3> 模型属性 customers 也是一个 `Publisher<Customer>`。 data-th-each 元素迭代 `Publisher<Customer>` 属性中的元素，为流中的每个元素呈现元素的主体。
+每次通过循环，属性 `customers` 可用于嵌套模板并包含迭代中的当前值。 我们在 `customers` 属性中访问每个客户，并呈现有关客户的信息，包括 ID 和名称。
+====
+
+让我们看一下第一个实现 `CustomerViewController`。
+
+[source,java]
+----
+@Controller
+public record CustomerViewController(CustomerRepository repository) {
+
+
+    @GetMapping("/c/customers.php")
+    String customersView(Model model) { // <1>
+        var modelMap = Map.of("customers",repository.findAll(),"type","@Controller"); // <2>
+        model.addAllAttributes(modelMap); // <3>
+        return "customers"; // <4>
+    }
+
+}
+----
+====
+<1> 您可以在您的处理程序方法中注入一个模型，一个美化的 `Map<String, Object>`
+<2> 我们在这里指定了两个属性，type 和 customers
+<3> 这会将所有属性从 `Map<String,Object>` 复制到模型
+<4> 返回值是一个字符串，是要使用视图解析器解析的视图名称。
+====
+
+很容易。 让我们看一下功能反应式处理程序。
+
+[source,java]
+----
+@Configuration
+public class CustomerViewEndpointConfiguration {
+
+    @Bean
+    RouterFunction<ServerResponse> customerViews(CustomerRepository repository) {
+        return route()
+                .GET("/fn/customers.php",r -> {
+                    var map = Map.of("customers",repository.findAll(), // <1>
+                            "type","Functional Reactive"
+                    );
+                    return ServerResponse.ok().render("customers",map); // <2>
+                })
+                .build();
+    }
+}
+----
+====
+<1> 我们需要一个模型，就像以前一样......
+<2> ...完成后，我们将呈现一个特定的模板，客户。
+====
+
+因此，假设您有一个持续时间有限的 `Publisher<T>`，Thymeleaf 会在内存中累积所有内容并呈现页面，一切都很好。 如果您有一个无限期的 `Publisher<T>`，就像我们的 `IntervalMessageProducer` 生成的那样，会怎样？
+在这种情况下，我们会陷入困境！ 人们在两秒钟后开始点击。 在讨论 zzzzzzz 时，我开始睡着三秒钟。 啊！ 您能想象要等上一辈子才能查看体育比分吗？ 我没有那种时间。 不，不。 相反，我们需要在新结果到达时就地更新视图。
+
+=== A Reactive View
+
+假设您有一个页面的一部分，其内容需要更新以反映新的、不断变化的值——股票代码、状态信息或聊天消息。 服务发送事件、WebSockets 或 JavaScript 是满足这些活跃度要求的理想解决方案。
+无论我们最终追求的解决方案是什么，最终都会在 JavaScript 代码中为每条新消息重建 UI DOM。 很遗憾，因为我们已经有了模板引擎和模板逻辑。
+如果 Thymeleaf 主要驱动我们的页面，那么尝试在客户端 JavaScript 方法中重现模板是一种浪费。 Thymeleaf 可以在这里帮助我们。
+
+在 Thymeleaf 中，片段是 HTML 标记的一部分，可以作为块进行引用和操作。 就像用户界面逻辑的小岛一样。 甚至可以将片段作为参数传递给其他片段。
+您可以在不需要成熟的组件模型的情况下做一些非常令人印象深刻的事情。 Thymeleaf 还允许您根据 `Publisher<T>` 中新发布的值重新呈现页面片段，
+并将更新的片段作为服务器发送的流进行流式传输。 你看到可能性了吗？ Thymeleaf 呈现标记和页面。 我们几乎完全按照没有动态元素的方式放置页面。
+我们需要引入一些 JavaScript 来让它工作，但不要太疯狂。
+
+让我们看一个示例，它会在 `IntervalMessageProducer` 创建的流发布新项目时不断重新呈现标记。 有两部分：模板和它后面的控制器端点。
+我们先来看模板。
+
+[source,html]
+----
+
+<!DOCTYPE html>
+<html>
+    <head><title>Tick Tock</title></head>
+    <body>
+    // <1>
+    <div id="updateBlock">
+        // <2>
+      <h1 data-th-each="update  : ${updates}">
+          [[${update}]]
+    </h1> </div>
+    <script src="/ticker.js"></script>
+    </body>
+</html>
+----
+====
+<1> 文档对象模型 (DOM) 有一个名为 `ticktock` 的 div 元素，稍后我们将在 JavaScript 代码和 Java 控制器中引用它。
+<2> div 元素内部是一个非常典型的循环 - 由 Thymeleaf 特定的 data-th-text 属性指示 - 迭代更新模型属性中的元素。 重要的是，如果没有名为 `updates` 的属性，则不会呈现循环内的任何内容。
+====
+
+JavaScript 代码为 `/ticker.js` 中更动态的逻辑提供支持。
+
+[source,javascript]
+----
+window.addEventListener('load', function (e) {
+    var tickTockBlock = document.getElementById('updateBlock');
+    var es = new EventSource('http://localhost:8080/ticker-stream');
+    es.addEventListener('message', function (update) {
+        tickTockBlock.innerHTML = update.data; // <1>
+    });
+})
+----
+====
+<1> 每当来自位于 `/ticker-stream` 的服务器发送事件流的新值出现时，页面就会更新上述 div 元素 `updateBlock`。
+====
+
+您以前见过所有这些 - JavaScript、服务器发送的事件、DOM 操作和 HTML 页面。 没什么可怕的。 现在让我们转向服务器端控制器的定义。
+
+[source,java]
+----
+@Controller
+public class TickerSseController {
+
+    // <1>
+    @GetMapping("/ticker.php")
+    String initialView() {
+        return "ticker";
+    }
+
+    // <2>
+    @GetMapping(produces = TEXT_EVENT_STREAM_VALUE,value = "ticker-stream")
+    String streamingUpdates(Model model) {
+        var updates = new ReactiveDataDriverContextVariable(IntervalMessageProducer.produce(),1); // <3>
+        model.addAttribute("updates",updates);
+        return "ticker :: #updateBlock";
+    }
+}
+----
+====
+<1> 第一个控制器呈现模板的初始视图。 它不为更新模型属性提供值。 客户端可以请求 `/ticker.php` 并获取模板布局。 当模板加载时，它将运行 JavaScript，这将依次流式传输来自...的更新标记。
+<2> ...此服务器发送的事件流使用 `ReactiveDataDriverContextVariable` 包装 `Publisher<T>` 并将其设置为返回视图的更新模型属性。
+控制器的返回值采用 Thymeleaf 使用的特殊格式，表示它应该呈现一个片段 - 在这种情况下，该片段指的是 div 元素，updateBlock，包含我们的循环 - 在包含视图 `ticker` 中找到。
+====
+
+该示例看起来像一个标准的控制器视图，但值得注意的是，映射规定此端点产生 `TEXT_EVENT_STREAM_VALUE` 更新，而不是您期望从控制器获得的典型文本 `/html` 标记。
+
+当您更新并在浏览器中加载 `/customers.php` 时，您会看到该元素中的数字一直向上递增，一次递增一秒。
+
+还不错吧？ 这些天我经常考虑客户端编程，主要是因为它变得比服务器端编程更复杂。 钟摆已经摆动，现在发现基于浏览器的客户端应用程序基本上是 JavaScript 并不少见，所有路由和渲染都在浏览器中进行。
+HTML 标记、样式等都是根据 JavaScript 代码定义的，例如，这在使用 Angular 和 React 时尤为常见。 客户端已经变得越来越动态。
+谷歌和其他搜索引擎需要标记来索引。 在所有 JavaScript 运行之后，他们没有那么容易的时间来索引生成的渲染页面。 一些客户端仍然不支持充满活力的 JavaScript 行为。
+因此，同构应用程序 - 在客户端呈现并在服务器端预呈现并且可以提供预呈现视图然后开始在客户端引入动态行为的应用程序 - 变得越来越普遍。 大多数时候，当人们谈论同构应用程序时，
+他们谈论的是采用客户端 Javascript 渲染器并在服务器上使用 Node.js。 我喜欢认为这个例子，使用服务发送事件来响应地更新 HTML 标记，演示了你可以获得同构应用程序，为简单的应用程序倒过来，并使用服务器端渲染，它在 客户端。
+
+== A Reactive Servlet Container
+
+到目前为止，我们所看到的一切，实际上我们将看到的一切，都在默认的反应式 Web 运行时、Spring Webflux 的基于 HTTP 的 Netty Web 服务器上运行。
+这个运行时快速、精简、精简，是我们在 Spring Framework 5.0 中发布的新开发的运行时。 至关重要的是，它不是基于 Servlet API。
+假设你想运行在一个 Servlet 容器上？ Spring 团队试图务实，因此可以在 Servlet 容器之上运行。
+Spring Boot 仅通过操作依赖项就可以轻松地支持在例如 Apache Tomcat 上运行。 无需更改代码。
+
+* org.springframework.boot:spring-boot-starter-tomcat
+* org.springframework.boot:spring-boot-starter-webflux
+
+添加 `spring-boot-starter-webflux` 时，请务必从其传递依赖项中排除 `org.springframework.boot:spring-boot-starter-reactor-netty`。
+
+而且……就是这样！ 您现在在 Apache Tomcat 上运行并且可以像往常一样利用它。 这是一个简单的功能响应式 HTTP 端点，只是为了很好的衡量标准。
+
+[source,java]
+----
+@SpringBootApplication
+public class TomcatWebfluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(TomcatWebfluxApplication.class,args);
+    }
+}
+
+record Greetings(String message) {
+    static Mono<Greetings> greet(String contextPath,String name) {
+        return Mono.just(new Greetings("Hello, " + name + " from " + contextPath + "!"));
+    }
+}
+
+@Configuration
+class GreetingsRouteConfiguration {
+    @Bean
+    RouterFunction<ServerResponse> routes() {
+        return route()
+                .GET("/hello/functional/{name}",request -> {
+                    var reply = Greetings.greet("functional", request.pathVariable("name"));
+                    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON).body(reply,Greetings.class);
+                })
+                .build();
+    }
+}
+
+@RestController
+class GreetingsController {
+
+    @GetMapping(value = "/hello/controller/{name}",produces = MediaType.APPLICATION_JSON_VALUE)
+    Mono<Greetings> greet(ServerHttpRequest request, @PathVariable String name) {
+        return Greetings.greet("controller",name);
+    }
+}
+----
+
+如果您愿意，这种安排让您可以在著名的 Servlet 容器（例如 Apache Tomcat、IBM 的 Undertow 和 Eclipse Foundation 的 Jetty）上构建。 出于兼容性原因，您可能需要这样做。
+
+
+== The Reactive Client
+
+到目前为止，我们一直专注于在服务器上构建 HTTP 端点，但如果不讨论我们可以与其他基于 HTTP 的服务通信的方式，我们就无法结束本章。 Spring 提供了一个古老的客户端 `WebClient` 来提供帮助。
+`WebClient` 是 `RestTemplate` 的响应式继承者，但它有很大的不同，我认为这使它成为一个更令人兴奋的选择。 它是一个反应式的、非阻塞的客户端。
+当然，您可以使用它与非反应性 HTTP 服务（您之前会在其中使用 `RestTemplate`）或反应性 HTTP 服务进行对话。
+客户端使用 HTTP，因此它不关心您在 HTTP 协议的另一端使用的是同步 I/O 还是异步 I/O。
+
+古老的 `RestTemplate` 有大量模板样式的方法，这些方法针对常见情况进行了优化，并支持回调以支持更复杂的请求。 总觉得事情从那里变得非常复杂，非常迅速。
+许多回调的立场是您不希望 `RestTemplate` 为您做任何事情，因此会将您带到一个您可以（并且必须）做所有事情的地方。
+2009 年，当人们第一次转向以 HTTP 为中心的 RESTful 服务时，Spring Framework 3.0 引入了 `RestTemplate`。 它默认为同步和阻塞 IO，这是当时熟悉的姿势。
+
+`WebClient` 是一个构建器风格的客户端。 您将方法调用链接在一起以定义和进一步自定义给定的请求。 结果就是简单的请求直接了当，稍复杂的请求只会稍微复杂一点。 它的复杂性呈线性上升。
+
+`WebClient` 可以做 `RestTemplate` 可以做的所有事情，也可以做一些它不能做的事情。 举个例子：众所周知，很难让 RestTemplate 流式传输服务器发送的事件，
+因为 `RestTemplate` 的默认行为是等待完整的响应，然后尝试使用配置的 `HttpMessageConverters` 转换它。 现在不是问题！
+
+=== An HTTP Endpoint
+
+我们将使用 `WebClient`，但我们需要一些可以向其发出请求的东西。 我们将设置三个端点：一个返回标准 JSON，另一个端点返回服务器发送的事件流。
+
+[source,java]
+----
+@RestController
+public class HttpController {
+
+    // <1>
+    @GetMapping("/greet/single/{name}")
+    Publisher<Greeting> greetSingle(@PathVariable String name) {
+        return Mono.just(greeting(name));
+    }
+
+    // <2>
+    @GetMapping(value = "/greet/many/{name}" ,produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    Publisher<Greeting> greetMany(@PathVariable String name) {
+        return Flux.fromStream(Stream.generate(() -> greeting(name))).delayElements(Duration.ofSeconds(1));
+    }
+
+    private Greeting greeting(String name) {
+        return new Greeting("Hello " + name + " @ " + Instant.now());
+    }
+}
+----
+====
+<1> 第一个 HTTP 端点产生内容类型为 `application/json` 的响应
+<2> 第二个 HTTP 端点产生内容类型 `text/event-stream` 的响应
+====
+
+还有一个空的 `public static void main(String [] args)` 类可用于运行应用程序。
+
+=== Take a Walk on the Client-Side
+
+让我们换个角度，看看使用非阻塞 HTTP `WebClient` 会是什么样子。 我们的客户调用我们的服务。 您需要确保已启动 `HttpServiceApplication` 应用程序正在运行。
+
+** 配置 **
+
+主机和端口以及用户名和密码都已指定，您可以使用默认值，但如果您更改任何内容，则需要更新客户端的配置值。 我创建了一个简单的 `@ConfigurationProperties`-annotated bean 来捕获这些值。
+
+[source,java]
+----
+@ConfigurationProperties(prefix = "client")
+public class ClientProperties {
+
+    public ClientProperties(Http http) {
+        this.http = http;
+    }
+
+    public ClientProperties() {
+    }
+
+    private Http http = new Http();
+
+    public static class Http{
+
+        private Basic basic = new Basic();
+
+        // <1>
+        private String rootUrl;
+
+        public static class Basic {
+            private String username;
+
+            // <2>
+            private String password;
+
+            public String getUsername() {
+                return username;
+            }
+
+            public Basic setUsername(String username) {
+                this.username = username;
+                return this;
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public Basic setPassword(String password) {
+                this.password = password;
+                return this;
+            }
+        }
+
+        public Basic getBasic() {
+            return basic;
+        }
+
+        public Http setBasic(Basic basic) {
+            this.basic = basic;
+            return this;
+        }
+
+        public String getRootUrl() {
+            return rootUrl;
+        }
+
+        public Http setRootUrl(String rootUrl) {
+            this.rootUrl = rootUrl;
+            return this;
+        }
+    }
+
+    public Http getHttp() {
+        return http;
+    }
+
+    public ClientProperties setHttp(Http http) {
+        this.http = http;
+        return this;
+    }
+}
+
+----
+====
+<1> 这会捕获所有请求的根 URL 的值（本质上是主机和端口）。
+<2> 这也会捕获经过身份验证的端点的用户名和密码。
+====
+
+=== It’s Your (HTTP) Call
+
+我们将查看三个场景，每个场景都展示了一些有趣的东西。 在每个 HTTP 调用中，我们将注入一个 `WebClient.Builder` 并对其进行初始化，然后使用构建器构建一个 `WebClient`。
+我在构造函数中初始化 `WebClient`，因为它们很昂贵，而且我不想在每次发出请求时都重新创建它们。 您可能非常合理地更进一步，将您的 WebClient 对象拉入 `@Bean` 提供程序方法中，
+这样您就可以在需要的任何地方注入共享引用。 在此示例中，我需要两个 `WebClient` 实例：一个预先配置用于身份验证，一个没有。 我本可以轻松地将它们拉入单独的 bean 方法并使用限定符注入正确的方法。
+这种方法有助于使示例更清晰、更简洁。
+
+在这些实例中的每一个中，我们注入 `WebClient.Builder` 然后进一步自定义它，这是一种熟悉的模式。 Spring Boot 定义了 `WebClient.Builder`，
+但没有定义 `WebClient`，因为在您最终创建 `WebClient` 之前，某些自动配置可能想要为 WebClient 提供一些东西，例如过滤器。 这些自动配置只需要注入 `WebClient.Builder` 并对其进行自定义。
+这样，随后使用该 `WebClient.Builder` 构建的所有客户端都将从该配置中受益。 Spring Cloud 使用这种机制支持客户端负载均衡。 您也可以配置一个支持 OAuth 的客户端。
+在任何人使用它来构建 `WebClient` 之前自定义 `WebClient.Builder` 实例很重要。 Spring Boot 提供了 `WebClientCustomizer` 接口。
+注册一个 `WebClientCustomizer` 类型的 bean，您将有机会尽早自定义 `WebClient.Builder` 引用。 Spring Boot 将调用定制器，为您提供对当前 `WebClient.Builder` 的引用。
+
+第一个演示单个 `application/json` 响应。
+
+第二个演示了 `text/event-stream`  服务器发送的事件流，对我来说是一个特别引人注目的用例。 `RestTemplate` 是第一个在 Spring 中打包的 HTTP 客户端，它不能轻易地支持这种用例，因为它被设计为获取整个响应，
+通过 `HttpMessageConverter` 传递整个事物并通过它产生一个对象。 一个 HTTP 请求进来了，一个，而且只有一个对象出现了。 这适用于大多数情况。 但不适用于服务器发送的事件。
+我想我让它工作了一次，那太可怕了。 多年来，Spring 一直支持服务器端的服务器发送事件！ Spring 只是缺少一种简单的方法来使用服务器发送的事件流。 自然地，服务器发送事件的预期用例一直是 JavaScript 客户端。 仍然！ 这一切的不对称！ 哦，我多么期待这个演示！
+
+让我们来看看这两个。
+
+我们将注入并配置两个唯一的 `WebClient` 实例和两个使用这些 `WebClient` 实例的客户端。 第一个实例指定了它的基本 URL，这样我们就不需要为每个后续请求重新指定它。
+
+[source,java]
+----
+@Configuration
+public class DefaultConfiguration {
+
+    @Bean
+    DefaultClient defaultClient(WebClient.Builder builder, ClientProperties clientProperties) {
+        var root = clientProperties.getHttp().getRootUrl();
+        return new DefaultClient(builder.baseUrl(root).build()); // <1>
+    }
+}
+----
+====
+<1> 注入所需的 `WebClient.Builder` 以配置 `DefaultClient`
+====
+
+
+[source,java]
+----
+public class DefaultClient {
+
+    private final WebClient client;
+
+    public DefaultClient(WebClient client) {
+        this.client = client;
+    }
+
+    public Mono<Greeting> getSingle(String name) {
+        // <1>
+        return client.get()
+                .uri("/greet/single/{name}", Map.of("name",name))
+                .retrieve()
+                .bodyToMono(Greeting.class);
+    }
+
+    public Flux<Greeting> getMany(String name) {
+        // <2>
+        return client
+                .get()
+                .uri("/greet/many/{name}",Map.of("name",name))
+                .retrieve()
+                .bodyToFlux(Greeting.class)
+                .take(10);
+    }
+}
+----
+====
+<1> 使用单个（应用程序/json）值
+<2> 从服务器发送的事件流中使用多个（可能无限！）值。 代码并没有太大的不同。 这就是魔术。 它只是一个发出更多项目的流。
+====
+
+还不错吧？ `WebClient` 有大量构建器方法，用于指定诸如 HTTP 动词（这里我们使用 `.get()`，但还有其他）之类的东西，以及您要发送的属性、标头和 cookie。
+您甚至可以插入自定义过滤器，正如我们在审查安全性时所看到的那样，这将非常有用。
+
+=== Teaching Your WebClient New Tricks
+
+那里有许多有用的过滤器，包括一个处理 HTTP BASIC 身份验证的过滤器，一个在发生错误时生成错误信号的过滤器，以及一个限制响应大小并在有更多返回时取消的过滤器。 Spring 试图预测常见的需求，
+但您也可以为您的目的创建自己的 `ExchangeFilterFunction`。 让我们看一个记录请求开始和请求结束的简单示例。
+
+该解决方案包含三个移动部分。 第一个是向构建器注册 `ExchangeFilterFunction` 的 `WebClientCustomizer`。
+
+[source,java]
+----
+@Component
+public class TimingWebClientCustomizer implements WebClientCustomizer {
+
+    @Override
+    public void customize(WebClient.Builder webClientBuilder) {
+        webClientBuilder.filter(new TimingExchangeFilterFunction()); // <1>
+    }
+}
+----
+====
+<1> 我们只是在此处将 `rsb.client.timer.TimingExchangeFilterFunction` 注册为过滤器。
+====
+
+`TimingExchangeFilterFunction` 获取当前请求，将其包装在包装类 (`rsb.client.timer.TimingClientResponseWrapper`) 中，然后让过滤器链中的所有后续过滤器都对当前请求进行破解。
+
+
+[source,java]
+----
+public class TimingExchangeFilterFunction implements ExchangeFilterFunction {
+    @Override
+    public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
+        return next.exchange(request).map( clientResponse -> new TimingClientResponseWrapper(clientResponse)); // <1>
+    }
+}
+----
+====
+<1> 取当前的 `response`，让 filter 链中所有后续的 filter 在当前请求处产生破解的结果，使用 `TimingClientResponseWrapper` 进行包装
+====
+
+包装器执行拦截正文生成并进入生成的 Reactor `Mono<T>` 或 `Flux<T>` 的反应式生命周期的实际工作。
+
+[source,java]
+----
+public class TimingClientResponseWrapper extends ClientResponseWrapper {
+
+    private static final Logger log = LoggerFactory.getLogger(TimingClientResponseWrapper.class);
+    /**
+     * Create a new {@code ClientResponseWrapper} that wraps the given response.
+     *
+     * @param delegate the response to wrap
+     */
+    public TimingClientResponseWrapper(ClientResponse delegate) {
+        super(delegate);
+    }
+
+    private void start() {
+        log.info("start @ " + Instant.now().toString());
+    }
+
+    private void stop() {
+        log.info("stop @ " + Instant.now());
+    }
+
+    // <1>
+    private <T> Mono<T> log(Mono<T> c) {
+        return c.doOnSubscribe( s -> start()).doFinally(s -> stop());
+    }
+
+    private <T> Flux<T> log(Flux<T> c) {
+        return c.doOnSubscribe(s -> start()).doFinally(s -> stop());
+    }
+
+    // <2>
+    @Override
+    public <T> T body(BodyExtractor<T, ? super ClientHttpResponse> extractor) {
+        T body = super.body(extractor);
+
+        if (body instanceof Flux f) {
+            return (T) log(f);
+        }
+        if (body instanceof Mono m) {
+            return (T) log(m);
+        }
+        return body;
+    }
+
+    @Override
+    public <T> Mono<T> bodyToMono(Class<? extends T> elementClass) {
+
+        return log(super.bodyToMono(elementClass));
+    }
+
+    @Override
+    public <T> Mono<T> bodyToMono(ParameterizedTypeReference<T> elementTypeRef) {
+        return log(super.bodyToMono(elementTypeRef));
+    }
+
+    @Override
+    public <T> Flux<T> bodyToFlux(Class<? extends T> elementClass) {
+        return log(super.bodyToFlux(elementClass));
+    }
+
+    @Override
+    public <T> Flux<T> bodyToFlux(ParameterizedTypeReference<T> elementTypeRef) {
+        return log(super.bodyToFlux(elementTypeRef));
+    }
+}
+
+----
+====
+<1> 名为 log 的方法只是采用 Reactor `Mono` 或 `Flux` 并将它们包装起来。
+<2> `body*` 开头的方法拦截当前请求并包装。
+====
+
+运行带有这些的客户端应用程序，您将在控制台上看到计时。 简单的！
+
+== Security
+
+安全是一个非常重要的问题 - 即使有人如此倾向于——也不应该手动滚动。 通常，Spring Web 堆栈与 Spring Security 集成得很好。 事实上，您甚至可以说 Spring Security 存在于网络上。
+请记住，Spring 的第一行与构建 Web 应用程序有关！ 因此，当澳大利亚人 Ben Alex 决定创建 Acegi Security（一个构建在 Spring 上以保护 Web 应用程序的框架）时，很自然地引入了支持构建 Web 应用程序的最令人兴奋的新功能。
+当然，Acegi Security 后来更名为 Spring Security，它在几乎所有应用程序中都发挥着重要作用。 事实上，在 Spring Boot 出现之前，Spring Security 是第二受欢迎的 Spring 模块，仅次于 Spring Framework 本身，
+这可能只是因为 Spring Security 又依赖于 Spring Framework。 很难说。
+
+Spring Security 的巨大流行归功于什么？ 当然，我只能推测，但这是我在 2000 年代初 Spring 首次崭露头角时对世界的感觉。
+当时的 JVM 生态系统有点像今天的 JavaScript 生态系统，似乎每隔一天就会出现新的 Web 框架。 J2EE（当时称为 Jakarta EE）引入了对应用程序安全性的绝对最低限度支持，将其留给各个应用程序服务器来填补相当大的空白。
+
+这意味着您必须向您的应用程序服务器供应商支付一大笔钱才能获得良好的安全性。 当然，无论您做出何种安排，都将专用于该应用程序服务器。
+Spring Security 提供了一个一致的接口，以真正可移植的方式在所有应用程序服务器上工作。 它还支持不是基于 Spring 的应用程序的应用程序。
+您可以使用 Spring Security 来保护 Apache Struts 应用程序或任何其他基于 Servlet 的应用程序。 Apache Tomcat 迅速成为 JVM 生态系统中最普遍的 Web 服务器（到 2020 年仍然如此）。
+
+这个公式中有很多承诺：使用您选择的 Web 框架编写应用程序，使用 Spring 处理事务服务组件模型，也许引入 Hibernate 来管理持久性，并使用 Spring Security 来保护整个事情。
+谁需要 EJB？ 从那时起，Spring Security 就成为了事实上的标准。 JVM 生态系统中有一些有趣的替代方案。 尽管如此，尽管我们可以在这里或那里争论细微的改进，但没有什么比 Spring Security 更能提供全面的集成。
+
+“好吧，乔希。我们明白了！Spring Security 会变得很强大！” 我听到你惊呼，被激怒了。 我的朋友们，这正是重点。 huuuge。 它集成了所有内容：OAuth、Active Directory、LDAP、OIDC、SAML 等。
+
+如果您正在构建与所有这些集成兼容的应用程序，那么这种丰富的集成是很可爱的。 反应式编程改变了一切。 请记住：我们已经确定有些事情不适合响应式应用程序。 Spring Security 传统上使用 Java ThreadLocal<T> 实例来存储当前经过身份验证的 java.security.Principal，所有下游组件代码都可以找到它。 那将不再起作用！ 必须使用 Reactor 上下文。 当然，我们还有密码学问题，这是天生的 CPU 密集型工作。 你不能再那样做了！ 或者至少，我们不能在 Reactor `Scheduler 的非阻塞线程上这样做。
+
+Spring Security 5 引入了新的支持，以在必要时使用 Reactor Context 传播经过身份验证的 `java.security.Principal`。 它添加了一个 `ReactiveAuthenticationManager`，它为我们将密码学繁重的身份验证行为转移到阻塞线程池。
+所以，好消息是，从 API 的角度来看，一切都尽其所能。 但它们实际上不起作用。 也就是说，这里没有灵丹妙药。 我们不能只是对我们的安全性进行被动反应，然后让它的可扩展性呈指数级增长。
+当您构建反应式应用程序时，您需要注意何时何地引入阻塞密码学。 这一直都是真的——如果你不注意的话，`BCrypt` 可以将整整几秒添加到请求的热路径中！
+至少现在，在基于 Reactor 的 API 中，我们拥有支持做正确事情的工具和约定。
+
+我们可以而且应该利用这种范式转变来重新评估我们的安全措施。 我们是否需要对我们服务线程池中的每个请求进行极其缓慢的加密？ 或者我们可以切换到 OAuth 并验证每个请求的令牌，
+委托给我们可以更轻松地横向扩展的独立授权服务吗？ 获得更好的可扩展性结果并获得更好的安全态势在生活中是很少见的。
+反应式应用程序中的 OAuth 之类的东西为我们提供了这一点，我鼓励您探索 OAuth 和 Spring Security 5.0 的 OAuth 支持。
+
+然而，在这个例子中，我们将尽可能简单地进行演示。 您需要了解 Spring Security 解决了两个正交问题：身份验证（谁在发出给定请求）和授权（给定客户端在系统中必须拥有哪些权限、权利、权限或权利）。
+
+因此，我们将使用 Spring Security 来解决我们简单的 HTTP API 的这两个问题。 首先，我们需要将 Spring Security 依赖项添加到我们的构建中。
+
+*  org.springframework.boot:spring-boot-starter-security
+
+
+为了让事情更简单，我将客户端和服务实现都放在我们代码中的同一个 Maven 模块中。 我将在属性文件 (`application-service.properties`) 下加载配置以为服务配置特定端口并覆盖 `application.properties` 中的默认设置端口（0，它告诉 Spring Boot 查找任何随机未使用的端口）。
+
+首先，让我们看一下服务的主类。
+
+[source,java]
+----
+@SpringBootApplication
+public class ServiceApplication {
+
+    public static void main(String[] args) {
+        System.setProperty("spring.profiles.active","service"); // <1>
+        SpringApplication.run(ServiceApplication.class,args);
+    }
+}
+
+----
+====
+<1> 此配置文件导致 `application-service.properties` 加载，应用程序将在固定端口 `8080` 上运行。
+====
+
+下面介绍一下 Spring Security 的配置。
+
+[source,java]
+----
+@Configuration
+public class SecurityConfiguration {
+
+    // <1>
+    @Bean
+    MapReactiveUserDetailsService authentication() {
+        UserDetails jlong = User.withDefaultPasswordEncoder().username("jlong").password("pw").roles("USER").build();
+        UserDetails rwinch = User.withDefaultPasswordEncoder().username("rwinch").password("pw").roles("USER","ADMIN").build();
+        return new MapReactiveUserDetailsService(jlong,rwinch);
+    }
+
+    // <2>
+    @Bean
+    SecurityWebFilterChain authorization(ServerHttpSecurity http) {
+        return http
+                .httpBasic(Customizer.withDefaults()) // <3>
+                .authorizeExchange(ae -> ae // <4>
+                        .pathMatchers("/greetings").authenticated() // <5>
+                        .anyExchange().permitAll() // <6>
+                )
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .build();
+    }
+}
+----
+====
+<1> 第一个 bean 建立了一个硬编码的（gasp！）内存中的用户和密码存储库。 不要在生产应用程序中这样做！ 这是最简单的方法。 如果您了解我们所看到的一切如何融入 Spring Security 应用程序，那么当您替换其他更成熟的身份验证（也称为身份提供者）时，您就会明白您在寻找什么。
+<2> 此 bean 安装一个过滤器，以确保只有授权的人才能访问 /greetings 端点。 这个 bean 为我们的应用程序提供授权。
+<3> 在此应用程序中，我们将使用纯 HTTP BASIC，一种基于用户名和密码的方案。
+<4> authorizeExchange配置方法告诉Spring Security如何锁定各种资源 - 端点 - 在应用程序中。
+<5> 我们希望 /greetings 端点明确拒绝未经身份验证的请求。 这是一个特殊且非常具体的配置。
+<6> 这个 fallthrough 规则说每个其他端点都是可访问的。
+====
+
+让我们重新访问熟悉的 `GreetingsController`，我们将限制访问并使用当前经过身份验证的用户主体信息来通知响应消息中显示的名称。
+
+[source,java]
+----
+@RestController
+public class GreetingsController {
+
+    @GetMapping("/greetings")
+    Mono<Map<String,String>> greet(@AuthenticationPrincipal Mono<UserDetails> user) { // <1>
+        return user
+                .map(UserDetails::getUsername)
+                .map(name -> Map.of("greetings","Hello" + name + " @ " + Instant.now() + "!"));
+    }
+}
+----
+====
+<1> `@AuthenticationPrincipal` 注解告诉 Spring 将当前经过身份验证的 `Principal` 作为参数注入到 Web 控制器处理程序方法中。 您也可以在功能反应式风格时调用 `principal()` 。 此端点将在问候语中使用经过身份验证的用户名进行响应。
+====
+
+让我们看看客户端。
+
+[source,java]
+----
+@SpringBootApplication
+public class ClientApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientApplication.class);
+
+    public static void main(String[] args) {
+        SpringApplication.run(ClientApplication.class,args);
+    }
+
+    // <1>
+    @Bean
+    WebClient webClient(WebClient.Builder builder) {
+        var username = "jlong";
+        var password = "pw";
+        var basicAuthentication = ExchangeFilterFunctions.basicAuthentication(username,password);
+        return builder
+                .filter(basicAuthentication)
+                .build();
+    }
+
+    // <2>
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> client(WebClient securityHttpClient) {
+        return event -> securityHttpClient
+                .get()
+                .uri("http://localhost:8080/greetings")
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String,String>>() {
+                }) // <3>
+                .subscribe(map -> log.info("greeting: " + map.get("greetings")));
+    }
+}
+----
+====
+<1> 在这里，我们构建反应式 `WebClient` 并配置过滤器......
+<2> ...处理 HTTP BASIC 身份验证
+<3> 我们期望返回的数据是 JSON，虽然我们可以使用熟悉的 `GreetingResponse`，但我认为我们可以轻松地将其转换为 `Map<String, String>`，我们可以从中取消引用一个键 `greeting`。 （只是想让你保持警惕！）
+====
+
+那很简单！ 运行该服务，然后运行客户端，您将在控制台上看到用户名 jlong 的问候语。 我们才刚刚开始触及 Spring Security 的皮毛，因为它适用于基于 HTTP 的服务。 这里还有另一本书要写！ 或者，至少，当我们稍后查看 RSocket 和 Spring Security 时，有很多话要说。
+
+== 下一步
+
+在本章中，我们了解了如何使用 REST 端点、控制器和视图构建响应式 HTTP 应用程序。 我们研究了新的功能反应端点样式。 我们研究了 `WebSockets` 以构建生动、交互式的 HTTP 客户端。
+我们学习了如何使用 `WebClient`，一个新的非阻塞 HTTP 客户端。 我们学习了如何在 Servlet 容器上使用全新的反应式组件模型 Spring Webflux。
+这仅仅是个开始。 HTTP 构成了现代微服务应用程序的基础层。 当我们调查边缘服务、测试等时，你在这里学到的东西将为你服务。
+
+
+
+
+
+
+

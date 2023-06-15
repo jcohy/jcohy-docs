@@ -1,0 +1,309 @@
+= IO,IO,我们开始了
+
+响应式编程是一种编写异步输入和输出的软件方法。异步 IO 是其中的一个小想法，但预示着软件的重大变化，通过回收等待 IO 活动的闲置资源来提高资源利用。异步 IO 颠覆了传统的 IO 设计：
+一个具有流数据的客户端由请求变成了被通知。这使得客户端在等待新通知时同时可以做其他事情。让我们来看一个异步 IO 和同步 IO 的示例，进行比较和对比：
+
+让我们一个读取资源（特别时 `java.io.File` 的引用）数据的简单程序。首先，使用一个可信赖的 `java.io.InputStream` 的实现来实现：
+
+. 从文件中同步读取数据
+[source,java]
+----
+package rsb.io;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.util.FileCopyUtils;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.function.Consumer;
+
+@Log4j2
+class Synchronous implements Reader {
+
+        @Override
+        public void read(File file, Consumer<Bytes> consumer, Runnable f) throws IOException {
+            try (FileInputStream in = new FileInputStream(file)) { // <1>
+                byte[] data = new byte[FileCopyUtils.BUFFER_SIZE];
+                int res;
+                while ((res = in.read(data, 0, data.length)) != -1) { // <2>
+                    consumer.accept(Bytes.from(data, res)); // <3>
+                }
+                f.run();
+        }
+    }
+}
+----
+====
+<1> 使用常规的 `java.io.File` 获取文件
+<2> 一行一行的读取
+<3> 这行代码接受一个 `Consumer<BytesPayload>` ，表示有新数据时被调用
+====
+
+很简单，是不是？ logger 将在当前线程记录任何在行首记录的消息，如果执行这段代码，您会在日志输出中看到所有输入和输出都发生在同一个线程
+
+我们从数据源中提取字节（在本例中是 `java.io.InputStream` 的子类 `java.io.FileInputStream` ）这个例子有什么问题？好吧，可能什么都没有！如果磁盘正常工作，在这种情况下，
+我们将从本地文件系统上读取数据的 `InputStream`。如果文件存在，那么，一切将按预期进行。
+
+如果我们不从文件中读取数据，而是从网络套接字中读取数据，并使用不同 `InputStream` 实现，会怎么样？好吧，如果网络速度无限快，并且从这个节点到另一个节点之间
+的网络连接永远不会失败，那就没有什么可担心的。这段代码会工作的很好。
+
+== 常规限制
+
+如果网络速度慢或者出现故障怎么办？这肯定会延长 `InputStream` 读取的时间。事实上，读取操作也有可能永远不会返回结果。如果我们计划对正在读取数据的线程执行其他任何操作，这
+将是一个问题。当然，我们可以启动另一个线程进行读取，我们在一定程度上可以这么做，但最终我们会遇到一个限制，即使增加线程也不会对我们有任何好处，提高我们的扩展能力。
+我们无法拥有超出机器内核数量的真正并发，这使我们陷入了困境。在这种情况下，如果不添加线程，我们无法处理更多的 IO 读取，而且我们使用多线程的扩展能力是有限的。
+
+为什么我们使用线程进行扩展的能力有限？这是 Java 使用操作系统线程创建线程的自然限制。`Java` `.Net` 和其他流行的（如 Python 和  Ruby）中的运行时线程都由操作系统
+进行调度并提供支持，它们有与它们每个相关联的上下文。默认情况下，他是 JVM 上 `1MB` 的栈空间。这个大小我们可以稍微进行调整，但受到 RAM 的限制（如果没有别的），
+最终我们无法添加更多的线程。假设 `RAM` 不是限制，那么我们将受到 JVM 调用操作系统从一个线程切换到另一个线程的速度的限制。如果我们不能合理的让所有线程同时完成更多的工作，
+那么多线程的意义何在呢？上下文切换的代价是很昂贵的。
+
+值得一提的是，JVM，.Net 和其他语言在并发性方面都采用了一种中间方法，委托给操作系统是一个安全的选择，它可以产生可预期的结果，并且几乎不需要程序员做什么改变。
+将你的代码放在一个新的 `java.lang.Thread` 上，调用 `Thread#start()` 方法，就完成了。您正在正式的编写并发代码。程序员不必考虑并发系统中参与者之间进行协调的方法。它可以根据需求可简单可复杂。
+
+其他语言采取不同的方式
+
+在那个例子中，大部分的工作都在读取中 -- 没有其他事情可做。我们受 IO 的约束。值得注意的是，我们不受 `CPU/GPU` 的限制。例如，我们不是在进行密码学，密码编码或挖掘比特币。
+我们的限制也不是 RAM 或 磁盘空间。我们受 IO 的约束，如果你必须在 2018 选择一个东西来限制，你可能会做比受 IO 约束更糟糕的事情。
+
+让我们看一个异步的例子，他是如何帮助我们减轻线程的垄断
+
+[source,java]
+----
+package rsb.io;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.util.FileCopyUtils;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+@Log4j2
+class Asynchronous implements Reader, CompletionHandler<Integer, ByteBuffer> {
+
+    private final ExecutorService executorService = Executors.newFixedThreadPool(10);
+
+    private int bytesRead;
+
+    private long position;
+
+    private AsynchronousFileChannel fileChannel;
+
+    private Consumer<Bytes> consumer;
+
+    private Runnable finished;
+
+
+    public void read(File file, Consumer<Bytes> c, Runnable finished) throws IOException {
+        this.consumer = c;
+        this.finished = finished;
+        Path path = file.toPath(); // <1>
+        this.fileChannel = AsynchronousFileChannel.open(path,
+                    Collections.singleton(StandardOpenOption.READ), this.executorService); // <2>
+        ByteBuffer buffer = ByteBuffer.allocate(FileCopyUtils.BUFFER_SIZE);
+        this.fileChannel.read(buffer, position, buffer, this); // <3>
+        while (this.bytesRead > 0) {
+          this.position = this.position + this.bytesRead;
+          this.fileChannel.read(buffer, this.position, buffer, this);
+        }
+    }
+
+    @Override
+    public void completed(Integer result, ByteBuffer buffer) {
+
+        this.bytesRead = result; // <4>
+
+        if (this.bytesRead < 0) {
+          this.finished.run();
+          return;
+        }
+
+        buffer.flip();
+
+        byte[] data = new byte[buffer.limit()];
+        buffer.get(data);
+        // <5>
+        consumer.accept(Bytes.from(data, data.length));
+
+        buffer.clear();
+
+        this.position = this.position + this.bytesRead;
+        this.fileChannel.read(buffer, this.position, buffer, this);
+    }
+
+    @Override
+    public void failed(Throwable exc, ByteBuffer attachment) {
+        log.error(exc);
+    }
+}
+----
+====
+<1> 这次我们把 `java.io.File` 改成 Java NIO `java.nio.file.Path`
+<2> 当我们创建 `Channel` 时，指定了一个 `java.util.concurrent.ExecutorService`，当数据可用时，它将调用我们的 `CompletionHandler`
+<3> 开始读取，传入一个 `CompletionHandler<Integer, ByteBuffer>(this)` 的引用
+<4> 在回调中，我们从 `ByteBuffer` 中读取字节到 `byte[]` holder 中
+<5> 与同步示例一样，将 `byte[]` 数据传递给消费者。
+====
+
+这段代码更复杂，这里面发生了很多事，而且看起来势不可挡。此代码从 Java NIO 通道中读取数据并在回调中使用单独的线程异步处理该数据。读取数据的线程可以返回到线程池里面，其他线程可以使用。我们在调用 `.read(...)` 之后
+几乎是立刻返回，当有数据可用时，我们的回调被调用，并且在不同的线程中处理。如果 `.read()` 调用之间存在延迟，那么我们可以继续使用我们的线程做其他事情。异步读取的持续时间（从第一个字节到最后一个字节）最多与同步读取的时间一样短，它
+可能会稍微长一点，但是，对于这种复杂性，我们可以高效的利用我们的线程。我们可以处理更多的工作，通过有限的线程池处理更多的 IO。
+
+为什么这很重要，为什么我们要更高效的使用我们的线程？这是个好问题。首先，我在一家云计算公司工作，如果您不是超过同步 IO，而是通过购买更多的应用程序实例来解决横向扩展的问题，我们会很高兴（这当然是个玩笑话），抛开玩笑不谈，
+如果您将架构设计为无状态，并尽可能依赖数据存储的水平扩展，那么您真的可以为自己购买更大的规模。
+
+不管怎么说，这也算一个好点子了，如果您构建的 Web 服务（使用传统的同步 IO）能更快的响应传入的请求，那么您就不必费心了！事实上，如果您觉得您现在和将来都能始终如一的做到这一点，那么你的问题就已经解决了，你就不需要这本书了。
+
+值得一提的是，您通常可以扩展应用程序实例来处理更多的用户请求，并且，异步 IO 确实也让事情变得更加复杂。我想，这是一个合理的抱怨。不过，如果我们在其他方面没有达成一致，那么我希望这个示例会突出响应式代码的好处：如果我们
+的工作是和 IO 绑定的，并在同一硬件资源上使用异步 IO，那么我们可以处理更多的请求，做更多的工作。如果它受 CPU 限制（例如 斐波那契数列，挖掘比特币或密码学），那么响应式编程不会为你带来任何好处。
+
+== The Missing Metaphor
+
+我们大多数人在日常工作中都不会使用 `Channel` 和 `InputStream` 实现。我们通常从抽象的角度考虑事情。例如数组，或者更多是 `java.util.Collection` 层次结构之类的东西。`java.util.Collection` 确实可以映射到 `InputStream`：它们都假设您能及时的处理所有数据。
+您希望能够尽快从 `InputStream` 完成读取操作，但当您移动到更大的数据量时，集合就显得有些笨拙。当您处理无限（无界）的事情时会发生什么，例如 websocket 或 server-sent events？当记录之间存在延迟怎么办？一条记录现在到达，另
+外一条记录在一分钟或一小时之后才能到达，例如聊天时，或者网络出现故障时？
+
+我们需要一种更好的方式来描述不同类型的数据。我们正在描述一些异步的事情 - 一些最终会发生的事情。这似乎很适合 `Future<T>` 或 `CompletableFuture<T>` ，但这只描述了一件最终的事情，并不是一整串无限的东西。Java 并
+没有真正提供一个合适的比喻来描述这种数据。
+
+. 我们只缺少一块拼图
+|===
+| Synchronous |Asynchronous
+
+| Single Value
+| String read()
+| CompletableFuture<String> read()
+
+| Multiple Values
+| Collection<String> read()
+| ?
+|===
+
+`Iterator<T>` 和 Java 8 `Stream<T>` 类型都可以是无界的，但它们都是以拉为中心的。您需要下一条记录，而不是让它告诉您。假设如果它们确实支持基于推的处理，这样，您可以用线程做更多的事情，那么 API 也是暴露线程和调度控制。
+`Iterator` 实现没有提及任何线程，Java 8 `Stream` 都共享一个全局的 fork-join 池。
+
+如果 Iterator 和 Stream 确实支持基于推的处理，那么我们就会遇到另一个问题。这个问题实际上只会出现在 IO 上下文中，我们需要某种方式来回推！作为异步生成数据的消费者，我们不知道何时或有多少数据存在在管道中，我们不知道
+在下一个回调中是否会产生一个字节，或者是否会产生 `1PB` 的数据。当您从 `InputStream` 中提取数据时，您会准备读取处理的数据量是多少。在上面的示例中，我们读入了一个固定且已知长度的 `byte[]` 缓冲区。在异步世界中，我们需要通过某种
+方式与生产者沟通我们准备处理多少数据。
+
+是的，我们肯定错过了什么。
+
+== Reactive Streams 倡议
+
+我们想要的是能够很好地映射异步 I/O，并且支持分布式系统中的回推机制或流量控制的东西。 在响应式编程中，客户端发出信号表示它可以管理多少工作的能力称为背压。
+有很多项目 — `Vert.x`、`Akka` `Streams` 和 `RxJava 2`——都支持响应式编程。 Spring 团队有一个名为 `Reactor` 的项目。 这些不同的方法之间有足够的共同点，因此这四个项目背后的人与社区合作，努力从他们的项目中提取一个事实上的标准，即 Reactive Streams 计划。
+Reactive Streams 计划定义了四种（是的！只有四种）类型：
+
+`Publisher<T>` 是最终可能到达的值的生产者。 `Publisher<T>` 为 `Subscriber<T>` 生成 `T` 类型的值。
+
+.the Reactive Streams Publisher<T>.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Publisher<T> {
+
+  void subscribe(Subscriber<? super T> s);
+
+}
+----
+
+`Subscriber<T>` 订阅 `Publisher<T>`，通过 `onNext(T)` 方法接收有关 `T` 类型的任何新值的通知。 如果有任何错误，它的 `onError(Throwable)` 方法被调用。
+当处理正常完成时，调用订阅者的 `onComplete` 方法。
+
+.the Reactive Streams Subscriber<T>.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Subscriber<T> {
+
+    public void onSubscribe(Subscription s);
+
+    public void onNext(T t);
+
+    public void onError(Throwable t);
+
+    public void onComplete();
+}
+----
+
+当一个订阅者第一次连接到一个发布者时，它在 `Subscriber#onSubscribe` 方法中被赋予一个订阅。 订阅可以说是整个规范中最重要的部分：它支持背压。
+订阅者使用 `Subscription#request` 方法请求数据（ `n` 条记录，或 `Long.MAX_VALUE` 实际上是无限的）或 `Subscription#cancel` 方法停止处理。
+
+.The Reactive Streams Subscription<T>.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Subscription {
+
+      public void request(long n);
+
+      public void cancel();
+
+}
+----
+
+Reactive Streams 规范提供了一种更有用且显而易见的类型：`Processor<A,B>`，它简单地扩展了 `Subscriber<A>` 和 `Publisher<B`>。
+
+.The Reactive Streams Processor<T>.
+[source,java]
+----
+package org.reactivestreams;
+
+public interface Processor<T, R> extends Subscriber<T>, Publisher<R> {
+
+}
+----
+
+== 我们准备好了吗？
+
+该规范并不意味着成为实现的规定。相反，它定义了互操作性的类型。 Reactive Streams 类型非常有用，在 Java 9 版本中，引入了与其一对一语义等效接口 `java.util.concurrent.Flow`。例如： `java.util.concurrent.Flow.Publisher<T>`。
+目前，这些只是接口。 在撰写本文时，JDK 不提供这些类型的任何实现，但您可以使用其他项目构建响应式类型的实现，然后将它们与 JDK 9 类型相适应或从中调整。 因此，很明显，我们需要一个实现，以使用响应式流类型或 JDK 类型。
+
+查看这些类型并想象尝试根据 `Publisher<T>` 和 `Subscriber<T>` 之间的交互编写异步代码。 想象一下能够根据这些新的、简洁的类型来描述所有异步操作。 这就是让我着迷的原因。
+我想要一个 “大统一理论” 来将异步性合并到我的代码中。 我不喜欢这种需要为每个实现重新实现的模式。 我在消息传递和企业应用程序集成方面有很多经验。 我知道系统如果能更好的解耦会更健壮，而异步则是时间解耦的一种形式。
+这意味着当有生产者时，消费者不需要可以没有。 Spring Integration 可以轻松解决集成问题，因为 Spring Integration 集成的许多企业级系统都是异步的。
+
+我喜欢 Spring Integration 和基于它构建的项目，包括 Spring Cloud Stream。 它们简化了进程内通信的消息传递。 我可以毫无顾虑地考虑分布式事务。 Spring Integration 抽象的核心，`Message<T>` 和 `MessageChannel`，
+从 4.0 开始就在 Spring Framework 本身中。
+
+将两个服务异步串起来几乎是无痛的。这种集成方法有效，但没有内置的背压概念（原因很简单，并非所有与 Spring Integration 集成的系统）都支持它。 所以这是个案例。 在考虑 IO 时，这种方法感觉不太对。 关了！ 只是……不……就在那里！
+我想要支持背压的类型，我想要 Spring Integration 类型给我的那种无处不在的目的感。 Reactive Streams 类型与 Reactor 等实现相结合，给了我这个。
+
+当大想法变小时，大事就会发生。 实际上，一旦习惯了，异步性就不是什么大问题了。 几种语言（Erlang、Go，仅举几例）已经将这种异步性作为语言的一级特性。 使用这些语言的程序员可以轻松使用异步性。
+工具（语言和运行时）是专门为支持异步习语而构建的。 使得实现它变得司空见惯，而且成本低廉。 这产生了抽象和高阶系统。 如果一切都是反应流 `Publisher<T>`，那么我们可以更自由地思考更大的事情。 我们可以认为异步交互是理所当然的。
+
+不过，我们还没有完成，不是吗？ 这些类型很有用，但它们只做一件事，而且只做一件事，非常好：将数据从生产者转移到消费者。 它们有点像响应式 `Object[]` 数组的等价物。 想要处理流中的数据？ 要过滤吗？ 改造它？
+我们可以在 Java `Collection` 和 `Stream` API 中做这类事情，那么为什么不在这里做呢？ 这就是实现差异化的空间，因此这些类型的操作已经得到了 https://projectreactor.io[Reactor] 等项目的支持。
+
+`Reactor` 够用吗？ 我们到了吗？ 不完全到！ 想象一下，如果在过去的许多年里，为您的技术栈提供动力的流行项目（包括 Spring 和 Hibernate）不支持 `java.util.Collection` 层次结构之类的东西。
+我的意思是，想象一下他们是否真的讨厌这些类型。 想象一下，除了简单地抛出异常之外，这些类型还导致那些项目向您的老板发送一封不礼貌的电子邮件，然后对您的机器进行错误！ 他们真的非常讨厌那些类型！ 你还会用它们吗？
+您在日常工作中使用的技术不支持这些类型，但您有工作要做，也有要完成工作的方法。 您只需确保远离 `java.util.Collection<T>` 类型，而是使用推荐的任何类型。 毕竟，您不能不完成工作！
+
+== 更具功能性的 Spring Reactive
+
+同样的情况也适用于此。 Reactive Streams 类型和 Reactor 本身只有在它们可能的应用程序中才有用。正是基于这种洞察力，我们 Spring 团队在多年前开始了我们的响应式旅程。
+
+随着 2017 年 9 月发布的 Spring Framework 5，这是一个达到其第一个主要里程碑的旅程。该版本是第一个发布名为 Spring WebFlux 的全新响应式 Web 运行时的版本。
+几个月后，Spring Data Kay 和 Spring Security 5 都紧随其后； 两者都提供响应式集成并基于 Spring Framework 5 构建。2018 年 3 月，我们发布了 Spring Boot 2，几个月后我们发布了 Spring Cloud Finchley，这是一个支持（响应式）分布式系统和微服务的框架。
+
+这些版本都采用 Java 8 基线。 Java 8 带来了 lambda 表达式和大量其他特性，这些特性对应用程序开发人员以及我们这些框架开发人员来说都是极具吸引力的特性！ Spring 团队创建了假定存在 lambda 的新 API。 这些 API 本质上更具功能性，它们受益于 Java 8 在构建 DSL 方面的优势。
+
+但是 Java 8 并不是唯一支持 DSL 的语言！ 事实上，它是离 DSL 最远的。 Groovy、Scala 和 Kotlin 都可以很好地与现有的 Java API 配合使用。 我们 Spring 团队对 Kotlin 非常着迷。 这是一种具有大量功能的好语言。
+从某些方面来看，它拥有继 Java 本身之后 JVM 上最大的社区，而且它背后的团队似乎热衷于使其成为 Spring 开发人员的正确选择。 它在 Android 上的流行也没有什么坏处。
+Kotlin 对于 Spring 开发人员来说是一个不错的选择，即使我们什么都不做。 我们想走得更远，构建更优雅的集成。我们已经发布了 Kotlin-first API，它们与 Java API 并置在一起，通常在同一个 `.jar` 中。
+除非您从 Kotlin 使用这些库，否则您甚至不会真正遇到这些扩展 API。 Kotlin 使我们有可能创建比目前使用 Java 更好的 DSL。 我们也会介绍 Kotlin。
+
+随着这些版本的发布，你和我，我们，有机会展望我们的应用程序是端到端的响应式；应用程序在常见情况下尽可能高效，并且尽可能简单。
+
+
+
+
+

@@ -1,0 +1,1211 @@
+= 数据访问
+
+如果把您的应用程序比做是身体，那么数据库就是他的大脑。 数据也是应用程序的命脉。今天，您的应用程序花费大量时间处理数据，如何高效地处理数据至关重要。
+
+在本章中，我们将研究如何以原生响应式使用数据。响应式数据访问驱动程序和客户端使用异步 IO 并支持背压。 他们应该能够独立于线程扩展读写。
+
+Spring Data 可以帮助我们。Spring Data 是一个综合项目，由许多支持 NoSQL 和 RDBMS 连接的模块组成，用于一些不同的数据存储和数据访问客户端。
+在某些情况下，对于某些 `RDBMSes`、`Cassandra`、`MongoDB`、`Couchbase` 和 `Redis`，Spring Data 支持传统的阻塞和响应式非阻塞。 这些响应式替代方案是使用异步或响应式驱动程序从头开始构建的。
+正是出于这个原因，我们还有一些非响应性 Spring Data 模块的响应式替代方案。 例如，已经讨论了 Spring Data `Neo4j` 响应式模块。
+
+我们将在本章中研究一些响应式选择。 响应式模块不是传统阻塞的替代品，因此本章固有的现实是您可能需要重构现有的数据访问代码以支持响应式。 这也是一项非常重要的工作！
+
+== 为什么需要响应式？
+
+那么，你为什么要这样做？ 为什么在处理数据时需要响应式。 在考虑响应式编程时，数据是主要动机。 响应式编程支持更高效地使用线程，并允许系统中的节点同时处理更多 IO 工作。
+响应式编程为您提供了更简洁的 API 来处理数据流。 它使您可以更自然地加入、拆分、过滤和以其他方式转换数据流。 响应式编程 API 支持显示错误处理和背压，为消费者提供一致的表面 API，通过该 API 处理导致系统不稳定的极端情况。
+
+最后一点至关重要。 请记住，所有系统都存在这种不稳定性，我们往往无法在我们的阻塞代码中解决它。我们简化的抽象让我们对机器和网络的现实视而不见。 一切都靠我们开发人员的观察力，但很容易看不到这些问题。
+响应式编程使我们能够以一种一致的、易于理解的方式来面对这些问题。
+
+如今，以数据为中心的应用程序已成为必需品。 通过网络将越来越多的数据从一项服务移动到另一项服务，并且它们正在以越来越快的速度生成更多数据。 传感器数据、移动网络、社交网络活动、大数据和分析、点击流跟踪、机器学习、人工智能，
+当然还有存储冗余数据的成本不断下降，这些都促进了我们应用程序和组织中产生的数据的增长。 响应式编程让我们尽可能高效地管理尽可能多的数据。
+
+底线：响应式编程可能会提供一种更优雅的数据处理方式，并且它可能会提供一种方式来处理具有相同资源（连接、线程和硬件）的更多用户。
+
+响应式编程要求您重新思考使用数据存储的方式。它不是直接替代品，因此我们处理数据的方式的一些基本内容需要修改。
+
+== 事务呢？
+
+数据库事务是独立和分散执行的逻辑工作单元。在许多数据库中，数据库事务是符合 ACID 的。 它们支持原子性、一致性、隔离性和持久性。事务允许客户端开始一个工作单元，将多个分散的记录写入该工作单元内的数据库，然后选择提交这些写入（原子地）或将它们全部回滚，回写。
+独立连接到数据库的客户端将在写入之前看到数据库的状态（没有可观察到的变化），或者它会看到对数据库的所有写入。 当我们说写入是原子的时，我们的意思是客户端不会看到数据库处于不一致状态。
+
+SQL 数据存储符合 ACID 标准。 它们支持原子地提交或撤销事务。 在使用 SQL 数据存储时，我们用于 SQL 数据访问的任何方法都需要支持事务。
+
+NoSQL 数据存储不支持事务，这是一种常见的误解。虽然这在历史上有一定道理，但情况正在改善。 例如，Google 的 `Spanner` 以声称支持地理分布式规模的分布式事务而闻名。 `Neo4J` 支持事务。 `MongoDB 4.0` 也引入了事务支持。
+
+对于同步或阻塞 API，Spring 长期以来一直支持 `PlatformTransactionManager` 以进行资源本地事务划分。当 NoSQL 数据存储引入事务支持时，我们会很快为该特定资源提供 `PlatformTransactionManager` 抽象的实现。
+除了那些以 JDBC 为中心的数据访问，如 `DataSourceTransactionManager`，Spring Data 支持许多不同的资源本地事务类型。 在许多其他方面，有 Apache Geode (`GemfireTransactionManager`)、Neo4J (`Neo4jTransactionManager`) 和 -
+对我们有用的 - MongoDB (`MongoTransactionManager`) 的实现。
+Spring 的 `PlatformTransactionManager` 抽象帮助开发人员以无缝方式将事务划分一致地集成到非响应式 Spring 应用程序中。
+
+[source,java]
+----
+package org.springframework.transaction;
+
+import org.springframework.lang.Nullable;
+
+
+public interface PlatformTransactionManager extends TransactionManager {
+
+	TransactionStatus getTransaction(@Nullable TransactionDefinition definition)
+			throws TransactionException;
+
+	void commit(TransactionStatus status) throws TransactionException;
+
+	void rollback(TransactionStatus status) throws TransactionException;
+
+}
+----
+
+事务的生命周期短而直接：事务开始，当工作完成后事务提交，或回滚（通常是因为发生了一些异常）。 有 `try/catch` 块和异常，以及涉及的一些错误处理。 您需要实例化事务本身，然后对其进行管理。
+这一切都是令人困惑的东西，让大多数人都渴望拥有更简单、没有花里胡哨的客户端编程世界，然后发现自己以 UI 绑定框架的形式管理着无限复杂的状态机。 但是，我跑题了。
+您可以使用 Spring 的 `TransactionTemplate` 简化管理事务的工作。 `TransactionTemplate` 实例为您管理状态机，让您专注于事务中要完成的工作单元，将您的工作单元块封装在事务中。
+如果封闭块中没有异常，则 Spring 提交事务。 否则，Spring 回滚事务。
+最好的是命令式事务管理！ 当您需要在给定方法的范围内管理各个工作单元时，Spring 的支持非常出色。
+
+将 `@EnableTransactionManagement` 添加到 `@Configuration-annotated` 类以启用声明式事务管理。 您可以使用 `@Transactional` 注解单个方法或整个类。
+Spring 自动将您的方法调用包含在一个事务中。 如果该方法无异常地完成，Spring 将提交事务，则执行方法内的所有工作。 如果有任何异常，Spring 将回滚事务。
+
+Spring 的 `PlatformTransactionManager` 使用 `ThreadLocal` 将当前事务的状态绑定到当前线程，因此事务中完成的任何工作都需要在该线程上进行。
+这种每个线程事务的方法不适合响应式数据访问，在响应式这种情况下，执行可能会经常跨线程。
+
+Spring Framework 5.2 引入了一个新的层次结构，以 `ReactiveTransactionManager` 类型为基础，以支持事务。
+
+[source,java]
+----
+
+package org.springframework.transaction;
+
+import reactor.core.publisher.Mono;
+
+import org.springframework.lang.Nullable;
+
+public interface ReactiveTransactionManager extends TransactionManager {
+
+	Mono<ReactiveTransaction> getReactiveTransaction(@Nullable TransactionDefinition definition)
+			throws TransactionException;
+
+	Mono<Void> commit(ReactiveTransaction transaction) throws TransactionException;
+
+	Mono<Void> rollback(ReactiveTransaction transaction) throws TransactionException;
+
+}
+
+----
+
+`ReactiveTransactionManager` 和 Spring 的所有响应式事务管理支持都依赖 Reactor Context 来跨线程传播事务状态。 Spring 提供了 `TransactionalOperator` 来强制管理响应式事务。
+
+Spring 还支持使用 `@Transactional` 注解的声明式事务划分，只要带注解的方法返回 `Publisher<T>`。
+
+我们将在我们介绍的每个数据存储的上下文中返回到事务管理的讨论。
+
+== 响应式 SQL 数据访问
+
+在过去的几年里，我一直在与世界各地的工程师交谈，我一个接一个的组织介绍响应式编程，遇到的第一个问题总是：它支持 JDBC 吗？ 有没有一种方法可以响应式地使用 JDBC？
+我一直不得不给出一个令人失望的话：JDBC 是一个基本同步和阻塞的 API。 如果 Spring 团队要包装它并在 Reactive Streams 类型中调整它，它就不会为任何人服务。
+它不会更具可扩展性，而且 API 会更麻烦，因为您必须使用线程来扩展事务。 更不用说，它甚至没有与最初期待 JDBC 的更广泛的工具生态系统集成。 何必呢？
+
+有些人会颓然离开，显然对我帮助他们感到沮丧。 响应式编程的那一刻才彻底破灭了他们的希望。 响应式编程不是他们的解决方案； 他们绝望了。 还没有。 有点遗憾！
+如果做得好，响应式 SQL 客户端可以提供 NoSQL 数据存储所追求的一些东西，即性能和可伸缩性。
+
+所以：就目前而言，JDBC 对于响应式数据访问来说并不是一个很好的选择。 现在，这并不是说您不能响应式地与 SQL 数据存储对话 - 恰恰相反。 你不能用 JDBC 做到这一点。
+但是，如果您真的非常想使用 JDBC，您可能会有一些伪响应式的选项。 `Lightbend` 在这方面有一个令人兴奋的项目，叫做 `Slick`。 `Slick` 最终会采用 JDBC 并尝试为您隐藏一些线程。
+它的主要目的似乎不是为基于 SQL 的数据访问提供响应式 API，而是支持友好的、以 `Scala` 为中心和类型安全的抽象来处理 SQL 数据存储。
+它还为您提供了一种在响应式代码中运行良好的编程模型，并且通过使用调度程序甚至可以对客户端隐藏一些阻塞代码。 您不会获得响应式编程应能带来的横向扩展优势，但至少编程模型是友好的。
+这已经完成了一半，但可能值得您考虑。
+
+=== 响应式关系数据库连接 (R2DBC)
+
+除了 JDBC 之外，还有一些选择正努力在本地支持异步 IO 甚至响应式编程。
+
+响应式数据库访问的一个选择可能是 Oracle 的 `ADBA` 项目。 Oracle 在 JavaOne 2016 上宣布了 `ADBA`（异步数据库 API）项目。当时它还不能用，但至少人们承认需要一些东西来填补这个空白。
+一年后，在 JavaOne 2017 上，Oracle 有一个基于 Java 8 的 `CompletionStage` 之类的原型项目。 `CompletionStage`（和 `CompletableFuture`）支持单个值的异步解析。
+它们不支持流值的异步解析，也不支持背压。 他们不是被动的。
+
+Java 9 版本将 Reactive Streams 规范中的核心接口添加到 `java.util.concurrent.Flow` 类型中，作为嵌套类型。 因此，`org.reactivestreams.Publisher` 变为 `java.util.concurrent.Flow.Publisher`，
+`org.reactivestreams.Subscriber` 变为 `java.util.concurrent.Flow.Subscriber`，`org.reactivestreams.Processor` 变为 `java.util.concurrent.Flow.Processor`。·
+在 2018 年年中，`ADBA` 背后的团队终于认为有必要修改他们的工作以支持 JDK 中的响应式类型。
+
+与此同时，Pivotal 的一个团队开始着手设计名为 R2DBC（Relational Reactive Database Connectivity 的缩写）的响应式 SQL 数据访问 API 的原型。
+R2DBC 是一个开源项目，许多人已经为此做出了贡献。 我们在本章中讨论 R2DBC。
+
+在撰写本文时，`ADBA` 和 `R2DBC` 都处于早期阶段，（还）不适合生产。 R2DBC 还包含一个适配器模块，它将 ADBA 模块与 R2DBC 集成在一起，这样，如果 ADBA 变得具有生产价值，那么那些构建在 R2DBC 上的选项就不会短缺。
+
+R2DBC 试图为基于 SQL 的数据存储访问定义一个响应式 SPI。 它不是建立在现有 JDBC 之上，而是意在利用罕见的本地响应 SQL 数据库驱动程序。 强调稀有！ 许多常见数据库都有 SPI 的实现，包括由 Pivotal 工程团队驱动的 `H2`、`Microsoft` `SQL Server` 和 `PostgreSQL`。
+还有一个名为 `JAsync` 的第三方项目支持的 MySQL 的 R2DBC 实现。 我知道许多其他大型数据库供应商也在致力于 R2DBC 支持。 在撰写本文时，至少有五家其他数据库供应商正在开发 R2DBC 驱动程序。 （不，据我所知，其中没有一个是 `Oracle`）。
+
+从广义上讲，当我提到 R2DBC 时，我指的是至少三个抽象级别。 低级 SPI 的工作方式或多或少类似于原始 JDBC API。 `DatabaseClient` 或多或少类似于 Spring 的 `JdbcTemplate`。
+最后，Spring Data R2DBC 提供了类似 ORM 的体验，将实体声明映射到记录，并支持内置的声明性存储库对象。
+
+=== 建立连接
+
+让我们构建一个使用 R2DBC 连接到 `PostgreSQL` 的应用程序。
+您需要添加相关的 R2DBC 驱动程序和支持  R2DBC 集成的 Spring Boot Starter ，类似于直接使用 `JdbcTemplate`，或支持 Spring Data R2DBC 的集成。
+
+* org.springframework.boot：spring-boot-starter-data-r2dbc
+* io.r2dbc：r2dbc-postgresql
+
+`ConnectionFactory` 是 R2BDC SPI 的核心。 它将客户端连接到适当的数据存储。 Spring Boot 的自动配置可以为您完成，或者您可以覆盖默认的自动配置并自己完成。 我宁愿让自动配置来完成繁重的工作；
+定义一个属性 `spring.r2dbc.url`，然后开始吧！ 这是我本地机器上的配置：
+
+在我的本地计算机上运行的 `PostgreSQL` 数据库的 R2DBC URL。 您应该根据您的特定环境对其进行自定义。
+
+[source,properties]
+----
+spring.r2dbc.url=r2dbc:postgresql://orders:orders@localhost:5432/orders
+spring.r2dbc.username=orders
+spring.r2dbc.password=orders
+----
+
+您可能不想将该信息保存在应用程序的属性文件中。 相反，如果考虑将其保存在外部。 您可以使用 `--` 参数、环境变量、Spring Cloud Config Server、Hashicorp Vault 等。
+
+=== Database Schema
+
+在下面的示例中，我们将假设您有一个配置了用户名 (`orders`) 和密码 (`0rd3rz`) 的数据库 (`orders`)。 如果您已经登录到您的管理员帐户，您可以执行以下语句来创建所需的角色和数据库。
+
+在 `PostgreSQL` 中创建订单角色和数据库的 DDL
+
+[source,sql]
+----
+CREATE ROLE orders WITH LOGIN PASSWORD '0rd3rz' ;
+ALTER ROLE orders CREATEDB ;
+CREATE DATABASE orders;
+----
+
+接下来，您需要一个表。 在每次运行之前，在我们的测试中从 `src/main/resources/schema.sql` 创建 schema（稍后会详细介绍）。 这是我们 `customers` 表的 DDL。 我们要将一个对象映射到这个表。
+
+[source,sql]
+----
+drop table customer;
+create table customer (
+  id    serial  not null primary key,
+  email varchar not null
+);
+----
+
+=== Repository Interface(存储库接口)
+
+构建一个存储库来管理数据访问。存储库将较高级别的业务逻辑与较低级别的持久性和数据管理事务隔离开来。为了最好地展示各种 R2DBC 抽象的独特应用，我们将实现相同的存储库接口三次。
+存储库模式描述了封装访问数据源所需逻辑的类。 它们集中了标准数据访问要求（创建、读取、更新、删除），提供更好的可维护性并将用于访问数据库的基础设施与领域模型层分离。
+
+这是我们将使用的存储库接口。 它支持各种常见用例，包括查找记录、保存（或更新）记录和删除记录。
+
+[source,java]
+----
+@NoRepositoryBean
+public interface SimpleCustomerRepository {
+
+    Mono<Customer> save(Customer c);
+
+    Flux<Customer> findAll();
+
+    Mono<Customer> update(Customer c);
+
+    Mono<Customer> findById(Integer id);
+
+    Mono<Void> deleteById(Integer id);
+}
+----
+
+我们将立即介绍各种实现。
+
+=== Customer 实体
+
+存储库操作实体 `Customer` 的实例，该实例映射到我们的表中的数据 `PostgreSQL` 数据库，客户。 这是该实体的定义。
+
+[source,java]
+----
+public record Customer(@Id Integer id, String email) {
+}
+----
+
+该实体相对简单。 使用 Spring Data 的 `@Id` 注解映射 id 字段。 我们暂时不需要那个注解，但稍后我们将在引入 Spring Data R2DBC 时使用它。
+
+=== 测试
+
+我们将使用测试来练习各种存储库实现。
+
+让我们首先看一下我们的存储库实现的基础测试。我们将实现多个存储库，因此我们的测试都扩展了我们的 Base 测试并使用 template 来交换存储库实现。
+
+[source,java]
+----
+@Testcontainers
+public abstract class BaseCustomerRepositoryTest {
+
+    @DynamicPropertySource
+    static void registerProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.sql.init.mode",() -> "always");
+        registry.add("spring.r2dbc.url",()  -> "r2dbc:tc:postgresql://rsbhost/rsb?TC_IMAGE_TAG=9.6.8");
+    }
+
+    // <1>
+    public abstract SimpleCustomerRepository getRepository();
+
+    @Test
+    public void delete() {
+        var repository = getRepository();
+
+        var data = repository.findAll()
+                .flatMap(c -> repository.deleteById(c.id()))
+                .thenMany(Flux.just(
+                        new Customer(null,"first@email.com"),
+                        new Customer(null,"second@email.com"),
+                        new Customer(null,"third@email.com")))
+                .flatMap(repository::save);
+
+        StepVerifier.create(data)
+                .expectNextCount(3)
+                .verifyComplete();
+
+        StepVerifier.create(repository.findAll().take(1).flatMap(customer -> repository.deleteById(customer.id())).then())
+                        .verifyComplete();
+
+        StepVerifier.create(repository.findAll())
+                .expectNextCount(2)
+                .verifyComplete();
+    }
+
+    @Test
+    public void saveAndFindAll() {
+        var repository = getRepository();
+
+        var data = Flux.just(
+                new Customer(null,"first@email.com"),
+                new Customer(null,"second@email.com"),
+                new Customer(null,"third@email.com"))
+                .flatMap(repository::save);
+        StepVerifier.create(data)
+                .expectNextCount(2)
+                .expectNextMatches(customer -> customer.id() != null && customer.email() != null)
+                .verifyComplete();
+    }
+
+    @Test
+    public void findById() {
+        var repository = getRepository();
+
+        var insert = Flux.just(
+                        new Customer(null,"first@email.com"),
+                        new Customer(null,"second@email.com"),
+                        new Customer(null,"third@email.com"))
+                .flatMap(repository::save);
+
+        var all = repository.findAll()
+                .flatMap(customer -> repository.deleteById(customer.id()))
+                .thenMany(insert.thenMany(repository.findAll()));
+
+        StepVerifier.create(all)
+                .expectNextCount(3)
+                .verifyComplete();
+
+        var recordsById = repository.findAll()
+                .flatMap(customer -> Mono.zip(Mono.just(customer),repository.findById(customer.id())))
+                .filterWhen(tuple2 ->Mono.just(tuple2.getT1().equals(tuple2.getT2())));
+
+        StepVerifier.create(recordsById)
+                .expectNextCount(3)
+                .verifyComplete();
+
+    }
+
+    @Test
+    public void update() {
+        var repository = getRepository();
+
+        var email = "test@email.com";
+
+        StepVerifier
+                .create(repository.findAll()
+                        .flatMap(customer -> repository.deleteById(customer.id()))
+                        .thenMany(repository.save(new Customer(null,email.toUpperCase(Locale.ROOT)))))
+                .expectNextMatches(p -> p.id() != null)
+                .verifyComplete();
+
+        StepVerifier
+                .create(repository.findAll())
+                .expectNextCount(3)
+                .verifyComplete();
+
+        StepVerifier
+                .create(repository.findAll()
+                        .map(customer -> new Customer(customer.id(), customer.email().toUpperCase(Locale.ROOT)))
+                        .flatMap(repository::update))
+                .expectNextMatches(customer -> customer.email().equals(email.toUpperCase(Locale.ROOT)))
+                .verifyComplete();
+    }
+}
+----
+====
+<1> 每个测试都通过模板方法提供对 `SimpleCustomerRepository` 实现的引用。
+====
+
+当我们查看 R2DBC 时，我们将根据此 `SimpleCustomerRepository` 接口的实现来介绍每个新的抽象级别。我不会重新访问这些测试中的每一个，因为它们都仅用于扩展现有测试，通过覆盖 `getRepository()` 方法来交换 `SimpleCustomerRepository` 的实现。
+大部分实现都在这个核心测试类中。 该测试读取表的数据定义语言 (DDL)，然后使用 `StepVerifier` 练习各种方法。 请务必查看我们关于测试的章节。
+
+现在我们有了测试工具，让我们实现 `SimpleCustomerRepository` 接口。
+
+使用 `ConnectionFactory` 的 base 存储库
+
+在第一个实现中，我们将直接注入一个 `ConnectionFactory` 实例，并使用它向数据源提供新的连接。
+在一个重要的示例中，我们将使用一个连接池，因此 Spring Boot 自动配置将我们的 `ConnectionFactory` 包装在一个连接池中，假设我们在某处定义了一个有效的 `ConnectionFactory`。
+
+我们要看的第一个例子是与我们的数据库交互的最低级别的方式。 此实现中的所有 `SimpleCustomerRepository` 接口方法的流程都是相同的：
+
+• 我们将创建一个声明。
+• 可选择将参数绑定到语句。
+• 可选地指定语句的意图（是添加？删除？）
+• 执行语句。
+
+[source,java]
+----
+package rsb.data.r2dbc.basics;
+import io.r2dbc.spi.Row;
+import io.r2dbc.spi.RowMetadata;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import rsb.data.r2dbc.Customer;
+import rsb.data.r2dbc.SimpleCustomerRepository;
+import java.util.function.BiFunction;
+
+@Repository // <1>
+@Log4j2
+@RequiredArgsConstructor
+class CustomerRepository implements SimpleCustomerRepository {
+
+    // <2>
+    private final ConnectionManager connectionManager;
+
+    private final BiFunction<Row, RowMetadata, Customer> mapper = (row,
+        rowMetadata) -> new Customer(row.get("id", Integer.class),
+                row.get("email", String.class));
+
+    @Override
+    public Mono<Customer> update(Customer customer) {
+        // <3>
+        return connectionManager.inConnection(conn -> Flux
+                .from(conn.createStatement("update customer set email = $1 where id = $2")
+                .bind("$1", customer.getEmail()) //
+                .bind("$2", customer.getId()) //
+                .execute()))
+                .then(findById(customer.getId()));
+    }
+
+    @Override
+    public Mono<Customer> findById(Integer id) {
+        // <4>
+        return connectionManager
+                    .inConnection(conn -> Flux.from(conn.createStatement("select * from customer where id = $1")
+                    .bind("$1", id)//
+                    .execute()))
+                    .flatMap(result -> result.map(this.mapper))
+                    .single()//
+                    .log();
+    }
+
+    @Override
+    public Mono<Void> deleteById(Integer id) {
+            return connectionManager.inConnection(conn -> Flux
+                    .from(conn.createStatement("delete from customer where id = $1") //
+                    .bind("$1", id) //
+                    .execute())) //
+                    .then();
+    }
+
+    @Override
+    public Flux<Customer> findAll() {
+         return connectionManager.inConnection(conn -> Flux
+                    .from(conn.createStatement("select * from customer ").execute())
+                    .flatMap(result -> result.map(mapper)));
+    }
+
+    @Override
+    public Mono<Customer> save(Customer c) {
+            return connectionManager
+            .inConnection(
+                    conn -> Flux
+                            .from(conn
+                            .createStatement("INSERT INTO customer(email) VALUES($1)")
+                            .bind("$1", c.getEmail()) //
+                            .returnGeneratedValues("id").execute())
+                    .flatMap(r -> r.map((row, rowMetadata) -> {
+                            var id = row.get("id", Integer.class);
+                            return new Customer(id, c.getEmail());
+            }))) //
+            .single() //
+            .log();
+    }
+}
+----
+====
+<1> `@Repository` 是另一个 Spring 构造型注解。 它使用 `@Component` 进行元注解。 它只不过是文档； 它在功能上只是一个 `@Component`。
+<2> `ConnectionManager` 是获取（和回收）连接的主要接口。 `ConnectionManager#inConnection` 方法接受在 `Connection` 上起作用的回调。 回调机制也允许连接池高效工作。
+<3> 第一个方法 `update` 创建一条语句，将参数与位置参数（以美元符号开头的数字、`$1`、`$2` 等）绑定，然后执行该语句。 大多数对数据库的写入或更新看起来像这样。
+<4> 以下方法 `findById` 查询数据库，当结果到达时，它使用 `BiFunction<Row, RowMetadata, Customer>` 映射这些结果。 大多数查询或读取数据库的方法看起来像这样。
+====
+
+一旦您发现您可以流利地表达整个交互管道，就会出现响应式 R2DBC 代码。 毫无疑问，与原始 JDBC 代码相比，使用它要干净得多 我非常想包含一个原始的 JDBC 示例，仅供参考！ 但是，我不会，所以接下来靠你了。
+
+`DatabaseClient`
+
+`DatabaseClient` 是 Spring 的 `JdbcTemplate` 的响应式等价物。 它为日常操作提供了便捷的方法，减少了样板代码。 `DatabaseClient` 中的方法通常返回对构建器对象的引用，您可以针对该对象链接方法调用。
+
+让我们看看我们的 `CustomerRepository` 的新实现，这次由 `DatabaseClient` 支持。 自动配置应该为您提供对 `DatabaseClient` 的引用，但如果您愿意，创建自己的也很简单。
+
+[source,java]
+----
+public class CustomerRepository implements SimpleCustomerRepository {
+
+    private final DatabaseClient databaseClient;
+
+    private Customer map(Map<String, Object> row) {
+        return new Customer((Integer) row.get("id"),(String) row.get("email"));
+    }
+    public CustomerRepository(DatabaseClient databaseClient) {
+        this.databaseClient = databaseClient;
+    }
+
+    @Override
+    public Mono<Customer> save(Customer c) {
+        return databaseClient.sql("insert into customer ( email ) values ($1)")
+                .bind("$1",c.email())
+                .filter((stmt,ef) -> stmt.returnGeneratedValues("id").execute())
+                .fetch()
+                .first()
+                .flatMap(row -> findById((Integer) row.get("id")));
+    }
+
+    @Override
+    public Flux<Customer> findAll() {
+        return databaseClient.sql("select * from customer")
+                .fetch()
+                .all()
+                .as(rows -> rows.map(this::map));
+    }
+
+    @Override
+    public Mono<Customer> update(Customer c) {
+        return databaseClient.sql("update customer set email = $1 where id = $2")
+                .bind("$1",c.email())
+                .bind("$2",c.id())
+                .fetch()
+                .first()
+                .switchIfEmpty(Mono.empty())
+                .then(findById(c.id()));
+
+    }
+
+    @Override
+    public Mono<Customer> findById(Integer id) {
+        return databaseClient.sql("select * from customer where id = $1")
+                .bind("$1",id)
+                .fetch()
+                .first()
+                .map(map -> new Customer((Integer) map.get("id"),(String)map.get("email")));
+    }
+
+    @Override
+    public Mono<Void> deleteById(Integer id) {
+        return databaseClient.sql("delete from customer where id = $1")
+                .bind("$1",id)
+                .fetch()
+                .rowsUpdated()
+                .then();
+    }
+}
+----
+
+这个例子比前一个例子明显更简单，而前一个例子本身并没有那么令人难以抗拒。
+
+=== Spring Data R2DBC
+
+到目前为止，我们直接使用了普通的 R2DBC 库。 现在让我们看看 Spring Data R2DBC。 自动配置为我们提供了我们所需的一切，以便我们可以像使用任何其他（响应式）Spring Data 模块一样使用 Spring Data 模块。
+
+[source,java]
+----
+// <1>
+public interface CustomerRepository extends ReactiveCrudRepository<Customer,Integer> {
+
+    // <2>
+    @Query("select id, email from customer c where c.email = $1")
+    Flux<Customer> findByEmail(String email);
+}
+----
+====
+<1> 支持我们的测试所需的一切都在 `ReactiveCrudRepository` 中。
+<2> 那么，为什么我们需要 `findByEmail`？ 我只是想向您展示使用自定义查询中，定义自定义查询方法并将这些方法中的参数绑定到查询本身是多么容易。 在这种情况下，电子邮件是创建查询的参数。
+====
+
+就是这样！ Spring Data R2DBC 可以映射其他表。我们需要更多实体和更多存储库。 看？ 即使给定 `SimpleCustomerRepository` 和 `R2dbcConfiguration`，就代码行而言，我们仍然领先于第一个基本的 `CustomerRepository`！ 遥遥领先。
+这个新版本甚至支持自定义查找方法，提供比以前更多的功能。 几分钟的工作还不错。
+
+大幅降低复杂性的一个重要原因是我们的存储库扩展的基础接口 `ReactiveCrudRepository`。 你会在 Spring Data 中经常看到这个接口。 它的定义如下所示：
+
+[source,java]
+----
+package org.springframework.data.repository.reactive;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import org.reactivestreams.Publisher;
+
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.repository.NoRepositoryBean;
+import org.springframework.data.repository.Repository;
+
+@NoRepositoryBean
+public interface ReactiveCrudRepository<T, ID> extends Repository<T, ID> {
+	<S extends T> Mono<S> save(S entity);
+	<S extends T> Flux<S> saveAll(Iterable<S> entities);
+	<S extends T> Flux<S> saveAll(Publisher<S> entityStream);
+	Mono<T> findById(ID id);
+	Mono<T> findById(Publisher<ID> id);
+	Mono<Boolean> existsById(ID id);
+	Mono<Boolean> existsById(Publisher<ID> id);
+	Flux<T> findAll();
+	Flux<T> findAllById(Iterable<ID> ids);
+	Flux<T> findAllById(Publisher<ID> idStream);
+	Mono<Long> count();
+	Mono<Void> deleteById(ID id);
+	Mono<Void> deleteById(Publisher<ID> id);
+	Mono<Void> delete(T entity);
+	Mono<Void> deleteAllById(Iterable<? extends ID> ids);
+	Mono<Void> deleteAll(Iterable<? extends T> entities);
+	Mono<Void> deleteAll(Publisher<? extends T> entityStream);
+	Mono<Void> deleteAll();
+}
+
+----
+
+
+该接口定义了许多有用的方法，您可以熟悉一下这些方法。 这些方法支持常见的操作 — 查找、保存、删除和创建。 该接口公开了按 ID 查询记录。
+
+但是，这些方法都不接受 String sql 参数。
+
+在 Spring Data 中，您可以使用自定义查询方法，就像我们在存储库接口中所做的那样，并且通常使用 `@Query` 注解来表达查询。 这些方法非常方便，因为它们删除了所有样板资源初始化和获取逻辑。
+他们删除了将记录映射到对象的工作。我们需要做的就是在方法的原型中提供查询和可选参数。
+
+你可能会抗议：“如果你只是想在这里结束，为什么要向我们展示前两种方法呢？” 公平的问题！ 关系数据库管理系统 (RDBMS) 在开发人员的心中占有特殊的位置。 据统计，我们中的大多数人从事任何后端或服务器端工作都是从 RDBMS 开始我们的旅程。
+它是最根深蒂固的一种数据库，也是您在职业生涯中最需要熟悉的一种数据库，至少在可预见的未来是这样。社区中存在关于 ORM 在应用程序架构中的作用的争论。也有许多不同的方法可以使用 RDBMS。 您是否正在使用您的分析和数据仓库？ 联机事务处理？
+作为事务存储？ 您是否使用 SQL '99 功能，或者您是否精通 `PostgreSQL` `PL/pgSQL` 或 `Oracle` PL/SQL？
+您使用的是 `PostgreSQL` XML 类型还是 `PostGIS` 地理空间索引？ 你在使用存储过程吗？ 典型 RDBMS 的丰富性使得很难规定特定的抽象级别。 首先，我更喜欢在 Spring Data 存储库方面使用这些技术，并且能够在需要时下降到较低的抽象级别。
+
+我们有一个存储库，我们的测试呢？ 精明的读者注意到我们的存储库没有实现 `SimpleCustomerRepository` 接口。 我不想让事情复杂化，所以我将本机 Spring Data 存储库调整为 `SimpleCustomerRepository` 接口，将调用转发到底层 Spring Data 存储库。
+
+[source,java]
+----
+@Component
+public class SpringDataCustomerRepository implements SimpleCustomerRepository {
+
+    private final CustomerRepository repository;
+
+    public SpringDataCustomerRepository(CustomerRepository repository) {
+        this.repository = repository;
+    }
+
+    @Override
+    public Mono<Customer> save(Customer c) {
+        return repository.save(c);
+    }
+
+    @Override
+    public Flux<Customer> findAll() {
+        return repository.findAll();
+    }
+
+    @Override
+    public Mono<Customer> update(Customer c) {
+        return repository.save(c);
+    }
+
+    @Override
+    public Mono<Customer> findById(Integer id) {
+        return repository.findById(id);
+    }
+
+    @Override
+    public Mono<Void> deleteById(Integer id) {
+        return repository.deleteById(id);
+    }
+}
+----
+
+响应式 SQL 数据访问为我们打开了以前关闭的大门。 基于 SQL 数据库的现有工作负载的整个星系现在可能成为响应式编程的候选对象。 是一个严峻的选择。
+
+响应式编程可以：
+
+* 使您的应用程序更有效率。
+* 使您的应用更具成本效益。
+* 成为您继续使用 SQL 数据库所需的前沿技术，相信它会根据您的需要进行扩展。
+* 延长某些应用程序的自然寿命。
+
+没有什么是免费的。你必须重构为响应式。如果您正在使用 ORM，或者甚至可能已经在使用 Spring Data，并且您正在使用类似 Spring Data JPA 的东西，那么迁移到 Spring Data R2DBC 可能并不是什么大问题。
+如果您使用的是 Spring Data JDBC，那么迁移到 Spring Data R2DBC 将是微不足道的。 如果您使用的是 JOOQ 之类的东西，则可以迁移到 R2DBC 或 Spring Data R2DBC。
+JOOQ 的创始人 Lukas Eder 考虑过有一天可能会支持 R2DBC。 如果您使用的是 `JdbcTemplate`，那么这是一个更重要但可行的迁移。 如果您直接使用 JDBC，那么这会很痛苦。
+非常非常痛苦。 这也是重构和清理代码的宝贵机会。 无论哪种方式，从原始 JDBC 迁移到 `JdbcTemplate` 或 R2DBC 都可以用明显更少的代码提供更多功能。
+
+== NoSQL 中更高效的响应式数据访问
+
+如果您的现有应用程序有少数技术可以替换成响应式的方案，那么是什么促使您采取行动？ 为什么要从传统的 MongoDB 切换到响应式 MongoDB？ 首先你为什么会接受像 MongoDB 这样的东西？ MongoDB 是一个具有大量特性的全功能数据库。
+您选择它可能只是因为它具有无法用其他技术替换的原因。也许您想使用它的可扩展文件系统抽象 GridFS？ 或者，地理空间索引 (GIS) 支持？ 也许您真的想要拥有无模式文档的能力？ 不管是什么原因，您选择 MongoDB 是因为它自然地映射到您需要管理的数据类型。
+（干得好！）如果你对你的数据存储感到满意并且你的性能达到标准，那么我不知道是否有令人信服的论据来支持重构为响应式。
+
+当然，所有常见的原因都适用。 响应类型将促进处理数据和错误的统一抽象。 它将在 API 本身中显示网络集成问题。 当然，这些都是成果。 他们值得重构一切吗？ 也许。
+
+您可能会选择 NoSQL 数据存储，因为该技术具有引以为豪的规模和速度特征。 MongoDB 是（众所周知的）“网络规模”。 它扩展大量数据的能力是一项可能单独证明其使用合理性的功能。
+事实上，存在许多支持规模化的技术。 一些 NoSQL 选项以不太灵活的数据模型为代价，让您获得更好的性能和更好的规模。 例如，Map/reduce 是一种原始的数据处理方式，但天然支持大量数据。
+我对 Apache HBase 和 Apache Cassandra 等列式数据库也有同样的感觉。 对于大多数人来说，使用列式数据存储对数据建模并不是阻力最小的途径。
+对于大多数人来说，它并不比 PostgreSQL 或其他一些 RDBMS 更容易。
+
+这些有时不太灵活的数据模型，它会是阻碍我们的原因吗？ 不会。但是，它们提供性能和规模，如果这是促使您做出决定的考虑因素，那么您应该考虑响应式编程。 它会让您从数据库客户端代码中榨取所有最后的效率。
+
+数据越大，响应式编程越有利。 当某些东西可能会独占线程时，响应式编程最有价值。 响应式数据库客户端可能是一个 Web 服务器节点和五个之间的区别！
+
+=== Reactive R2DBC 中的事务
+
+构建存储库很好，但它是有意设置为低级别的。 它处理数据输入和数据输出。 作为服务层的一部分，业务逻辑往往存在于更高级别。 让我们构建一个提供粗粒度操作的服务，支持系统中所有电子邮件的规范化，以及通过电子邮件更新记录。
+
+此服务具有两个操作，可对许多离散记录进行操作。 这些操作应该是原子的 - 我们不希望它们提交任何更改，除非一切都成功。 这是我们引入事务的天然机会。
+
+[source,java]
+----
+@Service
+public class CustomerService {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomerService.class);
+
+    private final SimpleCustomerRepository repository;
+
+    private final TransactionalOperator operator;
+
+    private final CustomerDatabaseInitializer initializer;
+
+    Publisher<Void> resetDatabase() {
+        return this.initializer.resetCustomerTable();
+    }
+
+    public CustomerService(SimpleCustomerRepository repository,
+                           TransactionalOperator operator,
+                           CustomerDatabaseInitializer initializer) {
+        this.repository = repository;
+        this.operator = operator;
+        this.initializer = initializer;
+    }
+
+    // <1>
+    public Flux<Customer> upsert(String email) {
+        var customers = this.repository
+                .findAll()
+                .filter(customer -> customer.email().equalsIgnoreCase(email))
+                .flatMap(match -> this.repository.update(new Customer(match.id(), email)))
+                .switchIfEmpty(this.repository.save(new Customer(null,email)));
+
+        var validateResults = erroeIfEmailsAreInvalid(customers);
+        return this.operator.transactional(validateResults);
+    }
+
+    // <2>
+    @Transactional
+    public Flux<Customer> normalizeEmails() {
+        return erroeIfEmailsAreInvalid(this.repository.findAll()
+                .flatMap( x -> this.upsert(x.email().toUpperCase())));
+    }
+
+    private static Flux<Customer> erroeIfEmailsAreInvalid(Flux<Customer> input) {
+        return input.filter(c -> c.email().contains("@"))
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("the email needs to be of the form a@b.com")))
+    }
+}
+----
+====
+<1> `upsert` 通过其电子邮件查找现有记录，如果不存在，则添加新记录
+<2> `normalizeEmails` 方法遍历数据库中的所有数据并确认每个电子邮件都是正确的。
+====
+
+
+第一个操作 `upsert`，委托给 `SimpleCustomerRepository` 的底层实例来查找现有数据库中的所有记录（是的，我意识到我们可能应该使用带有谓词的 SQL 查询），在 Java 代码中过滤以查找其记录 电子邮件与电子邮件参数匹配。
+如果找到记录，则会更新它。 如果没有找到记录，则插入一个新记录。
+
+抓住一切机会验证结果至关重要。 此方法通过 `errorIfEmailsAreInvalid` 方法传递结果，直观地说，如果在验证电子邮件中包含 `@` 字符时出现任何错误，该方法将返回错误 - `IllegalArgumentException`。
+
+如果任何验证失败，我们将恢复写入 - 所有这些。 验证逻辑在数据库写入后运行。 写入是一个原子操作：要么所有写入都成功，要么都不成功。 `upsert` 方法使用 `TransactionalOperator#transactional` 方法将响应管道封装在事务中。
+如果验证逻辑在响应管道中的任何地方导致错误，则写入将回滚。
+
+cold stream（没有任何订阅者的流）和 hot stream（至少有一个订阅者的流）之间的区别很有用，因为这意味着我们可以定义响应流，然后稍后将其封装在之前的事务中 任何数据都流经流。
+
+`TransactionalOperator` 就像 Spring 的 `TransactionTemplate`。 它非常适合显式、细粒度的事务划分，在给定范围内对不同的流进行操作。
+
+如果您想要从包含在事务中的方法返回值流，您可以使用 `@Transactional` 修饰该方法，这是 `normalizeAllEmails` 所采用的方法。
+
+您可以自己使用这两种方法或其中一种方法：尝试在数据中某处处理无效电子邮件，然后看看会发生什么。 我敢打赌！
+
+=== MongoDB
+
+我们已经研究了 Spring 生态系统中以 RDBMS 为中心的响应式 SQL 编程的最佳选择。现在让我们看看响应式 NoSQL 选项。
+在探索 NoSQL 时，很少有技术 - 能像 MongoDB 一样容易地浮现在脑海中。 它的名气有一部分是由于它的资格和围绕它发展起来的热闹社区。
+十年前使用 MongoDB 会是一个有争议的选择，但如今它已成为一项成功的业务，越来越多地迎合与甲骨文、IBM 和微软追求的相同企业市场，而且通常收入水平相似。
+MongoDB 只是 NoSQL 领域的众多选择之一，但它是我们将重点关注的，因为它熟悉、有用且易于上手。
+
+我不想给人留下这样的印象，即 MongoDB 可以与 NoSQL 空间中的无数替代方案互换 - 恰恰相反！ NoSQL 数据存储通常是非典型的。 它们唯一统一的特性是它们不是以 SQL 为中心的 RDBMS。
+因此，本节并不是要介绍带有 Spring 的 NoSQL。 相反，它旨在介绍响应式 Spring Data 模块的一些习语。
+MongoDB 是响应式 NoSQL 数据存储的典型集成，但它也是一个有趣的地方，因为它有几个感觉使用响应式编程更自然地表达的特性。 让我们看一些示例，首先是应用于 NoSQL 数据存储的典型 Spring Data 习语，然后是在响应式世界中闪耀的 MongoDB 的一些细节。
+
+=== Spring Data MongoDB
+
+让我们先搭建舞台。 我们有一些您在 Spring Data 集成中期望的更常见的东西：一个映射到数据存储中的记录并由存储库支持的对象。 在 MongoDB 中，记录称为文档，它们主要是表格行（在 MongoDB 中称为 _collection_s）。
+我们将从一个名为 `Order` 的文档映射实体开始。
+
+[source,java]
+----
+// <1>
+@Document
+public record Order(@Id String id, String productId) { // <2>
+}
+----
+====
+<1> Spring Data MongoDB 特定的 `@Document` 注解将此对象标记为 MongoDB 集合中的文档。
+<2> Spring Data `@Id` 注解将此字段标记为文档的键。
+====
+
+很简单。 现在我们需要一个存储库实现 `OrderRepository`。
+
+[source,java]
+----
+// <1>
+public interface OrderRepository extends ReactiveCrudRepository<Order,String> {
+
+    Flux<Order> findByProductId(String productId);
+
+}
+----
+====
+<1> 这个存储库扩展了 `ReactiveCrudRepository` 接口，就像 R2DBC 一样。 有一个 `ReactiveMongoRepository` 接口，其中包含对 MongoDB 的一些特定存储库支持，但您可能不需要它。
+====
+
+这种没有什么特别之处。 我们不需要配置任何特别的东西来使 Spring Data 工作。 Spring Boot 自动配置会处理这个问题。
+
+我们也有一个 `OrderRepository` 的测试用例。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest
+class OrderRepositoryTest {
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    private final Collection<Order> orders = List.of(
+            new Order(UUID.randomUUID().toString(),"1"),
+            new Order(UUID.randomUUID().toString(),"2"),
+            new Order(UUID.randomUUID().toString(),"2")
+    );
+
+    private final Predicate<Order> predicate = order ->
+      this.orders
+              .stream()
+              .filter(candidateOrder -> candidateOrder.id().equalsIgnoreCase(order.id()))
+              .anyMatch(candidateOrder -> candidateOrder.productId().equalsIgnoreCase(order.productId()));
+
+
+    @BeforeEach
+    public void before() {
+        var saveAll = this.orderRepository
+                .deleteAll()
+                .thenMany(this.orderRepository.saveAll(this.orders));
+
+        StepVerifier // <1>
+                .create(saveAll)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .verifyComplete();
+    }
+
+    @Test
+    public void findAll() {
+        StepVerifier // <2>
+                .create(this.orderRepository.findAll())
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .expectNextMatches(this.predicate)
+                .verifyComplete();
+    }
+
+    @Test
+    public void findByProductId() {
+        StepVerifier // <3>
+                .create(this.orderRepository.findByProductId("2"))
+                .expectNextCount(2)
+                .verifyComplete();
+    }
+}
+----
+====
+<1> 向数据库写入一些数据
+<2> 然后再次确认我们写入数据库的内容出来了
+<3> 然后确认我们的自定义查询按设计工作，在本例中返回其 `productId` 与 Order 实体上的 `productId` 匹配的记录。
+====
+
+** 为事务和可跟踪查询设置 MongoDB **
+
+我们有一个基本的存储库。该存储库可以与 4.0 或更高版本的 MongoDB 的任何旧实例一起使用。我们将研究一些更适合响应式开发人员使用 MongoDB、事务和可跟踪查询的机会，这些机会需要您使用副本集启动 MongoDB。
+副本集是一种分发机制。 您可以运行只有一个节点的副本集，这对于开发来说已经足够了，但您至少需要这样做才能尝试这些功能。
+
+这是我用来在我的机器上启动单实例副本集的脚本。 我也为我的持续集成设置做了类似的事情。
+
+使用 MongoDB 初始化单节点副本集。
+
+[source,text]
+----
+mongo --eval "rs.initiate({_id: 'rs0', members:[{_id: 0, host: '127.0.0.1:27017'}]});"
+----
+
+** Reactive Transactions in MongoDB **
+
+到目前为止，一切都很好。 人们对 MongoDB 和响应式编程提出的一个常见问题是：事务呢？
+
+许多 NoSQL 数据存储确实支持事务，并且 Spring 在适当的非响应式上下文中支持资源本地事务管理。 在响应上下文中，还有一个用于 MongoDB 的 `ReactiveTransactionManager` 层次结构实现。
+
+MongoDB 中事务的使用很有趣，尽管大部分是可选的，因为对单个文档及其子文档的更新是原子的。 MongoDB 支持并可以说是鼓励非规范化和嵌入式子文档来捕获数据之间的关系。
+MongoDB 的事务支持可以方便地更新多个离散文档，或者当您希望多个文档的读取之间保持一致时。
+
+我们首先需要配置一些 bean 来演示与 MongoDB 的事务。
+
+[source,java]
+----
+@Configuration
+@EnableTransactionManagement
+public class TransactionConfiguration {
+
+    @Bean // <1>
+    public TransactionalOperator transactionalOperator(ReactiveTransactionManager txm) {
+        return TransactionalOperator.create(txm);
+    }
+
+    @Bean // <2>
+    public ReactiveTransactionManager reactiveTransactionManager(ReactiveMongoDatabaseFactory rbf) {
+        return new ReactiveMongoTransactionManager(rbf);
+    }
+}
+----
+====
+<1> 你之前已经看过这个...
+<2> 我们配置 `ReactiveTransactionManager` 层次结构的特定于 MongoDB 的变体。
+====
+
+我们已经有了一个 `OrderRepository` 来处理与数据库的单独交互 - 日常数据操作，如查询、插入、更新和读取。 让我们在支持将多条记录写入数据库的 `OrderRepository` 之上构建一个 `OrderService` 服务。
+如果给定参数为空，我们将使用它通过回滚写入来演示事务。 如果我们在 `N-1` 条记录为 `null` 的地方写入 `N` 条记录，则会导致一个错误，该错误反过来回滚所有 `N` 条写入，包括 `null` 和 `all`。
+
+[source,java]
+----
+@Service
+public class OrderService {
+
+    private final ReactiveMongoTemplate template;
+
+    private final TransactionalOperator operator;
+
+    public OrderService(ReactiveMongoTemplate template, TransactionalOperator operator) {
+        this.template = template;
+        this.operator = operator;
+    }
+
+    // <1>
+    public Flux<Order> createOrders(String... productIds) {
+        return this.operator.execute(status -> buildOrderFlux(template::insert,productIds));
+    }
+
+    private Flux<Order> buildOrderFlux(Function<Order, Mono<Order>> callback, String[] productIds) {
+        return Flux
+                .just(productIds)
+                .map(pid -> {
+                    Assert.notNull(pid,"the product ID should't be null");
+                    return pid;
+                })
+                .map( x -> new Order(null,x))
+                .flatMap(callback);
+    }
+}
+----
+====
+<1> `createOrders` 方法使用 `TransactionalOperator#execute` 方法。 我们已经看过声明式事务
+====
+
+让我们在测试中使用该服务。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest // <1>
+@Import({TransactionConfiguration.class,OrderService.class})
+public class OrderServicesTest {
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    //
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private OrderRepository repository;
+
+    @Autowired
+    private OrderService service;
+
+    @Autowired
+    private ReactiveMongoTemplate template;
+
+    @BeforeEach // <2>
+    public void configureCollectionBeforeTests() {
+        var createIfMissing = template.collectionExists(Order.class)
+                .filter(x -> !x)
+                .flatMap(exists -> template.createCollection(Order.class))
+                .thenReturn(true);
+
+        StepVerifier
+                .create(createIfMissing)
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test // <3>
+    public void createOrders() {
+        var orders = this.repository
+                .deleteAll()
+                .thenMany(this.service.createOrders("1","2","3"))
+                .thenMany(this.repository.findAll());
+
+        StepVerifier
+                .create(orders)
+                .expectNextCount(3)
+                .verifyComplete();
+    }
+
+    @Test // <4>
+    public void transactionalOperatorRollback() {
+        this.runTransactionalTest(this.service.createOrders("1","2",null));
+    }
+
+    private void runTransactionalTest(Flux<Order> ordersInTx) {
+        var orders = this.repository
+                .deleteAll()
+                .thenMany(ordersInTx)
+                .thenMany(this.repository.findAll());
+
+        StepVerifier
+                .create(orders)
+                .expectNextCount(0)
+                .verifyError();
+
+        StepVerifier
+                .create(this.repository.findAll())
+                .expectNextCount(0)
+                .verifyComplete();
+
+    }
+}
+----
+====
+<1> 此测试使用 `@DataMongoTest` 测试切片。
+<2> 此代码检查 MongoDB 集合是否存在，如果不存在，则创建它。
+<3> 此测试演示写入三个非空值应该会产生三个新记录。
+<4> 此测试表明，写入三个记录（其中一个为空）会导致回滚，并且没有明显的副作用。
+====
+
+多文档事务仅适用于副本集。 分片集群的事务是为 MongoDB 4.2.x 或更高版本具有的。
+
+** 可跟踪查询 **
+
+在 24/7 全天候互联的世界中，数据一直在变化。以批处理为中心的将数据处理限制在有限制的时间内，这意味着总会有一些尚未处理的数据帧。 如果期望系统始终可用，则这种滞后是有问题的。
+越来越多的组织正在转向流处理模型，其中反馈给客户端在数据可用时处理来自数据源的数据。 流式数据处理颠覆了传统的、以批处理为中心的数据处理方法。 在流式架构中，数据被推送到客户端，其中更传统的以批处理为中心的模型，数据从源头拉取，分批累积，然后进行处理。
+
+数据流是不断演变的事件序列，其中每个事件代表新数据。 订阅流的客户端只需要处理新数据，避免对现有数据进行重新处理。 以流为中心的处理减轻了对昂贵的客户端轮询的需求。
+
+这种对流处理的模糊描述听起来是不是很熟悉？ 在我看来，这听起来像是响应式编程。 我们可以更进一步，将其扩展到具有 Reactor 接口功能的复杂事件处理 (CEP)。
+
+流处理有很多好处。 有几种方法可以实现流处理。 一种方法使用分阶段事件驱动架构，其中组件轮询数据源，然后将增量发布到下游客户端。 组件仍然进行轮询，但是代表所有客户端和多个订阅者进行一次轮询。
+这种方法减少了数据源的负载，因为只有一个轮询查询，同时简化了下游客户端的工作——他们不需要自己担心跟踪增量。
+
+一些数据源可以告诉客户发生了什么变化； 他们可以告诉客户有关匹配谓词或查询的新数据。 Apache Geode 和 Oracle Coherence 都是分布式数据网格类型。
+他们支持连续查询。 连续查询颠覆了客户端和数据源之间的传统轮询安排。 客户端向数据网格注册连续查询，数据网格根据查询断言网格中的任何新数据。 如果有任何新数据与查询匹配，数据网格会通知订阅的客户端。
+
+MongoDB 支持类似连续查询的东西，但给它同样的描述性名称 `tailable` 查询。 它类似于在命令行上使用 `tail -f` 命令将输出跟踪到文件中。 在 MongoDB 中，客户端连接到数据库并发出查询。
+`Tailable` 查询会忽略索引，因此第一次读取可能会很慢，具体取决于与查询匹配的数据量。 即使在读取初始结果集之后，客户端的游标仍保持与数据源的连接，并且客户端会使用任何新的后续记录。
+
+你可能真的想要那个索引。 我明白！ 您需要手动重新查询记录，使用记录的最后一个偏移量来仅检索在偏移量之后插入的那些记录。
+
+现在，假设您决定使用 MongoDB 的 tailable 查询。 这里有很多可能性！ 您可以使用 MongoDB 进行轻量级发布/订阅集成。 你可以实现一个聊天系统。 您可以广播传感器数据或股票代码。
+
+无论您决定做什么，都可以通过可跟踪查询轻松完成。 让我们看一个例子。 我们将查询给定集合 `customers` 中的所有文档，其名称属性与给定值匹配。
+
+Tailable 查询需要上限集合。 上限集合是一个固定大小的集合，支持根据插入顺序插入和检索文档的高吞吐量操作。 Capped collections 的工作方式类似于循环缓冲区：一旦一个集合填满了它分配的空间，
+它就会通过覆盖集合中最旧的文档来为新文档腾出空间。
+
+让我们首先看一下 Customer 实体 - 这没什么奇怪的。
+
+[source,java]
+----
+public record Customer(@Id String id,String name) {
+}
+----
+
+存储库是事情变得有趣的地方 - 它是我们传达我们要为 MongoDB 创建可跟踪查询的想法的第一个地方。
+
+[source,java]
+----
+public interface CustomerRepository extends ReactiveMongoRepository<Customer,String> {
+
+    @Tailable // <1>
+    Flux<Customer> findByName(String name);
+}
+----
+====
+<1> @Tailable 注解告诉 Spring Data 在执行从 finder 方法派生的查询时不要关闭客户端游标。
+====
+
+Tailable 查询需要上限集合。 在我们开始使用它之前，我们需要确保创建上限集合。 我们不能依赖 Spring Data 自动为我们创建上限集合。 我们将在下面的测试中在 `@Before` 方法中明确地这样做。
+您可以在其他地方将其实现为初始化步骤。 在生产环境中，它可能首先作为部署数据库所涉及的脚本的一部分来完成。 上限集合是 MongoDB 中为数不多的涉及 MongoDB 提前配置的事物之一。
+MongoDB 是无模式的，但这消除了所有前期配置。
+
+[source,java]
+----
+@Testcontainers
+@DataMongoTest
+public class TailableCustomerQueryTest {
+
+    private static final Logger log = LoggerFactory.getLogger(TailableCustomerQueryTest.class);
+
+    @Container
+    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.3");
+
+    //
+    @DynamicPropertySource
+    static void setProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.mongodb.uri",mongoDBContainer::getReplicaSetUrl);
+    }
+
+    @Autowired
+    private ReactiveMongoTemplate template;
+
+    @Autowired
+    private CustomerRepository repository;
+
+    @BeforeEach
+    public void before() {
+        // <1>
+        var capped = CollectionOptions.empty()
+                .size(1024 * 1024)
+                .maxDocuments(100)
+                .capped();
+
+        var recreateCollection = template
+                .collectionExists(Order.class)
+                .flatMap(exists -> exists ? template.dropCollection(Customer.class) : Mono.just(exists))
+                .then(template.createCollection(Customer.class,capped));
+
+        StepVerifier
+                .create(recreateCollection)
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test
+    public void tail() throws InterruptedException {
+
+        // <2>
+        var people = new ConcurrentLinkedDeque<Customer>();
+
+        // <3>
+        StepVerifier
+                .create(this.write().then(this.write()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // <4>
+        this.repository.findByName("1")
+                .doOnNext(people::add)
+                .doOnComplete(() -> log.info("complete"))
+                .doOnTerminate(() -> log.info("terminated"))
+                .subscribe();
+
+        Assertions.assertThat(people).hasSize(2);
+
+        // <5>
+        StepVerifier
+                .create(this.write().then(this.write()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        // <6>
+        Thread.sleep(1_000);
+        Assertions.assertThat(people).hasSize(4);
+    }
+
+
+    private Mono<Customer> write() {
+        return repository.save(new Customer(UUID.randomUUID().toString(),"1"));
+    }
+}
+----
+====
+<1> 我们显式创建一个上限集合
+<2> 此测试将上限集合和 tailable 查询的结果累积到队列中。
+<3> 将两条记录写入数据库中现在原始的集合。
+<4> 运行返回一个 `Publisher<Customer>` 的 tailable 查询，我们将订阅它。 当新记录到达时，我们将它们捕获到先前定义的队列中。
+<5> 订阅后，确认前两条记录在集合中，我们再写两条
+<6> 确认对队列的更新（无需重新运行查询。）
+====
+
+
+很酷，是吗？ 现在请记住，tailable 游标在某些情况下会断开连接。 如果查询没有返回任何记录，那么游标就死了。 如果游标返回集合“末尾”处的文档，然后应用程序删除该文档，那么游标也会失效。
+
+如果不是万能的，MongoDB 就什么都不是。 它可以事务性地保存和查询记录和关系。 我有没有提到它还支持可扩展的文件系统？ 您可以使用 MongoDB 的 GridFS 写入类文件数据并安全地横向扩展。
+
+MongoDB 还支持地理空间查询。 Foursquare 提供像 Swarm 和 Foursquare 这样的应用程序，主要目的是让您的朋友知道您在哪里并弄清楚他们在哪里。 Foursquare 游戏化地理。 Foursquare 为 MongoDB 的初始地理空间支持做出了很大贡献。
+
+== 回顾
+
+在本章中，我们介绍了响应式 SQL 和 NoSQL 数据访问。 我们在 Spring Framework 5.2+ 中引入了 `ReactiveTransactionManager` 层次结构及其支持。
+我们研究了 R2DBC，一个新的 SPI 和支持以 R2DBC 为中心的响应式数据访问的实现。 我认为非常酷的是，在接近 2020 年的时候，我们仍然可以在全新的（响应式）上下文中讨论 SQL 和事务。
+我们还研究了响应式 NoSQL，重点是 MongoDB。 我们研究了事务划分，研究了 tailable 查询，这两者都是 MongoDB 在受支持的响应式 NoSQL 选项中所独有的。
+
+== 下一步
+
+在本章中，我们了解了如何使用响应式编程连接到基于 SQL 的数据存储（使用 R2DBC 和 Spring Data R2DBC）以及如何连接到众多受支持的 NoSQL 数据存储之一 MongoDB。
+响应式编程使开发人员更容易高效地使用数据。 响应式编程是必要的，因为数据几乎是所有应用程序的核心。 如果您要在数据访问层进行节流，那么您的 Web 层、安全性和网关的响应性如何都没有关系。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
