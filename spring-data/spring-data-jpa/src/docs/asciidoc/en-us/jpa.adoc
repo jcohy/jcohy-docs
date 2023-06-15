@@ -11,48 +11,9 @@ This section describes the basics of configuring Spring Data JPA through either:
 * "`<<jpa.namespace>>`" (XML configuration)
 * "`<<jpa.java-config>>`" (Java configuration)
 
-[[jpa.namespace]]
-=== Spring Namespace
-
-The JPA module of Spring Data contains a custom namespace that allows defining repository beans. It also contains certain features and element attributes that are special to JPA. Generally, the JPA repositories can be set up by   using the `repositories` element, as shown in the following example:
-
-.Setting up JPA repositories by using the namespace
-====
-[source, xml]
-----
-<?xml version="1.0" encoding="UTF-8"?>
-<beans xmlns="http://www.springframework.org/schema/beans"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:jpa="http://www.springframework.org/schema/data/jpa"
-  xsi:schemaLocation="http://www.springframework.org/schema/beans
-    https://www.springframework.org/schema/beans/spring-beans.xsd
-    http://www.springframework.org/schema/data/jpa
-    https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
-
-  <jpa:repositories base-package="com.acme.repositories" />
-
-</beans>
-----
-====
-
-Using the `repositories` element looks up Spring Data repositories as described in "`<<repositories.create-instances>>`". Beyond that, it activates persistence exception translation for all beans annotated with `@Repository`, to let exceptions being thrown by the JPA persistence providers be converted into Spring's `DataAccessException` hierarchy.
-
-[[jpa.namespace.custom-namespace-attributes]]
-==== Custom Namespace Attributes
-Beyond the default attributes of the `repositories` element, the JPA namespace offers additional attributes to let you gain more detailed control over the setup of the repositories:
-
-.Custom JPA-specific attributes of the `repositories` element
-[options = "autowidth"]
-|===============
-|`entity-manager-factory-ref`|Explicitly wire the `EntityManagerFactory` to be used with the repositories being detected by the `repositories` element. Usually used if multiple `EntityManagerFactory` beans are used within the application. If not configured, Spring Data automatically looks up the `EntityManagerFactory` bean with the name `entityManagerFactory` in the `ApplicationContext`.
-|`transaction-manager-ref`|Explicitly wire the `PlatformTransactionManager` to be used with the repositories being detected by the `repositories` element. Usually only necessary if multiple transaction managers or `EntityManagerFactory` beans have been configured. Default to a single defined `PlatformTransactionManager` inside the current `ApplicationContext`.
-|===============
-
-NOTE: Spring Data JPA requires a `PlatformTransactionManager` bean named `transactionManager` to be present if no explicit `transaction-manager-ref` is defined.
-
 [[jpa.java-config]]
 === Annotation-based Configuration
-The Spring Data JPA repositories support can be activated not only through an XML namespace but also by using an annotation through JavaConfig, as shown in the following example:
+The Spring Data JPA repositories support can be activated through both JavaConfig as well as a custom XML namespace, as shown in the following example:
 
 .Spring Data JPA repositories using JavaConfig
 ====
@@ -96,6 +57,47 @@ class ApplicationConfig {
 NOTE: You must create `LocalContainerEntityManagerFactoryBean` and not `EntityManagerFactory` directly, since the former also participates in exception translation mechanisms in addition to creating `EntityManagerFactory`.
 
 The preceding configuration class sets up an embedded HSQL database by using the `EmbeddedDatabaseBuilder` API of `spring-jdbc`. Spring Data then sets up an `EntityManagerFactory` and uses Hibernate as the sample persistence provider. The last infrastructure component declared here is the `JpaTransactionManager`. Finally, the example activates Spring Data JPA repositories by using the `@EnableJpaRepositories` annotation, which essentially carries the same attributes as the XML namespace. If no base package is configured, it uses the one in which the configuration class resides.
+
+[[jpa.namespace]]
+=== Spring Namespace
+
+The JPA module of Spring Data contains a custom namespace that allows defining repository beans. It also contains certain features and element attributes that are special to JPA. Generally, the JPA repositories can be set up by   using the `repositories` element, as shown in the following example:
+
+.Setting up JPA repositories by using the namespace
+====
+[source, xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:jpa="http://www.springframework.org/schema/data/jpa"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+    https://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/data/jpa
+    https://www.springframework.org/schema/data/jpa/spring-jpa.xsd">
+
+  <jpa:repositories base-package="com.acme.repositories" />
+
+</beans>
+----
+====
+
+TIP: Which is better, JavaConfig or XML? XML is how Spring was configured long ago. In today's era of fast-growing Java, record types, annotations, and more, new projects typically use as much pure Java as possible. While there is no immediate plan to remove XML support, some of the newest features MAY not be available through XML.
+
+Using the `repositories` element looks up Spring Data repositories as described in "`<<repositories.create-instances>>`". Beyond that, it activates persistence exception translation for all beans annotated with `@Repository`, to let exceptions being thrown by the JPA persistence providers be converted into Spring's `DataAccessException` hierarchy.
+
+[[jpa.namespace.custom-namespace-attributes]]
+==== Custom Namespace Attributes
+Beyond the default attributes of the `repositories` element, the JPA namespace offers additional attributes to let you gain more detailed control over the setup of the repositories:
+
+.Custom JPA-specific attributes of the `repositories` element
+[options = "autowidth"]
+|===============
+|`entity-manager-factory-ref`|Explicitly wire the `EntityManagerFactory` to be used with the repositories being detected by the `repositories` element. Usually used if multiple `EntityManagerFactory` beans are used within the application. If not configured, Spring Data automatically looks up the `EntityManagerFactory` bean with the name `entityManagerFactory` in the `ApplicationContext`.
+|`transaction-manager-ref`|Explicitly wire the `PlatformTransactionManager` to be used with the repositories being detected by the `repositories` element. Usually only necessary if multiple transaction managers or `EntityManagerFactory` beans have been configured. Default to a single defined `PlatformTransactionManager` inside the current `ApplicationContext`.
+|===============
+
+NOTE: Spring Data JPA requires a `PlatformTransactionManager` bean named `transactionManager` to be present if no explicit `transaction-manager-ref` is defined.
 
 [[jpa.bootstrap-mode]]
 === Bootstrap Mode
@@ -253,6 +255,44 @@ The following table describes the keywords supported for JPA and what a method c
 
 NOTE: `In` and `NotIn` also take any subclass of `Collection` as a parameter as well as arrays or varargs. For other syntactical versions of the same logical operator, check "`<<repository-query-keywords>>`".
 
+[WARNING]
+====
+`DISTINCT` can be tricky and not always producing the results you expect.
+For example, `select distinct u from User u` will produce a complete different result than `select distinct u.lastname from User u`.
+In the first case, since you are including `User.id`, nothing will duplicated, hence you'll get the whole table, and it would be of `User` objects.
+
+However, that latter query would narrow the focus to just `User.lastname` and find all unique last names for that table.
+This would also yield a `List<String>` result set instead of a `List<User`> result set.
+
+
+`countDistinctByLastname(String lastname)` can also produce unexpected results.
+Spring Data JPA will derive `select count(distinct u.id) from User u where u.lastname = ?1`.
+Again, since `u.id` won't hit any duplicates, this query will count up all the users that had the binding last name.
+Which would the same as `countByLastname(String lastname)`!
+
+What is the point of this query anyway? To find the number of people with a given last name? To find the number of _distinct_ people with that binding last name?
+To find the number of _distinct last names_? (That last one is an entirely different query!)
+Using `distinct` sometimes requires writing the query by hand and using `@Query` to best capture the information you seek, since you also may be needing a projection
+to capture the result set.
+====
+
+[[jpa.query-methods.named-queries.annotation-based-configuration]]
+==== Annotation-based Configuration
+Annotation-based configuration has the advantage of not needing another configuration file to be edited, lowering maintenance effort. You pay for that benefit by the need to recompile your domain class for every new query declaration.
+
+.Annotation-based named query configuration
+====
+[source, java]
+----
+@Entity
+@NamedQuery(name = "User.findByEmailAddress",
+  query = "select u from User u where u.emailAddress = ?1")
+public class User {
+
+}
+----
+====
+
 [[jpa.query-methods.named-queries]]
 === Using JPA Named Queries
 
@@ -274,26 +314,9 @@ To use XML configuration, add the necessary `<named-query />` element to the `or
 
 The query has a special name that is used to resolve it at runtime.
 
-[[jpa.query-methods.named-queries.annotation-based-configuration]]
-==== Annotation-based Configuration
-Annotation-based configuration has the advantage of not needing another configuration file to be edited, lowering maintenance effort. You pay for that benefit by the need to recompile your domain class for every new query declaration.
-
-.Annotation-based named query configuration
-====
-[source, java]
-----
-@Entity
-@NamedQuery(name = "User.findByEmailAddress",
-  query = "select u from User u where u.emailAddress = ?1")
-public class User {
-
-}
-----
-====
-
 [[jpa.query-methods.named-queries.declaring-interfaces]]
 ==== Declaring Interfaces
-To allow these named queries, specify the `UserRepository` as follows:
+To allow these named queries, specify the `UserRepositoryWithRewriter` as follows:
 
 .Query method declaration in UserRepository
 ====
@@ -331,6 +354,87 @@ public interface UserRepository extends JpaRepository<User, Long> {
 }
 ----
 ====
+
+[[jpa.query-methods.query-rewriter]]
+==== Applying a QueryRewriter
+
+Sometimes, no matter how many features you try to apply, it seems impossible to get Spring Data JPA to apply every thing
+you'd like to a query before it is sent to the `EntityManager`.
+
+You have the ability to get your hands on the query, right before it's sent to the `EntityManager` and "rewrite" it. That is,
+you can make any alterations at the last moment.
+
+.Declare a QueryRewriter using `@Query`
+====
+[source, java]
+----
+public interface MyRepository extends JpaRepository<User, Long> {
+
+		@Query(value = "select original_user_alias.* from SD_USER original_user_alias",
+                nativeQuery = true,
+				queryRewriter = MyQueryRewriter.class)
+		List<User> findByNativeQuery(String param);
+
+		@Query(value = "select original_user_alias from User original_user_alias",
+                queryRewriter = MyQueryRewriter.class)
+		List<User> findByNonNativeQuery(String param);
+}
+----
+====
+
+This example shows both a native (pure SQL) rewriter as well as a JPQL query, both leveraging the same `QueryRewriter`.
+In this scenario, Spring Data JPA will look for a bean registered in the application context of the corresponding type.
+
+You can write a query rewriter like this:
+
+.Example `QueryRewriter`
+====
+[source, java]
+----
+public class MyQueryRewriter implements QueryRewriter {
+
+     @Override
+     public String rewrite(String query, Sort sort) {
+         return query.replaceAll("original_user_alias", "rewritten_user_alias");
+     }
+}
+----
+====
+
+You have to ensure your `QueryRewriter` is registered in the application context, whether it's by applying one of Spring Framework's
+`@Component`-based annotations, or having it as part of a `@Bean` method inside an `@Configuration` class.
+
+Another option is to have the repository itself implement the interface.
+
+.Repository that provides the `QueryRewriter`
+====
+[source, java]
+----
+public interface MyRepository extends JpaRepository<User, Long>, QueryRewriter {
+
+		@Query(value = "select original_user_alias.* from SD_USER original_user_alias",
+                nativeQuery = true,
+				queryRewriter = MyRepository.class)
+		List<User> findByNativeQuery(String param);
+
+		@Query(value = "select original_user_alias from User original_user_alias",
+                queryRewriter = MyRepository.class)
+		List<User> findByNonNativeQuery(String param);
+
+		@Override
+		default String rewrite(String query, Sort sort) {
+			return query.replaceAll("original_user_alias", "rewritten_user_alias");
+		}
+}
+----
+====
+
+Depending on what you're doing with your `QueryRewriter`, it may be advisable to have more than one, each registered with the
+application context.
+
+NOTE: In a CDI-based environment, Spring Data JPA will search the `BeanManager` for instances of your implementation of
+`QueryRewriter`.
+
 
 [[jpa.query-methods.at-query.advanced-like]]
 ==== Using Advanced `LIKE` Expressions
@@ -573,7 +677,7 @@ int setFixedFirstnameFor(String firstname, String lastname);
 ----
 ====
 
-Doing so triggers the query annotated to the method as an updating query instead of a selecting one. As the `EntityManager` might contain outdated entities after the execution of the modifying query, we do not automatically clear it (see the https://docs.oracle.com/javaee/7/api/javax/persistence/EntityManager.html[JavaDoc] of `EntityManager.clear()` for details), since this effectively drops all non-flushed changes still pending in the `EntityManager`.
+Doing so triggers the query annotated to the method as an updating query instead of a selecting one. As the `EntityManager` might contain outdated entities after the execution of the modifying query, we do not automatically clear it (see the https://jakarta.ee/specifications/persistence/2.2/apidocs/javax/persistence/entitymanager[JavaDoc] of `EntityManager.clear()` for details), since this effectively drops all non-flushed changes still pending in the `EntityManager`.
 If you wish the `EntityManager` to be cleared automatically, you can set the `@Modifying` annotation's `clearAutomatically` attribute to `true`.
 
 The `@Modifying` annotation is only relevant in combination with the `@Query` annotation.
@@ -623,6 +727,139 @@ public interface UserRepository extends Repository<User, Long> {
 ----
 ====
 The preceding declaration would apply the configured `@QueryHint` for that actually query but omit applying it to the count query triggered to calculate the total number of pages.
+
+[[jpa.query-hints.comments]]
+==== Adding Comments to Queries
+Sometimes, you need to debug a query based upon database performance.
+The query your database administrator shows you may look VERY different than what you wrote using `@Query`, or it may look
+nothing like what you presume Spring Data JPA has generated regarding a custom finder or if you used query by example.
+
+To make this process easier, you can insert custom comments into almost any JPA operation, whether its a query or other operation
+by applying the `@Meta` annotation.
+
+.Apply `@Meta` annotation to repository operations
+====
+[source, java]
+----
+public interface RoleRepository extends JpaRepository<Role, Integer> {
+
+	@Meta(comment = "find roles by name")
+	List<Role> findByName(String name);
+
+	@Override
+	@Meta(comment = "find roles using QBE")
+	<S extends Role> List<S> findAll(Example<S> example);
+
+	@Meta(comment = "count roles for a given name")
+	long countByName(String name);
+
+	@Override
+	@Meta(comment = "exists based on QBE")
+	<S extends Role> boolean exists(Example<S> example);
+}
+----
+====
+
+This sample repository has a mixture of custom finders as well as overriding the inherited operations from `JpaRepository`.
+Either way, the `@Meta` annotation lets you add a `comment` that will be inserted into queries before they are sent to the database.
+
+It's also important to note that this feature isn't confined solely to queries. It extends to the `count` and `exists` operations.
+And while not shown, it also extends to certain `delete` operations.
+
+IMPORTANT: While we have attempted to apply this feature everywhere possible, some operations of the underlying `EntityManager` don't support comments. For example, `entityManager.createQuery()` is clearly documented as supporting comments, but `entityManager.find()` operations do not.
+
+Neither JPQL logging nor SQL logging is a standard in JPA, so each provider requires custom configuration, as shown the sections below.
+
+===== Activating Hibernate comments
+To activate query comments in Hibernate, you must set `hibernate.use_sql_comments` to `true`.
+
+If you are using Java-based configuration settings, this can be done like this:
+
+.Java-based JPA configuration
+====
+[source, java]
+----
+@Bean
+public Properties jpaProperties() {
+
+	Properties properties = new Properties();
+	properties.setProperty("hibernate.use_sql_comments", "true");
+	return properties;
+}
+----
+====
+
+If you have a `persistence.xml` file, you can apply it there:
+
+.`persistence.xml`-based configuration
+====
+[source, xml]
+----
+<persistence-unit name="my-persistence-unit">
+
+   ...registered classes...
+
+	<properties>
+		<property name="hibernate.use_sql_comments" value="true" />
+	</properties>
+</persistence-unit>
+----
+====
+
+Finally, if you are using Spring Boot, then you can set it up inside your `application.properties` file:
+
+.Spring Boot property-based configuration
+====
+----
+spring.jpa.properties.hibernate.use_sql_comments=true
+----
+====
+
+===== Activating EclipseLink comments
+To activate query comments in EclipseLink, you must set `eclipselink.logging.level.sql` to `FINE`.
+
+If you are using Java-based configuration settings, this can be done like this:
+
+.Java-based JPA configuration
+====
+[source, java]
+----
+@Bean
+public Properties jpaProperties() {
+
+	Properties properties = new Properties();
+	properties.setProperty("eclipselink.logging.level.sql", "FINE");
+	return properties;
+}
+----
+====
+
+If you have a `persistence.xml` file, you can apply it there:
+
+.`persistence.xml`-based configuration
+====
+[source, xml]
+----
+<persistence-unit name="my-persistence-unit">
+
+   ...registered classes...
+
+	<properties>
+		<property name="eclipselink.logging.level.sql" value="FINE" />
+	</properties>
+</persistence-unit>
+----
+====
+
+Finally, if you are using Spring Boot, then you can set it up inside your `application.properties` file:
+
+.Spring Boot property-based configuration
+====
+----
+spring.jpa.properties.eclipselink.logging.level.sql=FINE
+----
+====
+
 
 [[jpa.entity-graph]]
 === Configuring Fetch- and LoadGraphs
@@ -860,6 +1097,21 @@ List<Customer> customers = customerRepository.findAll(
 ----
 
 `Specification` offers some "`glue-code`" default methods to chain and combine `Specification` instances. These methods let you extend your data access layer by creating new `Specification` implementations and combining them with already existing implementations.
+====
+
+And with JPA 2.1, the `CriteriaBuilder` API introduced `CriteriaDelete`. This is provided through `JpaSpecificationExecutor`'s `delete(Specification)` API.
+
+.Using a `Specification` to delete entries.
+====
+[source, java]
+----
+Specification<User> ageLessThan18 = (root, query, cb) -> cb.lessThan(root.get("age").as(Integer.class), 18)
+
+userRepository.delete(ageLessThan18);
+----
+The `Specification` builds up a criteria where the `age` field (cast as an integer) is less than `18`.
+Passed on to the `userRepository`, it will use JPA's `CriteriaDelete` feature to generate the right `DELETE` operation.
+It then returns the number of entities deleted.
 ====
 
 include::{spring-data-commons-docs}/query-by-example.adoc[leveloffset=+1]
