@@ -43,6 +43,7 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
     private void configureAsciidoctorTask(Project project, AbstractAsciidoctorTask asciidoctorTask) {
         asciidoctorTask.languages("zh-cn");
         asciidoctorTask.setLogDocuments(true);
+
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
     }
