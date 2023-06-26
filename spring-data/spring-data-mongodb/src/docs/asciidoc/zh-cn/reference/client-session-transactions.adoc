@@ -1,20 +1,21 @@
 [[mongo.sessions]]
-= MongoDB Sessions
+= MongoDB 会话（Session）
 
-As of version 3.6, MongoDB supports the concept of sessions. The use of sessions enables MongoDB's https://docs.mongodb.com/manual/core/read-isolation-consistency-recency/#causal-consistency[Causal Consistency] model, which guarantees running operations in an order that respects their causal relationships. Those are split into `ServerSession` instances and `ClientSession` instances. In this section, when we speak of a session, we refer to `ClientSession`.
+从3.6版本开始，MongoDB 支持会话的概念。会话的使用实现了 MongoDB 的 https://docs.mongodb.com/manual/core/read-isolation-consistency-recency/#causal-consistency[Causal Consistency]（因果一致性） 模型，它保证了以尊重其因果关系的顺序运行操作。这些会话被分成 `ServerSession` 实例和 `ClientSession` 实例。
+在本节中，当我们谈到会话时，我们指的是 `ClientSession`。
 
-WARNING: Operations within a client session are not isolated from operations outside the session.
+WARNING: 客户端会话内的操作与会话外的操作没有隔离。
 
-Both `MongoOperations` and `ReactiveMongoOperations` provide gateway methods for tying a `ClientSession` to the operations. `MongoCollection` and `MongoDatabase` use session proxy objects that implement MongoDB's collection and database interfaces, so you need not add a session on each call. This means that a potential call to `MongoCollection#find()` is delegated to `MongoCollection#find(ClientSession)`.
+`MongoOperations` 和 `ReactiveMongoOperations` 都提供了将 `ClientSession` 绑定到操作上的网关方法。`MongoCollection` 和 `MongoDatabase` 使用实现 MongoDB 的集合和数据库接口的会话代理对象，因此你不需要在每次调用时添加会话。这意味着，对 `MongoCollection#find()` 的潜在调用被委托给 `MongoCollection#find(ClientSession)`。
 
-NOTE: Methods such as `(Reactive)MongoOperations#getCollection` return native MongoDB Java Driver gateway objects (such as `MongoCollection`) that themselves offer dedicated methods for `ClientSession`. These methods are *NOT* session-proxied. You should provide the `ClientSession` where needed when interacting directly with a `MongoCollection` or `MongoDatabase` and not through one of the `#execute` callbacks on `MongoOperations`.
+NOTE: `(Reactive)MongoOperations#getCollection` 等方法返回原生 MongoDB Java Driver 网关对象（如 `MongoCollection`），这些对象本身为 `ClientSession` 提供专用方法。这些方法不是会话代理的。在与 `MongoCollection` 或 `MongoDatabase` 直接交互时，你应该在需要时提供 `ClientSession`，而不是通过 `MongoOperations` 上的 `#execute` 回调。
 
 [[mongo.sessions.sync]]
-== Synchronous `ClientSession` support.
+== 支持同步的 `ClientSession`.
 
-The following example shows the usage of a session:
+下面的例子显示了一个会话的用法。
 
-.`ClientSession` with `MongoOperations`
+.`ClientSession` 和 `MongoOperations`
 ====
 [source,java]
 ----
@@ -40,20 +41,20 @@ template.withSession(() -> session)
 
 session.close()                                              <4>
 ----
-<1> Obtain a new session from the server.
-<2> Use `MongoOperation` methods as before. The `ClientSession` gets applied automatically.
-<3> Make sure to close the `ClientSession`.
-<4> Close the session.
+<1> 从服务器获取一个新的会话。
+<2> 像以前一样使用 `MongoOperation` 方法。`ClientSession` 会被自动应用。
+<3> 确保关闭 `ClientSession`.
+<4> 关闭 session.
 ====
 
-WARNING: When dealing with `DBRef` instances, especially lazily loaded ones, it is essential to *not* close the `ClientSession` before all data is loaded. Otherwise, lazy fetch fails.
+WARNING: 当处理 `DBRef` 实例时，特别是懒加载的实例，在所有数据被加载之前不要关闭 `ClientSession` 是非常重要的。否则，懒加载会失败。
 
 [[mongo.sessions.reactive]]
-== Reactive `ClientSession` support
+== 支持响应式的 `ClientSession`
 
-The reactive counterpart uses the same building blocks as the imperative one, as the following example shows:
+如下面的例子所示，响应式的对应方法使用与命令式相同的构件。
 
-.ClientSession with `ReactiveMongoOperations`
+.ClientSession with ReactiveMongoOperations
 ====
 [source,java]
 ----
@@ -78,30 +79,29 @@ template.withSession(session)
     }, ClientSession::close)                                            <3>
     .subscribe();                                                       <4>
 ----
-<1> Obtain a `Publisher` for new session retrieval.
-<2> Use `ReactiveMongoOperation` methods as before. The `ClientSession` is obtained and applied automatically.
-<3> Make sure to close the `ClientSession`.
-<4> Nothing happens until you subscribe. See https://projectreactor.io/docs/core/release/reference/#reactive.subscribe[the Project Reactor Reference Guide] for details.
+<1> 为新的会话检索获得一个 `Publisher` 。
+<2> 像以前一样使用 `ReactiveMongoOperation` 方法。自动获得并应用 `ClientSession`。
+<3> 确保关闭 `ClientSession`.
+<4> 在你订阅之前什么都不会发生。详见 https://projectreactor.io/docs/core/release/reference/#reactive.subscribe[the Project Reactor Reference Guide].
 ====
 
-By using a `Publisher` that provides the actual session, you can defer session acquisition to the point of actual subscription.
-Still, you need to close the session when done, so as to not pollute the server with stale sessions. Use the `doFinally` hook on `execute` to call `ClientSession#close()` when you no longer need the session.
-If you prefer having more control over the session itself, you can obtain the `ClientSession` through the driver and provide it through a `Supplier`.
+通过使用一个提供实际会话的 `Publisher`，你可以将会话的获取推迟到实际订阅的时候。但是，你仍然需要在完成后关闭会话，这样就不会让旧的会话污染服务器。当你不再需要会话时，
+使用 `execute` 上的 `doFinally` 钩子来调用 `ClientSession#close()`。如果你喜欢对会话本身有更多的控制，你可以通过驱动获得 `ClientSession`，并通过 `Supplier` 来提供它。
 
-NOTE: Reactive use of `ClientSession` is limited to Template API usage. There's currently no session integration with reactive repositories.
+NOTE: `ClientSession` 的响应式使用仅限于 Template API 的使用。目前还没有与响应式 repository 的会话集成。
 
 [[mongo.transactions]]
-= MongoDB Transactions
+= MongoDB 事务
 
-As of version 4, MongoDB supports https://www.mongodb.com/transactions[Transactions]. Transactions are built on top of <<mongo.sessions,Sessions>> and, consequently, require an active `ClientSession`.
+从版本4开始，MongoDB支持  https://www.mongodb.com/transactions[事务]。事务是建立在 <<mongo.sessions,Sessions>> 之上的，因此，需要一个活跃的 `ClientSession`。
 
-NOTE: Unless you specify a `MongoTransactionManager` within your application context, transaction support is *DISABLED*. You can use `setSessionSynchronization(ALWAYS)` to participate in ongoing non-native MongoDB transactions.
+NOTE: 除非你在你的应用程序上下文中指定一个 `MongoTransactionManager`，否则事务支持是 *DISABLED*（禁用的）。你可以使用 `setSessionSynchronization(ALWAYS)` 来参与正在进行的非本地 MongoDB 事务。
 
-To get full programmatic control over transactions, you may want to use the session callback on `MongoOperations`.
+为了获得对事务的完全程序化控制，你可能想在 `MongoOperations` 上使用会话回调。
 
-The following example shows programmatic transaction control within a `SessionCallback`:
+下面的例子显示了在一个 `SessionCallback` 中的程序化事务控制。
 
-.Programmatic transactions
+.程序性事务
 ====
 [source,java]
 ----
@@ -128,22 +128,21 @@ template.withSession(session)
         }
     }, ClientSession::close)                                            <5>
 ----
-<1> Obtain a new `ClientSession`.
-<2> Start the transaction.
-<3> If everything works out as expected, commit the changes.
-<4> Something broke, so roll back everything.
-<5> Do not forget to close the session when done.
+<1> 获得一个新的 `ClientSession`.
+<2> 开始事务.
+<3> 如果一切按预期进行，就提交修改
+<4> 出现意外，所以要回滚一切。
+<5> 完成后不要忘记关闭会话。
 ====
 
-The preceding example lets you have full control over transactional behavior while using the session scoped `MongoOperations` instance within the callback to ensure the session is passed on to every server call.
-To avoid some of the overhead that comes with this approach, you can use a `TransactionTemplate` to take away some of the noise of manual transaction flow.
+前面的例子让你完全控制事务行为，同时在回调中使用会话范围的 `MongoOperations` 实例，以确保会话被传递给每个服务器调用。为了避免这种方法带来的一些开销，你可以使用 `TransactionTemplate` 来消除手动事务流的一些噪音。
 
 [[mongo.transactions.transaction-template]]
-== Transactions with `TransactionTemplate`
+== 事务和 `TransactionTemplate`
 
-Spring Data MongoDB transactions support a `TransactionTemplate`. The following example shows how to create and use a `TransactionTemplate`:
+Spring Data MongoDB 事务支持一个 `TransactionTemplate`。下面的例子展示了如何创建和使用 `TransactionTemplate`。
 
-.Transactions with `TransactionTemplate`
+.事务和 `TransactionTemplate`
 ====
 [source,java]
 ----
@@ -167,20 +166,20 @@ txTemplate.execute(new TransactionCallbackWithoutResult() {
     };
 });
 ----
-<1> Enable transaction synchronization during Template API configuration.
-<2> Create the `TransactionTemplate` using the provided `PlatformTransactionManager`.
-<3> Within the callback the `ClientSession` and transaction are already registered.
+<1> 在 Template API 配置中启用事务同步。
+<2> 使用提供的 `PlatformTransactionManager` 创建 `TransactionTemplate`。
+<3> 在回调中，`ClientSession` 和事务已经被注册。
 ====
 
-CAUTION: Changing state of `MongoTemplate` during runtime (as you might think would be possible in item 1 of the preceding listing) can cause threading and visibility issues.
+CAUTION: 在运行期间改变 `MongoTemplate` 的状态（就像你可能认为在前面列表的第1项中可能发生的那样）会导致线程和可见性问题。
 
 [[mongo.transactions.tx-manager]]
-== Transactions with `MongoTransactionManager`
+== 事务和 `MongoTransactionManager`
 
-`MongoTransactionManager` is the gateway to the well known Spring transaction support. It lets applications use  https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/html/transaction.html[the managed transaction features of Spring].
-The `MongoTransactionManager` binds a `ClientSession` to the thread. `MongoTemplate` detects the session and operates on these resources which are associated with the transaction accordingly. `MongoTemplate` can also participate in other, ongoing transactions. The following example shows how to create and use transactions with a `MongoTransactionManager`:
+`MongoTransactionManager` 是通往众所周知的 Spring 事务支持的网关。它可以让应用程序使用 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/html/transaction.html[Spring 的事务托管功能] 。`MongoTransactionManager` 将一个 `ClientSession` 绑定到线程上。`MongoTemplate` 会检测会话，
+并相应地对这些与事务相关的资源进行操作。`MongoTemplate` 也可以参与到其他正在进行的事务中。下面的例子展示了如何用 `MongoTransactionManager` 创建和使用事务。
 
-.Transactions with `MongoTransactionManager`
+.事务和 MongoTransactionManager
 ====
 [source,java]
 ----
@@ -210,24 +209,22 @@ public class StateService {
 });
 
 ----
-<1> Register `MongoTransactionManager` in the application context.
-<2> Mark methods as transactional.
+<1> 在应用 application context 中注册 `MongoTransactionManager`
+<2> 将方法标记为事务性。
 ====
 
-NOTE: `@Transactional(readOnly = true)` advises `MongoTransactionManager` to also start a transaction that adds the
- `ClientSession` to outgoing requests.
+NOTE: `@Transactional(readOnly = true)` 建议 `MongoTransactionManager` 也启动一个事务，将 `ClientSession` 添加到发出的请求中。
 
 [[mongo.transactions.reactive]]
-== Reactive Transactions
+== 响应式事务
 
-Same as with the reactive `ClientSession` support, the `ReactiveMongoTemplate` offers dedicated methods for operating
-within a transaction without having to worry about the committing or stopping actions depending on the operations outcome.
+与支持响应式 `ClientSession` 一样，`ReactiveMongoTemplate` 提供了专门的方法，用于在事务中进行操作，而不必担心根据操作结果提交或停止操作。
 
-NOTE: Unless you specify a `ReactiveMongoTransactionManager` within your application context, transaction support is *DISABLED*. You can use `setSessionSynchronization(ALWAYS)` to participate in ongoing non-native MongoDB transactions.
+NOTE: 除非你在你的 application context 中指定一个 `ReactiveMongoTransactionManager`，否则事务支持是 *DISABLED*（禁用的）。你可以使用 `setSessionSynchronization(ALWAYS)` 来参与正在进行的非本地 MongoDB 事务。
 
-Using the plain MongoDB reactive driver API a `delete` within a transactional flow may look like this.
+使用普通的MongoDB响应式驱动API，在一个事务性流程中的 `delete` 可能看起来像这样。
 
-.Native driver support
+.原生驱动的支持
 ====
 [source,java]
 ----
@@ -246,23 +243,22 @@ Mono<DeleteResult> result = Mono
             .doFinally(signal -> session.close());                                           <6>
       });
 ----
-<1> First we obviously need to initiate the session.
-<2> Once we have the `ClientSession` at hand, start the transaction.
-<3> Operate within the transaction by passing on the `ClientSession` to the operation.
-<4> If the operations completes exceptionally, we need to stop the transaction and preserve the error.
-<5> Or of course, commit the changes in case of success. Still preserving the operations result.
-<6> Lastly, we need to make sure to close the session.
+<1> 首先，我们显然需要启动 session。
+<2> 一旦我们有了 `ClientSession`，就开始事务。
+<3> 通过向操作传递 `ClientSession`，在事务中进行操作。
+<4> 如果操作异常完成，我们需要停止事务并保留错误。
+<5> 当然，也可以在成功的情况下提交更改。仍然保留操作结果。
+<6> 最后，我们需要确保关闭会话
 ====
 
-The culprit of the above operation is in keeping the main flows `DeleteResult` instead of the transaction outcome
-published via either `commitTransaction()` or `abortTransaction()`, which leads to a rather complicated setup.
+上述操作的罪魁祸首是在保留 main flow `DeleteResult`，而不是通过 `commitTransaction()` 或 `abortTransaction()` 发布的事务结果，这导致了相当复杂的设置。
 
 [[mongo.transactions.reactive-operator]]
-== Transactions with `TransactionalOperator`
+== 事务和 `TransactionalOperator`
 
-Spring Data MongoDB transactions support a `TransactionalOperator`. The following example shows how to create and use a `TransactionalOperator`:
+Spring Data MongoDB事务支持一个 `TransactionalOperator`。下面的例子展示了如何创建和使用一个 `TransactionalOperator`。
 
-.Transactions with `TransactionalOperator`
+.事务和 `TransactionalOperator`
 ====
 [source,java]
 ----
@@ -282,22 +278,18 @@ Mono<Void> process(step)
     .as(rxtx::transactional)                                                         <3>
     .then();
 ----
-<1> Enable transaction synchronization for Transactional participation.
-<2> Create the `TransactionalOperator` using the provided `ReactiveTransactionManager`.
-<3> `TransactionalOperator.transactional(…)` provides transaction management for all upstream operations.
+<1> 为事务性参与启用事务同步。
+<2> 使用提供的 `ReactiveTransactionManager` 创建 `TransactionalOperator`。
+<3> `TransactionalOperator.transactional(…)` 为所有上游操作提供事务管理。
 ====
 
 [[mongo.transactions.reactive-tx-manager]]
-== Transactions with `ReactiveMongoTransactionManager`
+== 事务和 `ReactiveMongoTransactionManager`
 
-`ReactiveMongoTransactionManager` is the gateway to the well known Spring transaction support.
-It allows applications to leverage https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/html/transaction.html[the managed transaction features of Spring].
-The `ReactiveMongoTransactionManager` binds a `ClientSession` to the subscriber `Context`.
-`ReactiveMongoTemplate` detects the session and operates on these resources which are associated with the transaction accordingly.
-`ReactiveMongoTemplate` can also participate in other, ongoing transactions.
-The following example shows how to create and use transactions with a `ReactiveMongoTransactionManager`:
+`ReactiveMongoTransactionManager` 是通往众所周知的 Spring 事务支持 的网关。它允许应用程序利用 https://docs.spring.io/spring/docs/{springVersion}/spring-framework-reference/html/transaction.html[Spring 的管理事务功能]。`ReactiveMongoTransactionManager` 将 `ClientSession` 绑定到 `subscriber` Context。
+`ReactiveMongoTemplate` 会检测会话，并对这些与事务相关的资源进行相应操作。 `ReactiveMongoTemplate` 也可以参与其他正在进行的事务。下面的例子展示了如何用 `ReactiveMongoTransactionManager` 创建和使用事务。
 
-.Transactions with `ReactiveMongoTransactionManager`
+.事务和 `ReactiveMongoTransactionManager`
 ====
 [source,java]
 ----
@@ -325,54 +317,46 @@ public class StateService {
 });
 
 ----
-<1> Register `ReactiveMongoTransactionManager` in the application context.
-<2> Mark methods as transactional.
+<1> 在 application context中注册 `ReactiveMongoTransactionManager`。
+<2> 将方法标记为事务性的。
 ====
 
-NOTE: `@Transactional(readOnly = true)` advises `ReactiveMongoTransactionManager` to also start a transaction that adds the `ClientSession` to outgoing requests.
+NOTE: `@Transactional(readOnly = true)` 建议 `ReactiveMongoTransactionManager` 也启动一个事务，将 `ClientSession` 添加到发出的请求中。
 
 [[mongo.transactions.behavior]]
-== Special behavior inside transactions
+== 事务内部的特殊行为
 
-Inside transactions, MongoDB server has a slightly different behavior.
+在事务内部，MongoDB 服务器有一个稍微不同的行为。
 
 *Connection Settings*
 
-The MongoDB drivers offer a dedicated replica set name configuration option turing the driver into auto detection
-mode. This option helps identifying the primary replica set nodes and command routing during a transaction.
+MongoDB驱动提供了一个专门的副本集名称配置选项，使驱动进入自动检测模式。这个选项有助于识别主要的副本集节点和事务中的命令路由。
 
-NOTE: Make sure to add `replicaSet` to the MongoDB URI. Please refer to https://docs.mongodb.com/manual/reference/connection-string/#connections-connection-options[connection string options] for further details.
+NOTE: 确保在 MongoDB 的 URI 中添加 `replicaSet`。请参考 https://docs.mongodb.com/manual/reference/connection-string/#connections-connection-options[连接字符串选项] 以了解更多细节。
 
 *Collection Operations*
 
-MongoDB does *not* support collection operations, such as collection creation, within a transaction. This also
-affects the on the fly collection creation that happens on first usage. Therefore make sure to have all required
-structures in place.
+MongoDB 不支持集合操作，例如在事务中创建集合。这也会影响到第一次使用时发生的即时集合创建。因此，请确保所有需要的结构都已到位。
 
 *Transient Errors*
 
-MongoDB can add special labels to errors raised during transactional operations. Those may indicate transient failures
-that might vanish by merely retrying the operation.
-We highly recommend https://github.com/spring-projects/spring-retry[Spring Retry] for those purposes. Nevertheless
-one may override `MongoTransactionManager#doCommit(MongoTransactionObject)` to implement a https://docs.mongodb.com/manual/core/transactions/#retry-commit-operation[Retry Commit Operation]
-behavior as outlined in the MongoDB reference manual.
+MongoDB 可以为在事务性操作中出现的错误添加特殊标签。这些标签可能表示暂时性的故障，这些故障可能通过重试操作而消失。我们强烈推荐 https://github.com/spring-projects/spring-retry[Spring Retry] 用于这些目的。
+然而，我们可以覆写 `MongoTransactionManager#doCommit(MongoTransactionObject)`，以实现 MongoDB 参考手册中所述的 https://docs.mongodb.com/manual/core/transactions/#retry-commit-operation[重试提交操作行为] 。
 
 *Count*
 
-MongoDB `count` operates upon collection statistics which may not reflect the actual situation within a transaction.
-The server responds with _error 50851_ when issuing a `count` command inside of a multi-document transaction.
-Once `MongoTemplate` detects an active transaction, all exposed `count()` methods are converted and delegated to the
-aggregation framework using `$match` and `$count` operators, preserving `Query` settings, such as `collation`.
+MongoDB的 `count` 操作是基于集合统计的，可能无法反映事务中的实际情况。当在一个多文档事务中发出 `count` 命令时，服务器会响应 error 50851。一旦 `MongoTemplate` 检测到一个活动的事务，所有暴露的 `count()` 方法都会被转换，
+并使用 `$match` 和 `$count` 操作符委托给聚合框架，保留 `Query` 设置，如 `collation`。
 
-Restrictions apply when using geo commands inside of the aggregation count helper. The following operators cannot be used and must be replaced with a different operator:
+在 aggregation count helper 中使用 `geo` 命令时，有一些限制。以下运算符不能使用，必须用不同的运算符代替。
 
 * `$where` -> `$expr`
 * `$near` -> `$geoWithin` with `$center`
 * `$nearSphere` -> `$geoWithin` with `$centerSphere`
 
-Queries using `Criteria.near(…)` and `Criteria.nearSphere(…)` must be rewritten to `Criteria.within(…)` respective `Criteria.withinSphere(…)`. Same applies for the `near` query keyword in repository query methods that must be changed to `within`. See also MongoDB JIRA ticket https://jira.mongodb.org/browse/DRIVERS-518[DRIVERS-518] for further reference.
+使用 `Criteria.near(…)` 和 `Criteria.nearSphere(…)` 的查询必须改写为 `Criteria.within(…)` 各自的 `Criteria.withinSphere(…)`。同样适用于 repository 查询方法中的 `near` 查询关键字，必须改为 `within`。也请参见 MongoDB JIRA ticket https://jira.mongodb.org/browse/DRIVERS-518[DRIVERS-518] 以进一步参考。
 
-The following snippet shows `count` usage inside the session-bound closure:
+下面的片段显示了会话绑定闭包内的 `count` 用法。
 
 ====
 [source,javascript]
@@ -386,7 +370,7 @@ template.withSession(session)
 ----
 ====
 
-The snippet above materializes in the following command:
+上面的片段具体化为以下命令:
 
 ====
 [source,javascript]
@@ -400,7 +384,7 @@ db.collection.aggregate(
 ----
 ====
 
-instead of:
+而不是:
 
 ====
 [source,javascript]

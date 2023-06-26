@@ -1,40 +1,38 @@
 
 [[mapping-chapter]]
-= Mapping
+= 映射（Mapping）
 
-Rich mapping support is provided by the `MappingMongoConverter`. `MappingMongoConverter` has a rich metadata model that provides a full feature set to map domain objects to MongoDB documents.
-The mapping metadata model is populated by using annotations on your domain objects.
-However, the infrastructure is not limited to using annotations as the only source of metadata information.
-The `MappingMongoConverter` also lets you map objects to documents without providing any additional metadata, by following a set of conventions.
+丰富的映射支持是由 `MappingMongoConverter` 提供的。`MappingMongoConverter` 有一个丰富的元数据模型，提供完整的功能集，将 domain 对象映射到 MongoDB 文档。映射元数据模型是通过在你的 domain 对象上使用注解来填充的。
+然而，该基础设施并不限于使用注解作为元数据信息的唯一来源。`MappingMongoConverter` 还可以让你在不提供任何额外元数据的情况下，通过遵循一组约定，将对象映射到文档。
 
-This section describes the features of the `MappingMongoConverter`, including fundamentals, how to use conventions for mapping objects to documents and how to override those conventions with annotation-based mapping metadata.
+本节介绍了 `MappingMongoConverter` 的功能，包括基本原理，如何使用约定将对象映射到文档，以及如何用基于注解的映射元数据覆盖这些约定。
 
 include::../{spring-data-commons-docs}/object-mapping.adoc[leveloffset=+1]
 
 [[mapping-conventions]]
-== Convention-based Mapping
+== 基于常规的映射
 
-`MappingMongoConverter` has a few conventions for mapping objects to documents when no additional mapping metadata is provided. The conventions are:
+当没有提供额外的映射元数据时，`MappingMongoConverter` 有一些惯例用于将对象映射到文档。这些约定如下：
 
-* The short Java class name is mapped to the collection name in the following manner. The class `com.bigbank.SavingsAccount` maps to the `savingsAccount` collection name.
-* All nested objects are stored as nested objects in the document and *not* as DBRefs.
-* The converter uses any Spring Converters registered with it to override the default mapping of object properties to document fields and values.
-* The fields of an object are used to convert to and from fields in the document. Public `JavaBean` properties are not used.
-* If you have a single non-zero-argument constructor whose constructor argument names match top-level field names of document, that constructor is used. Otherwise, the zero-argument constructor is used. If there is more than one non-zero-argument constructor, an exception will be thrown.
+* 短的Java类名以如下方式映射到集合名。`com.bigbank.SavingsAccount` 这个类映射到 `savingsAccount` 集合的名称。
+* 所有的嵌套对象都作为文档中的嵌套对象而不是作为 DBRefs 来存储。
+* converter 使用与它注册的任何 Spring Converter 来覆盖对象属性到文档字段和值的默认映射。
+* 一个对象的字段被用来转换为文档中的字段和从文档中转换。public `JavaBean` 属性不被使用。
+* 如果你有一个单一的非零参数构造器，其构造器参数名称与文档的顶级字段名称相匹配，则使用该构造器。否则，将使用零参数的构造函数。如果有一个以上的非零参数构造函数，将抛出一个异常。
 
 [[mapping.conventions.id-field]]
-=== How the `_id` field is handled in the mapping layer.
+=== 在映射层中如何处理 `_id` 字段
 
-MongoDB requires that you have an `_id` field for all documents. If you don't provide one the driver will assign a ObjectId with a generated value. The "_id" field can be of any type the, other than arrays, so long as it is unique. The driver naturally supports all primitive types and Dates. When using the `MappingMongoConverter` there are certain rules that govern how properties from the Java class is mapped to this `_id` field.
+MongoDB 要求你为所有文档提供一个 `_id` 字段。如果你没有提供一个，驱动程序将分配一个生成值的 `ObjectId`。 "_id" 字段可以是任何类型，而不是数组，只要它是唯一的。驱动程序自然支持所有原始类型和日期。当使用 `MappingMongoConverter` 时，有一些规则规定了如何将 Java 类的属性映射到 `_id` 字段。
 
-The following outlines what field will be mapped to the `_id` document field:
+下面概述了什么字段将被映射到 `_id` 文档字段。
 
-* A field annotated with `@Id` (`org.springframework.data.annotation.Id`) will be mapped to the `_id` field.
-* A field without an annotation but named `id` will be mapped to the `_id` field.
-* The default field name for identifiers is `_id` and can be customized via the `@Field` annotation.
+* 一个用 `@Id` (`org.springframework.data.annotation.Id`) 注解的字段将被映射到 `_id` 字段。
+* 一个没有注解但名为 id 的字段将被映射到 `_id` 字段。
+* id 的默认字段名是 `_id`，可以通过 `@Field` 注解进行自定义。
 
 [cols="1,2", options="header"]
-.Examples for the translation of `_id` field definitions
+.转换 `_id` 字段定义的例子
 |===
 | Field definition
 | Resulting Id-Fieldname in MongoDB
@@ -55,30 +53,30 @@ The following outlines what field will be mapped to the `_id` document field:
 | `_id`
 |===
 
-The following outlines what type conversion, if any, will be done on the property mapped to the _id document field.
+下面概述了将对映射到 `_id` 文档字段的属性进行何种类型转换（如果有的话）。
 
-* If a field named `id` is declared as a String or BigInteger in the Java class it will be converted to and stored as an ObjectId if possible. ObjectId as a field type is also valid. If you specify a value for `id` in your application, the conversion to an ObjectId is detected to the MongoDB driver. If the specified `id` value cannot be converted to an ObjectId, then the value will be stored as is in the document's _id field. This also applies if the field is annotated with `@Id`.
-* If a field is annotated with `@MongoId` in the Java class it will be converted to and stored as using its actual type. No further conversion happens unless `@MongoId` declares a desired field type. If no value is provided for the `id` field, a new `ObjectId` will be created and converted to the properties type.
-* If a field is annotated with `@MongoId(FieldType.…)` in the Java class it will be attempted to convert the value to the declared `FieldType`.  If no value is provided for the `id` field, a new `ObjectId` will be created and converted to the declared type.
-* If a field named `id` id field is not declared as a String, BigInteger, or ObjectID in the Java class then you should assign it a value in your application so it can be stored 'as-is' in the document's _id field.
-* If no field named `id` is present in the Java class then an implicit `_id` file will be generated by the driver but not mapped to a property or field of the Java class.
+* 如果一个名为 `id` 的字段在 Java 类中被声明为 `String` 或 `BigInteger`，它将被转换为 `ObjectId` 并尽可能地存储。`ObjectId` 作为一个字段类型也是有效的。如果你在你的应用程序中为 `id` 指定了一个值，那么转换为 `ObjectId` 的过程会被 MongoDB 驱动检测到。
+如果指定的 `id` 值不能被转换为 `ObjectId`，那么该值将被原样存储在文档的 `_id` 字段中。这也适用于该字段被注解为 `@Id` 的情况。
+* 如果一个字段在 Java 类中被 `@MongoId` 注解，它将被转换为使用其实际类型进行存储。除非 `@MongoId` 声明了一个想要的字段类型，否则不会发生进一步的转换。如果没有为 `id` 字段提供值，一个新的 `ObjectId` 将被创建并转换为属性类型。
+* 如果一个字段在 Java 类中被注解为 `@MongoId(FieldType….)`，它将尝试将该值转换为声明的 `FieldType`。如果没有为 `id` 字段提供任何值，将创建一个新的 `ObjectId`，并转换为声明的类型。
+* 如果一个名为 `id` 的字段在 Java 类中没有被声明为 `String`、`BigInteger` 或 `ObjectID`，那么你应该在你的应用程序中为它赋值，这样它就可以 "按原样" 存储在文档的 `_id` 字段中。
+* 如果 Java 类中没有名为 `id` 的字段，那么驱动程序将生成一个隐含的 `_id` 文件，但不会映射到 Java 类的一个属性或字段。
 
-When querying and updating `MongoTemplate` will use the converter to handle conversions of the `Query` and `Update` objects that correspond to the above rules for saving documents so field names and types used in your queries will be able to match what is in your domain classes.
+当查询和更新时，`MongoTemplate` 将使用 converter 来处理 `Query` 和 `Update` 对象的转换，这些对象与上述保存文档的规则相对应，因此在你的查询中使用的字段名和类型将能够与你的 domain 类中的内容相匹配。
 
 [[mapping-conversion]]
-== Data Mapping and Type Conversion
+== 数据映射和类型转换
 
-This section explains how types are mapped to and from a MongoDB representation. Spring Data MongoDB supports all types that can be represented as BSON, MongoDB's internal document format.
-In addition to these types, Spring Data MongoDB provides a set of built-in converters to map additional types. You can provide your own converters to adjust type conversion. See <<mapping-explicit-converters>> for further details.
+本节解释了如何将类型映射到 MongoDB 的表示方法，以及如何从 MongoDB 的表示方法中获取类型。Spring Data MongoDB 支持所有可表示为 BSON（MongoDB 的内部文档格式）的类型。除了这些类型外，Spring Data MongoDB 还提供了一组内置的转换器来映射其他类型。你可以提供您自己的转换器来调整类型转换。请参阅 <<mapping-explicit-converters>>  以了解更多细节。
 
-The following provides samples of each available type conversion:
+下面提供了每个可用类型转换的示例。
 
 [cols="3,1,6", options="header"]
 .Type
 |===
-| Type
-| Type conversion
-| Sample
+| 类型
+| 类型转换
+| 示例
 
 | `String`
 | native
@@ -262,11 +260,11 @@ calling `get()` before the actual conversion
 
 
 [[mapping-configuration]]
-== Mapping Configuration
+== 映射配置
 
-Unless explicitly configured, an instance of `MappingMongoConverter` is created by default when you create a `MongoTemplate`. You can create your own instance of the `MappingMongoConverter`. Doing so lets you dictate where in the classpath your domain classes can be found, so that Spring Data MongoDB can extract metadata and construct indexes. Also, by creating your own instance, you can register Spring converters to map specific classes to and from the database.
+除非明确配置，否则在你创建 `MongoTemplate` 时，默认会创建 `MappingMongoConverter` 的实例。你可以创建你自己的 `MappingMongoConverter` 的实例。这样做可以让你决定在 classpath 中找到你的 domain 类，以便 Spring Data MongoDB 能够提取元数据并构建索引。此外，通过创建自己的实例，你可以注册 Spring converter，以便将特定的类映射到数据库中，或从数据库中提取。
 
-You can configure the `MappingMongoConverter` as well as `com.mongodb.client.MongoClient` and MongoTemplate by using either Java-based or XML-based metadata. The following example shows the configuration:
+你可以通过使用基于 Java 或基于 XML 的元数据来配置 `MappingMongoConverter` 以及 `com.mongodb.client.MongoClient` 和 `MongoTemplate`。下面的例子显示了配置情况。
 
 ====
 .Java
@@ -340,30 +338,25 @@ public class MongoConfig extends AbstractMongoClientConfiguration {
 
 </beans>
 ----
-<1> The mapping base package defines the root path used to scan for entities used to pre initialize the `MappingContext`. By default the configuration classes package is used.
-<2> Configure additional custom converters for specific domain types that replace the default mapping procedure for those types with your custom implementation.
+<1> 映射基础包定义了用于扫描实体的根路径，用于预先初始化 `MappingContext`。默认情况下，配置类包被使用。
+<2> 为特定的 domain 类型配置额外的自定义 converter，用你的自定义实现替换这些类型的默认映射程序。
 ====
 
-`AbstractMongoClientConfiguration` requires you to implement methods that define a `com.mongodb.client.MongoClient` as well as provide a database name. `AbstractMongoClientConfiguration` also has a method named  `getMappingBasePackage(…)` that you can override to tell the converter where to scan for classes annotated with the `@Document` annotation.
+`AbstractMongoClientConfiguration` 要求你实现定义 `com.mongodb.client.MongoClient` 的方法，并提供一个数据库名称。`AbstractMongoClientConfiguration` 也有一个名为 `getMappingBasePackage(…)` 的方法，你可以覆盖该方法，以告诉 converter 在哪里扫描带有 `@Document` 注解的类。
 
-You can add additional converters to the converter by overriding the `customConversionsConfiguration` method.
-MongoDB's native JSR-310 support can be enabled through `MongoConverterConfigurationAdapter.useNativeDriverJavaTimeCodecs()`.
-Also shown in the preceding example is a `LoggingEventListener`, which logs `MongoMappingEvent` instances that are posted onto Spring's `ApplicationContextEvent` infrastructure.
+你可以通过覆写 `customConversionsConfiguration` 方法向 `converter` 添加额外的 `converter`。MongoDB 的本地 JSR-310 支持可以通过 `MongoConverterConfigurationAdapter.useNativeDriverJavaTimeCodecs()` 启用。前面的例子中还显示了一个 `LoggingEventListener`，它记录了发布到 Spring 的 `ApplicationContextEvent` 基础架构上的 `MongoMappingEvent` 实例。
 
-NOTE: `AbstractMongoClientConfiguration` creates a `MongoTemplate` instance and registers it with the container under the name `mongoTemplate`.
+NOTE: `AbstractMongoClientConfiguration` 创建了一个 `MongoTemplate` 实例，并以 `mongoTemplate` 的名字在容器中注册了它。
 
-
-The `base-package` property tells it where to scan for classes annotated with the `@org.springframework.data.mongodb.core.mapping.Document` annotation.
+`base-package` 属性告诉它在哪里扫描带有 `@org.springframework.data.mongodb.core.mapping.Document` 注解的类。
 
 [[mapping-usage]]
-== Metadata-based Mapping
+== 基于元数据的映射
 
-To take full advantage of the object mapping functionality inside the Spring Data MongoDB support, you should annotate your mapped objects with the `@Document` annotation.
-Although it is not necessary for the mapping framework to have this annotation (your POJOs are mapped correctly, even without any annotations), it lets the classpath scanner find and pre-process your domain objects to extract the necessary metadata.
-If you do not use this annotation, your application takes a slight performance hit the first time you store a domain object, because the mapping framework needs to build up its internal metadata model so that it knows about the properties of your domain object and how to persist them.
-The following example shows a domain object:
+为了充分利用 Spring Data MongoDB 支持中的对象映射功能，你应该用 `@Document` 注解来注解你的映射对象。尽管映射框架没有必要拥有这个注解（即使没有任何注解，你的 POJO 也能正确映射），但它能让 classpath 扫描器找到并预处理你的领域对象，以提取必要的元数据。
+如果你不使用这个注解，你的应用程序在第一次存储 domain 对象时就会受到轻微的性能影响，因为映射框架需要建立其内部元数据模型，以便它知道你的 domain 对象的属性以及如何持久化它们。下面的例子显示了一个 domain 对象。
 
-.Example domain object
+.domain 对象实例
 ====
 [source,java]
 ----
@@ -386,29 +379,23 @@ public class Person {
 ----
 ====
 
-IMPORTANT: The `@Id` annotation tells the mapper which property you want to use for the MongoDB `_id` property, and the `@Indexed` annotation tells the mapping framework to call `createIndex(…)` on that property of your document, making searches faster.
-Automatic index creation is only done for types annotated with `@Document`.
+IMPORTANT: `@Id` 注解告诉映射器你想使用哪个属性作为 MongoDB `_id` 属性，而 `@Indexed` 注解告诉映射框架在你文档的那个属性上调用 `createIndex(…)` ，使搜索更快。自动索引创建只针对用 `@Document` 注解的类型。
 
-WARNING: Auto index creation is **disabled** by default and needs to be enabled through the configuration (see <<mapping.index-creation>>).
+WARNING: 自动索引创建默认是禁用的（**disabled**），需要通过配置启用（见 <<mapping.index-creation>>）。
 
 [[mapping.index-creation]]
-=== Index Creation
+=== 创建索引
 
-Spring Data MongoDB can automatically create indexes for entity types annotated with `@Document`.
-Index creation must be explicitly enabled since version 3.0 to prevent undesired effects with collection lifecyle and performance impact.
-Indexes are automatically created for the initial entity set on application startup and when accessing an entity type for the first time while the application runs.
+Spring Data MongoDB 可以为用 `@Document` 注解的实体类型自动创建索引。自 3.0 版本以来，必须明确启用索引创建，以防止对集合生命周期和性能产生不希望看到的影响。在应用程序启动时以及在应用程序运行时首次访问实体类型时，会自动为初始实体集创建索引。
 
-We generally recommend explicit index creation for application-based control of indexes as Spring Data cannot automatically create indexes for collections that were recreated while the application was running.
+我们通常推荐显式索引的创建，以实现基于应用的索引控制，因为 Spring Data 不能自动为应用运行时重新创建的集合创建索引。
 
-`IndexResolver` provides an abstraction for programmatic index definition creation if you want to make use of `@Indexed` annotations such as `@GeoSpatialIndexed`, `@TextIndexed`, `@CompoundIndex` and `@WildcardIndexed`.
-You can use index definitions with `IndexOperations` to create indexes.
-A good point in time for index creation is on application startup, specifically after the application context was refreshed, triggered by observing `ContextRefreshedEvent`.
-This event guarantees that the context is fully initialized.
-Note that at this time other components, especially bean factories might have access to the MongoDB database.
+如果你想利用 `@Indexed` 注解，如 `@GeoSpatialIndexed`、`@TextIndexed`、 `@CompoundIndex` 和 `@WildcardIndexed`，`IndexResolver` 为编程式索引定义的创建提供了一个抽象。你可以使用带有 `IndexOperations` 的索引定义来创建索引。
+创建索引的一个好的时间点是在应用程序启动时，特别是在 application context 被刷新后，通过观察 `ContextRefreshedEvent` 触发的。这个事件保证了 context 是完全初始化的。请注意，此时其他组件，尤其是 Bean Factory 可能会访问 MongoDB 数据库。
 
 [WARNING]
 ====
-``Map``-like properties are skipped by the `IndexResolver` unless annotated with `@WildcardIndexed` because the _map key_ must be part of the index definition. Since the purpose of maps is the usage of dynamic keys and values, the keys cannot be resolved from static mapping metadata.
+除非用 `@WildcardIndexed` 注解，否则类似 `Map` 的属性会被 `IndexResolver` 跳过，因为 map key 必须是索引定义的一部分。因为 map 的目的是使用动态的 key 和 value，所以 key 不能从静态的映射元数据中解决。
 ====
 
 .Programmatic Index Creation for a single Domain Type
@@ -458,11 +445,11 @@ class MyListener{
 ----
 ====
 
-Alternatively, if you want to ensure index and collection presence before any component is able to access your database from your application, declare a `@Bean` method for `MongoTemplate` and include the code  from above before returning the `MongoTemplate` object.
+另外，如果你想在任何组件能够从你的应用程序访问你的数据库之前确保索引和集合的存在，为 `MongoTemplate` 声明一个 `@Bean` 方法，并在返回 `MongoTemplate` 对象之前包含上面的代码。
 
 [NOTE]
 ====
-To turn automatic index creation _ON_ please override `autoIndexCreation()` in your configuration.
+要打开自动索引创建功能，请在你的配置中覆写 `autoIndexCreation()`。
 [source,java]
 ----
 @Configuration
@@ -478,33 +465,33 @@ public class Config extends AbstractMongoClientConfiguration {
 ----
 ====
 
-IMPORTANT: Automatic index creation is turned _OFF_ by default as of version 3.0.
+IMPORTANT: 从 3.0 版本开始，自动索引创建默认为关闭。
 
 [[mapping-usage-annotations]]
-=== Mapping Annotation Overview
+=== 映射注解概述
 
-The MappingMongoConverter can use metadata to drive the mapping of objects to documents. The following annotations are available:
+`MappingMongoConverter` 可以使用元数据来驱动对象到文档的映射。以下注解是可用的。
 
-* `@Id`: Applied at the field level to mark the field used for identity purpose.
-* `@MongoId`: Applied at the field level to mark the field used for identity purpose. Accepts an optional `FieldType` to customize id conversion.
-* `@Document`: Applied at the class level to indicate this class is a candidate for mapping to the database. You can specify the name of the collection where the data will be stored.
-* `@DBRef`: Applied at the field to indicate it is to be stored using a com.mongodb.DBRef.
-* `@DocumentReference`: Applied at the field to indicate it is to be stored as a pointer to another document. This can be a single value (the _id_ by default), or a `Document` provided via a converter.
-* `@Indexed`: Applied at the field level to describe how to index the field.
-* `@CompoundIndex` (repeatable): Applied at the type level to declare Compound Indexes.
-* `@GeoSpatialIndexed`: Applied at the field level to describe how to geoindex the field.
-* `@TextIndexed`: Applied at the field level to mark the field to be included in the text index.
-* `@HashIndexed`: Applied at the field level for usage within a hashed index to partition data across a sharded cluster.
-* `@Language`: Applied at the field level to set the language override property for text index.
-* `@Transient`: By default, all fields are mapped to the document. This annotation excludes the field where it is applied from being stored in the database. Transient properties cannot be used within a persistence constructor as the converter cannot materialize a value for the constructor argument.
-* `@PersistenceConstructor`: Marks a given constructor - even a package protected one - to use when instantiating the object from the database. Constructor arguments are mapped by name to the key values in the retrieved Document.
-* `@Value`: This annotation is part of the Spring Framework . Within the mapping framework it can be applied to constructor arguments. This lets you use a Spring Expression Language statement to transform a key's value retrieved in the database before it is used to construct a domain object. In order to reference a property of a given document one has to use expressions like: `@Value("#root.myProperty")` where `root` refers to the root of the given document.
-* `@Field`: Applied at the field level it allows to describe the name and type of the field as it will be represented in the MongoDB BSON document thus allowing the name and type to be different than the fieldname of the class as well as the property type.
-* `@Version`: Applied at field level is used for optimistic locking and checked for modification on save operations. The initial value is `zero` (`one` for primitive types) which is bumped automatically on every update.
+* `@Id`: 应用在字段，以标记用于 ID 的字段。
+* `@MongoId`: 在字段级应用，以标记用于 ID 的字段。接受一个可选的 `FieldType` 来自定义 ID 转换。
+* `@Document`: 应用在类的层面上，表示这个类是映射到数据库的候选对象。你可以指定存储数据的集合的名称。
+* `@DBRef`: 应用在字段上，表明它将使用 `com.mongodb.DBRef` 来存储。
+* `@DocumentReference`: 应用在字段上，表示它将作为一个指向另一个文档的指针被存储。这可以是一个单一的值（默认为 id），也可以是一个通过 converter 提供的 `Document`。
+* `@Indexed`: 应用于字段级，描述如何对字段进行索引。
+* `@CompoundIndex` (可重复): 在类型层面上应用于声明复合索引。
+* `@GeoSpatialIndexed`: 应用于 domain 层面，描述如何对 domain 进行地理索引（geoindex ）。
+* `@TextIndexed`: 在字段一级应用，以标记要包括在文本索引中的字段。
+* `@HashIndexed`: 在字段级应用于哈希索引中的使用，以在分片集群中对数据进行分割。
+* `@Language`: 应用于字段级，用于设置文本索引的语言覆盖属性。
+* `@Transient`: 默认情况下，所有字段都被映射到文档中。这个注解排除了它所应用的字段被存储在数据库中。瞬时（Transient）属性不能在持久化构造函数中使用，因为 converter 不能为构造函数参数具体化一个值。
+* `@PersistenceConstructor`: 标记一个给定的构造函数 — 即使是一个受包保护的构造函数 — 在从数据库实例化对象时使用。构造函数参数通过名称映射到检索的文档中的关键值。
+* `@Value`: 这个注解是 Spring 框架的一部分。在映射框架内，它可以应用于构造器参数。这让你可以使用 Spring 表达式语言语句来转换在数据库中检索到的 key 值，然后再用于构造 domain 对象。为了引用一个给定文档的属性，我们必须使用这样的表达式。`@Value("#root.myProperty")` 其中 root 指的是给定文档的 root。
+* `@Field`: 应用于字段级别，它允许描述字段的名称和类型，因为它将在 MongoDB BSON 文档中表示出来，因此允许名称和类型与类的字段名以及属性类型不同。
+* `@Version`: 应用于字段级，用于乐观锁，并在保存操作中检查是否有修改。初始值为 `0`（原始类型为 `1`），在每次更新时都会自动增加。
 
-The mapping metadata infrastructure is defined in a separate spring-data-commons project that is technology agnostic. Specific subclasses are using in the MongoDB support to support annotation based metadata. Other strategies are also possible to put in place if there is demand.
+映射元数据基础设施定义在一个独立的 spring-data-commons 项目中，该项目与技术无关。特定的子类在 MongoDB 支持中使用，以支持基于注解的元数据。如果有需求的话，其他的策略也是可以实现的。
 
-Here is an example of a more complex mapping.
+下面是一个更复杂的映射的例子。
 
 [source,java]
 ----
@@ -563,9 +550,7 @@ public class Person<T extends Address> {
 
 [TIP]
 ====
-`@Field(targetType=...)` can come in handy when the native MongoDB type inferred by the mapping infrastructure does not
-match the expected one. Like for `BigDecimal`, which is represented as `String` instead of `Decimal128`, just because earlier
-versions of MongoDB Server did not have support for it.
+`@Field(targetType=...)` 在映射基础设施推断出的本地 MongoDB 类型与预期类型不一致时可以派上用场。比如 `BigDecimal`，它被表示为 `String` 而不是 `Decimal128`，只是因为 MongoDB 服务器的早期版本没有对它的支持。
 [source,java]
 ----
 public class Balance {
@@ -577,7 +562,7 @@ public class Balance {
 }
 ----
 
-You may even consider your own, custom annotation.
+你甚至可以考虑你自己的、自定义的注解。
 
 [source,java]
 ----
@@ -599,13 +584,13 @@ public class Balance {
 ====
 
 [[mapping-custom-object-construction]]
-=== Customized Object Construction
+=== 自定义 Object 构造
 
-The mapping subsystem allows the customization of the object construction by annotating a constructor with the `@PersistenceConstructor` annotation. The values to be used for the constructor parameters are resolved in the following way:
+映射子系统允许通过用 `@PersistenceConstructor` 注解来定制对象的构造。用于构造器参数的值以下列方式解析。
 
-* If a parameter is annotated with the `@Value` annotation, the given expression is evaluated and the result is used as the parameter value.
-* If the Java type has a property whose name matches the given field of the input document, then it's property information is used to select the appropriate constructor parameter to pass the input field value to. This works only if the parameter name information is present in the java `.class` files which can be achieved by compiling the source with debug information or using the new `-parameters` command-line switch for javac in Java 8.
-* Otherwise, a `MappingException` will be thrown indicating that the given constructor parameter could not be bound.
+* 如果一个参数被 `@Value` 注解，给定的表达式被评估，其结果被用作参数值。
+* 如果 Java 类有一个属性，其名称与输入文件的给定字段相匹配，那么它的属性信息将被用来选择适当的构造函数参数来传递输入字段的值。这只有在参数名称信息存在于 java `.class` 文件中时才起作用，这可以通过编译带有调试信息的源代码或使用 Java 8 中 javac 新的 `-parameters` 命令行开关来实现。
+* 否则，将抛出一个 `MappingException`，表明所给的构造函数参数不能被绑定。
 
 [source,java]
 ----
@@ -630,20 +615,20 @@ input.put("qty",5);
 OrderItem item = converter.read(OrderItem.class, input);
 ----
 
-NOTE: The SpEL expression in the `@Value` annotation of the `quantity` parameter falls back to the value `0` if the given property path cannot be resolved.
+NOTE: 如果给定的属性路径无法解析，quantity 参数的 `@Value` 注解中的 SpEL 表达式就会回落到值 `0`。
 
-Additional examples for using the `@PersistenceConstructor` annotation can be found in the https://github.com/spring-projects/spring-data-mongodb/blob/master/spring-data-mongodb/src/test/java/org/springframework/data/mongodb/core/convert/MappingMongoConverterUnitTests.java[MappingMongoConverterUnitTests] test suite.
+在 https://github.com/spring-projects/spring-data-mongodb/blob/master/spring-data-mongodb/src/test/java/org/springframework/data/mongodb/core/convert/MappingMongoConverterUnitTests.java[MappingMongoConverterUnitTests] 测试套件中可以找到使用 `@PersistenceConstructor` 注解的其他例子。
 
 [[mapping-usage-indexes.compound-index]]
-=== Compound Indexes
+=== 复合索引
 
-Compound indexes are also supported. They are defined at the class level, rather than on individual properties.
+复合索引也被支持。它们是在类的层面上定义的，而不是在单个属性上。
 
-NOTE: Compound indexes are very important to improve the performance of queries that involve criteria on multiple fields
+NOTE: 复合索引对于提高涉及多个字段 criteria 的查询性能非常重要
 
-Here's an example that creates a compound index of `lastName` in ascending order and `age` in descending order:
+下面是一个例子，它创建了一个升序的 `lastName` 和降序的 `age` 的复合索引。
 
-.Example Compound Index Usage
+.复合索引使用实例
 ====
 [source,java]
 ----
@@ -665,7 +650,7 @@ public class Person {
 
 [TIP]
 ====
-`@CompoundIndex` is repeatable using `@CompoundIndexes` as its container.
+`@CompoundIndex` 是可重复的，使用 `@CompoundIndexes` 作为其容器。
 
 [source,java]
 ----
@@ -685,15 +670,13 @@ public class Person {
 ====
 
 [[mapping-usage-indexes.hashed-index]]
-=== Hashed Indexes
+=== 哈希索引
 
-Hashed indexes allow hash based sharding within a sharded cluster.
-Using hashed field values to shard collections results in a more random distribution.
-For details, refer to the https://docs.mongodb.com/manual/core/index-hashed/[MongoDB Documentation].
+Hash索引允许在 sharded cluster 内进行基于hash的分片。使用hash字段值来分片的结果是一个更随机的分布。详情请参考 https://docs.mongodb.com/manual/core/index-hashed/[MongoDB Documentation]。
 
-Here's an example that creates a hashed index for `_id`:
+下面是一个为 `_id` 创建 Hash 索引的例子:
 
-.Example Hashed Index Usage
+.Hash 索引使用示例
 ====
 [source,java]
 ----
@@ -707,9 +690,9 @@ public class DomainType {
 ----
 ====
 
-Hashed indexes can be created next to other index definitions like shown below, in that case both indices are created:
+Hash 索引可以像下面所示的那样在其他索引定义的旁边创建，在这种情况下，两个索引都被创建。
 
-.Example Hashed Index Usage togehter with simple index
+.Hash 索引与简单索引一起使用的例子
 ====
 [source,java]
 ----
@@ -725,9 +708,9 @@ public class DomainType {
 ----
 ====
 
-In case the example above is too verbose, a compound annotation allows to reduce the number of annotations that need to be declared on a property:
+如果上面的例子过于冗长，复合注解允许减少需要在一个属性上声明的注解的数量。
 
-.Example Composed Hashed Index Usage
+.复合hash索引使用示例
 ====
 [source,java]
 ----
@@ -749,12 +732,12 @@ public @interface IndexAndHash {
   String name() default "";
 }
 ----
-<1> Potentially register an alias for certain attributes of the meta annotation.
+<1> 有可能为元注解的某些属性注册一个别名。
 ====
 
 [NOTE]
 ====
-Although index creation via annotations comes in handy for many scenarios cosider taking over more control by setting up indices manually via `IndexOperations`.
+尽管通过注解创建索引在很多情况下都很方便，但考虑通过 `IndexOperations` 手动设置索引来接管更多的控制权。
 
 [source,java]
 ----
@@ -764,12 +747,11 @@ mongoOperations.indexOpsFor(Jedi.class)
 ====
 
 [[mapping-usage-indexes.wildcard-index]]
-=== Wildcard Indexes
+=== 通配符索引
 
-A `WildcardIndex` is an index that can be used to include all fields or specific ones based a given (wildcard) pattern.
-For details, refer to the https://docs.mongodb.com/manual/core/index-wildcard/[MongoDB Documentation].
+通配符索引（`WildcardIndex`）是一个索引，可以用来包括所有字段或基于给定（通配符）模式（pattern）的特定字段。详情请参考 https://docs.mongodb.com/manual/core/index-wildcard/[MongoDB Documentation]。
 
-The index can be set up programmatically using `WildcardIndex` via `IndexOperations`.
+该索引可以通过 `IndexOperations` 使用 `WildcardIndex` 进行编程设置。
 
 .Programmatic WildcardIndex setup
 ====
@@ -785,10 +767,9 @@ db.user.createIndex({ "userMetadata.$**" : 1 }, {})
 ----
 ====
 
-The `@WildcardIndex` annotation allows a declarative index setup that can used either with a document type or property.
+`@WildcardIndex` 注解允许一个声明性的索引设置，可以与文档类型或属性一起使用。
 
-If placed on a type that is a root level domain entity (one annotated with `@Document`) , the index resolver will create a
-wildcard index for it.
+如果放在一个 root 级 domain 实体的类上（一个用 `@Document` 注释的类），索引解析器将为它创建一个通配符索引。
 
 .Wildcard index on domain type
 ====
@@ -806,7 +787,7 @@ db.product.createIndex({ "$**" : 1 },{})
 ----
 ====
 
-The `wildcardProjection` can be used to specify keys to in-/exclude in the index.
+通配符投影（`wildcardProjection`）可以用来指定索引中的包含/排除。
 
 .Wildcard index with `wildcardProjection`
 ====
@@ -830,9 +811,7 @@ db.user.createIndex(
 ----
 ====
 
-Wildcard indexes can also be expressed by adding the annotation directly to the field.
-Please note that `wildcardProjection` is not allowed on nested paths such as properties.
-Projections on types annotated with `@WildcardIndexed` are omitted during index creation.
+通配符索引也可以通过直接向字段添加注解来表达。请注意，`wildcardProjection` 在嵌套路径上是不允许的，比如属性。在索引创建过程中，用 `@WildcardIndexed` 注解的类上的投影被省略。
 
 .Wildcard index on property
 ====
@@ -853,18 +832,14 @@ db.user.createIndex({ "userMetadata.$**" : 1 }, {})
 ====
 
 [[mapping-usage-indexes.text-index]]
-=== Text Indexes
+=== 文本索引
 
-NOTE: The text index feature is disabled by default for MongoDB v.2.4.
+NOTE: 对于 MongoDB v.2.4 来说，文本索引功能默认是禁用的。
 
-Creating a text index allows accumulating several fields into a searchable full-text index.
-It is only possible to have one text index per collection, so all fields marked with `@TextIndexed` are combined into this index.
-Properties can be weighted to influence the document score for ranking results.
-The default language for the text index is English.To change the default language, set the `language` attribute to whichever language you want (for example,`@Document(language="spanish")`).
-Using a property called `language` or `@Language` lets you define a language override on a per-document base.
-The following example shows how to created a text index and set the language to Spanish:
+创建一个文本索引可以将几个字段累积成一个可搜索的全文索引。每个集合只能有一个文本索引，所以所有标有 `@TextIndexed` 的字段都被合并到这个索引中。属性可以被加权以影响排名结果的文档分数。文本索引的默认语言是英语。要改变默认语言，将 `language` 属性设置为你想要的任何语言（例如，`@Document(language="spanish")`）。
+使用一个叫做 `language` 或 `@Language` 的属性可以让你在每个文档的基础上定义一个语言覆盖。下面的例子显示了如何创建一个文本索引并将语言设置为西班牙语（Spanish）。
 
-.Example Text Index Usage
+.文本索引使用实例
 ====
 [source,java]
 ----
@@ -889,11 +864,10 @@ class Nested {
 include::document-references.adoc[]
 
 [[mapping-usage-events]]
-=== Mapping Framework Events
+=== 映射框架事件
 
-Events are fired throughout the lifecycle of the mapping process. This is described in the <<mongodb.mapping-usage.events,Lifecycle Events>> section.
-
-Declaring these beans in your Spring ApplicationContext causes them to be invoked whenever the event is dispatched.
+事件在映射过程的整个生命周期中被触发。这将在 <<mongodb.mapping-usage.events,Lifecycle Events>> 部分进行描述。
+在你的 Spring ApplicationContext 中声明这些 Bean 会导致它们在事件被调度时被调用。
 
 include::unwrapping-entities.adoc[]
 
