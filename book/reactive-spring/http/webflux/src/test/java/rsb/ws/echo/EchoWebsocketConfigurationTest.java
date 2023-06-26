@@ -1,6 +1,5 @@
 package rsb.ws.echo;
 
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -15,7 +14,6 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 
-@Slf4j
 @SpringBootTest(classes = { HttpApplication.class, WebsocketConfiguration.class },
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public class EchoWebsocketConfigurationTest {

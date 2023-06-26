@@ -1,10 +1,11 @@
 [[mapping-usage-references]]
-=== 使用 DBRefs
+=== Using DBRefs
 
-映射框架不必存储嵌入在文档中的子对象。 您也可以单独存储它们并使用 `DBRef` 来引用该文档。
-当从 MongoDB 加载对象时，这些引用会被急切地解析，以便您返回一个看起来与嵌入在顶级文档中一样的映射对象。
+The mapping framework does not have to store child objects embedded within the document.
+You can also store them separately and use a `DBRef` to refer to that document.
+When the object is loaded from MongoDB, those references are eagerly resolved so that you get back a mapped object that looks the same as if it had been stored embedded within your top-level document.
 
-下面的示例使用 DBRef 来引用独立于引用它的对象而存在的特定文档（为简洁起见，两个类都显示在行内）：
+The following example uses a DBRef to refer to a specific document that exists independently of the object in which it is referenced (both classes are shown in-line for brevity's sake):
 
 ====
 [source,java]
@@ -30,36 +31,36 @@ public class Person {
 ----
 ====
 
-您不需要使用 `@OneToMany` 或类似机制，因为对象列表告诉映射框架您需要一对多关系。
-当对象存储在 MongoDB 中时，会有一个 DBRef 列表，而不是 `Account` 对象本身。
-在加载 DBRef 的集合时，建议将集合类型中保存的引用限制为特定的 MongoDB 集合。
-这允许批量加载所有引用，而指向不同 MongoDB 集合的引用需要一一解析。
+You need not use `@OneToMany` or similar mechanisms because the List of objects tells the mapping framework that you want a one-to-many relationship.
+When the object is stored in MongoDB, there is a list of DBRefs rather than the `Account` objects themselves.
+When it comes to loading collections of ``DBRef``s it is advisable to restrict references held in collection types to a specific MongoDB collection.
+This allows bulk loading of all references, whereas references pointing to different MongoDB collections need to be resolved one by one.
 
-IMPORTANT: 映射框架不处理级联保存。
-如果您更改了由 `Person` 对象引用的 `Account` 对象，则必须单独保存 `Account` 对象。
-在 `Person` 对象上调用 `save` 不会自动将 `Account` 对象保存在 `accounts` 属性中。
+IMPORTANT: The mapping framework does not handle cascading saves.
+If you change an `Account` object that is referenced by a `Person` object, you must save the `Account` object separately.
+Calling `save` on the `Person` object does not automatically save the `Account` objects in the `accounts` property.
 
-`DBRef` 也可以延迟解析。
-在这种情况下，引用的实际“对象”或“集合”在首次访问属性时被解析。
-使用 `@DBRef` 的 `lazy` 属性来指定它。
-也被定义为延迟加载 DBRef 并用作构造函数参数的必需属性也使用延迟加载代理进行修饰，以确保对数据库和网络施加尽可能小的压力。
+``DBRef``s can also be resolved lazily.
+In this case the actual `Object` or `Collection` of references is resolved on first access of the property.
+Use the `lazy` attribute of `@DBRef` to specify this.
+Required properties that are also defined as lazy loading ``DBRef`` and used as constructor arguments are also decorated with the lazy loading proxy making sure to put as little pressure on the database and network as possible.
 
-TIP: 延迟加载的 DBRef 可能很难调试。
-确保工具不会意外触发代理解析，例如 调用 `toString()` 或一些调用属性获取器的内联调试渲染。
-请考虑为 `org.springframework.data.mongodb.core.convert.DefaultDbRefResolver` 启用 _trace_ 日志记录，以深入了解 `DBRef` 解析。
+TIP: Lazily loaded ``DBRef``s can be hard to debug.
+Make sure tooling does not accidentally trigger proxy resolution by e.g. calling `toString()` or some inline debug rendering invoking property getters.
+Please consider to enable _trace_ logging for `org.springframework.data.mongodb.core.convert.DefaultDbRefResolver` to gain insight on `DBRef` resolution.
 
-CAUTION: 由于 https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate，延迟加载可能需要类代理，而从 Java 16+ 开始，可能需要访问未开放的 jdk 内部 默认情况下的JDK内部]。
-对于这些情况，请考虑回退到接口类型（例如，从 `ArrayList` 切换到 `List`）或提供所需的 `--add-opens` 参数。
+CAUTION: Lazy loading may require class proxies, that in turn, might need access to jdk internals, that are not open, starting with Java 16+, due to https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate JDK Internals by Default].
+For those cases please consider falling back to an interface type (eg. switch from `ArrayList` to `List`) or provide the required `--add-opens` argument.
 
 [[mapping-usage.document-references]]
-=== 使用 Document Reference
+=== Using Document References
 
-使用 `@DocumentReference` 提供了一种在 MongoDB 中引用实体的灵活方式。
-虽然目标与使用 <<mapping-usage-references,DBRefs>> 时的目标相同，但存储表示不同。
-`DBRef` 解析为具有固定结构的文档，如 https://docs.mongodb.com/manual/reference/database-references/[MongoDB 参考文档] 中所述。 +
-文档引用，不遵循特定格式。
-它们实际上可以是任何东西，单个值，整个文档，基本上可以存储在 MongoDB 中的所有内容。
-默认情况下，映射层将使用引用的实体 _id_ 值进行存储和检索，如下面的示例所示。
+Using `@DocumentReference` offers a flexible way of referencing entities in MongoDB.
+While the goal is the same as when using <<mapping-usage-references,DBRefs>>, the store representation is different.
+`DBRef` resolves to a document with a fixed structure as outlined in the https://docs.mongodb.com/manual/reference/database-references/[MongoDB Reference documentation]. +
+Document references, do not follow a specific format.
+They can be literally anything, a single value, an entire document, basically everything that can be stored in MongoDB.
+By default, the mapping layer will use the referenced entities _id_ value for storage and retrieval, like in the sample below.
 
 ====
 [source,java]
@@ -102,14 +103,14 @@ template.update(Person.class)
   "accounts" : [ "6509b9e" … ]                        <4>
 }
 ----
-<1> 标记要引用的 `Account` 值的集合。
-<2> 映射框架不处理级联保存，因此请确保单独保存引用的实体。
-<3> 添加对现有实体的引用。
-<4> 引用的 `Account` 实体表示为其 `_id` 值的数组。
+<1> Mark the collection of `Account` values to be referenced.
+<2> The mapping framework does not handle cascading saves, so make sure to persist the referenced entity individually.
+<3> Add the reference to the existing entity.
+<4> Referenced `Account` entities are represented as an array of their `_id` values.
 ====
 
-上面的示例使用基于``_id`` 的获取查询（`{ '_id' : ?#{#target} }`）进行数据检索并急切地解析链接实体。
-可以使用 `@DocumentReference` 的属性更改 resolution 默认值（如下所列）
+The sample above uses an ``_id``-based fetch query (`{ '_id' : ?#{#target} }`) for data retrieval and resolves linked entities eagerly.
+It is possible to alter resolution defaults (listed below) using the attributes of `@DocumentReference`
 
 .@DocumentReference defaults
 [cols="2,3,5",options="header"]
@@ -117,11 +118,11 @@ template.update(Person.class)
 | Attribute | Description | Default
 
 | `db`
-| 集合查找的目标数据库名称。
+| The target database name for collection lookup.
 | `MongoDatabaseFactory.getMongoDatabase()`
 
 | `collection`
-| 目标集合名.
+| The target collection name.
 | The annotated property's domain type, respectively the value type in case of `Collection` like or `Map` properties, collection name.
 
 | `lookup`
@@ -138,10 +139,10 @@ Result order of `Collection` like properties is restored based on the used looku
 | Resolves properties eagerly by default.
 |===
 
-CAUTION: 由于 https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate，延迟加载可能需要类代理，而从 Java 16+ 开始，可能需要访问未开放的 jdk 内部 默认情况下的JDK内部]。
-对于这些情况，请考虑回退到接口类型（例如，从 `ArrayList` 切换到 `List`）或提供所需的 `--add-opens` 参数。
+CAUTION: Lazy loading may require class proxies, that in turn, might need access to jdk internals, that are not open, starting with Java 16+, due to https://openjdk.java.net/jeps/396[JEP 396: Strongly Encapsulate JDK Internals by Default].
+For those cases please consider falling back to an interface type (eg. switch from `ArrayList` to `List`) or provide the required `--add-opens` argument.
 
-`@DocumentReference(lookup)` 允许定义与 `_id` 字段不同的过滤查询，因此提供了一种灵活的方式来定义实体之间的引用，如下面的示例所示，其中一本书的 `Publisher` 被引用 它的首字母缩写词而不是内部的“id”。
+`@DocumentReference(lookup)` allows defining filter queries that can be different from the `_id` field and therefore offer a flexible way of defining references between entities as demonstrated in the sample below, where the `Publisher` of a book is referenced by its acronym instead of the internal `id`.
 
 ====
 [source,java]
@@ -198,9 +199,9 @@ class Publisher {
 <2> Lazy load back references to the `Book` collection.
 ====
 
-上面的片段显示了使用自定义引用对象时的阅读方面。
-编写需要一些额外的设置，因为映射信息不表达 `#target` 的来源。
-映射层需要在目标文档和 `DocumentPointer` 之间注册一个 `Converter`，如下所示：
+The above snippet shows the reading side of things when working with custom referenced objects.
+Writing requires a bit of additional setup as the mapping information do not express where `#target` stems from.
+The mapping layer requires registration of a `Converter` between the target document and `DocumentPointer`, like the one below:
 
 ====
 [source,java]
@@ -216,8 +217,8 @@ class PublisherReferenceConverter implements Converter<Publisher, DocumentPointe
 ----
 ====
 
-如果没有提供 `DocumentPointer` 转换器，则可以根据给定的查找查询计算目标参考文档。
-在这种情况下，将评估关联目标属性，如以下示例所示。
+If no `DocumentPointer` converter is provided the target reference document can be computed based on the given lookup query.
+In this case the association target properties are evaluated as shown in the following sample.
 
 ====
 [source,java]
@@ -261,8 +262,8 @@ class Publisher {
 <2> The field value placeholders of the lookup query (like `acc`) is used to form the reference document.
 ====
 
-还可以使用 `@ReadonlyProperty` 和 `@DocumentReference` 的组合对关系样式 _One-To-Many_ 引用建模。
-这种方法允许链接类型，而不是将链接值存储在拥有文档中，而是存储在引用文档中，如下例所示。
+It is also possible to model relational style _One-To-Many_ references using a combination of `@ReadonlyProperty` and `@DocumentReference`.
+This approach allows link types without storing the linking values within the owning document but rather on the referencing document as shown in the example below.
 
 ====
 [source,java]
@@ -318,8 +319,8 @@ This prevents storing references to individual ``Book``s with the `Publisher` do
 <3> Use the `#self` variable to access values within the `Publisher` document and in this retrieve `Books` with matching `publisherId`.
 ====
 
-有了以上所有内容，就可以对实体之间的各种关联进行建模。
-请查看下面的非详尽示例列表，以了解可能的情况。
+With all the above in place it is possible to model all kind of associations between entities.
+Have a look at the non-exhaustive list of samples below to get feeling for what is possible.
 
 .Simple Document Reference using _id_ field
 ====
@@ -482,21 +483,21 @@ class ToDocumentPointerConverter implements Converter<ReferencedObject, Document
 
 [WARNING]
 ====
-我们知道在查找查询中使用各种 MongoDB 查询运算符很诱人，这很好。
-但有几个方面需要考虑：
+We know it is tempting to use all kinds of MongoDB query operators in the lookup query and this is fine.
+But there a few aspects to consider:
 
-* 确保有支持您查找的索引。
-* 请注意，解决方案需要服务器往返导致延迟，请考虑采用惰性策略。
-* 使用 `$or` 运算符批量加载文档引用的集合。 +
-原始元素顺序会尽最大努力在内存中恢复。
-仅在使用相等表达式时才能恢复顺序，而在使用 MongoDB 查询运算符时无法恢复顺序。
-在这种情况下，结果将在从商店或通过提供的`@DocumentReference(sort)` 属性接收时进行排序。
+* Make sure to have indexes in place that support your lookup.
+* Mind that resolution requires a server rountrip inducing latency, consider a lazy strategy.
+* A collection of document references is bulk loaded using the `$or` operator. +
+The original element order is restored in memory on a best-effort basis.
+Restoring the order is only possible when using equality expressions and cannot be done when using MongoDB query operators.
+In this case results will be ordered as they are received from the store or via the provided `@DocumentReference(sort)` attribute.
 
-一些更一般的备注：
+A few more general remarks:
 
-* 你使用循环引用吗？
-问问自己是否需要它们。
-* 懒惰的文档引用很难调试。
-确保工具不会意外触发代理解析，例如 调用`toString()`。
-* 不支持使用响应式基础架构读取文档参考。
+* Do you use cyclic references?
+Ask your self if you need them.
+* Lazy document references are hard to debug.
+Make sure tooling does not accidentally trigger proxy resolution by e.g. calling `toString()`.
+* There is no support for reading document references using reactive infrastructure.
 ====

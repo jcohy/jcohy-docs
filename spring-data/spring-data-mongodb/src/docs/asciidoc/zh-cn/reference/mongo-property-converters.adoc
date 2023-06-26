@@ -1,0 +1,102 @@
+[[mongo.property-converters]]
+== 属性转换器 - 映射特定字段
+
+虽然 <<mongo.custom-converters, 基于类型的转换>> 已经提供了影响目标 store 中某些类型的转换和表示的方法，但当只有特定类型的某些值或属性应被考虑转换时，它有局限性。基于属性的转换器允许在每个属性的基础上配置转换规则，无论是声明性的（通过 `@ValueConverter`）还是程序性的（通过为特定属性注册一个 `PropertyValueConverter`）。
+
+一个 `PropertyValueConverter` 可以将一个给定的值转化为它的存储表示（写）和返回（读），如下表所示。附加的 `ValueConversionContext` 提供了额外的信息，如映射元数据和直接 read/write 方法。
+
+.一个简单的 PropertyValueConverter
+====
+[source,java]
+----
+class ReversingValueConverter implements PropertyValueConverter<String, String, ValueConversionContext> {
+
+  @Override
+  public String read(String value, ValueConversionContext context) {
+    return reverse(value);
+  }
+
+  @Override
+  public String write(String value, ValueConversionContext context) {
+    return reverse(value);
+  }
+}
+----
+====
+
+你可以通过委托给 `PropertyValueConversions`，从 `CustomConversions#getPropertyValueConverter(…)` 获得 `PropertyValueConverter` 实例，通常是通过使用 `PropertyValueConverterFactory` 来提供实际 converter。
+根据你的应用程序的需求，你可以链式或装饰 `PropertyValueConverterFactory` 的多个实例 - 例如，应用缓存。默认情况下，Spring Data MongoDB 使用一个缓存实现，可以为具有默认构造函数或枚举值的类型提供服务。
+一组预定义的工厂可以通过 `PropertyValueConverterFactory` 中的工厂方法获得。你可以使用 `PropertyValueConverterFactory.beanFactoryAware(…)` 来从 `ApplicationContext` 获取 `PropertyValueConverter` 实例。
+
+你可以通过 `ConverterConfiguration` 改变默认行为。
+
+[[mongo.property-converters.declarative]]
+=== 声明性 Value Converter
+
+`PropertyValueConverter` 最直接的用法是用定义转换器类型的 `@ValueConverter` 注解来注解属性。
+
+.声明性的 PropertyValueConverter
+====
+[source,java]
+----
+class Person {
+
+  @ValueConverter(ReversingValueConverter.class)
+  String ssn;
+}
+----
+====
+
+[[mongo.property-converters.programmatic]]
+=== 程序化 Value Converter 注册
+
+程序化注册通过使用 `PropertyValueConverterRegistrar` 为实体模型中的属性注册 `PropertyValueConverter` 实例，正如下面的例子所示。声明式注册和编程式注册的区别在于，编程式注册完全发生在实体模型之外。如果你不能或不想注解实体模型，这样的方法就很有用。
+
+.编程式 PropertyValueConverter 注册
+====
+[source,java]
+----
+PropertyValueConverterRegistrar registrar = new PropertyValueConverterRegistrar();
+
+registrar.registerConverter(Address.class, "street", new PropertyValueConverter() { … }); <1>
+
+// type safe registration
+registrar.registerConverter(Person.class, Person::getSsn())                               <2>
+  .writing(value -> encrypt(value))
+  .reading(value -> decrypt(value));
+----
+<1> 为由其名称确定的字段注册一个转换器。
+<2> 类型安全的变体，允许注册一个转换器和它的转换 function。
+====
+
+WARNING: 在注册 converter 时，不支持用圆点符号（如 `registerConverter(Person.class, "address.street", …)`）来跨属性到子文档的问题。
+
+[[mongo.property-converters.value-conversions]]
+=== MongoDB 的属性值转换
+
+前面的章节概述了 `PropertyValueConverters` 的目的和整体结构。本节重点讨论 MongoDB 的具体方面。
+
+==== MongoValueConverter 和 MongoConversionContext
+
+`MongoValueConverter` 提供了一个预类型的 `PropertyValueConverter` 接口，该接口使用 `MongoConversionContext`。
+
+==== MongoCustomConversions 配置
+
+默认情况下，`MongoCustomConversions` 可以处理声明式 value 转换，这取决于配置的 `PropertyValueConverterFactory`。`MongoConverterConfigurationAdapter` 有助于设置编程式 value 转换或定义要使用的 `PropertyValueConverterFactory`。
+
+.配置示例
+====
+[source,java]
+----
+MongoCustomConversions.create(configurationAdapter -> {
+
+    SimplePropertyValueConversions valueConversions = new SimplePropertyValueConversions();
+    valueConversions.setConverterFactory(…);
+    valueConversions.setValueConverterRegistry(new PropertyValueConverterRegistrar()
+        .registerConverter(…)
+        .buildRegistry());
+
+    configurationAdapter.setPropertyValueConversions(valueConversions);
+});
+----
+====

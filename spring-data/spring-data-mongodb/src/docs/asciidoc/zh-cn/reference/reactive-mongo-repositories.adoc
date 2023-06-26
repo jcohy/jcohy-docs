@@ -1,16 +1,17 @@
 [[mongo.reactive.repositories]]
-= Reactive MongoDB repositories
+= 响应式 MongoDB repositories
 
-This chapter describes the specialties for reactive repository support for MongoDB. This chapter builds on the core repository support explained in <<repositories>>. You should have a sound understanding of the basic concepts explained there.
+本章描述了 MongoDB 的响应式 repository 支持的特性。本章建立在 与 Spring Data Repository 一起工作 中解释的核心 <<repositories>> 支持的基础上。你应该对那里解释的基本概念有一个正确的理解。
 
 [[mongo.reactive.repositories.libraries]]
-== Reactive Composition Libraries
+== 响应式组合库
 
-The reactive space offers various reactive composition libraries. The most common libraries are https://github.com/ReactiveX/RxJava[RxJava] and https://projectreactor.io/[Project Reactor].
+响应式空间提供了各种响应式组合库。最常见的库是 https://github.com/ReactiveX/RxJava[RxJava] 和 https://projectreactor.io/[Project Reactor]。
 
-Spring Data MongoDB is built on top of the https://mongodb.github.io/mongo-java-driver-reactivestreams/[MongoDB Reactive Streams] driver, to provide maximal interoperability by relying on the https://www.reactive-streams.org/[Reactive Streams] initiative. Static APIs, such as `ReactiveMongoOperations`, are provided by using Project Reactor's `Flux` and `Mono` types. Project Reactor offers various adapters to convert reactive wrapper types  (`Flux` to `Observable` and vice versa), but conversion can easily clutter your code.
+Spring Data MongoDB 建立在 https://mongodb.github.io/mongo-java-driver-reactivestreams/[MongoDB Reactive Streams] 驱动之上，通过依赖 https://www.reactive-streams.org/[Reactive Streams] 倡议来提供最大的互操作性。
+静态 API，如 `ReactiveMongoOperations`，是通过使用 Project Reactor 的 `Flux` 和 `Mono` 类型提供的。Project Reactor 提供了各种适配器（adapters）来转换响应式包装类型（`Flux` 到 `Observable`，反之亦然），但转换很容易使你的代码变得混乱。
 
-Spring Data's Repository abstraction is a dynamic API, mostly defined by you and your requirements as you declare query methods. Reactive MongoDB repositories can be implemented by using either RxJava or Project Reactor wrapper types by extending from one of the following library-specific repository interfaces:
+Spring Data 的 Repository 抽象是一个动态的 API，主要由你和你的需求在你声明查询方法时定义。响应式 MongoDB Repository 可以通过使用 RxJava 或 Project Reactor 包装类型，从以下库的特定存 Repository 接口中扩展实现。
 
 * `ReactiveCrudRepository`
 * `ReactiveSortingRepository`
@@ -19,14 +20,14 @@ Spring Data's Repository abstraction is a dynamic API, mostly defined by you and
 * `RxJava3CrudRepository`
 * `RxJava3SortingRepository`
 
-Spring Data converts reactive wrapper types behind the scenes so that you can stick to your favorite composition library.
+Spring Data 在幕后转换了响应式包装类型，因此你可以坚持使用你最喜欢的组合库。
 
 [[mongo.reactive.repositories.usage]]
-== Usage
+== 用法
 
-To access domain entities stored in a MongoDB database, you can use our sophisticated repository support that eases implementing those quite significantly. To do so, create an interface similar for your repository. Before you can do that, though, you need an entity, such as the entity defined in the following example:
+要访问存储在 MongoDB 数据库中的 domain 实体，你可以使用我们复杂的 repository 支持，它可以大大缓解实现这些实体。要做到这一点，为你的 repository 创建一个类似的接口。不过在这之前，你需要一个实体，比如下面这个例子中定义的实体。
 
-.Sample `Person` entity
+.简单的 `Person` 实体
 ====
 [source,java]
 ----
@@ -43,12 +44,12 @@ public class Person {
 ----
 ====
 
-Note that the entity defined in the preceding example has a property named `id` of type `String`. The default serialization mechanism used in `MongoTemplate` (which backs the repository support) regards properties named `id` as the document ID. Currently, we support `String`, `ObjectId`, and `BigInteger` as id-types.
-Please see <<mongo-template.id-handling, ID mapping>> for more information about on how the `id` field is handled in the mapping layer.
+请注意，前面的例子中定义的实体有一个名为 `id` 的 `String` 类型的属性。 `MongoTemplate` 中使用的默认序列化机制（它支持 repository）将名为 `id` 的属性视为文档 ID。
+目前，我们支持 `String`、`ObjectId` 和 `BigInteger` 作为 `id` 类型。请参阅 <<mongo-template.id-handling, ID 映射>> 以了解更多关于在映射层中如何处理 id 字段的信息。
 
-The following example shows how to create an interface that defines queries against the `Person` object from the preceding example:
+下面的例子显示了如何创建一个接口，定义针对前述例子中的 `Person` 对象的查询。
 
-.Basic repository interface to persist Person entities
+.持久保存 `Person` 实体的基本 repository 接口
 ====
 [source]
 ----
@@ -65,20 +66,21 @@ public interface ReactivePersonRepository extends ReactiveSortingRepository<Pers
   Mono<Person> findFirstByLastname(String lastname);                                <5>
 }
 ----
-<1> The method shows a query for all people with the given `lastname`. The query is derived by parsing the method name for constraints that can be concatenated with `And` and `Or`. Thus, the method name results in a query expression of `{"lastname" : lastname}`.
-<2> The method shows a query for all people with the given `firstname` once the `firstname` is emitted by the given `Publisher`.
-<3> Use `Pageable` to pass offset and sorting parameters to the database.
-<4> Find a single entity for the given criteria. It completes with `IncorrectResultSizeDataAccessException` on non-unique results.
-<5> Unless <4>, the first entity is always emitted even if the query yields more result documents.
+<1> 该方法显示了对所有具有给定 `lastname` 的人的查询。该查询是通过解析方法名称中可以与 `And` 和 `Or` 相连接的约束条件而得到的。因此，方法名称的结果是一个查询表达式 `{"lastname" : lastname}`。
+<2> 一旦给定的 `Publisher` 发出 `firstname` ，该方法将显示对所有具有给定 `firstname` 的人的查询。
+<3> 使用 `Pageable` 向数据库传递 `offset` 和 `sort` 参数。
+<4> 为给定的 criteria 寻找一个单一的实体。对于非唯一的结果，抛出 `IncorrectResultSizeDataAccessException`。
+<5> 除非 <4>，否则即使查询产生了更多的结果文档，第一个实体也总是被发出。
 ====
 
-For Java configuration, use the `@EnableReactiveMongoRepositories` annotation. The annotation carries the same attributes as the namespace element. If no base package is configured, the infrastructure scans the package of the annotated configuration class.
+对于 Java 配置，使用 `@EnableReactiveMongoRepositories` 注解。该注解带有与命名空间元素相同的属性。如果没有配置基础包（base package），基础设施会扫描注解的配置类的包。
 
-NOTE: MongoDB uses two different drivers for imperative (synchronous/blocking) and reactive (non-blocking) data access. You must create a connection by using the Reactive Streams driver to provide the required infrastructure for Spring Data's Reactive MongoDB support. Consequently, you must provide a separate configuration for MongoDB's Reactive Streams driver. Note that your application operates on two different connections if you use reactive and blocking Spring Data MongoDB templates and repositories.
+NOTE: MongoDB 使用两种不同的驱动程序来进行强制性（同步/阻塞）和反应性（非阻塞）数据访问。您必须通过使用 Reactive Streams 驱动程序创建连接，以便为 Spring Data 的 Reactive MongoDB 支持提供所需的基础设施。
+因此，您必须为 MongoDB 的 Reactive Streams 驱动程序提供单独的配置。注意，如果你使用反应式和阻塞式 Spring Data MongoDB 模板和 repository，你的应用程序会在两个不同的连接上运行。
 
-The following listing shows how to use Java configuration for a repository:
+下面的列表显示了如何为一个 repository 使用Java配置:
 
-.Java configuration for repositories
+.Repository 的 Java 配置
 ====
 [source,java]
 ----
@@ -104,13 +106,15 @@ class ApplicationConfig extends AbstractReactiveMongoConfiguration {
 ----
 ====
 
-Because our domain repository extends `ReactiveSortingRepository`, it provides you with CRUD operations as well as methods for sorted access to the entities. Working with the repository instance is a matter of dependency injecting it into a client, as the following example shows:
+因为我们的 domain repository 继承了 `ReactiveSortingRepository`，它为你提供了 CRUD 操作以及对实体的排序访问方法。如下面的例子所示，使用 repository 实例是将其依赖注入到客户端的问题。
 
-.Sorted access to Person entities
+.对 Person 实体的排序访问
 ====
 [source,java]
 ----
-public class PersonRepositoryTests {
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration
+class PersonRepositoryTests {
 
     @Autowired ReactivePersonRepository repository;
 
@@ -122,12 +126,11 @@ public class PersonRepositoryTests {
 ----
 ====
 
-WARNING: The `Page` return type (as in `Mono<Page>`) is not supported by reactive repositories.
+WARNING: `Page` 的返回类型（如 `Mono<Page>`）不被响应式 repository 所支持。
 
-It is possible to use `Pageable` in derived finder methods, to pass on `sort`, `limit` and `offset` parameters to the query to reduce load and network traffic.
-The returned `Flux` will only emit data within the declared range.
+可以在派生的查找方法中使用 `Pageable`，将 `sort`、`limit` 和 `offset` 参数传递给查询，以减少负载和网络流量。返回的 `Flux` 将只发出声明范围内的数据。
 
-.Limit and Offset with reactive repositories
+.使用响应式存储库的 Limit 和 Offset
 ====
 [source,java]
 ----
@@ -137,13 +140,13 @@ Flux<Person> persons = repository.findByFirstnameOrderByLastname("luke", page);
 ====
 
 [[mongo.reactive.repositories.features]]
-== Features
+== 特性
 
-Spring Data's Reactive MongoDB support comes with a reduced feature set compared to the blocking <<mongo.repositories,MongoDB Repositories>>.
+与阻塞式 <<mongo.repositories,MongoDB Repositories>> 相比，Spring Data 的 Reactive MongoDB 支持的功能集有所减少。
 
-It supports the following features:
+它支持以下功能:
 
-* Query Methods using <<mongodb.repositories.queries,String queries and Query Derivation>>
+* <<mongodb.repositories.queries,使用字符串查询和查询派生的查询方法>>
 * <<mongodb.reactive.repositories.queries.geo-spatial>>
 * <<mongodb.repositories.queries.delete>>
 * <<mongodb.repositories.queries.json-based>>
@@ -152,17 +155,17 @@ It supports the following features:
 * <<projections>>
 
 [[mongodb.reactive.repositories.queries.geo-spatial]]
-=== Geo-spatial Repository Queries
+=== 地理空间 Repository 查询
 
-As you saw earlier in "`<<mongodb.reactive.repositories.queries.geo-spatial>>`", a few keywords trigger geo-spatial operations within a MongoDB query. The `Near` keyword allows some further modification, as the next few examples show.
+正如你在前面的 "`<<mongodb.reactive.repositories.queries.geo-spatial>>`" 中所看到的，一些关键字在 MongoDB 查询中会触发地理空间操作。 `Near` 关键字允许一些进一步的修改，正如接下来的几个例子所示。
 
-The following example shows how to define a `near` query that finds all persons with a given distance of a given point:
+下面的例子显示了如何定义一个 `near` 查询，找到与给定点有一定距离的所有 person:
 
-.Advanced `Near` queries
+.高级 `Near` 查询
 ====
 [source,java]
 ----
-public interface PersonRepository extends ReactiveMongoRepository<Person, String> {
+interface PersonRepository extends ReactiveMongoRepository<Person, String> {
 
   // { 'location' : { '$near' : [point.x, point.y], '$maxDistance' : distance}}
   Flux<Person> findByLocationNear(Point location, Distance distance);
@@ -170,9 +173,9 @@ public interface PersonRepository extends ReactiveMongoRepository<Person, String
 ----
 ====
 
-Adding a `Distance` parameter to the query method allows restricting results to those within the given distance. If the `Distance` was set up containing a `Metric`, we transparently use `$nearSphere` instead of `$code`, as the following example shows:
+在查询方法中添加一个 `Distance` 参数可以将结果限制在给定的距离内。如果 `Distance` 被设置为包含一个 `Metric`，我们会透明地使用 `$nearSphere` 而不是 `$code`，正如下面的例子所示。
 
-.Using `Distance` with `Metrics`
+.使用 `Distance` 与 `Metrics`。
 ====
 [source,java]
 ----
@@ -183,21 +186,21 @@ Distance distance = new Distance(200, Metrics.KILOMETERS);
 ----
 ====
 
-NOTE: Reactive Geo-spatial repository queries support the domain type and `GeoResult<T>` results within a reactive wrapper type. `GeoPage` and `GeoResults` are not supported as they contradict the deferred result approach with pre-calculating the average distance. Howevery, you can still pass in a `Pageable` argument to page results yourself.
+NOTE: 响应应式地理空间 repository 查询支持 domain 类型和响应式包装类型中的 `GeoResult<T>` 结果。不支持 `GeoPage` 和 `GeoResults`，因为它们与预先计算平均距离的递延结果方法相矛盾。不过，你仍然可以传入一个 `Pageable` 参数来自行翻阅结果。
 
-Using a `Distance` with a `Metric` causes a `$nearSphere` (instead of a plain `$near`) clause to be added. Beyond that, the actual distance gets calculated according to the `Metrics` used.
+使用带有 `Metric` 的 `Distance` 会导致添加一个 `$nearSphere`（而不是普通的 `$near`）子句。除此之外，实际的距离会根据所使用的 `Metrics` 来计算。
 
-(Note that `Metric` does not refer to metric units of measure. It could be miles rather than kilometers. Rather, `metric` refers to the concept of a system of measurement, regardless of which system you use.)
+(请注意，`Metric` 并不是指公制的计量单位。它可能是英里而不是公里。相反，`metric` 指的是一个测量系统的概念，不管你使用哪种系统。)
 
-NOTE: Using `@GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)` on the target property forces usage of `$nearSphere` operator.
+NOTE: 在目标属性上使用 `@GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)` 强制使用 `$nearSphere` 运算符。
 
-==== Geo-near Queries
+==== 地理附近查询
 
-Spring Data MongoDB supports geo-near queries, as the following example shows:
+Spring Data MongoDB 支持地理附近查询，如下面的例子所示。
 
 [source,java]
 ----
-public interface PersonRepository extends ReactiveMongoRepository<Person, String>  {
+interface PersonRepository extends ReactiveMongoRepository<Person, String>  {
 
   // {'geoNear' : 'location', 'near' : [x, y] }
   Flux<GeoResult<Person>> findByLocationNear(Point location);
@@ -218,24 +221,24 @@ public interface PersonRepository extends ReactiveMongoRepository<Person, String
 ----
 
 [[mongodb.reactive.repositories.queries.type-safe]]
-=== Type-safe Query Methods
+=== 类型安全的查询方法
 
-Reactive MongoDB repository support integrates with the http://www.querydsl.com/[Querydsl] project, which provides a way to perform type-safe queries.
+响应式 MongoDB repository 支持与  http://www.querydsl.com/[Querydsl] 项目集成，后者提供了一种执行类型安全查询的方法。
 
 [quote, Querydsl Team]
-Instead of writing queries as inline strings or externalizing them into XML files they are constructed via a fluent API.
+不是把查询写成内联字符串或外化成XML文件，而是通过一个 fluent API来构建。
 
-It provides the following features:
+它提供了以下功能:
 
-* Code completion in the IDE (all properties, methods, and operations can be expanded in your favorite Java IDE).
-* Almost no syntactically invalid queries allowed (type-safe on all levels).
-* Domain types and properties can be referenced safely -- no strings involved!
-* Adapts better to refactoring changes in domain types.
-* Incremental query definition is easier.
+* 在 IDE 中的代码补全（所有的属性、方法和操作都可以在你喜欢的 Java IDE 中展开）。
+* 几乎不允许语法上的无效查询（在所有层面上都是类型安全的）。
+* Domain 的类型和属性可以被安全地引用—不涉及字符串的问题。
+* 能更好地适应 domain 类型的重构变化。
+* 增量查询的定义更容易。
 
-See the http://www.querydsl.com/static/querydsl/latest/reference/html/[Querydsl documentation] for how to bootstrap your environment for APT-based code generation using Maven or Ant.
+关于如何使用 Maven 或 Ant 为基于 APT 的代码生成启动环境，请参阅 http://www.querydsl.com/static/querydsl/latest/reference/html/[Querydsl 文档]。
 
-The Querydsl repository support lets you write and run queries, such as the following:
+Querydsl repository 支持让你编写和运行查询，例如以下内容。
 
 [source,java]
 ----
@@ -244,16 +247,16 @@ QPerson person = QPerson.person;
 Flux<Person> result = repository.findAll(person.address.zipCode.eq("C0123"));
 ----
 
-`QPerson` is a class that is generated by the Java annotation post-processing tool. It is a `Predicate` that lets you write type-safe queries.
-Note that there are no strings in the query other than the `C0123` value.
+`QPerson` 是一个由Java注释后处理工具生成的类。它是一个 `Predicate`，可以让你编写类型安全的查询。请注意，除了 `C0123` 值之外，查询中没有任何字符串。
 
-You can use the generated `Predicate` class by using the `ReactiveQuerydslPredicateExecutor` interface, which the following listing shows:
+你可以通过使用 `ReactiveQuerydslPredicateExecutor` 接口来使用生成的 `Predicate` 类，下面的列表显示了这一点。
 
-.The Gateway to Reactive Querydsl - The ReactiveQuerydslPredicateExecutor
+
+.Reactive Querydsl 的网关 - `ReactiveQuerydslPredicateExecutor`
 ====
 [source,java]
 ----
-public interface ReactiveQuerydslPredicateExecutor<T> {
+interface ReactiveQuerydslPredicateExecutor<T> {
 
 	Mono<T> findOne(Predicate predicate);
 
@@ -272,17 +275,17 @@ public interface ReactiveQuerydslPredicateExecutor<T> {
 ----
 ====
 
-To use this in your repository implementation, add it to the list of repository interfaces from which your interface inherits, as the following example shows:
+要在你的 repository 实现中使用它，需要把它添加到你的接口所继承的 repository 接口列表中，如下面的例子所示。
 
 .Reactive Querydsl Respository Declaration
 ====
 [source,java]
 ----
-public interface PersonRepository extends ReactiveMongoRepository<Person, String>, ReactiveQuerydslPredicateExecutor<Person> {
+interface PersonRepository extends ReactiveMongoRepository<Person, String>, ReactiveQuerydslPredicateExecutor<Person> {
 
    // additional query methods go here
 }
 ----
 ====
 
-NOTE: Please note that joins (DBRef's) are not supported with Reactive MongoDB support.
+NOTE: 请注意，响应式 MongoDB，不支持连接（DBRef）。

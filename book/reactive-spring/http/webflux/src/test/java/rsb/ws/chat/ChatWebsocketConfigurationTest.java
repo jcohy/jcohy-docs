@@ -1,7 +1,7 @@
 package rsb.ws.chat;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.SneakyThrows;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,14 +28,20 @@ public class ChatWebsocketConfigurationTest {
 	@Autowired
 	private ObjectMapper objectMapper;
 
-	@SneakyThrows
 	private String from(Message msg) {
-		return objectMapper.writeValueAsString(msg);
+		try {
+			return objectMapper.writeValueAsString(msg);
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
-	@SneakyThrows
 	private Message from(String json) {
-		return objectMapper.readValue(json, Message.class);
+		try {
+			return objectMapper.readValue(json, Message.class);
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	@Test
