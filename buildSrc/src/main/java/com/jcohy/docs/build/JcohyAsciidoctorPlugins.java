@@ -1,9 +1,7 @@
 package com.jcohy.docs.build;
 
-import java.util.List;
 import java.util.Map;
 
-import com.google.common.collect.Lists;
 import io.github.jcohy.gradle.asciidoctor.AsciidoctorConventionsPlugin;
 import io.github.jcohy.gradle.conventions.ConventionsPlugin;
 import io.github.jcohy.gradle.deployed.DeployedPlugin;
@@ -14,7 +12,6 @@ import org.asciidoctor.gradle.jvm.AsciidoctorTask;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.PluginContainer;
-import org.springframework.util.StringUtils;
 
 /**
  * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
@@ -48,6 +45,13 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
         asciidoctorTask.languages("zh-cn");
         asciidoctorTask.setLogDocuments(true);
 
+        if (asciidoctorTask.getName().equals("asciidoctorMultiPage")) {
+            asciidoctorTask.sources(patternSet -> {
+                patternSet.include("*.adoc","index.multiadoc");
+                patternSet.exclude("index.adoc");
+            });
+//            asciidoctorTask.sources(new String[]{"(?!^index).adoc", "index.multiadoc"});
+        }
         configureCommonAttributes(project, asciidoctorTask);
         project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
     }
@@ -68,6 +72,8 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
     }
 
     private void addAsciidoctorTaskAttributes(Project project,Map<String, Object> attributes) {
+        attributes.put("author", "Author:Jcohy");
+        attributes.put("email", "Email:jia_chao23@126.com");
         attributes.put("rootProject", project.getRootProject().getProjectDir());
         attributes.put("sources-root", project.getProjectDir() + "/src");
         attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
