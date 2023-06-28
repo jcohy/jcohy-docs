@@ -23,12 +23,16 @@ public class OssUploadPlugins implements Plugin<Project> {
         project.getTasks().withType(OssUploadTask.class, (ossUploadTask) -> {
             ossUploadTask.dependsOn("aggregatedAsciidoctor");
         });
-        AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
-        extension.setBucket("jcohy-docs");
-        String buildDir = project.getRootProject().getBuildDir().getName();
-        extension.getUpload().setSource(buildDir);
-        extension.getUpload().setPrefix("/docs");
+        project.afterEvaluate(p -> {
+            AliOssExtension extension = project.getExtensions().getByType(AliOssExtension.class);
+            extension.setBucket("jcohy-docs");
+            String buildDir = project.getRootProject().getBuildDir().getName();
+            extension.getUpload().setSource(buildDir + "/reference");
+            extension.getUpload().setPrefix("/docs");
+            extension.getUpload().setIgnoreSourceDir(true);
+//            extension.setAccessKey("xxx");
+//            extension.setSecretKey("xxx");
+        });
 
-        extension.getUpload().setIgnoreSourceDir(true);
     }
 }

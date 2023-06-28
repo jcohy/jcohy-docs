@@ -72,8 +72,8 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
     }
 
     private void addAsciidoctorTaskAttributes(Project project,Map<String, Object> attributes) {
-        attributes.put("author", "Author:Jcohy");
-        attributes.put("email", "Email:jia_chao23@126.com");
+        attributes.put("author", "Author: Jcohy");
+        attributes.put("email", "Email: jia_chao23@126.com");
         attributes.put("rootProject", project.getRootProject().getProjectDir());
         attributes.put("sources-root", project.getProjectDir() + "/src");
         attributes.put("image-resource", "https://resources.jcohy.com/jcohy-docs/images/" + ProjectVersion.getVersionfromAttr("spring-boot-version") + "/" + project.getName());
