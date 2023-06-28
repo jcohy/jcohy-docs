@@ -14,6 +14,7 @@ import org.asciidoctor.gradle.jvm.AsciidoctorTask;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.PluginContainer;
+import org.springframework.util.StringUtils;
 
 /**
  * Copyright: Copyright (c) 2021 <a href="https://www.jcohy.com" target="_blank">jcohy.com</a>
@@ -26,11 +27,14 @@ import org.gradle.api.plugins.PluginContainer;
  */
 public class JcohyAsciidoctorPlugins implements Plugin<Project> {
 
-    private List<String> singlePage = Lists.newArrayList("spring-boot","spring-framework","spring-security");
-
     @Override
     public void apply(Project project) {
         PluginContainer plugins = project.getPlugins();
+		String version = project.getVersion().toString();
+        if(version.equalsIgnoreCase("unspecified")) {
+            version = ProjectVersion.getVersionFromName(project.getName());
+        }
+		project.setVersion(version);
         plugins.apply(AsciidoctorJPlugin.class);
         plugins.apply(AsciidoctorConventionsPlugin.class);
         plugins.apply(ConventionsPlugin.class);

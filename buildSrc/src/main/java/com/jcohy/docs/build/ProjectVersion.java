@@ -18,6 +18,7 @@ public enum ProjectVersion {
     CHECKSTYLE("checkstyle","checkstyle-version","8.44",""),
     REACTOR("reactor","reactor-version","3.5.0",""),
     REACTIVE_STREAM("reactive-stream-jvm","reactive-stream-jvm-version","1.0.4",""),
+    REACTIVE_SPRING("reactive-spring","reactive-spring-version","1.0.0",""),
     RFC("rfc","rfc-version","1.0.0.RELEASE",""),
     HIBERNATE_ORM("hibernate-orm","hibernate-orm-version","5.5.7",""),
     DEPENDENCY_MANAGEMENT_PLUGIN("dependency-management-plugin","dependency-management-plugin-version","1.0.11.RELEASE",""),
