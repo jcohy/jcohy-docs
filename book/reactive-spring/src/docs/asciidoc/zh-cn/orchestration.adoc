@@ -1,0 +1,1471 @@
+= 服务编排和组合
+
+我为这一章的命名而苦恼。 每当您引入“服务”或“编排”一词时，人们都会失去理智。 我对冗长而传奇的关于 SOA 与微服务或任何类似的争论不感兴趣。 我在这里不是要刷新编排和编排的定义。 我在上一本书 Cloud Native Java 中做了很多这样的事情。 我想专注于响应式组合服务的样子。
+
+这并不是说如果没有响应式编程你就不能做我们在这里要做的事情； 更重要的是，它会更加乏味和昂贵。
+
+通常，在考虑服务编排和组合时，您是在一个连续体中工作。 如果您忽略了反应式编程的机会，那么您将面临一个连续统一体。 您可以针对可扩展性或代码表达的简洁性来优化您的实现，但不能同时优化这两者。 我认为，响应式编程为我们提供了两个方面的优势：它为我们提供了一种简洁的方式来表达系统中分布式参与者本质上的多线程特性。
+
+服务编排和组合是响应式编程的驱动力之一； 这是您应该接受它的主要原因之一。 任何时候您有多个不同的服务相互通信时，您都可以从使用响应式 API 中获益。 它使并发和并行编程更易于访问。
+
+这也是我们确保在 Spring MVC 内部支持反应式编程的原因之一。 我们知道反应式编程的首要驱动力之一是使用反应式 WebClient 进行服务编排和组合。 人们希望能够从他们的 MVC 控制器处理程序方法中返回一个 Publisher<T>，即使他们没有时间尝试将他们的代码重新编写为原生 Spring Webflux 应用程序。
+
+在本章中，我们将研究在尝试进行服务编排和发现时出现的所有问题。 我们将着眼于发现其他服务。 我们将看看路由。 我们将看看服务组合。 这将是一次联网的旅程，从这里到那里的唯一方法就是开始。
+
+== 服务注册是发现
+
+我们将在本章中使用许多不同的服务，这就引出了我们需要解决的第一个问题：找到服务。 我们将研究的许多模式都受益于了解系统中存在哪些服务。 我们将查看 Spring Cloud 的服务注册和发现支持，以简化查找服务的工作。
+服务注册表是一种基础设施服务，用于跟踪存在哪些服务的哪些实例以及它们所在的位置。 把它想象成一本电话簿：给定一个服务名称，服务注册中心将返回给我们所有的名称实例。
+有许多服务注册中心，包括 Apache Zookeeper、Hashicorp Consul、Netflix 的 Eureka 等。Spring Cloud 提供了一个低级抽象 - `ReactiveDiscoveryClient` - 我们可以使用它以编程方式与服务注册中心进行适当的实现交互。
+在这个最低级别的界面之上建立了大量的支持，很快就会看到。
+
+如果这听起来有点像 DNS，那是有充分理由的。 通过 DNS 使用服务注册和发现有利有弊。 服务注册让我们以编程方式查询系统的状态。
+它为我们提供了一种方法来询问存在哪些服务以及其中有多少服务。 DNS 只为我们提供了一种询问服务应该存在于何处的方法。
+服务注册和发现机制通常是特定于应用程序的——您的代码利用它而不是您的网络堆栈。 一些服务注册中心——比如 Hashicorp Consul ——可以充当 DNS 服务和程序化电话类型的东西。
+因此，使用 Spring Cloud 构建的云原生应用程序可以用单个实例做令人兴奋的事情，但其他服务无论如何至少会获得一个有效的 Consul 注册表实例。
+
+您可以使用多个不同的服务注册中心中的任何一个。 不过，因为我想让这段代码尽可能开箱即用，所以我将使用 Spring Cloud 编写 Netflix Eureka 服务注册表的单个实例。
+我不建议将此配置用于生产。 您可以自己配置负载平衡和安全性。 或者你可以让你的平台——Tanzu PAS 或 Tanzu PKS 或 Azure Spring Cloud 或任何其他选项——为你完成工作。
+
+转到 Spring Initializr 配置新的 Eureka 服务注册表。 生成一个新项目——也许你可以将它命名为 eureka-service？ -
+使用 Spring Cloud BOM 和 Spring Cloud Eureka Server 依赖：
+
+* org.springframework.cloud:spring-cloud-starter-netflix-eureka-server
+
+主类再简单不过了。
+
+[source,java]
+----
+@SpringBootApplication
+@EnableEurekaServer // <1>
+public class EurekaApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaApplication.class,args);
+    }
+}
+----
+====
+<1> 这里唯一值得注意的是 `@EnableEurekaServer` 注释的存在
+====
+
+唯一的复杂性（如果可以这样称呼的话）存在于配置文件中。
+
+[source,properties]
+----
+spring.application.name=eureka-service
+# <1>
+server.port=8761
+eureka.client.fetch-registry=false
+eureka.client.register-with-eureka=false
+----
+====
+<1> 最重要的一点是这个服务注册表可以从 HTTP 端口 8761 获得
+====
+
+运行注册服务，然后让它保持运行状态，本章剩余的大部分内容都需要它。
+
+== 一些简单的服务
+
+现在我们已经启动并运行了一个服务注册中心，我们将需要一些与之交互的服务。 它们都只有两个依赖项：
+
+* org.springframework.boot:spring-boot-starter-webflux
+* org.springframework.cloud:spring-cloud-starter-netflix-eureka-client
+
+`spring-boot-starter-webflux` 依赖在那里，因此我们可以构建响应式 Spring Webflux 支持的服务。
+接下来，`spring-cloud-starter-netflix-eureka-client`，将我们的应用程序连接到 Eureka 服务注册表。
+客户端自动配置会将每个应用程序连接到默认主机端口 (localhost:8761)。 每个客户端将启动，将自己注册到服务注册表，然后解析注册表中的其他服务。
+
+我们将依次查看 Java 代码，但每个服务在其各自的 `application.properties` 文件中至少具有以下配置。
+
+[source,properties]
+----
+server.port=0
+// <1>
+spring.application.name=profile-service
+eureka.instance.instance-id=${spring.application.name}:${spring.application.instance_id:${random.value}}
+----
+====
+<1> 在这里，我展示了配置文件服务的配置。 每个服务都会改变它们的 `spring.application.name`。 该属性决定了该服务将如何通过 Eureka 向集群中的其他服务通告自己。
+====
+
+我假设您已经为每个服务创建了一个类似的文件作为基线，并且只重新访问服务配置以规定每个服务的 `spring.application.name` 的特定值并添加所需的任何其他配置。
+
+所有服务也是独立的 Spring Boot 应用程序，因此具有典型的 "main" 类。 除非有什么新奇的东西需要研究，否则我不会重印每一个或重新访问它们。
+
+有五个简单服务。
+
+* customer-service：提供与客户实体相关的信息。 客户拥有个人特定信息，例如姓名。
+* profile-service：提供与附加到客户的配置文件实体相关的信息。 这是与客户数据的一对一关系。 每个客户将只有一个配置文件。 配置文件指定诸如帐户用户名和密码之类的内容。
+* order-service：提供属于给定客户的所有订单。 这是一个一对多的关系，每个客户可以有多个“订单”。
+* slow-service：此服务提供慢速响应以便于演示
+* error-service：此服务提供以特定方式失败的端点，以便于演示
+
+=== Customer Service
+
+Customer 服务表面有关 Customer 实体的信息，其定义如下所示。
+
+[source,java]
+----
+public record Customer(Integer id, String name) {
+}
+----
+
+服务本身归结为一个端点，`/customers`。 控制器的大部分复杂性是因为，为了避免涉及数据库，我建立了一个客户记录的内存存储库。 同样，这是一个简单的演示。
+
+[source,java]
+----
+@RestController
+public class CustomerRestController {
+
+    private final int delayInMillis;
+
+    private final Map<Integer,Customer> customers = Map.of(1,"Jane",
+            2,"Mia",3,"Leroy",4,"Badhr",5,"Zhen",6, "Juliette",7,"Artem",
+            8,"Michelle",9,"Eva",10,"Richard")
+            .entrySet()
+            .stream()
+            .collect(Collectors.toConcurrentMap(Map.Entry::getKey, e -> new Customer(e.getKey(),e.getValue())));
+
+    public CustomerRestController(@Value("${rsb.delay:200}") int delayInMillis) {
+        this.delayInMillis = delayInMillis;
+    }
+
+    private Flux<Customer> from(Stream<Customer> customerStream, boolean delaySubscription) {
+        return delaySubscription ? Flux.fromStream(customerStream)
+                .delaySubscription(Duration.ofMillis(this.delayInMillis)) :
+                Flux.fromStream(customerStream);
+    }
+
+    @GetMapping("/customers")
+    Flux<Customer> customers(@RequestParam(required = false) Integer[] ids,
+                                @RequestParam(required = false) boolean delay) {
+        var customerStream = this.customers.values().stream();
+        return Optional.ofNullable(ids)
+                .map(Arrays::asList)
+                .map(listOfIds -> from(customerStream.filter(customer -> {
+                    var id = customer.id();
+                    return listOfIds.contains(id);
+                }),delay))
+                .orElse(from(customerStream,delay));
+
+    }
+}
+----
+
+=== Order Service
+
+Order 服务表面有关 Order 实体的信息，其定义如下所示。
+
+[source,java]
+----
+public record Order(String id, Integer customerId) {
+}
+----
+
+服务本身归结为一个端点，`/orders`。 控制器中的大部分复杂性是因为，为了避免涉及数据库，我建立了一个订单记录的内存存储库。
+同样，这是一个简单的演示。 控制器初始化与每个 customerId 关联的随机 Order 实例列表。
+
+[source,java]
+----
+@RequestMapping("/orders")
+@RestController
+public class OrderRestController {
+
+    private final Map<Integer, List<Order>> orders =
+            IntStream.range(0,10)
+                    .boxed()
+                    .map( id -> Map.entry(id, new CopyOnWriteArrayList<Order>()))
+                    .collect(Collectors.toConcurrentMap(Map.Entry::getKey, e -> {
+                        var listOfOrders = e.getValue();
+                        var max = (int) (Math.random() * 10);
+                        if( max < 1) {
+                            max = 1;
+                        }
+
+                        for (var i = 0; i < max; i ++) {
+                            listOfOrders.add(new Order(UUID.randomUUID().toString(),e.getKey()));
+                        }
+                        return listOfOrders;
+                    }));
+
+    @GetMapping
+    Flux<Order> orders(@RequestParam( required = false) Integer[] ids) {
+        var customerStream = this.orders.keySet().stream();
+        var includedCustomerIds = Arrays.asList(ids);
+        var orderStream = customerStream.filter(includedCustomerIds::contains)
+                .flatMap(id -> this.orders.get(id).stream());
+        return Flux.fromStream(orderStream);
+    }
+}
+----
+
+=== Profile Service
+
+Profile 服务表面有关 Profile 实体的信息，其定义如下所示。
+
+[source,java]
+----
+public record Profile(Integer id, String username, String password) {
+}
+----
+
+该服务本身归结为一个端点 `/profiles`。 控制器中的大部分复杂性的产生是因为，为了避免涉及数据库，我已经建立了一个配置文件记录的内存存储库。 同样，这是一个简单的演示。
+
+[source,java]
+----
+@RestController
+public class ProfileRestController {
+
+    private final Map<Integer,Profile> profiles = Map
+            .of(1,"Jane",2,"mia",3,"leroy",4,"badhr",5,"zhen",6,"juliette",
+            7,"artem",8,"michelle",9,"eva",10,"richard")
+            .entrySet()
+            .stream()
+            .collect(Collectors.toConcurrentMap(Map.Entry::getKey, e -> new Profile(e.getKey(),e.getValue(), UUID.randomUUID().toString())));
+
+    @GetMapping("/profiles/{id}")
+    Mono<Profile> byId(@PathVariable Integer id) {
+        return Mono.just(this.profiles.get(id));
+    }
+}
+----
+
+=== Error Service
+
+Error 服务只是为了制造麻烦！ 这不是您在生产中想要的那种服务，但希望它能让我们模拟一些真实的问题。
+
+[source,java]
+----
+@RestController
+public class ErrorRestController {
+
+    // <1>
+    private final AtomicInteger port = new AtomicInteger();
+
+    // <2>
+    private final Map<String ,AtomicInteger> clientCounts = new ConcurrentHashMap<>();
+
+    @EventListener
+    public void webServerInitializedEventListener(WebServerInitializedEvent event) {
+        port.set(event.getWebServer().getPort());
+    }
+
+    private int registerClient(String uid) {
+        if (null != uid) {
+            this.clientCounts.putIfAbsent(uid,new AtomicInteger(0));
+            return this.clientCounts.get(uid).incrementAndGet();
+        }
+        return 1;
+    }
+
+    // <3>
+    @GetMapping("/ok")
+    Mono<Map<String,String>> okEndpoint(@RequestParam(required = false) String uid) {
+        var countThusFar = this.registerClient(uid);
+        return Mono.just(Map.of("greeting",String.format("greeting attempt %s from port %s",countThusFar,this.port.get())));
+    }
+
+    // <4>
+    @GetMapping("/retry")
+    Mono<Map<String,String>> retryEndpoint(@RequestParam() String uid) {
+        var countThusFar = this.registerClient(uid);
+        return countThusFar >2 ?
+                Mono.just(Map.of("greeting",String.format("greeting attempt %s from port %s",countThusFar,this.port.get())))
+                : Mono.error(new IllegalArgumentException());
+    }
+
+    // <5>
+    @GetMapping("/cb")
+    Mono<Map<String,String>> circuitBreakerEndpoint(@RequestParam String uid) {
+        registerClient(uid);
+        return Mono.error(new IllegalArgumentException());
+    }
+}
+----
+====
+<1> AtomicInteger 用于存储服务的端口（我们在 webServerInitializedEventListener 方法中获取）以将其包含在发送回客户端的响应中。 这将帮助我们了解响应的来源。
+<2> `clientCounts` 映射将客户端 ID 存储到我们看到来自该客户端的请求的次数。 它有助于我们在以后为特定演示保留会话状态的概念。
+<3> `/ok` 端点返回数据的 Map<K,V>。 没有错误。 这个效果很好。
+<4> `/retry` 端点返回 Map<K, V> 但仅在客户端尝试请求至少两次之后。
+<5> `/cb` 端点每次都失败。 这是演示断路器的理想选择。
+====
+
+=== Slow Service
+
+Slow 服务返回 GreetingResponse 数据流。
+
+[source,java]
+----
+public record GreetingResponse(String message) {
+}
+----
+
+它会在可配置的延迟后执行此操作。 在尝试演示延迟和处理延迟的方法时，这是理想的选择。
+
+[source,java]
+----
+@RestController
+public class SlowRestController {
+
+    private static final Logger log = LoggerFactory.getLogger(SlowRestController.class);
+
+    private final long slowServiceDelay;
+
+    private final AtomicInteger port = new AtomicInteger();
+
+    // <1>
+    public SlowRestController(@Value("${rsb.slow-service.delay}") long slowServiceDelay) {
+        this.slowServiceDelay = slowServiceDelay;
+    }
+
+    // <2>
+    @EventListener
+    public void web(WebServerInitializedEvent event) {
+        port.set(event.getWebServer().getPort());
+        if(log.isInfoEnabled()) {
+            log.info("configured rsb.slow-service.delay=" + slowServiceDelay + " on port " + port.get());
+        }
+    }
+
+    // <3>
+    Mono<GreetingResponse> greet(@RequestParam(required = false, defaultValue = "world") String name) {
+        var now = Instant.now().toString();
+        var message = "Hello, %s!  (from %s started at %s and finished at %s)";
+        return Mono.just(new GreetingResponse(String.format(message,port,name,now,Instant.now().toString())))
+                .doOnNext(r -> log.info(r.toString()))
+                .delaySubscription(Duration.ofSeconds(slowServiceDelay));
+    }
+}
+----
+====
+<1> 注意延迟。 您可以启动此服务的多个实例并通过指定 - `rsb.slow-service.delay=10` 来覆盖延迟，例如，在命令行上。 这会使客户端发送的响应延迟十秒。
+<2> 在这里，我们记录服务的端口以将其包含在我们的响应中。 当一切都在同一台机器上运行时，这在试图了解哪个服务产生了哪个响应时很有用。
+<3> `/greetings` 端点使用非常方便的 `delaySubscription` 运算符来延迟框架何时可以开始订阅（并因此提供）响应。
+====
+
+=== 客户端
+
+我们将看到的大多数示例都位于一个我毫无想象力地称为 client 的模块中。 我将在这个应用程序的不同包中演示不同应用程序的一系列问题。 它至少依赖于以下依赖项：
+
+* org.springframework.boot:spring-boot-starter-webflux
+* org.springframework.cloud:spring-cloud-starter-netflix-eureka-client。
+
+我们将在使用它们时引入新的依赖项。 客户端的 `spring.application.name` 值为 client 并使用 `server.port=0` 来获取一个随机的、未使用的端口。
+我还从每个相应的服务中复制了 Java DTO - Order-service 中的 `Order`、profile-service 中的 `Profile`、customer-service 中的 `Customer` 和 slow-service 中的 `GreetingResponse` - 到根包 (rsb.orchestration) 中 客户端模块。
+在本节中，我们还将依赖一些我提取到类 `TimerUtils` 中的实用方法。
+
+[source,java]
+----
+public abstract class TimerUtils {
+
+    private static final Logger log = LoggerFactory.getLogger(TimerUtils.class);
+
+    // <1>
+    public static <T> Mono<T> cache(Mono<T> cache) {
+        return cache.doOnNext(c -> log.debug("receiving " + c.toString())).cache();
+    }
+
+    // <2>
+    public static <T> Mono<T> monitor(Mono<T> configMono) {
+        var start = new AtomicLong();
+        return configMono
+                .doOnError(exception -> log.error("oops!", exception))
+                .doOnSubscribe((subscription -> start.set(System.currentTimeMillis())))
+                .doOnNext((greeting) -> log.info("total time : {}",System.currentTimeMillis() - start.get()));
+    }
+}
+----
+====
+<1> `cache` 方法强制 `Publisher<T>` 记住它们的内容。 如果您要多次迭代（通过订阅）同一个流，这很好，因为不会每次都重新计算值。 此方法还安装了一些日志记录以在生成新值时通知，当值被缓存时它不通知任何内容时，这同样有趣。
+<2> monitor 反应流的开始和反应流的结束，计算增量，然后将其注销。 非常适合非常简单的高级基准测试。
+====
+
+== 客户端的 WebClient 负载均衡
+
+我们在本章演示中使用的 `Publisher<T>` 来自何处并不重要。 我们可以从 HTTP、RSocket 或其他任何地方获取它们。
+为了保持熟悉，我们使用 HTTP，所以我们需要在几个地方使用 `WebClient。 为了使我们的服务更加可靠，我们可以做的第一件事就是使用负载平衡。
+在给定多种选择的情况下选择特定实例的行为称为负载平衡。 我们可以使用两种常见的负载平衡。 DNS 负载平衡和客户端负载平衡。
+
+DNS 负载平衡具有基础架构级别的所有众所周知的好处，因此它适用于所有 DNS 客户端。 当您想为不具备这些智能的客户端引入更智能的负载平衡时，这是一个很好的选择。
+
+客户端负载平衡有点不同。 在客户端负载平衡场景中，客户端——我们的 Spring Cloud 支持的 JVM 代码——将选择它应该将请求发送到哪个节点。
+客户端负载平衡通常与我们已经研究过的 Netflix 的 Eureka 等服务注册中心密切相关。
+
+我们希望使用我们可用的有关每个应用程序状态的信息来做出更明智的负载平衡决策。 我们可能会使用客户端负载平衡器而不是 DNS 的原因有很多。
+首先，Java DNS 客户端倾向于缓存已解析的 IP 信息，这意味着对同一已解析 IP 的后续调用将最终在一项服务之上进行后续调用。
+您可以禁用它，但您是在与 DNS（一个以缓存为中心的系统）的本质作斗争。 DNS 只会告诉您某物在哪里，而不会告诉您它是否存在。
+换一种方式; 你不知道在基于 DNS 的负载均衡器的另一端是否有任何东西在等待你的请求。 难道你不想在调用之前就知道吗，这样你的客户就可以在调用失败之前避免冗长的超时时间？
+服务注册表和客户端负载平衡是出色的实现，它们使一些模式如对冲（我们将在稍后讨论）成为可能。
+
+力量在于迫在眉睫的灵活性和可定制性。 您可以配置您的负载平衡算法来做有趣的事情。 也许您想将给定特定 JWT 令牌的所有请求固定到服务注册表中的特定服务。
+也许您想将请求路由到特定于区域的服务。 也许您想利用边缘缓存来处理分辨率。 这个客户端负载均衡器是您对该逻辑进行编码的地方。 默认情况下，Spring Cloud Load Balancer 使用一种算法来识别最近最少使用 (LRU) 实例。
+
+几乎所有示例应用程序都将使用负载平衡 WebClient，因此我将其提取到一些将运行的自动配置中，除非提供一些其他 bean 来覆盖默认 bean，我们偶尔需要这样做。
+在幕后，这个 `ReactorLoadBalancerExchangeFilterFunction` 委托给一个 `ReactiveLoadBalancer` 实例，它是 Spring Cloud LoadBalancer 项目的一部分。 这是自动配置本身。
+
+[source,java]
+----
+@Configuration
+public class WebClientAutoConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(WebClientAutoConfiguration.class);
+
+    @Bean
+    @ConditionalOnMissingBean
+    WebClient loadBalancingWebClient(WebClient.Builder builder, LoadBalancedExchangeFilterFunction filter) { // <1>
+        log.info("registering a default load-balanced " +  WebClient.class.getName() + ".");
+        return builder.filter(filter).build();
+    }
+}
+----
+====
+<1> `ReactorLoadBalancerExchangeFilterFunction` 是一个自动配置的 `ExchangeFilterFunction`，它为我们处理负载平衡 HTTP 请求。
+====
+
+`ReactorLoadBalancerExchangeFilterFunction` 通过在服务注册表中查找来解析 URI 中的主机，而不是 DNS。 因此，给定一个形式为 `http://error-service/ok` 的 URI，
+`ReactorLoadBalancerExchangeFilterFunction` 将尝试解析 Eureka 服务注册表中的所有错误服务服务实例，然后从返回的实例中选择一个用于 完成这个请求。 我们将在本章的大部分内容中假设客户端负载平衡。
+
+== Resilient Streams with Reactor Operators
+
+高效的服务编排和组合的很大一部分是知道您将首先得到响应。 我们已经看到，我们可以非常轻松地利用负载平衡来减少不必要地对某一特定服务进行 dogpiling 的可能性。 负载平衡让我们可以将工作分配给系统中的多个正在运行的实例。
+
+但事情仍然可能出错。 给定一个负载均衡的服务实例，没有什么可以保证在解析服务实例和发出请求之间不会出错。 事实上，没有什么可以保证服务不会突然死掉，或者垃圾收集，或者其他什么。 在本节和接下来的几节中，我们将研究一些提高请求成功返回可能性的模式。
+
+我们可以做的第一件事是利用 Reactor 中开箱即用的运算符。 有一些值得了解，谁知道呢 - 它们可能足以让您晚上入睡。
+
+本节中的所有示例都将利用相同的 `Flux<Order>` 数据，因此我将其提取到一个单独的类 `OrderClient` 中。
+
+[source,java]
+----
+@Component
+public record OrderClient(WebClient http) {
+
+    Flux<Order> getOrders(Integer... ids) {
+        var orderRoot = "http://order-service/orders?ids=" + StringUtils.arrayToDelimitedString(ids,",");
+        return http.get().uri(orderRoot).retrieve().bodyToFlux(Order.class);
+    }
+}
+----
+
+您应该对任何可能失败的请求进行时间限制。 您可以使用 `timeout` 运算符指定发送到下游服务的请求应该超时并在一段时间后失败。
+
+[source,java]
+----
+@Component
+public record TimeoutClient(OrderClient client) {
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        this.client.getOrders(1,2)
+                .timeout(Duration.ofSeconds(10)) // <1>
+                .subscribe(System.out::println);
+    }
+}
+----
+
+超时并不能保证下游服务不会失败，但它确实意味着我们不会等待太久。 在我们需要满足 SLA 的情况下，我们必须在给定交换的时间范围内具有可预测性。 如果请求在该超时后仍在进行中，它将抛出一个异常，然后我们可以捕获该异常并将其用作优雅降级或重试请求的机会。
+
+优雅降级对于构建可靠的用户服务至关重要。 使用 Reactor 中的各种运算符也可以毫不费力地做到这一点。
+
+
+[source,java]
+----
+@Component
+public record DegradingClient(OrderClient client) {
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        this.client.getOrders(1,2)
+                .onErrorResume(ex -> Flux.empty()) // <1>
+                .subscribe(System.out::println);
+    }
+}
+----
+====
+<1> 在此示例中，`DegradingClient` 在遇到异常时返回一个空的 `Flux<T>`。 您可以使用此回调来启动另一个请求或返回有用但不成功的响应。
+====
+
+重试请求是一种普遍的策略。 您可以针对同一个服务实例或 - 更有用的 - 针对另一个服务实例重试请求。 Reactor 也为此提供了一些方便的操作符：`retry` 和 `retryWhen`。
+
+[source,java]
+----
+@Component
+public record RetryWhenClient(OrderClient client) {
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        this.client.getOrders(1,2)
+                .retryWhen(Retry.backoff(10, Duration.ofSeconds(1))) // <1>
+                .subscribe(System.out::println);
+    }
+}
+----
+====
+<1> 这将重试同一个请求十次，直到成功或十次尝试结束，此时它将返回错误。
+====
+
+== Resilient Streams with Resilience4J
+
+Resilience4J 是一个第三方项目，致力于尽可能轻松地构建健壮的客户端，它支持四种模式，您可以在反应式和非反应式上下文中使用这些模式。 要使用 `Resilience4J`，您需要向构建中添加一些依赖项。
+我定义了一个属性 `resilience4j.version`，并将其设置为我想要使用的 `Resilience4J` 版本。 具体版本见本书源代码。 然后，我将以下依赖项添加到构建中：
+
+* io.github.resilience4j:resilience4j-ratelimiter
+* io.github.resilience4j:resilience4j-circuitbreaker
+* io.github.resilience4j:resilience4j-retry
+* io.github.resilience4j:resilience4j-bulkhead
+* io.github.resilience4j:resilience4j-reactor
+
+这些模块都遵循相同的基本安排。 有一种东西——我们称它为 T - 我们可以使用它来配置给定功能的应用程序。 通常，我们说 `T t=T.of(...)`。 我们需要一个 `TConfig` 来传递给 `T.of(...)` 调用。
+然后我们可以使用该 T 来构建一个 Reactor `UnaryOperator<Publisher<T>>` 实现（形式为 `TOperator`），
+然后我们可以使用 `transformDeferred` 运算符将其应用于我们的反应管道。
+
+=== Retries
+
+Resilience4J 支持重试请求，就像我们对 Reactor 重试运算符所做的那样。 Resilience4J 运算符支持重试、退避和超时的组合。
+因此，从这个意义上说，它消除了对我们之前看到的许多基本 Reactor 运算符的需求。 我们的客户端调用的端点配置为前两次失败，第三次返回一个值。
+因此，我将此 Resilience4J 客户端配置为在尝试三次后放弃。
+所以它应该在紧要关头得到结果。 您可以尝试降低阈值，看看如果没有得到结果会发生什么。
+
+[source,java]
+----
+@Profile("retry")
+@Component
+public class RetryClient {
+
+    private static final Logger log = LoggerFactory.getLogger(RetryClient.class);
+
+    private final Retry retry = Retry.of("greetings-retry", RetryConfig
+            .custom()
+                    .waitDuration(Duration.ofMillis(1000)) // <1>
+                    .intervalFunction(IntervalFunction.ofExponentialBackoff(Duration.ofMillis(500L), 2d)) // <2>
+                    .maxAttempts(3) // <3>
+            .build());
+
+    private final String uid = UUID.randomUUID().toString();
+
+    private final WebClient http;
+
+    public RetryClient(WebClient http) {
+        this.http = http;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        Mono<String> retry = GreetingClientUtils
+                .getGreetingFor(this.http,this.uid,"retry")
+                .transformDeferred(RetryOperator.of(this.retry)); // <4>
+        retry.subscribe(log::info);
+    }
+}
+----
+====
+<1> 此示例将在重试前等待一秒钟
+<2> 它会先退避半秒，然后在重试之前乘以每次连续等待的退避期
+<3> 并且它会尝试最多重试请求 3 次
+<4> 给定 Retry 配置，将 `RetryOperator` 应用于我们的反应流很简单
+====
+
+如果你想看到它的实际效果，你需要在运行 `ResilientClientApplication` 时启用重试配置文件。
+
+=== Circuit Breakers
+
+在移动窗口中某些可配置百分比的请求失败后，断路器开始拒绝发往失败端点的请求。 所以，假设我们已经尝试发出三次请求，现在我们已经放弃了请求成功返回的任何希望。
+我们想防止任何进一步的请求失败，所以我们立即禁用该请求。 如果请求成功，我们会说电路已关闭。 由于请求失败，断路器进入打开状态，甚至停止尝试任何后续请求。
+他们立即失败。 我们在以下演示中通过让客户端尝试调用下游服务来演示这种效果，并且在多次失败尝试后，让这些调用被 `CallNotPermittedException` 拒绝。
+
+[source,java]
+----
+@Profile("cb")
+@Component
+public class CircuitBreakerClient {
+
+    private static final Logger log = LoggerFactory.getLogger(CircuitBreakerClient.class);
+
+    private final CircuitBreaker circuitBreaker = CircuitBreaker.of("greetings-cb", CircuitBreakerConfig
+            .custom()
+                    .failureRateThreshold(50) // <1>
+                    .recordExceptions(WebClientResponseException.InternalServerError.class) // <2>
+                    .slidingWindowSize(5) // <3>
+                    .waitDurationInOpenState(Duration.ofMillis(1000))
+                    .permittedNumberOfCallsInHalfOpenState(2)
+            .build());
+
+    private final WebClient http;
+
+    private final String uid = UUID.randomUUID().toString();
+
+    public CircuitBreakerClient(WebClient http) {
+        this.http = http;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        buildRequest()
+                .doOnError( ex -> {
+                  if( ex instanceof WebClientResponseException.InternalServerError) {
+                      log.error("oops! We got a " + ex.getClass().getSimpleName() + " from our network call. " +
+                              "This will probably be a problem but we might try again...");
+                  }
+
+                  if(ex instanceof CallNotPermittedException) {
+                      log.error("no more requests are permitted, now would be a good time to fail fast");
+                  }
+                })
+                .retry(5)
+                .subscribe();
+    }
+
+    private Mono<String> buildRequest() {
+        return GreetingClientUtils.getGreetingFor(this.http,this.uid,"cb")
+                .transformDeferred(CircuitBreakerOperator.of(this.circuitBreaker));
+    }
+}
+----
+====
+<1> 如果 50% 的尝试请求失败，断路器将进入打开状态...
+<2> 其中失败定义为 InternalServerError...
+<3> 在任何给定的五个请求中
+====
+
+如果你想看到它的实际效果，你需要在运行 `ResilientClientApplication` 时启用 `cb` 配置文件
+
+=== Rate Limiters
+
+速率限制器衡量我们在给定的时间间隔内可以发出多少请求。 我已将 Resilience4J `RateLimiter` 配置为具有非常低的阈值。
+在任何给定的时间内，它都不会允许超过 `10` 个请求。 我想对此进行测试，因此我发出了 `20` 个请求，在所有条件都相同的情况下，
+这些请求应该有足够的时间开始甚至返回响应。 如果出于某种原因，情况并非如此，您可以将 `limitForPeriod` 值降低到以下或将 `limitRefreshPeriod` 值从 `1` 秒提高到 `5` 秒。
+然后我配置了两个原子序数来跟踪有效响应和 `RequestNotPermitted` 响应。 如果我们观察到一个准确的值，那么我们将增加结果计数器。 否则，我们将增加错误计数器。
+
+[source,java]
+----
+@Component
+@Profile("rl")
+public class RateLimiterClient {
+
+    private static final Logger log = LoggerFactory.getLogger(RateLimiterClient.class);
+
+    private final String uid = UUID.randomUUID().toString();
+
+    public RateLimiterClient(WebClient http) {
+        this.http = http;
+    }
+
+    private final WebClient http;
+
+    private final RateLimiter rateLimiter =  RateLimiter.of("greetings-rl",RateLimiterConfig
+            .custom()
+                    .limitForPeriod(10) // <1>
+                    .limitRefreshPeriod(Duration.ofSeconds(1)) // <2>
+                    .timeoutDuration(Duration.ofMillis(25)) //
+            .build());
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() throws InterruptedException {
+        var max = 20;
+        var cdl = new CountDownLatch(max);
+        var result = new AtomicInteger();
+        var errors = new AtomicInteger();
+        for ( var i = 0; i < max; i++) {
+            this.buildRequest(cdl,result,errors,rateLimiter,i).subscribe();
+        }
+
+        cdl.await();
+
+        log.info("there were " + errors.get() + " errors");
+        log.info("there were " + result.get() + " results");
+    }
+
+    private Mono<String> buildRequest(CountDownLatch cdl, AtomicInteger results, AtomicInteger errors,
+                                      RateLimiter rateLimiter, int count) {
+        return GreetingClientUtils
+                .getGreetingFor(this.http,this.uid,"ok")
+                .transformDeferred(RateLimiterOperator.of(rateLimiter))
+                .doOnError(ex -> {
+                    errors.incrementAndGet();
+                    log.info("oops! got an error of type " + ex.getClass().getName());
+                })
+                .doOnNext(reply -> {
+                    results.incrementAndGet();
+                    log.info("count is " + count + " @ " + Instant.now() + "(" + reply + ")");
+                })
+                .doOnTerminate(cdl::countDown);
+    }
+}
+
+----
+====
+<1> 速率限制器启动，停止任何进一步的请求，如果请求超过十个请求......
+<2> 超过任何人秒
+====
+
+如果你想看到它的实际效果，你需要在运行 `ResilientClientApplication` 时启用 `rl` 配置文件。
+
+=== Bulkheads
+
+隔板背后的想法是确保我们限制所涉及的线程数。 我们不想产生太多线程并冒着超额订阅我们有限资源的风险。 显然，在一个真正的响应式应用程序中，
+拥有太多线程真的很难做到！ 涉及太多线程的方法很少，所以我不得不通过在同一个线程上运行所有内容来相当人为地限制这个例子。
+我什至不确定你是否需要这个！ 您会看到大约一半的请求是在隔板启动之前启动的。您可能需要调整机器上的 `maxWaitDuration` 值。
+太高的值和飞行中的请求将立即完成并释放线程。 价值太低，可能什么也做不了。
+
+[source,java]
+----
+@Profile("bulkhead")
+@Component
+public class BulkheadClient {
+
+    private static final Logger log = LoggerFactory.getLogger(BulkheadClient.class);
+
+    private final String uid = UUID.randomUUID().toString();
+
+    private final int availableProcessors = Runtime.getRuntime().availableProcessors();;
+
+    private final int maxCalls = availableProcessors /2 ;
+
+    private final WebClient http;
+
+    public BulkheadClient(WebClient http) {
+        this.http = http;
+    }
+
+    private final Bulkhead bulkhead = Bulkhead.of("greetings-bulkhead", BulkheadConfig
+            .custom()
+                    .writableStackTraceEnabled(true)
+                    .maxConcurrentCalls(this.maxCalls) // <1>
+                    .maxWaitDuration(Duration.ofMillis(5))
+            .build());
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        log.info("there are " + availableProcessors + " available, therefore there should be " + availableProcessors + " in the default thread pool");
+        var immediate = Schedulers.immediate();
+        for(var i = 0; i< availableProcessors; i ++) {
+            buildRequest(immediate,i).subscribe();
+        }
+    }
+
+    private Mono<String> buildRequest(Scheduler schedulers, int i) {
+        log.info("bulkhead attemp #" + i);
+        return GreetingClientUtils
+                .getGreetingFor(this.http,this.uid,"ok")
+                .transform(BulkheadOperator.of(this.bulkhead))
+                .subscribeOn(schedulers)
+                .publishOn(schedulers)
+                .onErrorResume(throwable -> {
+                    log.info("the bulkhead kicked in for request # " + i + ". Received the following exception "
+                    + throwable.getClass().getName() + ".");
+                    return Mono.empty();
+                })
+                .onErrorStop();
+
+    }
+}
+----
+====
+<1> 如果我们同时对下游流有超过 `maxCalls` 个并发调用，则 `Bulkhead` 启动
+====
+
+如果你想看到它的实际效果，你需要在运行 `ResilientClientApplication` 时启用隔板配置文件。
+
+== Hedging
+
+超时为我们提供了一种方法来限制我们在任何一个调用上花费的时间上限，并且通过这种方式，它们是一个有用的功能。 尝试在服务级别协议 (SLA) 内工作时，超时是一种有益的品质。
+从广义上讲，SLA 定义了给定服务在超出某些理解、商定甚至法律强制执行的协议之前可以花费多长时间。 超时为我们提供了一种自然的方式来尝试请求、
+对其计时并放弃它，然后重试请求或及时返回错误。 它们是我们工具箱的一个方便的补充，但它们并不总是唯一的，甚至不是最好的，试图保证及时响应的方法。
+
+假设我们的服务 A 有一个整秒的疯狂放纵 SLA。 对于大多数 API 来说，这是永恒的！ 假设我们的服务 A 依赖于另一个服务 B。在这种情况下，
+这意味着 B 服务的 SLA 只有半秒，因为我们需要能够尝试该调用，如果失败则放弃它，并且 - 希望 - 在满足服务 A 的 SLA 的同时再试一次。
+假设服务 B 依赖于另一个服务 C。这里的问题更糟：如果服务 C 需要在四分之一秒 (0.25) 内产生响应 B 有希望放弃第一个失败的请求并重试。 等等。
+这种动态造成了一种不公平的情况：下游服务仅因其与请求源的接近或距离而对 SLA 要求更高。 更糟糕的是，所有这些时间预算和体操只给我们买了两口苹果；
+如果一个请求失败，我们将重试一次。 这些结果并不理想。
+
+这是一句耳熟能详的格言：不要把所有的鸡蛋都放在一个篮子里。 不要只投资一只股票。 不要把农场赌在一局棋上。 我们想通过分散风险来对冲我们的赌注。
+具体而言，我们希望向同一服务的其他配置相同的服务实例发起并发请求，希望其中一个能够及时返回。 也许一个服务实例正在收集垃圾或被淹没。 他们当然不可能都倒下了！
+如果是，那就是一个完全不同的问题，也是一个完美的例子，说明为什么你应该将对冲与其他模式（如断路器）配对。
+
+对冲模式并不适合所有互动。 首先，它可能会造成浪费。 根据定义，您将多次发起相同的请求。 任何（或所有）重复请求都可能成功！
+在他的例子中，你不止一次地完成了同样的工作。
+
+它假定您正在对下游服务进行幂等调用。 如果请求可以重复多次而没有任何不当的可观察到的副作用，则称该请求是幂等的。
+那么，从客户的信用卡中扣款？ 你只能这样做一次。 或者根本没有。 但是，如果您向他们收取两次费用，大多数客户将不会感激！
+您正在阅读给定客户的个人资料信息吗？ 可以根据需要重复多次。 大多数数据库读取是幂等的。 一些写入也是幂等的。 假设您要将用户的用户名从 josh 更新为 Joshua。 只要您这样做，您的用户和数据库架构都不会关心您是否将其设置为 Joshua 一次或多次。 许多数据库支持版本控制的概念，如果写入是针对其版本与写入中指定的记录相匹配的记录，则只写成功。 每次以任何方式更新时，记录的版本都会增加。 write没有效果，但是没关系，因为write至少已经成功了一次，而且结果正是client想要的。
+
+如果您的请求是幂等的，那么对冲是一个很好的模式，可以在必要的超时之外使用。 这也是一种在反应式上下文中非常容易实现的模式。 这是基本方法：
+
+* 使用 `ReactiveDiscoveryClient` 加载给定服务的所有唯一实例（主机和端口）。 理想情况下，这将返回多个服务实例。
+* 选择一组随机的服务实例。 如果您不使用多个实例，您将无法从该模式中获益。 当然，具体数字取决于您。 您可能只有三个实例，
+因此决定向所有三个实例发起所有请求。 您可能更喜欢实例总数的百分比。 这取决于您拥有多少服务实例以及对重复网络流量的容忍度。
+如果您想要与超时相同的几率，请使用两个实例。 上述任何数量的实例都有利于您及时获得结果。
+* 为每个选定的服务实例设计一个请求
+* 使用 `Flux.first(Publisher<T>...)` 运算符要求 Reactor 启动所有 `N` 个请求并仅保留最快的反应流。 `Flux.first` 有点像 POSIX API 中的 `select()` ，
+它会返回第一个产生值的东西。 `Flux.first()` 更进一步，对剩余的实例施加背压，这样，如果他们还没有完成他们的工作，
+他们将有机会放弃他们的工作并避免任何进一步的浪费。
+
+该算法相对简单，所以我将其全部放在我们可以应用于任何 `WebClient` 的 `ExchangeFilterFunction` 中，它会为我们透明地处理它。 给定一个 `http://error-service/ok` 形式的 URL，
+过滤器将选择 `maxNodes` 个实例作为可用实例总数的一个子集，并尝试调用所有这些实例。
+
+[source,java]
+----
+public class HedgingExchangeFilterFunction implements ExchangeFilterFunction {
+
+    private static final Logger log = LoggerFactory.getLogger(HedgingExchangeFilterFunction.class);
+
+    private final ReactiveDiscoveryClient reactiveDiscoveryClient;
+
+    private final int timeoutInSeconds = 10;
+
+    private final int maxNodes;
+
+    public HedgingExchangeFilterFunction(ReactiveDiscoveryClient reactiveDiscoveryClient, int maxNodes) {
+        this.reactiveDiscoveryClient = reactiveDiscoveryClient;
+        this.maxNodes = maxNodes;
+    }
+
+    @Override
+    public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
+        var requestUrl = request.url();
+        var apiName = requestUrl.getHost();
+        return this.reactiveDiscoveryClient
+                .getInstances(apiName) // <1>
+                .collectList() // <2>
+                .map(HedgingExchangeFilterFunction::shuffle) // <3>
+                .flatMapMany(Flux::fromIterable) // <4>
+                .take(maxNodes) // <5>
+                .map(si -> buildUriFromServiceInstance(si,requestUrl)) // <6>
+                .map(uri -> invoke(uri,request,next)) // <7>
+                .collectList() // <8>
+                .flatMap(list -> Flux.firstWithSignal(list).timeout(Duration.ofSeconds(timeoutInSeconds)).singleOrEmpty()); // <9>
+
+    }
+
+    private static Mono<ClientResponse> invoke(URI uri,ClientRequest request,ExchangeFunction next) {
+        var newRequest = ClientRequest
+                .create(request.method(),uri)
+                .headers(h -> h.addAll(request.headers()))
+                .cookies(c -> c.addAll(request.cookies()))
+                .attributes(a -> a.putAll(request.attributes()))
+                .body(request.body())
+                .build();
+        return next
+                .exchange(newRequest)
+                .doOnNext(cr -> log.info("launching " + newRequest.url()));
+    }
+
+    private static <T> List<T> shuffle(List<T> tList) {
+        var newArrayList = new ArrayList<T>(tList);
+        Collections.shuffle(newArrayList);
+        return newArrayList;
+    }
+
+    private static URI buildUriFromServiceInstance(ServiceInstance server, URI originalRequestUrl) {
+        return URI.create(originalRequestUrl.getScheme() + "://" + server.getHost() + ":" + server.getPort()
+            + originalRequestUrl.getPath());
+    }
+}
+----
+====
+<1> 使用与 Eureka 服务注册表对话的 `ReactiveDiscoveryClient` 抽象实现查找所有服务实例
+<2> 将所有 `ServiceInstance` 组装成一个 `List<ServiceInstance>`...
+<3> 然后我们可以随机洗牌以避免在任何一个特定实例上乱码......
+<4> 将服务实例列表转回 `ServiceInstances` 的反应流...
+<5> 仅保留总实例的第一个 `maxNodes`...
+<6> `buildUriFromServiceInstance` 将 `ServiceInstance` 和原始 URI 转换为已解析的 URI，并带有主机的实际主机名或 IP。
+<7> 使用该已解析的 URI，我们能够将过滤器链中的 `ClientRequest` 转换为具有已解析主机的新 `ClientRequest`，然后继续反应式执行链，直到所有过滤器都已完成，最终返回 Mono<ClientResponse> .
+<8> 至此，我们有了一个 `Flux<Mono<ClientResponse>>`，这里我们想要的是一个 `List<Mono<ClientResponse>>`，所以我们使用 `collectList()` 来获取一个列表。
+<9> 然后，我们可以将列表提供给 `Flux.first` 运算符将启动所有反应流，并对除最快响应之外的所有反应流施加背压。
+====
+
+为了演示这种对冲功能的实际应用，您应该启动几个慢速服务实例。 我喜欢启动两个配置为延迟运行的慢速服务实例，这样它们在 `10` 秒内不会产生响应。
+然后我以默认的零秒延迟启动一个。 您可以使用以下 shell 脚本在类 UNIX 环境中使用 Bash 启动服务的慢速实例。
+将环境变量 `RSB_SLOW_SERVICE_DELAY` 更改为 `0` 以获得快速服务实例。
+
+[source,shell]
+----
+#!/usr/bin/env bash
+export RSB_SLOW_SERVICE_DELAY=10
+cd `dirname $0` && mvn spring-boot:run
+----
+
+启动后，比方说，两个慢速实例和一个快速实例，然后您可以配置 `WebClient` 以在调用服务时使用新过滤器。
+
+
+[source,java]
+----
+@SpringBootApplication
+public class HedgingApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(HedgingApplication.class);
+
+    public static void main(String[] args) {
+        SpringApplication.run(HedgingApplication.class,args);
+    }
+
+    // <1>
+    @Bean
+    HedgingExchangeFilterFunction hedgingExchangeFilterFunction(@Value("${rsb.lb.max-nodes:3}") int maxNodes, ReactiveDiscoveryClient client) {
+        return new HedgingExchangeFilterFunction(client,maxNodes);
+    }
+
+    // <2>
+    @Bean
+    WebClient client(WebClient.Builder builder,HedgingExchangeFilterFunction hedgingExchangeFilterFunction) {
+        return builder.filter(hedgingExchangeFilterFunction).build();
+    }
+
+    // <3>
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> hedgingApplicationListener(WebClient client) {
+        return event -> client
+                .get()
+                .uri("http://slow-service/greetings")
+                .retrieve()
+                .bodyToFlux(GreetingResponse.class)
+                .doOnNext(gr -> log.info(gr.toString()))
+                .doOnError(ex -> log.info(ex.toString()))
+                .subscribe();
+    }
+
+}
+----
+====
+<1> 我们需要一个已配置的 `HedgingExchangeFilterFunction` 实例。 我在这里为 maxNodes 属性设置了默认值 `3`。
+<2> 此处的定制与我们迄今为止使用负载平衡 `ExchangeFilterFunction` 在本章的大部分内容中所做的类似。
+<3> `WebClient` 的使用看起来与我们迄今为止看到的所有其他使用相同。
+====
+
+在此示例中，我们在应用程序中自定义了唯一的 `WebClient`。 回想一下我们之前所说的：有些情况下您不想使用对冲，例如在向客户信用卡收费时。
+因此，在这里创建您自己的自定义 Spring 限定符注释可能很有用，这样需要对冲 `WebClient` 的用例就可以使用那个，而其他每个用例都将获得负载平衡实例。
+亲爱的读者，我会把它作为一个（琐碎的）练习留给你。
+
+== Reactive Scatter/Gather
+
+使用响应式 API 最明显的好处之一是处理分散/聚集组合类型的任务。 分散/聚集工作描述了“分散”请求（启动许多并发请求）并在它们全部返回时“收集”结果，通常以一种编排大量结果的方式。
+分散工作意味着并发，这使收集任务复杂化。 在非响应式世界中，诸如 `ForkJoinPool`、`CyclicBarrier` 或 `CountDownLatch` 之类的东西很快就会成为你最好的朋友。
+事实上，启动工作和收集结果是一个日常用例，因此可以适应各种应用程序。 如果您使用 Spring Integration，在企业应用程序集成上下文中，
+您可以使用拆分器和聚合器在应用程序集成流中实现这一点。 如果您使用的是 Spring Batch，则可以通过在 Step 上配置远程分块或线程池来实现此目的。
+如果您正在使用像 Flowable 这样的工作流引擎或业务流程管理引擎，那么您会发现 BPMN 为最终连接起来的并行网关提供了明确的支持。
+但是所有这些都需要比我们正在尝试做的更多的额外工作，所以让我们开始吧。
+
+很久以前，在一个遥远的银河系，我在一个组织工作，该组织有一个非常复杂的框架，该框架构建在 Spring MVC 之上，支持这种“pods”的概念。
+Pod 需要它们的配置。 他们将页面的片段隔离成小区域，每个区域都可能有附属依赖项。 因此，想象一下典型电子商务引擎的产品搜索页面。
+您输入一个搜索查询，您的查询的所有结果都会显示出来。 但除了这些结果，电子商务引擎无疑会用相关搜索淹没你，也许还有关于产品的个性化信息，
+当你将鼠标悬停时，关于个别项目的产品评论，也许还有与每个产品相关的细节。 它还可能会向您显示您在 Facebook 上的哪些朋友也购买了给定的商品。
+其中一些数据是令人尴尬的并行——也就是说，你可以同时快速获取其他数据； 不依赖于一个数据来获得另一个数据。
+其他数据暗示了一种排序——一件事必须在另一件事之前加载到内存中。 反应式编程为我们提供了一个自然的习语来表达这种确切的数据流逻辑。
+
+让我们看一个示例，该示例从给定一些客户 ID 的客户服务中加载所有客户记录。 然后，对于每个客户，我们将加载关联的配置文件和关联的订单，并为客户、配置文件和所有“订单”的每个聚合发出一个新的聚合 `CustomerOrders`。
+
+[source,java]
+----
+public record CustomerOrders(Customer customer, Collection<Order> orders, Profile profile) {
+}
+----
+
+我构建了一个 `CrmClient`，它处理向适当的 HTTP 端点发出 HTTP 请求的样板工作。
+
+[source,java]
+----
+@Component
+public record CrmClient(WebClient http) {
+
+    // <1>
+    Flux<Customer> getCustomers(Integer[] ids) {
+        var customersRoot = "http://customer-service/customers?ids=" + StringUtils.arrayToDelimitedString(ids,",");
+        return http.get().uri(customersRoot).retrieve().bodyToFlux(Customer.class);
+    }
+
+    // <2>
+    Flux<Order> getOrders(Integer[] ids) {
+        var ordersRoot = "http://order-service/orders?ids=" + StringUtils.arrayToDelimitedString(ids,",");
+        return http.get().uri(ordersRoot).retrieve().bodyToFlux(Order.class);
+    }
+
+    // <3>
+    Mono<Profile> getProfile(Integer customerId) {
+        var profileRoot = "http://profile-service/profiles/{id}";
+        return http.get().uri(profileRoot,customerId).retrieve().bodyToMono(Profile.class);
+    }
+}
+----
+====
+<1> `getCustomers` 方法返回与给定 `ID` 值范围匹配的所有客户对象
+<2> `getOrders` 方法返回属于指定为 `getOrders` 方法参数的任何客户 `ID` 的所有订单
+<3> `getProfile` 方法返回给定单个客户 `ID` 的配置文件。
+====
+
+有趣的是，其中一些方法返回多个聚合的结果。 例如，
+`getOrders` 方法返回属于所有客户的所有订单，其 ID 被指定为
+范围。 `getCustomers` 方法返回其 ID 与任何指定为参数的 ID 相匹配的所有 `Customer`。 许多数据存储可容纳这些类型的查询。 在 SQL 中，它可以很简单
+as: `select * from orders where customer_fk IN ( .... )`. 尽可能利用这种方法来避免不必要的额外查询和网络往返。
+`getProfile` 方法返回单个配置文件，这很不幸，因为这意味着我们陷入了 `N+1` 问题：对于每个客户记录，我们必须发出网络请求。
+我们在 ORM 的上下文中看到了这种最坏情况下的性能特征，其中对于每个聚合，需要检索一定数量的相关记录。
+这种模式很浪费，原因有二：它需要更长的时间，因为通常 ORM 连续访问每条记录，以与要返回的记录数成比例的方式延长响应时间。
+它还会浪费网络资源，因为每条记录都需要与数据库进行网络往返。 在我们的示例中，我们将看到如果我们想要呈现 100 条客户记录，
+我们将需要对 getProfile 方法进行 100 次不同的调用。 这很不幸，但在这里，反应式编程也能帮我们很大的忙。
+我们可以使用反应式 WebClient 同时发起 100 个请求。 是的，这仍然是对网络资源的浪费，但它应该比串行发起 100 个网络请求要快得多。
+而且，当然，如果您向其发出这 100 个请求的服务是被动的，那么它们应该做好更好的准备来承受需求的泛滥！
+现在让我们转向如何在单个应用程序中组合这些方法。
+
+[source,java]
+----
+@Component
+public record ScatterGather(CrmClient client) {
+
+    private static final Logger log = LoggerFactory.getLogger(ScatterGather.class);
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void ready() {
+        var ids = new Integer[]{1,2,7,5}; // <1>
+
+        Flux<Customer> customerFlux = TimerUtils.cache(client.getCustomers(ids)); // <2>
+        Flux<Order> orderFlux = TimerUtils.cache(client.getOrders(ids));
+        Flux<CustomerOrders> customerOrdersFlux = customerFlux
+                .flatMap(customer -> { // <3>
+
+                    // <4>
+                    var monoOfListOfOrders = orderFlux
+                            .filter(o -> o.customerId().equals(customer.id()))
+                            .collectList();
+
+                    // <5>
+                    var profileMono = client.getProfile(customer.id());
+
+                    // <6>
+                    var customerMono = Mono.just(customer);
+
+                    // <7>
+                    return Flux.zip(customerMono,monoOfListOfOrders,profileMono);
+
+                }) // <8>
+                .map(tuple -> new CustomerOrders(tuple.getT1(),tuple.getT2(),tuple.getT3()));
+
+        for (var i = 0; i< 5 ; i++) { // <9>
+            run(customerOrdersFlux);
+        }
+    }
+
+
+    private void run(Flux<CustomerOrders> customerOrdersFlux) {
+        TimerUtils
+                .monitor(customerOrdersFlux)
+                .subscribe(customerOrders -> {
+                    log.info("-------------------");
+                    log.info(customerOrders.customer().toString());
+                    log.info(customerOrders.profile().toString());
+                    customerOrders.orders().forEach(order -> log.info(customerOrders.customer().id() + ": " + order));
+                });
+    }
+}
+----
+====
+<1> 我有一份我们要调查的客户记录清单
+<2> 我正在使用 TimerUtils.cache 方法来记忆反应流的返回值，这样就不会再次获取结果
+<3> 给客户...
+<4> 在返回的订单流中查找其 customerId 属性与该特定客户 ID 匹配的所有订单，并将它们具体化为 Mono<List<Order>>。 该列表尚未解决，但我们希望它很快就会在我们需要时解决。
+<5> 加载每个单独的配置文件..
+<6> 让我们将客户包装到反应流中，这样我们就有了三个 Publisher<T>：`Mono<Customer>`、一个 `Mono<Profile>` 和一个 `Flux<Order>`。 这些代表三个异步事物。
+<7> 我们将使用 zip 运算符等待所有三个异步事物的解决，然后生成一个 `Flux<Tuple3<T1,T2,T3>>`。 zip 运算符具有用于一、二、三……最多八个单独元素的重载方法。 您将获得 Tuple1、Tuple2、Tuple3 等。如果需要，您可以使用八个以上的反应流，但您不会获得在前八个特例类中看到的安全类型和参数泛化。
+<8> 这一行是所有内容的集合：我们得到了一个 Tuple3<Customer, Collection<Order>, Profile> 然后可以解压每个构成值以创建一个新的 CustomerOrders 记录。
+<9> 程序的第一次运行将比后续运行慢，这得益于缓存。
+====
+
+还不错吧？ 看不到一个 `Executor`、`Thread`、`CountDownLatch`！ 您可以使用 `zip`、`cache` 和 `flatMap` 等 Reactor 运算符来缩短各种组合工作的时间。 我们还研究了一些 API 设计策略，以简化此类分散/聚集工作。
+
+== API Gateways with Spring Cloud Gateway
+
+API 网关位于客户端和服务之间。 它可以充当反向代理，将请求从客户端路由到服务。 它非常适合执行跨领域任务，例如身份验证、路由、有效负载和协议转换、速率限制和重定向。 API 网关充当客户端和后端服务之间的中介。 它们很自然地可以使用我们在本章中介绍的一些技术来提供不同后端服务的组合视图。 API 网关也是集中身份验证和路由等内容的好地方。 API 网关可以转换后端协议，如 RSocket，并使它们适应客户端友好的协议，如 HTTP 或 WebSockets。 它们还减少了攻击的表面积，隔离后端服务，就像外观隔离面向对象编程中的私有实现细节一样。
+
+Spring Cloud Gateway 是一个专门用于构建 API 网关的框架，它构建在 Spring Webflux 之上。 它的核心是反应性的。 Spring Cloud Gateway 的反应性是其优势之一：它可以使用任意下游服务并以更好的可扩展性和效率将结果流回。
+
+您需要将以下依赖项添加到本节的类路径中：
+
+* org.springframework.cloud:spring-cloud-starter-gateway
+* org.springframework.boot:spring-boot-starter-data-redis-reactive
+* org.springframework.boot:spring-boot-starter-security
+
+此外，我们要禁用配置经典 Netflix Ribbon 负载均衡器的自动配置。 确保将以下内容添加到您的 `application.properties`：
+
+[source,properties]
+----
+spring.cloud.loadbalancer.ribbon.enabled=false
+----
+
+有很多方法可以使用 Spring Cloud Gateway。 在我看来，它是 Spring 生态系统中的一段独特代码。
+它同样可以用作基础设施，几乎完全可以使用 YAML 和属性文件进行配置，或者通过 Java DSL 作为一个库，您可以像 Java 应用程序中的任何其他库一样使用它。
+我们将从 Java DSL 开始，因为我发现它使概念更直接。
+
+当我们查看这些示例时，请注意各个示例上的 @Profile 注释，因为您需要激活该配置文件才能运行该示例。
+
+=== A Microproxy
+
+Spring Cloud Gateway 最直接的用途就是设置代理。 简单的。 这里没什么好看的。 一个请求进来，然后被原封不动地转发到其他端点。
+运行此示例并访问本地主机上日志中显示的任何端口的应用程序。 你会看到 Spring 主页！ 一切。 CSS。 图片。 JavaScript。 一切都在那里。
+您甚至可以开始四处点击，一切都会正常进行。
+
+[source,java]
+----
+@Profile("routes-simple")
+@Configuration
+public class SimpleProxyRouteConfiguration {
+
+    @Bean // <1>
+    RouteLocator gateway(RouteLocatorBuilder builder) {
+        return builder
+                .routes()
+                .route(routeSpec -> routeSpec // <2>
+                        .alwaysTrue() // <3>
+                        .uri("https://spring.io") // <4>
+                )
+                .build();
+    }
+}
+----
+====
+<1> Spring Cloud Gateway 应用程序的核心是 RouteLocator 类型的 bean。 `RouteLocator` 是一个非常简单的接口，只有一个方法，`getRoutes()`。 您需要 `RouteLocatorBuilder` 来构建路线。
+<2> 在 Spring Cloud Gateway 中，路由描述了对系统的请求、对该请求起作用的可选过滤器（未显示）以及目标 URI。 在这个例子中，我们只有一条路线。
+<3> 我们使用 `alwaysTrue()` 谓词来匹配任何传入请求...
+<4> 并将该请求转发到下游 URI，`https://spring.io`。
+====
+
+多田！ 一个非常简单的代理。 还不错吧？
+
+您可以使用许多有用的谓词来匹配传入的请求。 您可以匹配 cookie、请求参数、请求是在特定时间之前还是之后、主机名、请求路径的内容等等。 如果没有内置谓词可以解决问题，那么您可以插入自定义谓词。
+
+这是一个非常微不足道的例子，但它应该强调什么是可能的。 代理对请求不做任何事情，除了主机和端口之外，它完全保持不变。 我们代理的站点使用图像和 CSS 的相对 URL，因此该站点的代理版本中的几乎所有内容都可以很好且快速地通过。
+
+=== Predicates
+
+Spring Cloud Gateway 路由匹配传入请求。 有大量内置谓词可用于匹配传入请求。
+
+[source,java]
+----
+@Profile("predicates")
+@Configuration
+public class PredicateConfiguration {
+
+    @Bean
+    RouteLocator predicatesGateway(RouteLocatorBuilder builder) {
+        return builder
+                .routes()
+                .route(routeSpec -> routeSpec
+                        .path("/") // <1>
+                        .uri("http://httpbin.org/")
+                )
+                .route(routeSpec -> routeSpec
+                        .header("X-RSB") // <2>
+                        .uri("http://httpbin.org/")
+                )
+                .route(routeSpec -> routeSpec
+                        .query("uid") // <3>
+                        .uri("http://httpbin.org/")
+                )
+                .route(routeSpec -> routeSpec // <4>
+                        .asyncPredicate(serverWebExchange -> Mono.just(Math.random() > .5)).and().path("/test")
+                        .uri("http://httpbin.org/")
+                )
+                .build();
+    }
+}
+----
+====
+<1> 匹配传入请求的路径是否与特定模式匹配...
+<2> 匹配传入请求是否具有特定标头...
+<3> 匹配传入请求是否存在查询参数 (?uid=...)...
+<4> 如果预先提供的谓词都不起作用，您可以使用 and() 或 or() 组合它们，并且您可以提供自己的 `AsyncPredicate` 实例。
+在此示例中，我匹配请求是否具有 `/test` 路径，并且任意地通过测试随机数是否大于 `0.5` 来进行匹配。
+====
+
+=== Filters
+
+在这种情况下，我们将根 `/` 之后的所有内容代理到 `https://spring.io`，即 `spring.io` 站点的根。 但是假设我们想将对本地主机上自定义路径的请求代理到自定义下游路径？
+我们需要将传入的请求路径转换为适合下游 HTTP 端点的路径。
+
+在这里，Spring Cloud Gateway 过滤器发挥了作用。 让我们看另一个例子。
+
+[source,java]
+----
+@Profile("routes-filter-simple")
+@Configuration
+public class SimpleProxyFilterRouteConfiguration {
+
+    @Bean
+    RouteLocator gateway(RouteLocatorBuilder builder) {
+        return builder
+                .routes()
+                .route(routeSpec -> routeSpec
+                        .path("/http") // <1>
+                        .filters(fs -> fs.setPath("/forms/post")).uri("http://httpbin.org")
+                )
+                .build();
+    }
+}
+----
+====
+<1> 此示例将所有传入请求匹配到 `http://localhost:8080/http` 并将路径（端口后的所有内容）转换为 `/forms/post`。
+结果是一个发往 `http://httpbin.org/forms/post` 的请求。 该示例非常简单，并且没有动态 URL。
+如果我们有一些动态行为要重写，我们可以使用 `rewritePath` 运算符使用正则表达式重写 URL。
+====
+
+匹配传入请求后，您可以在使用我们刚刚检查过的 `setPath` 过滤器等过滤器将其发送到下游目的地之前对其进行处理。
+有大量预先提供的过滤器，但您也可以插入自己的过滤器。
+
+[source,java]
+----
+@Profile("routes-filters")
+@Configuration
+public class FilterConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(FilterConfiguration.class);
+
+    @Bean
+    RouteLocator gateway(RouteLocatorBuilder builder) {
+        return builder.routes()
+                .route(routeSpec -> routeSpec
+                        .path("/")
+                        .filters(fs -> fs
+                                .setPath("/forms//post") // <1>
+                                .retry(10) // <2>
+                                .addRequestParameter("uid", UUID.randomUUID().toString()) // <3>
+                                .addResponseHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,"*") // <4>
+                                .filters(((exchange, chain) -> { // <5>
+                                    var uri = exchange.getRequest().getURI();
+                                    return chain.filter(exchange)
+                                            .doOnSubscribe(sub -> log.info("before: " + uri))
+                                            .doOnEach(signal -> log.info("processing: " + uri))
+                                            .doOnTerminate(() -> log.info("after: " + uri + ". " + "The response status code was"
+                                            + exchange.getResponse().getStatusCode() + "."));
+
+                                }))
+                        )
+                        .uri("http://httpbin.org")
+                )
+                .build();
+    }
+}
+----
+====
+<1> `setPath` 过滤器将传入的 URI 路径替换为您指定的路径
+<2> 再试一次！ 这只是告诉你，如果一开始你没有成功，retry()，retry()，retry()！ 是的，我和您一样对许多响应式重试请求的奇妙方法印象深刻。
+<3> `addRequestParameter` 运算符添加请求参数 - `?uid=....` - 到传出请求
+<4> `addResponseHeader` 运算符向传出请求添加请求标头。 在安全上下文中，这是很自然的事情，甚至对于更常见的事情，例如使用跨域请求脚本使 JavaScript 客户端可以访问服务。
+<5> 如果没有一个预先提供的过滤器适合你，那么贡献一个 `GatewayFilter` 是微不足道的，它的签名应该看起来很熟悉：它与 Spring Webflux 中的 `WebFilter` 相同
+====
+
+我最喜欢的过滤器之一是 `RateLimiter`。 是的，另一个限速器！ 这个速率限制器非常方便，因为它使我们能够更好地控制速率限制的粒度。 当我们查看 `Resilience4J` 的速率限制时，
+我们限制了客户端可以向下游服务发出的请求数量。 使用 Spring Cloud Gateway，我们可以限制在一个地方有多少请求可以通过下游服务。
+我们可以将当前计数和报价存储在 Redis 服务中，这意味着所有 Spring Cloud Gateway 节点都将看到相同的计数。
+如果您选择向集成中添加更多 Spring Cloud Gateway 节点，则不会有压倒下游服务的风险； 这样做不会突然增加下游允许的请求。
+
+[source,java]
+----
+@Profile("rl")
+@Configuration
+public class RateLimiterConfiguration {
+
+    @Bean
+    RedisRateLimiter redisRateLimiter() {
+        return new RedisRateLimiter(5,7);
+    }
+    @Bean
+    RouteLocator gateway(RouteLocatorBuilder builder) {
+        return builder
+                .routes()
+                .route(routeSpec -> routeSpec
+                        .path("/")
+                        .filters(fs -> fs
+                                .setPath("/ok")
+                                .requestRateLimiter(rl -> rl
+                                        .setRateLimiter(redisRateLimiter()) // <1>
+                                        .setKeyResolver(new PrincipalNameKeyResolver()) // <2>
+
+                                ))    .
+                        uri("ls://error-service"))
+                .build();
+    }
+}
+----
+====
+<1> 限速器需要一个限速器来处理限速的工作。 RedisRateLimiter 实例在此处配置为每秒处理五个请求，可能每秒突发七个请求。 这些是非常放纵的数字！
+不利于生产，但非常适合演示。 在确定哪些数字最适合您的环境后，请随意调高它们。
+<2> 鉴于 Redis 是一个键/值存储，速率限制器需要一种策略来确定哪个键应该管理反映每秒进入应用程序的流量的原子序数。
+如果只有一个密钥，则意味着所有用户每秒将共享相同的五个请求。 Spring Cloud Gateway 将拒绝超出此范围的任何请求。
+我们正在使用一种更动态的策略：我们正在根据当前经过身份验证的 Principal 对象来预测密钥。
+====
+
+这个例子应该相当简单。 可能不是的是 `java.security.Principal` 是如何以某种方式混在一起的。 Spring Security，自然而然。
+你以前见过这样的配置！
+
+[source,java]
+----
+@Configuration
+public class SecurityConfiguration {
+
+    @Bean
+    SecurityWebFilterChain authorization(ServerHttpSecurity http) {
+        return http
+                .httpBasic(c -> Customizer.withDefaults())
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .authorizeExchange(ae -> ae.pathMatchers("/rl").authenticated() // <1>
+                        .anyExchange().permitAll())
+                .build();
+    }
+
+    @Bean
+    MapReactiveUserDetailsService authentication() {
+        return new MapReactiveUserDetailsService(
+                User.withDefaultPasswordEncoder().username("jlong").password("pw").roles("USER").build()
+        );
+    }
+}
+----
+====
+<1> 我们要确保 `/rl` 端点（由 Spring Cloud Gateway 公开）经过身份验证。 其他一切都敞开着。
+====
+
+现在，如果客户端尝试向此端点发出未经身份验证或超过速率限制器将强制执行的每秒预算的请求，则该请求将被拒绝。
+
+=== Discovery and Routing
+
+到目前为止，每个下游 URI 都在公共互联网上。 您更有可能使用 Spring Cloud Gateway 作为组织中其他微服务的前端。 Spring Cloud Gateway 可以将请求代理到 HTTP 和 WebSocket 端点。
+Spring Cloud Gateway 还支持自定义 URI 模式 - `lb://`。 以此模式开头的 URI 是负载平衡的。 因此，`lb://error-service` 最终会成为使用 Spring Cloud Load Balance 的客户端负载均衡 HTTP 请求。
+
+[source,java]
+----
+@Profile("routes-lb")
+@Configuration
+public class LoadBalancingProxyRouteConfiguration {
+
+    @Bean
+    RouteLocator gateway(RouteLocatorBuilder builder) {
+        return builder
+                .routes()
+                .route(rs -> rs.alwaysTrue().uri("lb://error-service"))
+                .build();
+    }
+}
+----
+
+您可以让 Spring Cloud Gateway 为服务注册表中注册的所有服务自动设置路由。 将以下属性添加到您的 `application.properties`：
+
+[source,properties]
+----
+spring.cloud.gateway.discovery.locator.enabled=true
+spring.cloud.gateway.discovery.locator.lower-case-service-id=true
+----
+
+现在，您应该可以访问 `http://localhost:8080/error-service/ok`，您应该会得到响应，就好像您直接访问运行错误服务的主机和端口一样 然后去了 `/ok` 路径。
+
+=== Events
+
+Spring Cloud Gateway 会密切关注任何可能导致路由失效的情况。 如果服务实例从注册表中消失了怎么办？ 如果 Spring Cloud Gateway 中的路由发生变化怎么办？
+如果您侦听 `RefreshRoutesResultEvent`，Spring Cloud Gateway 可以通知您其工作路由集的任何更改。
+
+[source,java]
+----
+@Profile("events")
+@Configuration
+public class EventsConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(EventsConfiguration.class);
+
+    @EventListener
+    public void refreshRoutesResultEvent(RefreshRoutesResultEvent rre) {
+        log.info(rre.getClass().getSimpleName());
+        Assert.state(rre.getSource() instanceof CachingRouteLocator, () ->
+                "the source must be an instance of " + CachingRouteLocator.class.getName());
+
+        CachingRouteLocator source = (CachingRouteLocator) rre.getSource();
+        Flux<Route> routes = source.getRoutes();
+        routes.subscribe(
+                route -> log.info(route.getClass() + ":" + route.getMetadata().toString() + ":" + route.getFilters())
+        );
+    }
+
+    @Bean
+    RouteLocator gateway(RouteLocatorBuilder rlb) {
+        return rlb
+                .routes()
+                .route(routeSpec -> routeSpec
+                        .path("/")
+                        .filters(fp -> fp.setPath("/guides"))
+                        .uri("http://spring.io"))
+                .build();
+    }
+}
+----
+
+值得注意的是，Spring Cloud Gateway 路由在初始构建后可能会发生变化。
+
+=== Alternative Configuration
+
+到目前为止，我们已经使用 `RouteLocatorBuilder` 使用 Java 代码构建我们的路线。 但这不是唯一的前进方向。
+回想一下 Spring Cloud Gateway 的核心是 `RouteLocator` bean。 RouteLocator 定义很简单：
+
+[source,java]
+----
+public interface RouteLocator {
+
+	Flux<Route> getRoutes();
+
+}
+----
+
+可以想象，我们自己构建这个接口的实现并不多。 事实上，Spring Cloud Gateway 让它变得微不足道！
+
+[source,java]
+----
+@Configuration
+@Profile("custom-route-locator")
+public class CustomRouteLocatorConfiguration {
+
+    @Bean
+    RouteLocator customRouteLocator(SetPathGatewayFilterFactory factory) {  // <1>
+
+        var setPathGatewayFilter = factory.apply(config -> config.setTemplate("/guides")); // <2>
+        var orderedGatewayFilter = new OrderedGatewayFilter(setPathGatewayFilter,0); // <3>
+        var singleRoute = Route // <4>
+                .async()
+                .id("spring-io-guides")
+                .asyncPredicate(serverWebExchange -> Mono.just(true))
+                .filter(orderedGatewayFilter)
+                .uri("https://spring.io/")
+                .build();
+
+        return () -> Flux.just(singleRoute); // <5>
+    }
+}
+----
+====
+<1> 我们需要自己负责连接过滤器。 幸运的是，这很容易。 您只需注入过滤器关联的 `GatewayFilterFactory` 实例的实例。 在这种情况下，我们将配置 `setPath` 过滤器，因此我们需要 `SetPathGatewayFilterFactory`。
+<2> `GatewayFilterFactory` 使用 `apply` 方法制造给定过滤器的新实例。
+<3> 重要的是，您需要使用 `OrderedGatewayFilter` 包装 `GatewayFilterFactory` 实例。 除非您这样做，否则过滤器将无法工作！
+<4> 然后我们可以使用方便的 `Route` 构建器类来构建我们想要的特定 `Route` 的实例。
+<5> 最简单的部分是满足 `RouteLocator` 契约； 这是一个函数式界面，所以这绝对是一件轻而易举的事！
+====
+
+运行它，它将像您使用 `RouteLocatorBuilder` 所做的任何事情一样工作。 这种轻松创建自定义 `RouteLocator` bean 的能力开启了很多可能性。 谁能说驱动这些特定路由的信息不能来自数据库或某些配置文件？
+
+事实上，配置来自配置文件是很普遍的，有时甚至是预期的。 Spring Cloud Gateway 也通过基于属性或基于 YML 的配置格式支持大多数过滤器。
+
+`application-gateway.yml`  您需要启用 `gateway` 配置文件才能加载这些特定于配置文件的配置值。
+
+[source,yaml]
+----
+spring:
+    application:
+      name: gateway
+    cloud:
+      gateway:
+        routes:
+          - id: guides
+            uri: https://spring.io
+            predicates:
+              - After=2020-09-02T00:00:00.000-00:00[America/Denver]
+----
+
+另一个独特且有用的可能性是您可以对该配置进行版本控制，然后通过 Spring Cloud Config Server 将我们的客户端应用程序连接到该配置。 我们可以更进一步，更改版本控制系统中的配置，并强制客户端刷新他们的路由工作视图。 当然，这会触发我们之前看到的 ApplicationEvent 类型，这将为我们提供一个动态的、可重新配置的路由基础设施。 可能性是无止境！ 我在我的早期书籍 Cloud Native Java 中介绍了 Spring Cloud Configuration Server，该书着眼于微服务和与微服务相邻的用例。
+
+== 小结
+
+在本章中，我们回顾了编排其他服务时响应式编程的大量有用应用。 可以说本书的大部分内容都是关于构建服务的。 在本章中，我们研究了响应式编程在为这些服务构建客户端时带来的功能。
+

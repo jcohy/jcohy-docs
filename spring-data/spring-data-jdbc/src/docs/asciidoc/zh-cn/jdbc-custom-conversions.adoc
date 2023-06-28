@@ -1,0 +1,77 @@
+[[jdbc.custom-converters]]
+// for backward compatibility only:
+[[jdbc.entity-persistence.custom-converters]]
+== 自定义转换
+
+Spring Data JDBC 允许注册自定义转换器（converter），以影响数据库中值的映射方式。目前，转换器只适用于属性级别。
+
+[[jdbc.custom-converters.writer]]
+=== 使用已注册的 Spring 转换器编写属性
+
+下面的例子显示了一个 `Converter` 的实现，它将一个 `Boolean` 对象转换为一个 `String` 值。
+
+[source,java]
+----
+import org.springframework.core.convert.converter.Converter;
+
+@WritingConverter
+public class BooleanToStringConverter implements Converter<Boolean, String> {
+
+    @Override
+    public String convert(Boolean source) {
+        return source != null && source ? "T" : "F";
+    }
+}
+----
+
+这里有几件事情需要注意。`Boolean` 和 `String` 都是简单的类型，因此 Spring Data 需要提示这个 converter 应该在哪个方向上应用（读取或写入）。通过用 `@WritingConverter` 来注解这个 converter，指示 Spring Data 在数据库中将每个 `Boolean` 属性写成 `String`。
+
+[[jdbc.custom-converters.reader]]
+=== 使用 Spring Converter 进行读
+
+下面的例子显示了一个 `Converter` 的实现，它将 `String` 转换为 `Boolean`。
+
+[source,java]
+----
+@ReadingConverter
+public class StringToBooleanConverter implements Converter<String, Boolean> {
+
+    @Override
+    public Boolean convert(String source) {
+        return source != null && source.equalsIgnoreCase("T") ? Boolean.TRUE : Boolean.FALSE;
+    }
+}
+----
+
+这里有几件事情需要注意。`String` 和 `Boolean` 都是简单的类型，因此 Spring Data 需要提示这个 converter 应该在哪个方向上应用（读或写）。通过用 `@ReadingConverter` 来注解这个 converter，指示 Spring Data 从数据库中转换每个应该被分配给 `Boolean` 属性的 `String` 值。
+
+[[jdbc.custom-converters.configuration]]
+=== 用 JdbcConverter 注册 Spring Converter
+
+[source,java]
+----
+class MyJdbcConfiguration extends AbstractJdbcConfiguration {
+
+    // …
+
+    @Override
+    protected List<?> userConverters() {
+	return Arrays.asList(new BooleanToStringConverter(), new StringToBooleanConverter());
+    }
+
+}
+----
+
+NOTE: 在 Spring Data JDBC 的先前版本中，建议直接覆写 `AbstractJdbcConfiguration.jdbcCustomConversions()`。这不再是必要的，甚至不建议这样做，
+因为该方法集合了用于所有数据库的 conversion、由所用 `Dialect` 注册的 conversion 和由用户注册的 conversion。如果你从旧版本的 Spring Data JDBC 迁移过来，
+并且 `AbstractJdbcConfiguration.jdbcCustomConversions()` 被覆写，那么来自你的 `Dialect` 的 conversion 将不会被注册。
+
+[[jdbc.custom-converters.jdbc-value]]
+// for backward compatibility only:
+[[jdbc.entity-persistence.custom-converters.jdbc-value]]
+=== JdbcValue
+
+值转换（Value conversion）使用 `JdbcValue` 来充实传播到JDBC操作中的具有 `java.sql.Types` 类型的值。如果你需要指定一个 JDBC 特定的类型，而不是使用类型派生，请注册一个自定义 write converter。
+这个转换器应该将值转换为 `JdbcValue`，它有一个 value 和实际的 `JDBCType` 的字段。
+
+include::{spring-data-commons-location}/custom-conversions.adoc[leveloffset=+2]

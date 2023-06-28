@@ -2,8 +2,6 @@
 = MongoDB Repositories
 
 [[mongo-repo-intro]]
-== Introduction
-
 This chapter points out the specialties for repository support for MongoDB.
 This chapter builds on the core repository support explained in <<repositories>>.
 You should have a sound understanding of the basic concepts explained there.
@@ -53,14 +51,14 @@ Right now this interface serves only to provide type information, but we can add
 To start using the repository, use the `@EnableMongoRepositories` annotation.
 That annotation carries the same attributes as the namespace element.
 If no base package is configured, the infrastructure scans the package of the annotated configuration class.
-The following example shows how to use Java configuration for a repository:
+The following example shows how to configuration your application to use MongoDB repositories:
 
-.Java configuration for repositories
 ====
-[source,java]
+.Java
+[source,java,role="primary"]
 ----
 @Configuration
-@EnableMongoRepositories
+@EnableMongoRepositories("com.acme.*.repositories")
 class ApplicationConfig extends AbstractMongoClientConfiguration {
 
   @Override
@@ -70,17 +68,13 @@ class ApplicationConfig extends AbstractMongoClientConfiguration {
 
   @Override
   protected String getMappingBasePackage() {
-    return "com.oreilly.springdata.mongodb";
+    return "com.acme.*.repositories";
   }
 }
 ----
-====
 
-If you would rather go with XML based configuration add the following content:
-
-.General MongoDB repository Spring XML configuration
-====
-[source,xml]
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -115,14 +109,14 @@ Consequently, accessing the second page of `Person` objects at a page size of 10
 ====
 [source,java]
 ----
-@RunWith(SpringRunner.class)
+@ExtendWith(SpringExtension.class)
 @ContextConfiguration
-public class PersonRepositoryTests {
+class PersonRepositoryTests {
 
     @Autowired PersonRepository repository;
 
     @Test
-    public void readsFirstPageCorrectly() {
+    void readsFirstPageCorrectly() {
 
       Page<Person> persons = repository.findAll(PageRequest.of(0, 10));
       assertThat(persons.isFirstPage()).isTrue();
@@ -302,6 +296,55 @@ lower / upper bounds (`$gt` / `$gte` & `$lt` / `$lte`) according to `Range`
 |===
 
 NOTE: If the property criterion compares a document, the order of the fields and exact equality in the document matters.
+
+[[mongodb.repositories.queries.update]]
+=== Repository Update Methods
+
+You can also use the keywords in the preceding table to create queries that identify matching documents for running updates on them.
+The actual update action is defined by the `@Update` annotation on the method itself, as the following listing shows.
+Note that the naming schema for derived queries starts with `find`.
+Using `update` (as in `updateAllByLastname(...)`) is allowed only in combination with `@Query`.
+
+The update is applied to *all* matching documents and it is *not* possible to limit the scope by passing in a `Page` or by using any of the <<repositories.limit-query-result,limiting keywords>>.
+The return type can be either `void` or a _numeric_ type, such as `long`, to hold the number of modified documents.
+
+.Update Methods
+====
+[source,java]
+----
+public interface PersonRepository extends CrudRepository<Person, String> {
+
+  @Update("{ '$inc' : { 'visits' : 1 } }")
+  long findAndIncrementVisitsByLastname(String lastname); <1>
+
+  @Update("{ '$inc' : { 'visits' : ?1 } }")
+  void findAndIncrementVisitsByLastname(String lastname, int increment); <2>
+
+  @Update("{ '$inc' : { 'visits' : ?#{[1]} } }")
+  long findAndIncrementVisitsUsingSpELByLastname(String lastname, int increment); <3>
+
+  @Update(pipeline = {"{ '$set' : { 'visits' : { '$add' : [ '$visits', ?1 ] } } }"})
+  void findAndIncrementVisitsViaPipelineByLastname(String lastname, int increment); <4>
+
+  @Update("{ '$push' : { 'shippingAddresses' : ?1 } }")
+  long findAndPushShippingAddressByEmail(String email, Address address); <5>
+
+  @Query("{ 'lastname' : ?0 }")
+  @Update("{ '$inc' : { 'visits' : ?1 } }")
+  void updateAllByLastname(String lastname, int increment); <6>
+}
+----
+
+<1> The filter query for the update is derived from the method name.
+The update is "`as is`" and does not bind any parameters.
+<2> The actual increment value is defined by the `increment` method argument that is bound to the `?1` placeholder.
+<3> Use the Spring Expression Language (SpEL) for parameter binding.
+<4> Use the `pipeline` attribute to issue <<mongo-template.aggregation-update,aggregation pipeline updates>>.
+<5> The update may contain complex objects.
+<6> Combine a <<mongodb.repositories.queries.json-based,string based query>> with an update.
+====
+
+WARNING: Repository updates do not emit persistence nor mapping lifecycle events.
 
 [[mongodb.repositories.queries.delete]]
 === Repository Delete Queries
@@ -632,7 +675,7 @@ Page<FullTextDocument> page = repository.findAllBy(criteria, PageRequest.of(1, 1
 List<FullTextDocument> result = repository.findByTitleOrderByScoreDesc("mongodb", criteria);
 ----
 
-include::../{spring-data-commons-docs}/repository-projections.adoc[leveloffset=+2]
+include::{spring-data-commons-location}/repository-projections.adoc[leveloffset=+2]
 
 include::./mongo-repositories-aggregation.adoc[]
 

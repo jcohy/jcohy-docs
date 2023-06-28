@@ -1,0 +1,198 @@
+[[envers]]
+= Spring Data Envers
+
+[[envers.what.is.spring.data]]
+== 什么是 Spring Data Envers?
+
+Spring Data Envers 可以使典型的 Envers 查询在 Spring Data JPA 的存储库中可用。 它与其他 Spring Data 模块的不同之处在于它总是与另一个 Spring Data Module：Spring Data JPA 结合使用。
+
+[[envers.what]]
+== 什么使 Envers?
+
+Envers 是一个 https://hibernate.org/orm/envers/[Hibernate 模块] ，它向 JPA 实体添加审计功能。 本文档假设您熟悉 Envers，就像 Spring Data Envers 依赖于正确配置的 Envers 一样。
+
+[[envers.configuration]]
+== Configuration
+
+要使用 Spring Data Envers，您需要一个在类路径上带有 Spring Data JPA 项目的 spring-data-envers 依赖：
+
+====
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>org.springframework.data</groupId>
+    <artifactId>spring-data-envers</artifactId>
+    <version>{version}</version>
+  </dependency>
+
+</dependencies>
+----
+====
+
+这也将`hibernate-envers` 作为一个临时依赖引入到项目中。
+
+要启用 Spring Data Envers 和 Spring Data JPA，我们需要配置两个 bean 和一个特殊的 `repositoryFactoryBeanClass`：
+
+====
+[source,java]
+----
+@Configuration
+@EnableEnversRepositories
+@EnableTransactionManagement
+public class EnversDemoConfiguration {
+
+	@Bean
+	public DataSource dataSource() {
+
+		EmbeddedDatabaseBuilder builder = new EmbeddedDatabaseBuilder();
+		return builder.setType(EmbeddedDatabaseType.HSQL).build();
+	}
+
+	@Bean
+	public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
+
+		HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
+		vendorAdapter.setGenerateDdl(true);
+
+		LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
+		factory.setJpaVendorAdapter(vendorAdapter);
+		factory.setPackagesToScan("example.springdata.jpa.envers");
+		factory.setDataSource(dataSource());
+		return factory;
+	}
+
+	@Bean
+	public PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
+
+		JpaTransactionManager txManager = new JpaTransactionManager();
+		txManager.setEntityManagerFactory(entityManagerFactory);
+		return txManager;
+	}
+}
+----
+====
+
+要实际使用 Spring Data Envers，请将一个或多个存储库添加到 {spring-data-commons-javadoc-base}/org/springframework/data/repository/history/RevisionRepository.html[RevisionRepository] 中，方法是将其添加为扩展接口：
+
+====
+[source,java]
+----
+interface PersonRepository
+    extends CrudRepository<Person, Long>,
+    RevisionRepository<Person, Long, Long> // <1>
+{}
+----
+<1> 第一个类型参数（`Person`）表示实体类型，第二个（`Long`）表示 `id` 属性的类型，最后一个（`Long`）是修订号的类型。 对于默认配置的 Envers，revision number (修订号)应为 `Integer` 或 `Long`。
+====
+
+该存储库的实体必须是启用了 Envers 审计的实体（即，它必须具有 `@Audited` 注解）：
+
+====
+[source,java]
+----
+@Entity
+@Audited
+class Person {
+
+	@Id @GeneratedValue
+	Long id;
+	String name;
+	@Version Long version;
+}
+----
+====
+
+[[envers.usage]]
+== 使用
+
+您现在可以使用 `RevisionRepository` 中的方法来查询实体的修订，如以下测试用例所示：
+
+====
+[source,java]
+----
+@ExtendWith(SpringExtension.class)
+@Import(EnversDemoConfiguration.class) // <1>
+class EnversIntegrationTests {
+
+	final PersonRepository repository;
+	final TransactionTemplate tx;
+
+	EnversIntegrationTests(@Autowired PersonRepository repository, @Autowired PlatformTransactionManager tm) {
+		this.repository = repository;
+		this.tx = new TransactionTemplate(tm);
+	}
+
+	@Test
+	void testRepository() {
+
+		Person updated = preparePersonHistory();
+
+		Revisions<Long, Person> revisions = repository.findRevisions(updated.id);
+
+		Iterator<Revision<Long, Person>> revisionIterator = revisions.iterator();
+
+		checkNextRevision(revisionIterator, "John", RevisionType.INSERT);
+		checkNextRevision(revisionIterator, "Jonny", RevisionType.UPDATE);
+		checkNextRevision(revisionIterator, null, RevisionType.DELETE);
+		assertThat(revisionIterator.hasNext()).isFalse();
+
+	}
+
+	/**
+    * Checks that the next element in the iterator is a Revision entry referencing a Person
+    * with the given name after whatever change brought that Revision into existence.
+    * <p>
+    * As a side effect the Iterator gets advanced by one element.
+    *
+    * @param revisionIterator the iterator to be tested.
+    * @param name the expected name of the Person referenced by the Revision.
+    * @param revisionType the type of the revision denoting if it represents an insert, update or delete.
+    */
+	private void checkNextRevision(Iterator<Revision<Long, Person>> revisionIterator, String name,
+			RevisionType revisionType) {
+
+		assertThat(revisionIterator.hasNext()).isTrue();
+		Revision<Long, Person> revision = revisionIterator.next();
+		assertThat(revision.getEntity().name).isEqualTo(name);
+		assertThat(revision.getMetadata().getRevisionType()).isEqualTo(revisionType);
+	}
+
+	/**
+    * Creates a Person with a couple of changes so it has a non-trivial revision history.
+    * @return the created Person.
+    */
+	private Person preparePersonHistory() {
+
+		Person john = new Person();
+		john.setName("John");
+
+		// create
+		Person saved = tx.execute(__ -> repository.save(john));
+		assertThat(saved).isNotNull();
+
+		saved.setName("Jonny");
+
+		// update
+		Person updated = tx.execute(__ -> repository.save(saved));
+		assertThat(updated).isNotNull();
+
+		// delete
+		tx.executeWithoutResult(__ -> repository.delete(updated));
+		return updated;
+	}
+}
+----
+<1> 这引用了前面介绍的应用程序上下文配置（在 <<envers.configuration>>  部分）。
+====
+
+[[envers.resources]]
+== 更多资源
+
+您可以在 https://github.com/spring-projects/spring-data-examples[Spring Data Examples 存储库中下载 Spring Data Envers 示例]  并尝试使用以了解该库的工作原理。
+您还应该查看 {spring-data-commons-javadoc-base}/org/springframework/data/repository/history/RevisionRepository.html[RevisionRepository 的 Javadoc] 和相关类。
+您可以使用 https://stackoverflow.com/questions/tagged/spring-data-envers[在 Stackoverflow spring-data-envers 标签上提问] 。
+Spring Data Envers 的 https://github.com/spring-projects/spring-data-envers[源代码和问题跟踪器托管在 GitHub 上]  。

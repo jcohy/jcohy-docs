@@ -1,0 +1,361 @@
+include::attributes.adoc[]
+
+
+
+
+[[testing]]
+= Testing
+
+Spring for GraphQL 专门支持通过 HTTP、WebSocket 和 RSocket 测试 GraphQL 请求，以及直接针对服务器进行测试。
+
+要使用它，请将 `spring-graphql-test` 添加到您的构建中：
+
+[source,groovy,indent=0,subs="verbatim,quotes,attributes",role="primary"]
+.Gradle
+----
+dependencies {
+	// ...
+	testImplementation 'org.springframework.graphql:spring-graphql-test:{spring-graphql-version}'
+}
+----
+[source,xml,indent=0,subs="verbatim,quotes,attributes",role="secondary"]
+.Maven
+----
+<dependencies>
+	<!-- ... -->
+	<dependency>
+		<groupId>org.springframework.graphql</groupId>
+		<artifactId>spring-graphql-test</artifactId>
+		<version>{spring-graphql-version}</version>
+		<scope>test</scope>
+	</dependency>
+</dependencies>
+----
+
+[[testing-graphqltester]]
+== `GraphQlTester`
+
+`GraphQlTester` 是一个合约，它声明了一个通用的工作流程，用于测试独立于底层传输的 GraphQL 请求。 这意味着无论底层传输是什么，请求都使用相同的 API 进行测试，并且在构建时配置任何特定于传输的内容。
+
+要创建通过客户端执行请求的 `GraphQlTester`，您需要以下扩展之一：
+
+- <<testing-httpgraphqltester, HttpGraphQlTester>>
+- <<testing-websocketgraphqltester, WebSocketGraphQlTester>>
+- <<testing-rsocketgraphqltester, RSocketGraphQlTester>>
+
+要创建一个在服务器端执行测试的 `GraphQlTester`，无需客户端：
+
+- <<testing-graphqlservicetester, ExecutionGraphQlServiceTester>>
+- <<testing-webgraphqltester, WebGraphQlServiceTester>>
+
+每个都定义了一个 `Builder`，其中包含与传输相关的选项。 所有 builder 都从一个通用的基础 `GraphQlTester`  <<testing-graphqltester-builder, `Builder`>> 展而来，并带有与所有扩展相关的选项。
+
+[[testing-httpgraphqltester]]
+=== HTTP
+
+`HttpGraphQlTester` 使用 {spring-framework-ref-docs}/testing.html#webtestclient[WebTestClient] 通过 HTTP 执行 GraphQL 请求，有或没有实时服务器，具体取决于 `WebTestClient` 的配置方式。
+
+要在没有实时服务器的情况下在 Spring WebFlux 中进行测试，请指向声明 GraphQL HTTP 端点的 Spring 配置：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	ApplicationContext context = ... ;
+
+	WebTestClient client =
+			WebTestClient.bindToApplicationContext(context)
+					.configureClient()
+					.baseUrl("/graphql")
+					.build();
+
+	HttpGraphQlTester tester = HttpGraphQlTester.create(client);
+----
+
+要在没有实时服务器的情况下在 Spring MVC 中进行测试，请使用 `MockMvcWebTestClient` 执行相同的操作：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	ApplicationContext context = ... ;
+
+	WebTestClient client =
+			MockMvcWebTestClient.bindToApplicationContext(context)
+					.configureClient()
+					.baseUrl("/graphql")
+					.build();
+
+	HttpGraphQlTester tester = HttpGraphQlTester.create(client);
+----
+
+或者针对在端口上运行的实时服务器进行测试：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	WebTestClient client =
+			WebTestClient.bindToServer()
+					.baseUrl("http://localhost:8080/graphql")
+					.build();
+
+	HttpGraphQlTester tester = HttpGraphQlTester.create(client);
+----
+
+创建 `HttpGraphQlTester` 后，您可以开始使用相同的 API <<testing-requests, 执行请求>> ，而不受底层传输的影响。 如果您需要更改任何特定于传输的详细信息，请在现有 `HttpSocketGraphQlTester` 上使用 `mutate()` 来创建具有自定义设置的新实例：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	HttpGraphQlTester tester = HttpGraphQlTester.builder(clientBuilder)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Use tester...
+
+	HttpGraphQlTester anotherTester = tester.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Use anotherTester...
+
+----
+
+
+
+[[testing-websocketgraphqltester]]
+=== WebSocket
+
+`WebSocketGraphQlTester` 通过共享的 WebSocket 连接执行 GraphQL 请求。 它是使用 Spring WebFlux 的 {spring-framework-ref-docs}/web-reactive.html#webflux-websocket-client[WebSocketClient] 构建的，您可以按如下方式创建它：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String url = "http://localhost:8080/graphql";
+	WebSocketClient client = new ReactorNettyWebSocketClient();
+
+	WebSocketGraphQlTester tester = WebSocketGraphQlTester.builder(url, client).build();
+----
+
+`WebSocketGraphQlTester` 是面向连接和多路复用的。 每个实例为所有请求建立自己的单一共享连接。 通常，您希望每个服务器只使用一个实例。
+
+创建 `WebSocketGraphQlTester` 后，您可以开始使用相同的 API <<testing-requests, execute requests>> ，而不受底层传输的影响。 如果您需要更改任何特定于传输的详细信息，请在现有 `WebSocketGraphQlTester` 上使用 `mutate()` 来创建具有自定义设置的新实例：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI url = ... ;
+	WebSocketClient client = ... ;
+
+	WebSocketGraphQlTester tester = WebSocketGraphQlTester.builder(url, client)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Use tester...
+
+	WebSocketGraphQlTester anotherTester = tester.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Use anotherTester...
+----
+
+`WebSocketGraphQlTester` 提供了一个 `stop()` 方法，您可以使用该方法关闭 WebSocket 连接，例如 测试运行后。
+
+[[testing-rsocketgraphqltester]]
+=== RSocket
+
+`RSocketGraphQlTester` 使用 `spring-messaging` 中的 `RSocketRequester` 通过 RSocket 执行 GraphQL 请求：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI uri = URI.create("wss://localhost:8080/rsocket");
+	WebsocketClientTransport transport = WebsocketClientTransport.create(url);
+
+	RSocketGraphQlTester client = RSocketGraphQlTester.builder()
+			.clientTransport(transport)
+			.build();
+----
+
+`RSocketGraphQlTester` 是面向连接和多路复用的。 每个实例都为所有请求建立自己的单一共享会话。 通常，您希望每个服务器只使用一个实例。 您可以在测试仪上使用 `stop()` 方法来显式关闭会话。
+
+创建 `RSocketGraphQlTester` 后，您可以开始使用相同的 API <<testing-requests, execute requests>>，而不受底层传输的影响。
+
+[[testing-graphqlservicetester]]
+=== `GraphQlService`
+
+很多时候在服务器端测试 GraphQL 请求就足够了，无需使用客户端通过传输协议发送请求。 要直接针对 `ExecutionGraphQlService` 进行测试，请使用 `ExecutionGraphQlServiceTester` 扩展：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	GraphQlService service = ... ;
+	ExecutionGraphQlServiceTester tester = ExecutionGraphQlServiceTester.create(service);
+----
+
+创建 `ExecutionGraphQlServiceTester` 后，您可以开始使用相同的 API <<testing-requests, execute requests>>，而不受底层传输的影响。
+
+[[testing-webgraphqltester]]
+=== `WebGraphQlHandler`
+
+<<testing-graphqlservicetester>> 扩展允许您在没有客户端的情况下在服务器端进行测试。 但是，在某些情况下，将服务器端传输处理与给定的模拟传输输入结合起来很有用。
+
+`WebGraphQlTester` 扩展允许您在移交给 `ExecutionGraphQlService` 以执行请求之前通过 `WebGraphQlInterceptor` 链处理请求：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	WebGraphQlHandler handler = ... ;
+	WebGraphQlTester tester = WebGraphQlTester.create(handler);
+----
+
+此扩展的 builder 允许您定义 HTTP 请求详细信息：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	WebGraphQlHandler handler = ... ;
+
+	WebGraphQlTester tester = WebGraphQlTester.builder(handler)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+----
+
+创建 `WebGraphQlServiceTester` 后，您可以开始使用相同的 API <<testing-requests, execute requests>>，而不受底层传输的影响。
+
+[[testing-graphqltester-builder]]
+=== Builder
+
+`GraphQlTester` 为所有扩展的 builder  定义了一个具有通用配置选项的父 builder 。 它允许您配置以下内容：
+
+- `errorFilter` - 抑制预期错误的谓词，因此您可以检查响应的数据。
+- `documentSource` - 一种从类路径上的文件或其他任何地方加载文档请求的策略。
+- `responseTimeout` - 在超时之前等待请求执行完成的时间。
+
+[[testing-requests]]
+== Requests
+
+一旦你有了 `GraphQlTester`，你就可以开始测试请求了。 下面执行项目查询并使用 https://github.com/json-path/JsonPath[JsonPath] 从响应中提取项目发布版本：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String document = "{" +
+			"  project(slug:\"spring-framework\") {" +
+			"	releases {" +
+			"	  version" +
+			"	}"+
+			"  }" +
+			"}";
+
+	graphQlTester.document(document)
+			.execute()
+			.path("project.releases[*].version")
+			.entityList(String.class)
+			.hasSizeGreaterThan(1);
+----
+
+JsonPath 与响应的 "data" 部分相关。
+
+您还可以在类路径的 `"graphql-test/"` 下创建扩展名为 `.graphql` 或 `.gql` 的文档文件，并通过文件名引用它们。
+
+例如，在 `src/main/resources/graphql-test` 中有一个名为 `projectReleases.graphql` 的文件，其内容为：
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+----
+	query projectReleases($slug: ID!) {
+		project(slug: $slug) {
+			releases {
+				version
+			}
+		}
+	}
+----
+
+然后你可以:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	graphQlTester.documentName("projectReleases") <1>
+			.variable("slug", "spring-framework") <2>
+			.execute()
+			.path("project.releases[*].version")
+			.entityList(String.class)
+			.hasSizeGreaterThan(1);
+----
+<1> 引用名为 "project" 的文档.
+<2> 设置 `slug` 变量.
+
+[TIP]
+====
+IntelliJ 的 "JS GraphQL"  插件支持带有代码完成功能的 GraphQL 查询文件。
+====
+
+如果请求没有任何响应数据，例如 突变，使用 `executeAndVerify` 而不是 `execute` 来验证响应中没有错误：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	graphQlTester.query(query).executeAndVerify();
+----
+
+有关错误处理的更多详细信息，请参阅 <<testing-errors>>.
+
+[[testing-subscriptions]]
+== Subscriptions
+
+要测试订阅，请调用 `executeSubscription` 而不是 `execute` 来获取响应流，然后使用 Project Reactor 中的 `StepVerifier` 检查流：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Flux<String> greetingFlux = tester.document("subscription { greetings }")
+			.executeSubscription()
+			.toFlux("greetings", String.class);  // decode at JSONPath
+
+	StepVerifier.create(greetingFlux)
+			.expectNext("Hi")
+			.expectNext("Bonjour")
+			.expectNext("Hola")
+			.verifyComplete();
+----
+
+仅 `WebSocketGraphQlTester` 或服务器端 <<testing-graphqlservicetester>> 和 <<testing-webgraphqltester>>  扩展支持订阅。
+
+[[testing-errors]]
+== Errors
+
+当您使用 `verify()` 时，响应中 "errors"  键下的任何错误都将导致断言失败。 要抑制特定错误，请在 `verify()` 之前使用错误过滤器：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	graphQlTester.query(query)
+			.execute()
+			.errors()
+			.filter(error -> ...)
+			.verify()
+			.path("project.releases[*].version")
+			.entityList(String.class)
+			.hasSizeGreaterThan(1);
+----
+
+您可以在 builder 级别注册错误过滤器，以应用于所有测试：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	WebGraphQlTester graphQlTester = WebGraphQlTester.builder(client)
+			.errorFilter(error -> ...)
+			.build();
+----
+
+如果你想验证一个错误确实存在，并且与 `filter` 相反，如果不存在则抛出一个断言错误，然后使用 `exepect` 代替：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	graphQlTester.query(query)
+			.execute()
+			.errors()
+			.expect(error -> ...)
+			.verify()
+			.path("project.releases[*].version")
+			.entityList(String.class)
+			.hasSizeGreaterThan(1);
+----
+
+您还可以通过 `Consumer` 检查所有错误，这样做还会将它们标记为已过滤，因此您还可以检查响应中的数据：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	graphQlTester.query(query)
+			.execute()
+			.errors()
+			.satisfy(errors -> {
+				// ...
+			});
+----

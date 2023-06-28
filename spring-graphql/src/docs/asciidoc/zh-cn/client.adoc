@@ -1,0 +1,359 @@
+include::attributes.adoc[]
+
+[[client]]
+= 客户端
+
+Spring for GraphQL 包括对通过 HTTP、WebSocket 和 RSocket 执行 GraphQL 请求的客户端支持。
+
+[[client-graphqlclient]]
+== `GraphQlClient`
+
+`GraphQlClient` 是一个合约，它声明了一个独立于底层传输的 GraphQL 请求的通用工作流程。 这意味着无论底层传输是什么，请求都使用相同的 API 执行，并且在构建时配置任何特定于传输的内容。
+
+要创建 `GraphQlClient`，您需要以下扩展之一：
+
+- <<client-httpgraphqlclient, HttpGraphQlClient>>
+- <<client-websocketgraphqlclient, WebSocketGraphQlClient>>
+- <<client-rsocketgraphqlclient, RSocketGraphQlClient>>
+
+每个都定义了一个 `Builder`，其中包含与传输相关的选项。 所有 builder 都从一个通用的、基本的 GraphQlClient <<client-graphqlclient-builder, `Builder`>>  扩展而来，并带有与所有扩展相关的选项。
+
+拥有 `GraphQlClient` 后，您就可以开始发出 <<client-requests, 请求>> 了。
+
+[[client-httpgraphqlclient]]
+=== HTTP
+
+`HttpGraphQlClient` 使用 {spring-framework-ref-docs}/web-reactive.html#webflux-client[WebClient] 通过 HTTP 执行 GraphQL 请求。
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+WebClient webClient = ... ;
+HttpGraphQlClient graphQlClient = HttpGraphQlClient.create(webClient);
+----
+
+创建 `HttpGraphQlClient` 后，您可以使用相同的 API <<client-requests, 执行请求>> ，而不受底层传输的影响。 如果您需要更改任何特定于传输的详细信息，请在现有 `HttpGraphQlClient` 上使用 `mutate()` 来创建具有自定义设置的新实例：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+    WebClient webClient = ... ;
+
+	HttpGraphQlClient graphQlClient = HttpGraphQlClient.builder(webClient)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Perform requests with graphQlClient...
+
+	HttpGraphQlClient anotherGraphQlClient = graphQlClient.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Perform requests with anotherGraphQlClient...
+
+----
+
+[[client-websocketgraphqlclient]]
+=== WebSocket
+
+`WebSocketGraphQlClient` 通过共享的 `WebSocket` 连接执行 GraphQL 请求。 它是使用 Spring WebFlux 的 {spring-framework-ref-docs}/web-reactive.html#webflux-websocket-client[WebSocketClient] 构建的，您可以按如下方式创建它：
+
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String url = "wss://localhost:8080/graphql";
+	WebSocketClient client = new ReactorNettyWebSocketClient();
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client).build();
+----
+
+与 `HttpGraphQlClient` 相比，`WebSocketGraphQlClient` 是面向连接的，这意味着它需要在发出任何请求之前建立连接。 当您开始发出请求时，建立连接是透明的。 或者，使用客户端的 `start()` 方法在任何请求之前显式建立连接。
+
+`WebSocketGraphQlClient` 除了面向连接之外，也是多路复用的。 它为所有请求维护一个单一的共享连接。 如果连接丢失，则在下一个请求或再次调用 `start()` 时重新建立连接。 您还可以使用客户端的 `stop()` 方法来取消正在进行的请求、关闭连接并拒绝新请求。
+
+TIP: 为每个服务器使用一个 `WebSocketGraphQlClient` 实例，以便为对该服务器的所有请求提供一个共享连接。 每个客户端实例建立自己的连接，这通常不是单个服务器的意图。
+
+创建 `WebSocketGraphQlClient` 后，您可以使用相同的 API <<client-requests, 执行请求>>，而不受底层传输的影响。 如果您需要更改任何特定于传输的详细信息，请在现有 `WebSocketGraphQlClient` 上使用 `mutate()` 来创建具有自定义设置的新实例：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI url = ... ;
+	WebSocketClient client = ... ;
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Use graphQlClient...
+
+	WebSocketGraphQlClient anotherGraphQlClient = graphQlClient.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Use anotherGraphQlClient...
+
+----
+
+
+[[client-websocketgraphqlclient-interceptor]]
+==== Interceptor(拦截)
+
+除了执行请求之外，https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md[GraphQL WebSocket] 协议还定义了许多面向连接的消息。 例如，客户端发送 `"connection_init"`，服务器在连接开始时响应 `"connection_ack"`。
+
+对于 WebSocket 传输特定的拦截，您可以创建一个 `WebSocketGraphQlClientInterceptor`：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	static class MyInterceptor implements WebSocketGraphQlClientInterceptor {
+
+		@Override
+		public Mono<Object> connectionInitPayload() {
+			// ... the "connection_init" payload to send
+		}
+
+		@Override
+		public Mono<Void> handleConnectionAck(Map<String, Object> ackPayload) {
+			// ... the "connection_ack" payload received
+		}
+
+	}
+----
+
+将上述拦截器 <<client-interception,注册>> 为 `GraphQlClientInterceptor` ，并使用它来拦截 GraphQL 请求，但请注意最多只能有一个 `WebSocketGraphQlClientInterceptor` 类型的拦截器。
+
+[[client-rsocketgraphqlclient]]
+=== RSocket
+
+`RSocketGraphQlClient` 使用 {spring-framework-ref-docs}/web-reactive.html#rsocket-requester[RSocketRequester] 通过 RSocket 请求执行 GraphQL 请求。
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI uri = URI.create("wss://localhost:8080/rsocket");
+	WebsocketClientTransport transport = WebsocketClientTransport.create(url);
+
+	RSocketGraphQlClient client = RSocketGraphQlClient.builder()
+			.clientTransport(transport)
+			.build();
+----
+
+与 `HttpGraphQlClient` 相比，`RSocketGraphQlClient` 是面向连接的，这意味着它需要在发出任何请求之前建立会话。 当您开始发出请求时，会话就会透明地建立起来。 或者，使用客户端的 `start()` 方法在任何请求之前显式建立会话。
+
+`RSocketGraphQlClient` 也是多路复用的。 它为所有请求维护一个单一的共享会话。 如果会话丢失，则在下一个请求或再次调用 `start()` 时重新建立。 您还可以使用客户端的 `stop()` 方法取消正在进行的请求、关闭会话并拒绝新请求。
+
+TIP: 为每个服务器使用单个 `RSocketGraphQlClient` 实例，以便为对该服务器的所有请求提供一个共享会话。 每个客户端实例建立自己的连接，这通常不是单个服务器的意图。
+
+创建 `RSocketGraphQlClient` 后，您可以开始使用相同的 API <<client-requests, execute requests>>，而不受底层传输的影响。
+
+[[client-graphqlclient-builder]]
+=== Builder
+
+`GraphQlClient` 为所有扩展的 builder 定义了一个具有通用配置选项的父 `Builder`。 目前，它允许您配置：
+
+- `DocumentSource` 策略从文件加载文档请求
+- <<client-interception>> 已执行的请求
+
+[[client-requests]]
+== Requests
+
+拥有 <<client-graphqlclient>> 后，您可以开始通过 <<client-requests-retrieve, retrieve()>> 或 <<client-requests-execute, execute()>> 执行请求，其中前者只是后者的快捷方式。
+
+[[client-requests-retrieve]]
+=== Retrieve
+
+下面检索并解码查询的数据：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String document = "{" +
+			"  project(slug:\"spring-framework\") {" +
+			"	name" +
+			"	releases {" +
+			"	  version" +
+			"	}"+
+			"  }" +
+			"}";
+
+	Mono<Project> projectMono = graphQlClient.document(document) <1>
+			.retrieve("project") <2>
+			.toEntity(Project.class); <3>
+----
+<1> 要执行的操作.
+<2> 要从中解码的响应映射中 "data" 下的路径.
+<3> 解码目标类型路径处的数据.
+
+输入文档是一个 `String`，可以是文字或通过代码生成的请求对象生成。 您还可以在文件中定义文档，并使用 <<client-requests-document-source>>  按文件名对它们进行解析。
+
+该路径是相对于 "data" 键的，并且使用简单的点  (".") 分隔符号表示嵌套字段，列表元素的可选数组索引，例如 `"project.name"` 或 `"project.releases[0].version"`。
+
+如果给定路径不存在，或者字段值为 `null` 且有错误，解码可能会导致 `FieldAccessException`。 `FieldAccessException` 提供对响应和字段的访问：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Mono<Project> projectMono = graphQlClient.document(document)
+			.retrieve("project")
+			.toEntity(Project.class)
+			.onErrorResume(FieldAccessException.class, ex -> {
+				ClientGraphQlResponse response = ex.getResponse();
+				// ...
+				ResponseField field = ex.getField();
+				// ...
+			});
+----
+
+[[client-requests-execute]]
+=== 执行
+
+<<client-requests-retrieve>>  只是从响应映射中的单个路径解码的快捷方式。 要获得更多控制，请使用 `execute` 方法并处理响应：
+
+例如：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+
+	Mono<Project> projectMono = graphQlClient.document(document)
+			.execute()
+			.map(response -> {
+				if (!response.isValid()) {
+					// Request failure... <1>
+				}
+
+				ResponseField field = response.field("project");
+				if (!field.hasValue()) {
+					if (field.getError() != null) {
+						// Field failure... <2>
+					}
+					else {
+						// Optional field set to null... <3>
+					}
+				}
+
+				return field.toEntity(Project.class); <4>
+			});
+----
+<1> 响应没有数据，只有错误
+<2> 为 `null` 且有相关错误的字段
+<3> 被其 `DataFetcher` 设置为 `null` 的字段
+<4> 解码给定路径的数据
+
+[[client-requests-document-source]]
+=== Document Source
+
+请求的文档是一个 `String`，可以在局部变量或常量中定义，也可以通过代码生成的请求对象生成。
+
+您还可以在类路径的 `"graphql-documents/"` 下创建扩展名为 `.graphql` 或 `.gql` 的文档文件，并通过文件名引用它们。
+
+例如，在 `src/main/resources/graphql-documents` 中给定一个名为 `projectReleases.graphql` 的文件，其内容为：
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+.src/main/resources/graphql/project.graphql
+----
+	query projectReleases($slug: ID!) {
+		project(slug: $slug) {
+			name
+			releases {
+				version
+			}
+		}
+	}
+----
+
+然后你可以:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Mono<Project> projectMono = graphQlClient.documentName("projectReleases") <1>
+			.variable("slug", "spring-framework") <2>
+			.retrieve()
+			.toEntity(Project.class);
+----
+<1> 从 "project.graphql" 加载文档
+<2> 提供变量值.
+
+IntelliJ 的 "JS GraphQL" 插件支持带有代码完成功能的 GraphQL 查询文件。
+
+您可以使用 `GraphQlClient` <<client-graphqlclient-builder>> 自定义 `DocumentSource` 以按名称加载文档。
+
+[[client-subscriptions]]
+== Subscription Requests
+
+`GraphQlClient` 可以通过支持它的传输执行订阅。 目前，只有 WebSocket 传输支持 GraphQL 流，因此您需要创建一个 <<client-websocketgraphqlclient,WebSocketGraphQlClient>>。
+
+[[client-subscriptions-retrieve]]
+=== Retrieve
+
+要启动订阅流，请使用 `retrieveSubscription` ，它类似于 <<client-requests-retrieve,retrieve>> 单个响应但返回响应流，每个响应都解码为一些数据：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Flux<String> greetingFlux = client.document("subscription { greetings }")
+			.retrieveSubscription("greeting")
+			.toEntity(String.class);
+----
+
+订阅流可能以以下结尾：
+
+- `SubscriptionErrorException` 如果服务器以包含一个或多个 GraphQL 错误的显式 "error"  消息结束订阅。 该异常提供对从该消息解码的 GraphQL 错误的访问。
+- `GraphQlTransportException` 如 `WebSocketDisconnectedException` 如果底层连接关闭或丢失，在这种情况下，您可以使用 `retry` 操作符重新建立连接并再次启动订阅。
+
+[[client-subscriptions-execute]]
+=== Execute
+
+<<client-subscriptions-retrieve>>  只是从每个响应映射中的单个路径解码的快捷方式。 要获得更多控制，请使用 `executeSubscription` 方法并直接处理每个响应：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Flux<String> greetingFlux = client.document("subscription { greetings }")
+			.executeSubscription()
+			.map(response -> {
+				if (!response.isValid()) {
+					// Request failure...
+				}
+
+				ResponseField field = response.field("project");
+				if (!field.hasValue()) {
+					if (field.getError() != null) {
+						// Field failure...
+					}
+					else {
+						// Optional field set to null... <3>
+					}
+				}
+
+				return field.toEntity(String.class)
+			});
+----
+
+[[client-interception]]
+== Interception(拦截)
+
+您创建一个 `GraphQlClientInterceptor` 来拦截通过客户端的所有请求：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+static class MyInterceptor implements GraphQlClientInterceptor {
+
+	@Override
+	public Mono<ClientGraphQlResponse> intercept(ClientGraphQlRequest request, Chain chain) {
+		// ...
+		return chain.next(request);
+	}
+
+	@Override
+	public Flux<ClientGraphQlResponse> interceptSubscription(ClientGraphQlRequest request, SubscriptionChain chain) {
+		// ...
+		return chain.next(request);
+	}
+
+}
+----
+
+创建拦截器后，通过客户端 builder 注册它：
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI url = ... ;
+	WebSocketClient client = ... ;
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client)
+			.interceptor(new MyInterceptor())
+			.build();
+----
+

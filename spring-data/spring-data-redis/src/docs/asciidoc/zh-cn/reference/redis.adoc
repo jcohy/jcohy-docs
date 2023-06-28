@@ -61,7 +61,7 @@ Spring Data Redis 提供了简单的配置,并可以从 Spring 应用程序访�
 [[redis:requirements]]
 == Redis 要求
 
-Spring Redis 需要 Redis 2.6 或更高版本,Spring Data Redis 与 https://github.com/lettuce-io/lettuce-core[Lettuce] 和 https://github.com/xetorthio/jedis[Jedis] 集成,这是两个流行的 Redis 开源 Java 库.
+Spring Redis 需要 Redis 2.6 或更高版本,Spring Data Redis 与 https://github.com/lettuce-io/lettuce-core[Lettuce] 和 https://github.com/redis/jedis[Jedis] 集成,这是两个流行的 Redis 开源 Java 库.
 
 [[redis:architecture]]
 == Redis 支持高级视图
@@ -122,7 +122,7 @@ NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或
 
 | Other Connection Features
 | Singleton-connection sharing for non-blocking commands
-| `JedisShardInfo` support
+| Pipelining and Transactions mutually exclusive. Cannot use server/connection commands in pipeline/transactions.
 
 | SSL Support
 | X
@@ -134,11 +134,11 @@ NOTE: 根据底层配置,工厂可以返回新连接或现有连接(使用池或
 
 | <<pipeline,Pipelining>>
 | X
-| X
+| X (Pipelining and Transactions mutually exclusive)
 
 | <<tx,Transactions>>
 | X
-| X
+| X (Pipelining and Transactions mutually exclusive)
 
 | Datatype support
 | Key, String, List, Set, Sorted Set, Hash, Server, Stream, Scripting, Geo, HyperLogLog
@@ -292,18 +292,6 @@ TIP: 对于通过 `INFO` 信息报告非公共地址的环境(例如,在使用 A
 [source,java]
 ----
 /**
- * Jedis
- */
-@Bean
-public RedisConnectionFactory jedisConnectionFactory() {
-  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
-  .master("mymaster")
-  .sentinel("127.0.0.1", 26379)
-  .sentinel("127.0.0.1", 26380);
-  return new JedisConnectionFactory(sentinelConfig);
-}
-
-/**
  * Lettuce
  */
 @Bean
@@ -314,6 +302,18 @@ public RedisConnectionFactory lettuceConnectionFactory() {
   .sentinel("127.0.0.1", 26380);
   return new LettuceConnectionFactory(sentinelConfig);
 }
+
+/**
+ * Jedis
+ */
+@Bean
+public RedisConnectionFactory jedisConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+  .master("mymaster")
+  .sentinel("127.0.0.1", 26379)
+  .sentinel("127.0.0.1", 26380);
+  return new JedisConnectionFactory(sentinelConfig);
+}
 ----
 
 [TIP]
@@ -323,7 +323,8 @@ public RedisConnectionFactory lettuceConnectionFactory() {
 .Configuration Properties
 * `spring.redis.sentinel.master`: 主节点的名称
 * `spring.redis.sentinel.nodes`: 以逗号分隔的 host:port 列表
-* `spring.redis.sentinel.password`: 使用 Redis Sentinel 进行身份验证时要应用的密码
+* `spring.redis.sentinel.username`: 使用 Redis Sentinel 进行身份验证时的用户名（需要 Redis 6）
+* `spring.redis.sentinel.password`: 使用 Redis Sentinel 进行身份验证时的密码
 ====
 
 有时,需要与其中一个哨兵进行直接互动. 使用 `RedisConnectionFactory.getSentinelConnection()` 或 `RedisConnection.getSentinelCommands()` 可以访问配置的第一个活动 Sentinel.
@@ -398,7 +399,30 @@ public RedisConnectionFactory lettuceConnectionFactory() {
 
 对于需要特定 template 视图的情况,请将视图声明为依赖并注入template. 容器自动执行转换,从而消除了  `opsFor[X]`  调用,如以下示例所示:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+class MyConfig {
+
+  @Bean
+  LettuceConnectionFactory redisConnectionFactory() {
+    return new LettuceConnectionFactory();
+  }
+
+  @Bean
+  RedisTemplate<String, String> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+
+    RedisTemplate<String, String> template = new RedisTemplate<>();
+    template.setConnectionFactory(redisConnectionFactory);
+    return template;
+  }
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -406,13 +430,14 @@ public RedisConnectionFactory lettuceConnectionFactory() {
   xmlns:p="http://www.springframework.org/schema/p"
   xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
 
-  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+  <bean id="redisConnectionFactory" class="org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory"/>
   <!-- redis template definition -->
-  <bean id="redisTemplate" class="org.springframework.data.redis.core.RedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
+  <bean id="redisTemplate" class="org.springframework.data.redis.core.RedisTemplate" p:connection-factory-ref="redisConnectionFactory"/>
   ...
 
 </beans>
 ----
+====
 
 [source,java]
 ----
@@ -438,7 +463,30 @@ public class Example {
 由于 Redis 中存储的键和值通常是 `java.lang.String`,因此 Redis 模块提供了 `RedisConnection` 和 `RedisTemplate` 的两个扩展,分别是 `StringRedisConnection`(及其 `DefaultStringRedisConnection` 实现)和 `StringRedisTemplate`, 这是一种便捷的一站式解决方案 用于密集的 String 操作.
 除了绑定到字符串键之外,template 和连接还使用下面的 `StringRedisSerializer`,这意味着存储的键和值是人类可读的(假定 Redis 和您的代码中使用相同的编码). 以下清单显示了一个示例:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+class MyConfig {
+
+  @Bean
+  LettuceConnectionFactory redisConnectionFactory() {
+    return new LettuceConnectionFactory();
+  }
+
+  @Bean
+  StringRedisTemplate stringRedisTemplate(RedisConnectionFactory redisConnectionFactory) {
+
+    StringRedisTemplate template = new StringRedisTemplate();
+    template.setConnectionFactory(redisConnectionFactory);
+    return template;
+  }
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -446,12 +494,13 @@ public class Example {
   xmlns:p="http://www.springframework.org/schema/p"
   xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd">
 
-  <bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" p:use-pool="true"/>
+  <bean id="redisConnectionFactory" class="org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory"/>
 
-  <bean id="stringRedisTemplate" class="org.springframework.data.redis.core.StringRedisTemplate" p:connection-factory-ref="jedisConnectionFactory"/>
-  ...
+  <bean id="stringRedisTemplate" class="org.springframework.data.redis.core.StringRedisTemplate" p:connection-factory-ref="redisConnectionFactory"/>
+
 </beans>
 ----
+====
 
 [source,java]
 ----
@@ -572,7 +621,7 @@ public class HashMapping {
 [[redis.hashmappers.jackson2]]
 === Jackson2HashMapper
 
-`Jackson2HashMapper` 通过使用 https://github.com/FasterXML/jackson[FasterXML Jackson] 为域对象提供 Redis 哈希映射. `Jackson2HashMapper` 可以将顶级属性映射为 Hash 字段名称,并且可以选择将结构展平. 简单类型映射到简单值. 复杂类型(嵌套对象,集合,地图等)表示为嵌套 JSON.
+`Jackson2HashMapper` 通过使用 https://github.com/FasterXML/jackson[FasterXML Jackson] 为领域对象提供 Redis 哈希映射. `Jackson2HashMapper` 可以将顶级属性映射为 Hash 字段名称,并且可以选择将结构展平. 简单类型映射到简单值. 复杂类型(嵌套对象,集合,地图等)表示为嵌套 JSON.
 
 拼合为所有嵌套属性创建单个哈希条目,并尽可能将复杂类型解析为简单类型.
 
@@ -671,7 +720,24 @@ include::{referenceDir}/redis-cache.adoc[]
 通过原子计数器,可以轻松的使 Redis key 递增,而集合则可以轻松管理 Redis key,并最大程度地减少存储风险或API泄漏. 特别是,`RedisSet` 和 `RedisZSet` 接口可轻松访问 Redis 支持的设置操作,例如交集和并集.
 `RedisList` 在 Redis 之上实现 List,Queue 和 Deque 契约(及其等效的阻塞同级),将存储作为 FIFO(先进先出),LIFO (先进先出)或加盖 只需最少的配置即可收集. 以下示例显示了使用 `RedisList` 的bean的配置:
 
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
+----
+@Configuration
+class MyConfig {
+
+  // …
+
+  @Bean
+  RedisList<String> stringRedisTemplate(RedisTemplate<String, String> redisTemplate) {
+    return new DefaultRedisList<>(template, "queue-key");
+  }
+}
+----
+
+.XML
+[source,xml,role="secondary"]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans"
@@ -686,6 +752,7 @@ include::{referenceDir}/redis-cache.adoc[]
 
 </beans>
 ----
+====
 
 使用 Java 配置 `Deque`:
 

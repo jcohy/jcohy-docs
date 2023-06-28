@@ -10,21 +10,22 @@ Reactive Streams 的目的提供具有非阻塞背压的异步流处理标准。
 <dependency>
   <groupId>org.reactivestreams</groupId>
   <artifactId>reactive-streams</artifactId>
-  <version>1.0.3</version>
+  <version>1.0.4</version>
 </dependency>
 <dependency>
   <groupId>org.reactivestreams</groupId>
   <artifactId>reactive-streams-tck</artifactId>
-  <version>1.0.3</version>
+  <version>1.0.4</version>
   <scope>test</scope>
 </dependency>
 ----
 
 == 目标，设计和范围
 
-在异步系统中，处理流数据，尤其是容量不是预先确定的 “live” 数据时需要特别小心。最突出的问题是需要控制资源消耗，保证一个“快速”流数据不会搞垮流输出目标。为了对计算机资源（网络上的多台机器或一台机器上的多个CPU）的并发使用引入异步是必要的。
+在异步系统中，处理流数据，尤其是容量不是预先确定的 “live”（实时） 数据时需要特别小心。最突出的问题是需要控制资源消耗，保证一个 “fast”（快速） 流数据不会搞垮流输出目标。为了对计算机资源（网络上的多台机器或一台机器上的多个 CPU）的并发使用引入异步是必要的。
 
-Reactive Streams 管理跨异步边界的流数据交换 - 即将元素传递到另一个线程或线程池，确保接收方不会强制缓冲任意数量的数据。 换句话说，背压是该模型的一个组成部分，他可以限制线程之间的队列边界。 如果背压的通信是同步的（另请参见 http://reactivemanifesto.org/[Reactive Manifesto]），会导致异步处理无效，因此在实现响应流标准时所有各方面都强制要求是完全非阻塞和异步行为。
+Reactive Streams 的主要目标是管理跨异步边界的流数据交换 - 即将元素传递到另一个线程或线程池，同时确保接收方不会强制缓冲任意数量的数据。 换句话说，背压是该模型的一个组成部分，他可以限制线程之间的队列边界。
+如果背压的通信是同步的（另请参见 http://reactivemanifesto.org/[Reactive Manifesto]），会导致异步处理无效，因此在实现响应流标准时所有各方面都强制要求是完全非阻塞和异步行为。
 
 此规范的可以有多个实现，这些实现通过遵守一定的规则可以进行相互操作，在流应用程序的整个处理图上保留上述优点和特性。
 
@@ -41,7 +42,9 @@ Reactive Streams 规范由以下部分组成：
 
 **The API**：指定了实现 Reactive Streams 的类型，并实现了不同实现之间的互操作性。
 
-**The Technology Compatibility Kit (TCK)**：只要符合 API 要求并通过 TCK 的测试，自己的实现就可以实现 Reactive Streams 规范没有涵盖的额外功能。
+**The Technology Compatibility Kit (TCK)**：技术兼容工具包 (TCK) 是用于实现一致性测试的标准测试套件。
+
+只要符合 API 要求并通过 TCK 的测试，自己的实现就可以实现 Reactive Streams 规范没有涵盖的额外功能。
 
 [[api-components]]
 === API 组件
@@ -62,45 +65,44 @@ API 由以下组件组成，这些组件需要由 Reactive Stream 实现提供�
 onSubscribe onNext* (onError | onComplete)?
 ----
 
-这意味着总是向 `onSubscribe` 发出信号，然后是可能无限数量的 `onNext` 信号(如 `Subscriber` 所请求的那样)，如果发生故障，则是 `onError` 信号，或者当没有其他元素可用时，再发出 `onComplete` 信号——只要 `Subscription` 没有被取消。
+这意味着总是向 `onSubscribe` 发出信号，然后是可能无限数量的 `onNext` 信号(如 `Subscriber` 所请求的那样)，如果发生故障，则是 `onError` 信号，或者当没有其他元素可用时，再发出 `onComplete` 信号 —— 只要 `Subscription` 没有被取消。
 
 NOTE:: 以下规范使用来自 https://www.ietf.org/rfc/rfc2119.txt[https://www.ietf.org/rfc/rfc2119.txt] 的大写字母
 
 [[glossary]]
 === 词汇表
 
-
 |===
 |术语 |定义
 
-| Signal
+| [[term_signal]] Signal
 | 作为名词：表示 `onSubscribe`, `onNext`, `onComplete`, `onError`, `request(n)` or `cancel` 方法之一。作为动词：表示 calling/invoking 一个信号
 
-| Demand
+| [[term_demand]] Demand
 | 作为名词：表示由 Subscriber 请求的但尚未由 Subscriber 交付（实现）的元素的聚合数量。 作为动词：表示请求更多元素的一种行为。
 
-| Synchronous(ly)
+| [[term_sync]]Synchronous(ly)
 | 在调用的线程上执行。
 
-| Return normally
+| [[term_return_normally]]Return normally
 | 只向调用者返回声明类型的值。向 `Subscriber` 发出失败信号的唯一合法方法是通过 `onError` 方法。
 
-| Responsivity
+| [[term_responsivity]]Responsivity
 | 准备/响应能力。 在本文件中用来表示不同的组件不应该损害彼此的响应能力。
 
-| Non-obstructing
+| [[term_non-obstructing]]Non-obstructing
 | 描述在调用线程上执行的方法的质量。这意味着，例如，避免了繁重的计算和其他会暂停调用者执行线程的事情。
 
-| Terminal state（终止状态）
+| [[term_terminal_state]]Terminal state（终止状态）
 | 对于 Publisher：当发出 onComplete 或 onError 信号时。 对于 Subscriber：当收到 onComplete 或 onError 信号时。
 
-| NOP
+| [[term_nop]]NOP
 | 对调用线程没有明显影响的执行，因此可以安全地调用任意多次。
 
-| Serial(ly)（串行）
-| 在 https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/README.md#term_signal[Signal] 的上下文中不重叠。在 JVM 的上下文中，当且仅当这些调用之间存在 happens-before 关系(也意味着这些调用不重叠)时，对对象上的方法的调用是串行的。当异步执行调用时，建立 happens-before 关系将使用(但不限于)原子、监视器或锁等技术来实现。
+| [[term_serially]]Serial(ly)（串行）
+| 在 https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.4/README.md#term_signal[Signal] 的上下文中不重叠。在 JVM 的上下文中，当且仅当这些调用之间存在 happens-before 关系(也意味着这些调用不重叠)时，对对象上的方法的调用是串行的。当异步执行调用时，建立 happens-before 关系将使用(但不限于)原子、监视器或锁等技术来实现。
 
-| Thread-safe
+| [[term_thread-safe]]Thread-safe
 | 可以安全地同步或异步调用，而不需要外部同步以确保程序的正确性。
 |===
 
@@ -108,7 +110,7 @@ NOTE:: 以下规范使用来自 https://www.ietf.org/rfc/rfc2119.txt[https://www
 [[specification]]
 === SPECIFICATION
 
-==== Publisher ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Publisher.java[Code])
+==== Publisher (https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.4/api/src/main/java/org/reactivestreams/Publisher.java[Code])
 
 [source,java]
 ----
@@ -187,7 +189,7 @@ public interface Publisher<T> {
 | *该规则的目的是为发布者实现提供灵活性，以决定它们将支持多少(如果有的话)订阅者，以及如何分发元素。*
 |===
 
-==== 2. Subscriber ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscriber.java[Code])
+==== 2. Subscriber ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.4/api/src/main/java/org/reactivestreams/Subscriber.java[Code])
 
 [source,java]
 ----
@@ -242,7 +244,7 @@ public interface Subscriber<T> {
 | 订阅者必须确保对其订阅的请求和取消方法的所有调用都是串行执行的。
 
 | 2.7 说明
-| *此规则的目的是当且仅当每个调用之间建立了串行关系时，才允许调用 request 和 cancel 方法（包括来自多个线程）。*
+| *此规则的目的是当且仅当每个调用之间建立了 <<term_serially,串行>> 关系时，才允许调用 request 和 cancel 方法（包括来自多个线程）。*
 
 | [[rule-2.8]] 8
 | 订阅者在调用 `Subscription.cancel()` 之后接收一个或多个 `onNext` 信号，如果仍然有被请求的元素挂起( 见 <<rule-3.12>>)。 `Subscription.cancel()` 不保证立即执行底层清理操作。
@@ -281,7 +283,7 @@ public interface Subscriber<T> {
 | *此规则的目的是为订阅者的方法建立语义，以及在违反此规则的情况下允许发布者做什么。 «以适合运行时环境的方式提出此错误条件»  可能意味着记录错误 — 或者以其他方式让某人或某物意识到这种情况 - 因为无法向出错的订阅服务器发出错误信号。*
 |===
 
-==== 3. Subscription ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Subscription.java[Code])
+==== 3. Subscription ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.4/api/src/main/java/org/reactivestreams/Subscription.java[Code])
 
 [source,java]
 ----
@@ -399,7 +401,7 @@ public interface Subscription {
 
 一个 `Subscription` 由一个 `Publisher` 和一个 `Subscriber` 共享，目的是解决他们之间的数据交换。 这就是为什么 `subscribe()` 方法不返回创建的 `Subscription` 而是返回 `void` 的原因； `Subscription` 仅通过 `onSubscribe` 回调传递给 `Subscriber`。
 
-==== 4.Processor ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.3/api/src/main/java/org/reactivestreams/Processor.java[Code] )
+==== 4.Processor ( https://github.com/reactive-streams/reactive-streams-jvm/blob/v1.0.4/api/src/main/java/org/reactivestreams/Processor.java[Code] )
 
 [source,java]
 ----
@@ -492,19 +494,4 @@ Reactive Streams 契约允许实现在非阻塞、异步、动态推拉流的范
 
 == 法律
 
-这个项目是来自 Kaazing、Lightbend、Netflix、Pivotal、Red Hat、Twitter 和许多其他公司的工程师之间的合作。该代码被提供给公共领域，以允许想要创建兼容实现的相关方免费使用。有关详细信息，请参阅 `COPYING`。
-
-<p xmlns:dct="http://purl.org/dc/terms/" xmlns:vcard="http://www.w3.org/2001/vcard-rdf/3.0#">
-<a rel="license" href="http://creativecommons.org/publicdomain/zero/1.0/">
-<img src="http://i.creativecommons.org/p/zero/1.0/88x31.png" style="border-style: none;" alt="CC0" />
-</a>
-<br />
-To the extent possible under law,
-<a rel="dct:publisher" href="http://www.reactive-streams.org/">
-<span property="dct:title">Reactive Streams Special Interest Group</span></a>
-has waived all copyright and related or neighboring rights to
-<span property="dct:title">Reactive Streams JVM</span>.
-This work is published from:
-<span property="vcard:Country" datatype="dct:ISO3166" content="US" about="http://www.reactive-streams.org/">United States</span>.
-</p>
-
+这个项目是来自 Kaazing、Lightbend、Netflix、Pivotal、Red Hat、Twitter 和许多其他公司的工程师之间的合作。该项目已在 MIT No Attribution (SPDX: MIT-0) 获得许可。

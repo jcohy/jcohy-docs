@@ -1,26 +1,22 @@
 [[change-streams]]
-== Change Streams
+== 变更流（Change Streams）
 
-As of MongoDB 3.6, https://docs.mongodb.com/manual/changeStreams/[Change Streams] let applications get notified about changes without having to tail the oplog.
+从 MongoDB 3.6 开始， https://docs.mongodb.com/manual/changeStreams/[Change Streams]  可以让应用程序获得有关变化的通知，而不需要跟踪oplog。
 
-NOTE: Change Stream support is only possible for replica sets or for a sharded cluster.
+NOTE: 变更流支持只适用于复制集或分片集群。
 
-Change Streams can be consumed with both, the imperative and the reactive MongoDB Java driver. It is highly recommended to use the reactive variant, as it is less resource-intensive. However, if you cannot use the reactive API, you can still obtain change events by using the messaging concept that is already prevalent in the Spring ecosystem.
+Change Streams 可以用命令式和响应式的 MongoDB Java 驱动来消费。强烈建议使用响应式变体，因为它的资源密集度较低。然而，如果你不能使用响应式API，你仍然可以通过使用 Spring 生态系统中已经普遍存在的消息传递概念来获取变更事件。
 
-It is possible to watch both on a collection as well as database level, whereas the database level variant publishes
-changes from all collections within the database. When subscribing to a database change stream, make sure to use a
- suitable type for the event type as conversion might not apply correctly across different entity types.
-In doubt, use `Document`.
+可以在集合以及数据库级别上观察，而数据库级别的变体会发布来自数据库内所有集合的变化。当订阅数据库变化流时，确保为事件类型使用一个合适的类型，因为转换可能不会正确适用于不同的实体类型。如有疑问，请使用 `Document`。
 
-=== Change Streams with `MessageListener`
+=== 用 `MessageListener` 改变数据流
 
-Listening to a https://docs.mongodb.com/manual/tutorial/change-streams-example/[Change Stream by using a Sync Driver] creates a long running, blocking task that needs to be delegated to a separate component.
-In this case, we need to first create a `MessageListenerContainer`, which will be the main entry point for running the specific `SubscriptionRequest` tasks.
-Spring Data MongoDB already ships with a default implementation that operates on `MongoTemplate` and is capable of creating and running `Task` instances for a `ChangeStreamRequest`.
+通过 https://docs.mongodb.com/manual/tutorial/change-streams-example/[使用同步驱动来监听变化流]  会产生一个长期运行的、阻塞的任务，需要委托给一个单独的组件。在这种情况下，我们需要首先创建一个 `MessageListenerContainer`，它将是运行特定的 `SubscriptionRequest` 任务的主要入口点。
+Spring Data MongoDB 已经提供了一个默认的实现，它在 `MongoTemplate` 上运行，能够为 `ChangeStreamRequest` 创建和运行 `Task` 实例。
 
-The following example shows how to use Change Streams with `MessageListener` instances:
+下面的例子显示了如何用 `MessageListener` 实例来使用 Change Streams。
 
-.Change Streams with `MessageListener` instances
+.用 `MessageListener` 实例改变信息流
 ====
 [source,java]
 ----
@@ -36,24 +32,23 @@ Subscription subscription = container.register(new ChangeStreamRequest<>(listene
 
 container.stop();                                                                                         <5>
 ----
-<1> Starting the container initializes the resources and starts `Task` instances for already registered `SubscriptionRequest` instances. Requests added after startup are ran immediately.
-<2> Define the listener called when a `Message` is received. The `Message#getBody()` is converted to the requested domain type. Use `Document` to receive raw results without conversion.
-<3> Set the collection to listen to and provide additional options through `ChangeStreamOptions`.
-<4> Register the request. The returned `Subscription` can be used to check the current `Task` state and cancel it to free resources.
-<5> Do not forget to stop the container once you are sure you no longer need it. Doing so stops all running `Task` instances within the container.
+<1> 启动容器会初始化资源并为已经注册的 `SubscriptionRequest` 实例启动 `Task` 实例。启动后添加的请求会立即运行。
+<2> 定义当收到一个 `Message` 时被调用的监听器。`Message#getBody()` 被转换为请求的 domain 类型。使用 `Document` 来接收未经转换的原始结果。
+<3> 设置要监听的集合，并通过 `ChangeStreamOptions` 提供附加选项。
+<4> 注册该请求。返回的 `Subscription` 可以用来检查当前的 Task 状态，并取消它以释放资源。
+<5> 一旦你确定你不再需要这个容器，不要忘记停止它。这样做可以停止容器内所有正在运行的 `Task` 实例。
 ====
 
 [NOTE]
 ====
-Errors while processing are passed on to an `org.springframework.util.ErrorHandler`. If not stated otherwise a log appending `ErrorHandler` gets applied by default. +
-Please use `register(request, body, errorHandler)` to provide additional functionality.
+处理过程中的错误会传递给 `org.springframework.util.ErrorHandler`。如果没有另外说明，默认情况下会应用日志追加的 `ErrorHandler`。 请使用 `register(request, body, errorHandler)` 来提供额外的功能。
 ====
 
-=== Reactive Change Streams
+=== 响应式变更流（Change Streams）
 
-Subscribing to Change Streams with the reactive API is a more natural approach to work with streams. Still, the essential building blocks, such as `ChangeStreamOptions`, remain the same. The following example shows how to use Change Streams emitting ``ChangeStreamEvent``s:
+用响应式 API 订阅 Change Streams 是一种更自然的方法来处理流的工作。尽管如此，基本的构建模块，如 `ChangeStreamOptions`，仍然是相同的。下面的例子展示了如何使用发射 `ChangeStreamEvent` 的 Change Streams。
 
-.Change Streams emitting `ChangeStreamEvent`
+.变化流发出 `ChangeStreamEvent`.
 ====
 [source,java]
 ----
@@ -62,19 +57,18 @@ Flux<ChangeStreamEvent<User>> flux = reactiveTemplate.changeStream(User.class) <
     .filter(where("age").gte(38))                                              <2>
     .listen();                                                                 <3>
 ----
-<1> The event target type the underlying document should be converted to. Leave this out to receive raw results without conversion.
-<2> Use an aggregation pipeline or just a query `Criteria` to filter events.
-<3> Obtain a `Flux` of change stream events. The `ChangeStreamEvent#getBody()` is converted to the requested domain type from (2).
+<1> 底层文档应该被转换为的事件目标类型。留出这一点是为了接收未经转换的原始结果。
+<2> 使用一个聚合管道或只是一个查询 `Criteria` 来过滤事件。
+<3> 获得一个变化流事件的 `Flux`。`ChangeStreamEvent#getBody()` 被转换为 (2) 中要求的 domain 类型。
 ====
 
-=== Resuming Change Streams
+=== 恢复变更流（Change Streams）
 
-Change Streams can be resumed and resume emitting events where you left. To resume the stream, you need to supply either a resume
-token or the last known server time (in UTC). Use `ChangeStreamOptions` to set the value accordingly.
+Change Streams 可以被恢复，并在你离开的地方恢复发射事件。要恢复流，你需要提供一个恢复令牌或最后已知的服务器时间（UTC）。使用 `ChangeStreamOptions` 来设置相应的值。
 
-The following example shows how to set the resume offset using server time:
+下面的例子显示了如何使用服务器时间设置恢复偏移。
 
-.Resume a Change Stream
+.恢复一个 Change Stream
 ====
 [source,java]
 ----
@@ -83,9 +77,7 @@ Flux<ChangeStreamEvent<User>> resumed = template.changeStream(User.class)
     .resumeAt(Instant.now().minusSeconds(1)) <1>
     .listen();
 ----
-<1> You may obtain the server time of an `ChangeStreamEvent` through the `getTimestamp` method or use the `resumeToken`
-exposed through `getResumeToken`.
+<1> 你可以通过 `getTimestamp` 方法获得 `ChangeStreamEvent` 的服务器时间，或者使用通过 `getResumeToken` 暴露的 `resumeToken`。
 ====
 
-TIP: In some cases an `Instant` might not be a precise enough measure when resuming a Change Stream. Use a MongoDB native
-https://docs.mongodb.com/manual/reference/bson-types/#timestamps[BsonTimestamp] for that purpose.
+TIP: 在某些情况下，当恢复一个变化流时，`Instant` 可能不是一个足够精确的措施。为此，请使用 MongoDB 原生的 https://docs.mongodb.com/manual/reference/bson-types/#timestamps[BsonTimestamp]。

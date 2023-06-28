@@ -25,7 +25,7 @@ byte[] msg = ...
 byte[] channel = ...
 con.publish(msg, channel); // send message through RedisTemplate
 RedisTemplate template = ...
-template.convertAndSend("hello!", "world");
+Long numberOfClients = template.convertAndSend("hello!", "world");
 ----
 
 [[redis:pubsub:subscribe]]
@@ -87,11 +87,36 @@ public class DefaultMessageDelegate implements MessageDelegate {
 
 注意上面的 `MessageDelegate` 接口的实现(上面的 `DefaultMessageDelegate` 类)如何完全没有 Redis 依赖. 这确实是我们使用以下配置将 MPO 制成的 POJO:
 
-
-[source,xml]
+====
+.Java
+[source,java,role="primary"]
 ----
-<?xml version="1.0" encoding="UTF-8" ?>
- <beans xmlns="http://www.springframework.org/schema/beans"
+@Configuration
+class MyConfig {
+
+  // …
+
+  @Bean
+  DefaultMessageDelegate listener() {
+    return new DefaultMessageDelegate();
+  }
+
+  @Bean
+  RedisMessageListenerContainer redisMessageListenerContainer(RedisConnectionFactory connectionFactory, DefaultMessageDelegate listener) {
+
+    RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+    container.setConnectionFactory(connectionFactory);
+    container.addMessageListener(new MessageListenerAdapter(listener, "handleMessage"), ChannelTopic.of("chatroom"));
+    return container;
+  }
+}
+----
+
+.XML
+[source,xml,role="secondary"]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
    xmlns:redis="http://www.springframework.org/schema/redis"
    xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
@@ -105,8 +130,9 @@ public class DefaultMessageDelegate implements MessageDelegate {
 
 <bean id="listener" class="redisexample.DefaultMessageDelegate"/>
  ...
-<beans>
+</beans>
 ----
+====
 
 NOTE: 监听器主题可以是通道(for example, `topic="chatroom"`) 或模式(for example, `topic="*room"`)
 

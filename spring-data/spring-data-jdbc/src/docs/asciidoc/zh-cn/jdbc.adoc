@@ -1,0 +1,1026 @@
+[[jdbc.repositories]]
+= JDBC Repositories
+
+本章介绍了JDBC Repository 支持的特性。这建立在与 Spring Data Repository 一起工作中解释的核心 <<repositories>> 支持之上。你应该对那里解释的基本概念有一个正确的理解。
+
+[[jdbc.why]]
+== 为什么选择 Spring Data JDBC?
+
+在 Java 世界中，关系型数据库的主要持久化 API 当然是 JPA，它有自己的 Spring Data 模块。为什么会有另一个呢？
+
+JPA 做了很多事情，以帮助开发者。在其他方面，它跟踪实体的变化。它为你做延迟加载。它让你将大量的对象结构映射到同样广泛的数据库设计中。
+
+这很好，使很多事情变得非常容易。只要看一下基本的 JPA 教程就可以了。但是，对于 JPA 为什么要做某件事情，往往会变得非常混乱。另外，概念上非常简单的事情在 JPA 中却变得相当困难。
+
+Spring Data JDBC 的目标是在概念上更加简单，它采用了以下设计决策。
+
+* 如果你加载一个实体，SQL语句就会被运行。一旦这样做了，你就有了一个完全加载的实体。没有进行延迟加载或缓存。
+* 如果你保存一个实体，它就会被保存。如果你不这样做，它就不会。没有 dirty tracking，也没有 session。
+* 有一个如何将实体映射到表的简单模型。它可能只适用于相当简单的情况。如果你不喜欢这样，你应该编写你自己的策略。Spring Data JDBC 只提供了非常有限的支持，即用注解来定制策略。
+
+[[jdbc.domain-driven-design]]
+== 领域驱动设计和关系型数据库
+
+所有的 Spring Data 模块都受到领域驱动设计中 "`repository`"、"`aggregate`" 和 "`aggregate root`" 等概念的启发。这些对于 Spring Data JDBC 来说可能更加重要，因为它们在某种程度上与使用关系型数据库时的正常做法相反。
+
+aggregate 是一组实体，它被保证在对其进行原子性修改时是一致的。一个典型的例子是一个带有 `OrderItems` 的 `Order`。`Order` 上的一个属性（例如，`numberOfItems` 与 `OrderItems` 的实际数量一致）在变化时保持一致。
+
+aggregate 之间的引用并不保证在任何时候都是一致的。它们保证最终会变得一致。
+
+每个 aggregate 都有一个 aggregate root，它是 aggregate 的一个实体。aggregate 只通过 aggregate root 的方法被操纵。这些都是前面提到的原子性变化。
+
+repository 是持久化存储（persistent store）的一个抽象，它看起来像某一类型的所有 aggregate 的集合。对于 Spring Data 来说，这意味着你希望每个 aggregate root 有一个 `Repository`。
+此外，对于 Spring Data JDBC 来说，这意味着所有可以从 aggregate root 到达的实体都被认为是该 aggregate root 的一部分。Spring Data JDBC 假定只有 aggregate 对存储 aggregate 体的非 root 实体的表有一个外键，并且没有其他实体指向非 root 实体。
+
+WARNING: 在目前的实现中，从 aggregate root 引用的实体被 Spring Data JDBC 删除和重新创建。
+
+你可以用符合你工作和设计数据库风格的实现来覆写 repository 的方法。
+
+[[jdbc.getting-started]]
+==  入门
+
+建立工作环境的一个简单方法是在 https://spring.io/tools/sts[STS] 中或从 https://start.spring.io[Spring Initializr] 中创建一个基于 Spring 的项目。
+
+首先，你需要设置一个正在运行的数据库服务器。关于如何配置你的数据库以实现 JDBC 访问，请参考你的供应商文档。
+
+在 STS 中创建一个 Spring 项目。
+
+. 进入 File -> New -> Spring Template Project -> Simple Spring Utility Project, 并在出现提示时按 "Yes"。然后输入一个项目和包的名称，如  `org.spring.jdbc.example`.
+. 在 `pom.xml` 文件的 `dependencies` 元素中添加以下内容:
++
+[source,xml,subs="+attributes"]
+----
+<dependencies>
+
+  <!-- other dependency elements omitted -->
+
+  <dependency>
+    <groupId>org.springframework.data</groupId>
+    <artifactId>spring-data-jdbc</artifactId>
+    <version>{version}</version>
+  </dependency>
+
+</dependencies>
+----
+. 将 `pom.xml` 中 Spring 的 `version` 改为
++
+[source,xml,subs="+attributes"]
+----
+<spring.framework.version>{springVersion}</spring.framework.version>
+----
+. 在你的 `pom.xml` 中添加以下 Maven 的 Spring Milestone repository 的位置，使其位于 `<dependencies/>` 元素的同一级别。
++
+[source,xml]
+----
+<repositories>
+  <repository>
+    <id>spring-milestone</id>
+    <name>Spring Maven MILESTONE Repository</name>
+    <url>https://repo.spring.io/libs-milestone</url>
+  </repository>
+</repositories>
+----
+
+repository  可以在 https://repo.spring.io/milestone/org/springframework/data/[这里浏览].
+
+[[jdbc.examples-repo]]
+== 示例存储库
+
+有一个 https://github.com/spring-projects/spring-data-examples[GitHub 仓库] ，里面有几个例子，你可以下载并玩一玩，感受一下这个库是如何工作的。
+
+[[jdbc.java-config]]
+== 基于注解的配置
+
+Spring Data JDBC Repository 可以通过Java配置的注解来激活，如下例所示。
+
+.Spring Data JDBC repositories using Java configuration
+====
+[source,java]
+----
+@Configuration
+@EnableJdbcRepositories                                                                // <1>
+class ApplicationConfig extends AbstractJdbcConfiguration {                            // <2>
+
+    @Bean
+    DataSource dataSource() {                                                         // <3>
+
+        EmbeddedDatabaseBuilder builder = new EmbeddedDatabaseBuilder();
+        return builder.setType(EmbeddedDatabaseType.HSQL).build();
+    }
+
+    @Bean
+    NamedParameterJdbcOperations namedParameterJdbcOperations(DataSource dataSource) { // <4>
+        return new NamedParameterJdbcTemplate(dataSource);
+    }
+
+    @Bean
+    TransactionManager transactionManager(DataSource dataSource) {                     // <5>
+        return new DataSourceTransactionManager(dataSource);
+    }
+}
+----
+<1> `@EnableJdbcRepositories` 为源自 `Repository` 的接口创建实现。
+<2> `AbstractJdbcConfiguration` 提供了 Spring Data JDBC 所需的各种默认 Bean 类。
+<3> 创建一个连接到 `DataSource` 的数据源。以下两个 Bean 方法需要这样做。
+<4> 创建 Spring Data JDBC 用来访问数据库的 `NamedParameterJdbcOperations`。
+<5> Spring Data JDBC 利用了 Spring JDBC 提供的事务管理（transaction management ）。
+====
+
+前面例子中的配置类通过使用 `spring-jdbc` 的 `EmbeddedDatabaseBuilder` API 设置了一个嵌入式 HSQL 数据库。然后使用 `DataSource` 来设置 `NamedParameterJdbcOperations` 和 `TransactionManager`。
+最后，使用 `@EnableJdbcRepositories` 来激活 Spring Data JDBC Repository。如果没有配置 base package，它就使用配置类所在的包。继承 `AbstractJdbcConfiguration` 确保各种 Bean 被注册。覆盖其方法可以用来定制设置（见下文）。
+
+通过使用 Spring Boot，可以进一步简化此配置。在 Spring Boot 中，只要在依赖中添加 `spring-boot-starter-data-jdbc starter`，有一个 `DataSource`。其他一切都由 Spring Boot 完成。
+
+在此设置中，有几项可能需要自定义。
+
+[[jdbc.dialects]]
+=== Dialects(方言)
+
+Spring Data JDBC 使用 `Dialect` 接口的实现来封装特定于数据库或其 JDBC 驱动程序的行为。默认情况下，`AbstractJdbcConfiguration` 会尝试确定正在使用的数据库并注册正确的 `Dialect`。
+这个行为可以通过覆写 `jdbcDialect(NamedParameterJdbcOperations)` 来改变。
+
+如果你使用一个没有方言（Dialect）的数据库，那么你的应用程序将无法启动。在这种情况下，你将不得不要求你的供应商提供一个方言实现。另外，你也可以：
+
+1. 实现你自己的 `Dialect`.
+2. 实现 `JdbcDialectProvider` 并返回 `Dialect`.
+3. 通过在 `META-INF` 下创建 `spring.factories` 资源来注册提供者，并通过添加一行来执行注册 `org.springframework.data.jdbc.repository.config.DialectResolver$JdbcDialectProvider=<JdbcDialectProvider 的全路径名称>`。
+
+[[jdbc.entity-persistence]]
+== 持久化实体
+
+可以用 `CrudRepository.save(…)` 方法保存 aggregate。如果 aggregate 是新的，这将导致对 aggregate root 的插入，然后是对所有直接或间接引用的实体的插入语句。
+
+如果 aggregate root 不是新的，则删除所有引用的实体，aggregate root 会被更新，并再次插入所有引用的实体。请注意，一个实例是否是新的是该实例状态的一部分。
+
+NOTE: 这种方法有一些明显的缺点。如果只有少数被引用的实体被实际改变了，那么删除和插入就是浪费了。虽然这个过程可以而且可能会被改进，但 Spring Data JDBC 能提供的东西有一定的局限性。
+它不知道一个 aggregate 的先前状态。因此，任何更新过程都必须采取它在数据库中发现的任何东西，并确保它将其转换为传递给 `save` 方法的实体的任何状态。
+
+include::{spring-data-commons-location}/object-mapping.adoc[leveloffset=+2]
+
+[[jdbc.entity-persistence.types]]
+=== 实体中支持的类型
+
+目前支持以下类型的属性：
+
+* 所有的原始类型和其包装类型 (`int`, `float`, `Integer`, `Float`, 等等)
+
+* 枚举会被映射到它们的名字（name）上。.
+
+* `String`
+
+* `java.util.Date`, `java.time.LocalDate`, `java.time.LocalDateTime`, and `java.time.LocalTime`
+
+* 如果你的数据库支持，上述类型的数组（Array）和集合（Collection）可以被映射到数组类型的列中。
+
+* 您的数据库驱动程序接受的任何内容.
+
+* 对其他实体的引用。 它们被认为是一对一的关系，或嵌入式类型。 一对一关系实体是否具有 `id` 属性是可选的。 被引用实体的表应该有一个额外的列，其名称基于引用实体，参见 <<jdbc.entity-persistence.types.backrefs>>。
+嵌入式实体不需要 `id`。 如果存在，它将被忽略。
+
+* `Set<some entity>` 被认为是一对多的关系。 被引用实体的表应该有一个额外的列，其名称基于引用实体，参见 <<jdbc.entity-persistence.types.backrefs>>。
+
+* `Map<simple type, some entity>` 被认为是一个合格的一对多的关系。被引用实体的表应该有两个额外的列。一个是基于外键的引用实体而命名的（见 <<jdbc.entity-persistence.types.backrefs>>），一个是具有相同名称和额外 `_key` 后缀的映射键。
+你可以通过实现 `NamingStrategy.getReverseColumnName(PersistentPropertyPathExtension path)` 和 `NamingStrategy.getKeyColumn(RelationalPersistentProperty property)` 分别改变这种行为。
+或者你可以用 `@MappedCollection(idColumn="your_column_name", keyColumn="your_key_column_name")` 来注解该属性。
+
+* `List<some entity>` 被映射为  `Map<Integer, some entity>`.
+
+[[jdbc.entity-persistence.types.referenced-entities]]
+==== 被引用的实体
+
+对被引用实体的处理是有限的。这是以上面描述的 aggregate root 的概念为基础的。如果你引用另一个实体，根据定义，该实体是你的 aggregate 的一部分。
+所以，如果你删除了引用，之前被引用的实体就会被删除。这也意味着引用是 `1-1` 或 `1-n`，但不是 `n-1` 或 `n-m`。
+
+如果你有 `n-1` 或 `n-m` 引用，根据定义，你是在处理两个独立的 aggregate。这些之间的引用可以被编码为简单的 `id` 值，这与 Spring Data JDBC 正确映射。
+一个更好的编码方式是让它们成为 `AggregateReference` 的实例。`AggregateReference` 是一个围绕 `id` 值的封装，它将该值标记为对不同 aggregate 的引用。
+另外，该 aggregate 的类型被编码在泛型参数中。
+
+[[jdbc.entity-persistence.types.backrefs]]
+==== 反向引用
+
+aggregate 的所有引用都会在数据库中产生一个相反方向的外键关系。默认情况下，外键列的名称是引用实体的表名。
+
+或者你可以选择让它们以引用实体的实体名称命名，忽略 `@Table` 注解。你可以通过在 `RelationalMappingContext` 上调用 `setForeignKeyNaming(ForeignKeyNaming.IGNORE_RENAMING)` 来激活这个行为。
+
+对于 `List` 和 `Map` 引用，需要一个额外的列来保存 list 索引或 map key。它以外键列为基础，加上一个额外的 1 后缀。
+
+如果你想用完全不同的方式来命名这些反向引用，你可以用符合你需求的方式来实现 `NamingStrategy.getReverseColumnName(PersistentPropertyPathExtension path)`。
+
+.声明并设置 `AggregateReference`
+====
+[source,java]
+----
+class Person {
+	@Id long id;
+	AggregateReference<Person, Long> bestFriend;
+}
+
+// ...
+
+Person p1, p2 = // some initialization
+
+p1.bestFriend = AggregateReference.to(p2.id);
+
+----
+====
+
+* 您为其注册了合适的  [[jdbc.custom-converters,自定义转换]] 的类型
+
+[[jdbc.entity-persistence.naming-strategy]]
+=== `NamingStrategy`
+
+当你使用 Spring Data JDBC 提供的 `CrudRepository` 的标准实现时，它们期望有一个特定的表结构。你可以通过在你的应用程序上下文中提供 {javadoc-base}org/springframework/data/relational/core/mapping/NamingStrategy.html[`NamingStrategy`] 来进行调整。
+
+[[jdbc.entity-persistence.custom-table-name]]
+=== `自定义表名`
+
+当 `NamingStrategy` 不匹配你的数据库表名时，你可以用 {javadoc-base}org/springframework/data/relational/core/mapping/Table.html[`@Table`] 注解来自定义名称。该注解的 `value` 值提供了自定义表的名称。下面的例子将 `MyEntity` 类映射到数据库中的 `CUSTOM_TABLE_NAME` 表。
+
+====
+[source,java]
+----
+@Table("CUSTOM_TABLE_NAME")
+class MyEntity {
+    @Id
+    Integer id;
+
+    String name;
+}
+----
+====
+
+[[jdbc.entity-persistence.custom-column-name]]
+=== `自定义列名`
+
+当 `NamingStrategy` 不匹配你的数据库列名时，你可以用 {javadoc-base}org/springframework/data/relational/core/mapping/Column.html[`@Column`] 注解来定制名称。这个注解的 `value` 值提供了自定义的列名。下面的例子将 `MyEntity` 类的 `name` 属性映射到数据库中的 `CUSTOM_COLUMN_NAME` 列。
+
+====
+[source,java]
+----
+class MyEntity {
+    @Id
+    Integer id;
+
+    @Column("CUSTOM_COLUMN_NAME")
+    String name;
+}
+----
+====
+
+{javadoc-base}org/springframework/data/relational/core/mapping/MappedCollection.html[`@MappedCollection`] 注解可用于引用类型（一对一的关系）或 `Set`、`List` 和 `Map`（一对多的关系）。
+注解的 `idColumn` 元素为引用对方表中 `id` 列的外键列提供了一个自定义名称。在下面的例子中，`MySubEntity` 类的对应表有一个 `NAME` 列，而 `MyEntity` id 的 `CUSTOM_MY_ENTITY_ID_COLUMN_NAME` 列是出于关系的原因。
+
+====
+[source,java]
+----
+class MyEntity {
+    @Id
+    Integer id;
+
+    @MappedCollection(idColumn = "CUSTOM_MY_ENTITY_ID_COLUMN_NAME")
+    Set<MySubEntity> subEntities;
+}
+
+class MySubEntity {
+    String name;
+}
+----
+====
+
+当使用 `List` 和 `Map` 时，你必须为 `List` 中数据集的 `position` 或 `Map` 中实体的 key 值设置一个额外的列。这个额外的列名可以通过 {javadoc-base}org/springframework/data/relational/core/mapping/MappedCollection.html[`@MappedCollection`] 注解的 `keyColumn` 元素来定制。
+
+====
+[source,java]
+----
+class MyEntity {
+    @Id
+    Integer id;
+
+    @MappedCollection(idColumn = "CUSTOM_COLUMN_NAME", keyColumn = "CUSTOM_KEY_COLUMN_NAME")
+    List<MySubEntity> name;
+}
+
+class MySubEntity {
+    String name;
+}
+----
+====
+
+[[jdbc.entity-persistence.embedded-entities]]
+=== 嵌入式实体
+
+嵌入式实体用于在你的 Java 数据模型中的 value 对象，即使你的数据库中只有一个表。在下面的例子中，你可以看到 `MyEntity` 是用 `@Embedded` 注解来映射的。
+这样做的结果是，在数据库中，预期会有一个带有两列 `id` 和 `name`（来自 `EmbeddedEntity` 类）的表 `my_entity`。
+
+然而，如果 `name` 列在结果集中实际上是 null，根据 `@Embedded` 的 `onEmpty`，整个属性 `embeddedEntity` 将被设置为 `null`，当所有嵌套的属性都是 `null` 的时候，它就会将对象设置为 `null`。
+与这种行为相反，`USE_EMPTY` 试图使用默认的构造函数或接受结果集的可空参数值的构造函数来创建一个新的实例。
+
+.Sample Code of embedding objects
+====
+[source,java]
+----
+class MyEntity {
+
+    @Id
+    Integer id;
+
+    @Embedded(onEmpty = USE_NULL) <1>
+    EmbeddedEntity embeddedEntity;
+}
+
+class EmbeddedEntity {
+    String name;
+}
+----
+<1> 如果 `name` 为 `null`，则将 `embeddedEntity` 设置为 `null`。使用 `USE_EMPTY` 来实例化 `name` 属性可能为 `null` 的 `embeddedEntity`。
+====
+
+如果您在一个实体中多次需要一个值对象，这可以通过 `@Embedded` 注解的 `prefix` 元素来实现。
+此元素表示一个前缀，并为嵌入对象中的每个列名添加前缀。
+
+[TIP]
+====
+利用 `@Embedded.Nullable` & `@Embedded.Empty` 为 `@Embedded(onEmpty = USE_NULL)` 和 `@Embedded(onEmpty = USE_EMPTY)` 的快捷方式来减少冗长的语言，同时相应地设置 JSR-305 `@javax.annotation.Nonnull`。
+
+[source,java]
+----
+class MyEntity {
+
+    @Id
+    Integer id;
+
+    @Embedded.Nullable <1>
+    EmbeddedEntity embeddedEntity;
+}
+----
+<1> `@Embedded(onEmpty = USE_NULL)` 的快捷方式。
+====
+
+包含一个 `Collection` 或 `Map` 的嵌入式实体将总是被认为是非空的，因为它们至少会包含空的 `Collection` 或 `Map`。因此，即使使用 `@Embedded(onEmpty = USE_NULL)`，这样的实体也不会为 `null`。
+
+[[jdbc.entity-persistence.state-detection-strategies]]
+include::{spring-data-commons-location}/is-new-state-detection.adoc[leveloffset=+2]
+
+[[jdbc.entity-persistence.id-generation]]
+=== ID 生成
+
+Spring Data JDBC 使用 ID 来识别实体。实体的 ID 必须用 Spring Data 的  https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/annotation/Id.html[`@Id`]  注解来注解。
+
+当你的数据库中的 ID 列有一个自增列时，在将实体插入数据库后，生成的值会被设置到实体中。
+
+一个重要的约束条件是，在保存一个实体之后，该实体必须不再是新的了。请注意，一个实体是否是新的是实体状态的一部分。对于自动递增列，这种情况会自动发生，因为 Spring Data 会用 ID 列的值来设置 ID。
+如果你不使用自动递增列，你可以使用 `BeforeConvert` 监听器，它可以设置实体的 ID（在本文后面会提到）。
+
+[[jdbc.entity-persistence.read-only-properties]]
+=== 只读属性
+
+用 `@ReadOnlyProperty` 注解的属性不会被 Spring Data JDBC 写入数据库，但它们会在实体被加载时被读取。
+
+Spring Data JDBC 在写入实体后不会自动重新加载它。因此，如果你想看到在数据库中为这些列生成的数据，你必须明确地重新加载它。
+
+如果被注解的属性是一个实体或实体的集合，那么它将由单独表中的一个或多个单独的行来表示。Spring Data JDBC 将不会对这些行进行任何插入、删除或更新。
+
+[[jdbc.entity-persistence.insert-only-properties]]
+=== 只插属性
+
+用 `@InsertOnlyProperty` 注解的属性将只在插入操作期间由 Spring Data JDBC 写入数据库。对于更新，这些属性将被忽略。
+
+`@InsertOnlyProperty` 仅支持 aggregate root。
+
+[[jdbc.entity-persistence.optimistic-locking]]
+=== 乐观锁
+
+Spring Data JDBC 通过在 aggregate root 上用 https://docs.spring.io/spring-data/commons/docs/current/api/org/springframework/data/annotation/Version.html[`@Version`] 注解的数字属性来支持乐观锁。每当 Spring Data JDBC 保存一个带有这种 `version` 属性的 aggregate 时，就会发生两件事。
+aggregate root 的更新语句将包含一个 where 子句，检查存储在数据库中的版本是否真的没有变化。如果不是这样，就会抛出 `OptimisticLockingFailureException`。同时， `version` 属性在实体和数据库中都会被增加，所以一个并发的动作会注意到这个变化，并抛出一个 `OptimisticLockingFailureException`（如果适用），如上所述。
+
+这个过程也适用于插入新的聚合体，`null` 或 `0` version 表示一个新的实例，之后增加的实例标志着该实例不再是新的，这使得在对象构建过程中产生的 id 相当好，例如使用 UUID 时。
+在删除过程中，版本检查也适用，但不会增加版本。
+
+[[jdbc.query-methods]]
+== 查询方法
+
+本节提供了一些关于 Spring Data JDBC 的实现和使用的具体信息。
+
+你通常在 repository 上触发的大多数数据访问操作都会导致对数据库运行查询。定义这样的查询只需要在 repository 接口上声明一个方法，就像下面的例子所示:
+
+.PersonRepository 的查询方法
+====
+[source,java]
+----
+interface PersonRepository extends PagingAndSortingRepository<Person, String> {
+
+  List<Person> findByFirstname(String firstname);                                   <1>
+
+  List<Person> findByFirstnameOrderByLastname(String firstname, Pageable pageable); <2>
+
+  Slice<Person> findByLastname(String lastname, Pageable pageable);                 <3>
+
+  Page<Person> findByLastname(String lastname, Pageable pageable);                  <4>
+
+  Person findByFirstnameAndLastname(String firstname, String lastname);             <5>
+
+  Person findFirstByLastname(String lastname);                                      <6>
+
+  @Query("SELECT * FROM person WHERE lastname = :lastname")
+  List<Person> findByLastname(String lastname);                                     <7>
+  @Query("SELECT * FROM person WHERE lastname = :lastname")
+  Stream<Person> streamByLastname(String lastname);                                     <8>
+
+  @Query("SELECT * FROM person WHERE username = :#{ principal?.username }")
+  Person findActiveUser();															<9>
+}
+----
+
+<1> 该方法显示了对所有具有给定 `firstname` 的人的查询。这个查询是通过解析方法名称中可以与 `And` 和 `Or` 相连接的约束条件而得到的。
+因此，方法名称的结果是一个查询表达式：`SELECT … FROM person WHERE firstname = :firstname`。
+<2> 使用 `Pageable` 向数据库传递 `offset` 和 `sort` 参数。
+<3> 返回一个 `Slice<Person>`。选择 `LIMIT+1` 行以确定是否有更多的数据需要消费。不支持自定义 `ResultSetExtractor`。
+<4> 运行一个分页查询，返回 `Page<Person>`。只选择给定 `page` 范围内的数据，并有可能进行 `count` 查询以确定总数。不支持自定义 `ResultSetExtractor`。
+<5> 为给定的 `criteria` 寻找一个单一的实体。对于非唯一的结果，抛出 `IncorrectResultSizeDataAccessException` 异常。
+<6> 与 <3> 相反，如果查询结果有多个，则只返回第一个。
+<7> `findByLastname` 方法显示对所有具有给定 lastname 的人的查询。
+<8> `streamByLastname` 方法返回一个 `Stream`，这使得 value 从数据库中返回时就有可能。
+<9> 你可以使用 Spring 表达式语言来动态地解析参数。在这个例子中，Spring Security 被用来解析当前用户的用户名。
+====
+
+下表显示了查询方法所支持的关键字:
+
+[cols="1,2,3",options="header",subs="quotes"]
+.Supported keywords for query methods
+|===
+| Keyword
+| Sample
+| Logical result
+
+| `After`
+| `findByBirthdateAfter(Date date)`
+| `birthdate > date`
+
+| `GreaterThan`
+| `findByAgeGreaterThan(int age)`
+| `age > age`
+
+| `GreaterThanEqual`
+| `findByAgeGreaterThanEqual(int age)`
+| `age >= age`
+
+| `Before`
+| `findByBirthdateBefore(Date date)`
+| `birthdate < date`
+
+| `LessThan`
+| `findByAgeLessThan(int age)`
+| `age < age`
+
+| `LessThanEqual`
+| `findByAgeLessThanEqual(int age)`
+| `age \<= age`
+
+| `Between`
+| `findByAgeBetween(int from, int to)`
+| `age BETWEEN from AND to`
+
+| `NotBetween`
+| `findByAgeNotBetween(int from, int to)`
+| `age NOT BETWEEN from AND to`
+
+| `In`
+| `findByAgeIn(Collection<Integer> ages)`
+| `age IN (age1, age2, ageN)`
+
+| `NotIn`
+| `findByAgeNotIn(Collection ages)`
+| `age NOT IN (age1, age2, ageN)`
+
+| `IsNotNull`, `NotNull`
+| `findByFirstnameNotNull()`
+| `firstname IS NOT NULL`
+
+| `IsNull`, `Null`
+| `findByFirstnameNull()`
+| `firstname IS NULL`
+
+| `Like`, `StartingWith`, `EndingWith`
+| `findByFirstnameLike(String name)`
+| `firstname LIKE name`
+
+| `NotLike`, `IsNotLike`
+| `findByFirstnameNotLike(String name)`
+| `firstname NOT LIKE name`
+
+| `Containing` on String
+| `findByFirstnameContaining(String name)`
+| `firstname LIKE '%' + name + '%'`
+
+| `NotContaining` on String
+| `findByFirstnameNotContaining(String name)`
+| `firstname NOT LIKE '%' + name + '%'`
+
+| `(No keyword)`
+| `findByFirstname(String name)`
+| `firstname = name`
+
+| `Not`
+| `findByFirstnameNot(String name)`
+| `firstname != name`
+
+| `IsTrue`, `True`
+| `findByActiveIsTrue()`
+| `active IS TRUE`
+
+| `IsFalse`,  `False`
+| `findByActiveIsFalse()`
+| `active IS FALSE`
+|===
+
+NOTE: 查询的推导仅限于可以在 `WHERE` 子句中使用的属性，而不使用 `join`。
+
+[[jdbc.query-methods.strategies]]
+=== Query 查找策略
+
+JDBC模块支持将查询手动定义为 `@Query` 注解中的一个字符串或在 property 文件中的命名查询。
+
+从方法的名称衍生出的查询目前仅限于简单的属性，也就是直接存在于 aggregate root 中的属性。另外，这种方法只支持 select 查询。
+
+[[jdbc.query-methods.at-query]]
+=== 使用 `@Query`
+
+下面的例子显示了如何使用 `@Query` 来声明一个查询方法。:
+
+.Declare a query method by using @Query
+====
+[source,java]
+----
+interface UserRepository extends CrudRepository<User, Long> {
+
+  @Query("select firstName, lastName from User u where u.emailAddress = :email")
+  User findByEmailAddress(@Param("email") String email);
+}
+----
+====
+
+对于将查询结果转换为实体，默认使用与 Spring Data JDBC 自己生成的查询相同的 `RowMapper`。你提供的查询必须符合 `RowMapper` 所期望的格式。
+必须提供在实体的构造函数中使用的所有属性的列。通过 setter、with 或字段访问而被设置的属性的列是可选的。在结果中没有匹配列的属性将不会被设置。该查询用于填充 aggregate root、嵌入式实体和一对一的关系，包括原始类型的数组，
+这些数组被存储和加载为 SQL-array-types。对于实体的 map、list、collection 和数组会产生单独的查询。
+
+NOTE: Spring 完全支持 Java 8 的基于 `-parameters` 编译参数的名称发现。通过在你的构建中使用这个标志作为 debug 信息的替代，你可以省略命名参数的 `@Param` 注解。
+
+NOTE: Spring Data JDBC 只支持命名参数.
+
+[[jdbc.query-methods.named-query]]
+=== 命名查询
+
+如果在上一节所述的注解中没有给出查询，Spring Data JDBC将尝试定位一个命名的查询。有两种方法可以确定查询的名称。默认的方法是取查询的 domain 类，即资源库的 aggregate root，取其简称，并附加以 `.` 分隔的方法的名称。
+另外，`@Query` 注解有一个 `name` 属性，可以用来指定要查找的查询的名称。
+
+命名查询应该在 classpath 上的 `META-INF/jdbc-named-queries.properties property` 文件中提供。
+
+该文件的位置可以通过给 `@EnableJdbcRepositories.namedQueriesLocation` 设置一个值来改变.
+
+[[jdbc.query-methods.at-query.streaming-results]]
+==== Stream 结果
+
+当你指定 Stream 作为查询方法的返回类型时，Spring Data JDBC 在元素可用时立即返回。当处理大量的数据时，这适合于减少延迟和内存需求。
+该 stream 包含一个到数据库的开放连接。为了避免内存泄漏，最终需要通过关闭 stream 来关闭该连接。推荐的方法是一个 `try-with-resource` 子句。这也意味着，一旦与数据库的连接被关闭，stream 就不能再获得更多的元素，并可能抛出一个异常。
+
+[[jdbc.query-methods.at-query.custom-rowmapper]]
+==== 自定义 `RowMapper`
+
+你可以通过使用 `@Query(rowMapperClass = ....)` 或者通过注册一个 `RowMapperMap` Bean 并为每个方法的返回类型注册一个 `RowMapper` 来配置使用哪个 `RowMapper`。
+下面的例子显示了如何注册 `DefaultQueryMappingConfiguration`。
+
+====
+[source,java]
+----
+@Bean
+QueryMappingConfiguration rowMappers() {
+  return new DefaultQueryMappingConfiguration()
+    .register(Person.class, new PersonRowMapper())
+    .register(Address.class, new AddressRowMapper());
+}
+----
+====
+
+当决定为一个方法使用哪个 `RowMapper` 时，根据方法的返回类型，要遵循以下步骤:
+. 如果类型是一个基本数据类型，则不使用 `RowMapper`。
++
+反之，查询被期望返回一个单列单行数据，并且对该值进行返回类型的转换。
+. `QueryMappingConfiguration` 中的实体类被遍历，直到找到一个是相关返回类型的父类或接口。为该类注册的 `RowMapper` 被使用。
++
+迭代是按照注册的顺序进行的，所以要确保在特定类型之后注册更多的泛型
+
+如果适用的话，诸如 `Collection` 或 `Optional` 的包装类型会被解除包装。因此，一个 `Optional<Person>` 的返回类型在前面的过程中使用 `Person` 类型。
+
+NOTE: 通过 `QueryMappingConfiguration`、 `@Query(rowMapperClass=…)` 或自定义 `ResultSetExtractor` 使用自定义 `RowMapper`，可以禁用实体回调和生命周期事件，因为如果需要，结果映射可以发出自己的事件/回调。
+
+[[jdbc.query-methods.at-query.modifying]]
+==== Modifying 查询
+
+你可以通过使用 `@Modifying` 注解将一个查询标记为修改性查询，如下图所示。
+
+====
+[source,java]
+----
+@Modifying
+@Query("UPDATE DUMMYENTITY SET name = :name WHERE id = :id")
+boolean updateName(@Param("id") Long id, @Param("name") String name);
+----
+====
+
+你可以指定以下返回类型:
+
+* `void`
+* `int` (受影响的行数)
+* `boolean`(是否更新成功)
+
+修改的查询是直接针对数据库执行的。没有事件或回调被调用。因此，如果有审计注解的字段在注解的查询中没有被更新，也不会被更新。
+
+include::{spring-data-commons-location}/query-by-example.adoc[leveloffset=+1]
+include::query-by-example.adoc[leveloffset=+1]
+
+include::{spring-data-commons-location}/repository-projections.adoc[leveloffset=+2]
+
+[[jdbc.mybatis]]
+== MyBatis 集成
+
+CRUD 操作和查询方法可以被委托给 MyBatis。本节描述了如何配置 Spring Data JDBC 以与 MyBatis 集成，以及要遵循哪些约定来移交查询的运行以及映射到库中。
+
+[[jdbc.mybatis.configuration]]
+=== 配置
+
+将 MyBatis 正确插入 Spring Data JDBC 的最简单方法是将 `MyBatisJdbcConfiguration` 导入到你的应用程序配置中。
+
+[source,java]
+----
+@Configuration
+@EnableJdbcRepositories
+@Import(MyBatisJdbcConfiguration.class)
+class Application {
+
+  @Bean
+  SqlSessionFactoryBean sqlSessionFactoryBean() {
+    // Configure MyBatis here
+  }
+}
+----
+
+正如你所看到的，你所需要声明的是一个 `SqlSessionFactoryBean`，因为 `MyBatisJdbcConfiguration` 依赖于一个 `SqlSession` Bean，最终在 `ApplicationContext` 中可用。
+
+[[jdbc.mybatis.conventions]]
+=== 使用约定
+
+对于 `CrudRepository` 中的每个操作，Spring Data JDBC 运行多个语句。如果 application context 中有一个 https://github.com/mybatis/mybatis-3/blob/master/src/main/java/org/apache/ibatis/session/SqlSessionFactory.java[`SqlSessionFactory`]，
+Spring Data 就会为每个步骤检查 `SessionFactory` 是否提供一个语句。如果找到了一个，就会使用该语句（包括其配置的对实体的映射）。
+
+语句的名称是通过将实体类型的完全限定名称与 `Mapper` 确定语句类型的 String 连接起来构造的。
+例如，如果要插入 `org.example.User` 的实例，Spring Data JDBC 会查找名为 ``org.example.UserMapper.insert ``的语句。
+
+当语句运行时，[MyBatisContext] 的一个实例被作为参数传递，这使得语句可以使用各种参数。
+
+下表描述了可用的 MyBatis 语句。
+
+[cols="default,default,default,asciidoc"]
+|===
+| Name | 目的 | `CrudRepository` 的方法可能会触发这个语句 | `MyBatisContext` 中的可用属性
+
+| `insert` | 插入一个单一的实体。这也适用于由 aggregate root 引用的实体。 | `save`, `saveAll`. |
+`getInstance`: 要保存的实例。
+
+`getDomainType`: 要保存的实体的类型。
+
+`get(<key>)`: 引用实体的 ID，其中 `<key>` 是由 `NamingStrategy` 提供的反向引用列的名称。
+
+
+| `update` | 更新一个单一的实体。这也适用于被 aggregate root 引用的实体。 | `save`, `saveAll`.|
+`getInstance`: 要保存的实例。
+
+`getDomainType`: 要保存的实体的类型。
+
+| `delete` | 删除一个单一的实体。 | `delete`, `deleteById`.|
+`getId`: 要删除的实例的 ID。
+
+`getDomainType`: 要删除的实体的类型。
+
+| `deleteAll-<propertyPath>` | 删除由任何类型的 aggregate root 所引用的所有实体，这些 aggregate root 与给定的属性路径用作前缀。
+注意，用来作为语句名称前缀的类型是 aggregate root 的名称，而不是要删除的实体的名称。 | `deleteAll`.|
+
+`getDomainType`: 要删除的实体的类型。
+
+| `deleteAll` | 删除所有作为前缀的类型的 aggregate roots | `deleteAll`.|
+
+`getDomainType`: 要删除的实体的类型。
+
+| `delete-<propertyPath>` | 删除由 aggregate root 引用的所有实体，并给出属性路径(propertyPath)。 | `deleteById`.|
+
+`getId`: 要删除被引用实体的 aggregate root 的ID。
+
+`getDomainType`: 要删除的实体的类型。
+
+| `findById` | 通过 ID 查询一个 aggregate root | `findById`.|
+
+`getId`: 要加载的实体的ID。
+
+`getDomainType`: 要加载的实体的类型。
+
+| `findAll` | 查询所有 aggregate roots | `findAll`.|
+
+`getDomainType`: 要加载的实体的类型。
+
+| `findAllById` | 按 ID 值查询一组 aggregate roots。 | `findAllById`.|
+
+`getId`: 一个要加载的实体的ID值的列表。
+
+`getDomainType`: 要加载的实体的类型。
+
+| `findAllByProperty-<propertyName>` | 选择一个被另一个实体引用的实体集合。引用实体的类型被用作前缀。被引用实体的类型作为后缀。此方法已被废弃。请使用 _`findAllByPath`_ 代替
+| 如果没有为 `findAllByPath` 定义查询，那么就是所有的 `find*` 方法|
+
+`getId`: 要加载的实体的 ID。
+
+`getDomainType`: 要加载的实体的类型。
+
+
+| `findAllByPath-<propertyPath>` | 选择一个被另一个实体通过属性路径引用的实体集合。 | 所有的 `find*` 方法.|
+
+`getIdentifier`: 持有 aggregate root 的 ID 的 `Identifier`，加上所有路径元素的key和集合索引。.
+
+`getDomainType`: 要加载的实体的类型。
+
+| `findAllSorted` | Select 所有 aggregate root，并进行排序 | `findAll(Sort)`.|
+
+`getSort`: 排序.
+
+| `findAllPaged` | 分页 select aggregate root，可以选择排序。 | `findAll(Page)`.|
+
+`getPageable`: 分页.
+
+| `count` | 计算作为前缀的类型的 aggregate root 的数量。 | `count` |
+
+`getDomainType`:  要计算 count 的 aggregate root 的类型。
+|===
+
+[[jdbc.events]]
+== 生命周期事件
+
+Spring Data JDBC 触发的事件会被发布到应用程序上下文中任何匹配的 `ApplicationListener` Bean 上。事件和回调只对 aggregate root 进行触发。如果你想处理非 root 实体，
+你需要通过包含 aggregate root 的监听器（listener）来完成。
+
+实体生命周期事件可能代价高昂，当加载大型结果集时，你可能会注意到性能概况的变化。你可以在 link:{javadoc-base}org/springframework/data/jdbc/core/JdbcAggregateTemplate.html#setEntityLifecycleEventsEnabled(boolean)[Template API] 上停用生命周期事件。
+
+例如，在一个集合被保存之前，下面的监听器会被调用。
+
+====
+[source,java]
+----
+@Bean
+ApplicationListener<BeforeSaveEvent<Object>> loggingSaves() {
+
+	return event -> {
+
+		Object entity = event.getEntity();
+		LOG.info("{} is getting saved.", entity);
+	};
+}
+----
+====
+
+如果您只想处理特定 domain 类型的事件，您可以从 `AbstractRelationalEventListener` 派生您的监听并覆盖一个或多个  `onXXX` 方法，其中  `XXX` 代表一种事件类型。
+回调方法只会为与 domain 类型及其子类型相关的事件调用，因此您不需要进一步转换。
+
+====
+[source,java]
+----
+class PersonLoadListener extends AbstractRelationalEventListener<Person> {
+
+	@Override
+	protected void onAfterLoad(AfterLoadEvent<Person> personLoad) {
+		LOG.info(personLoad.getEntity());
+	}
+}
+----
+====
+
+下表描述了可用的事件。关于过程步骤之间的确切关系的更多细节，请看 link:#jdbc.entity-callbacks[可用回调的说明]，它 `1:1` 地映射到事件。
+
+.可用的事件
+|===
+| 事件 | 事件发布时机
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/BeforeDeleteEvent.html[`BeforeDeleteEvent`]
+| 在一个 aggregate root 被删除之前。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterDeleteEvent.html[`AfterDeleteEvent`]
+| 在一个 aggregate root 被删除后。
+
+| {javadoc-base}/org/springframework/data/relational/core/mapping/event/BeforeConvertEvent.html[`BeforeConvertEvent`]
+| 在 aggregate root 被转换为执行 SQL 语句的计划之前，但在决定 aggregate 是否是新的（new）之后，也就是说，如果更新或插入是有序的。如果你想以编程方式设置一个 id，这就是正确的事件。
+
+| {javadoc-base}/org/springframework/data/relational/core/mapping/event/BeforeSaveEvent.html[`BeforeSaveEvent`]
+| 在 aggregate root 被保存之前（即插入或更新，但在决定是否被插入或更新之后）。不要用它来为新 aggregate 创建 Ids。使用 `BeforeConvertEvent` 或者更好的 `BeforeConvertCallback` 来代替。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterSaveEvent.html[`AfterSaveEvent`]
+| 在一个 aggregate root 被保存（即插入或更新）后。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterLoadEvent.html[`AfterLoadEvent`]
+| 在从数据库 `ResultSet` 中创建一个 aggregate root 并设置其所有属性后。 注意：这已被废弃。使用 `AfterConvert` 代替。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterConvertEvent.html[`AfterConvertEvent`]
+| 在从数据库 `ResultSet` 中创建一个 aggregate root 并设置其所有属性后。
+|===
+
+WARNING: 生命周期事件依赖于 `ApplicationEventMulticaster`，在 `SimpleApplicationEventMulticaster` 的情况下，它可以用 `TaskExecutor` 来配置，因此在事件被处理时没有保证。
+
+
+[[jdbc.entity-callbacks]]
+=== Store 特有的 EntityCallback
+
+Spring Data JDBC 使用 `EntityCallback` API 来支持其审计，并对下表中列出的回调作出反应。
+
+.由 Spring Data JDBC 执行的不同过程的处理步骤和回调。
+|===
+| 过程 | `EntityCallback` / 处理步骤 | 说明
+
+.3+| Delete | {javadoc-base}org/springframework/data/relational/core/mapping/event/BeforeDeleteCallback.html[`BeforeDeleteCallback`]
+| 在实际删除之前。
+
+2+| aggregate root 和该 aggregate 的所有实体被从数据库中删除。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterDeleteCallback.html[`AfterDeleteCallback`]
+| 在一个 aggregate 被删除后。
+
+.6+| Save 2+| 确定是否要对 aggregate 进行插入或更新，取决于它是否是新的。
+
+| {javadoc-base}/org/springframework/data/relational/core/mapping/event/BeforeConvertCallback.html[`BeforeConvertCallback`]
+| 如果你想以编程方式设置一个 ID，这就是正确的回调。在上一步中，新的 aggregate 被检测到，在这一步中生成的 Id 将在下一步中使用。
+
+2+| 将 aggregate 转换为 aggregate change，它是一连串的 SQL 语句，要针对数据库执行。在这一步中，决定是否由 aggregate 提供一个 Id，或者 Id 仍然是空的，并期望由数据库生成。
+
+| {javadoc-base}/org/springframework/data/relational/core/mapping/event/BeforeSaveCallback.html[`BeforeSaveCallback`]
+| 对 aggregate root 的改变可能会被考虑，但是否将id值发送到数据库的决定已经在上一步中做出。
+
+2+| 上面确定的SQL语句会针对数据库执行。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterSaveCallback.html[`AfterSaveCallback`]
+| 在一个 aggregate root 被保存（即插入或更新）后。
+
+.2+| Load 2+| 使用1个或多个SQL查询加载 aggregate 。从结果集中构建 aggregate。
+
+| {javadoc-base}org/springframework/data/relational/core/mapping/event/AfterConvertCallback.html[`AfterConvertCallback`]
+|
+|===
+
+我们鼓励使用回调而不是事件，因为它们支持使用不可变的类，因此比事件更强大、更通用。
+
+include::{spring-data-commons-location}/entity-callbacks.adoc[leveloffset=+1]
+
+include::jdbc-custom-conversions.adoc[]
+
+[[jdbc.logging]]
+== 日志
+
+Spring Data JDBC 本身几乎不做任何日志记录。相反，`JdbcTemplate` 发布 SQL 语句的机制提供了日志记录。因此，如果你想检查运行了哪些 SQL 语句，
+请激活 Spring 的 {spring-framework-docs}/data-access.html#jdbc-JdbcTemplate[`NamedParameterJdbcTemplate`] 或 https://www.mybatis.org/mybatis-3/logging.html[MyBatis] 的日志。
+
+[[jdbc.transactions]]
+== 事务
+
+CrudRepository 实例的方法默认是事务性的。对于读取操作，事务配置的 `readOnly` 标志被设置为 `true`。所有其他的都是用普通的 `@Transactional` 注解来配置的，所以默认的事务配置是适用的。
+详情请见 link:{javadoc-base}org/springframework/data/jdbc/repository/support/SimpleJdbcRepository.html[`SimpleJdbcRepository`] 的 Javadoc。
+如果你需要调整 repository 中声明的某个方法的事务配置，请在你的 repository 接口中重新声明该方法，如下所示。
+
+.CRUD 的自定义事务配置
+====
+[source,java]
+----
+interface UserRepository extends CrudRepository<User, Long> {
+
+  @Override
+  @Transactional(timeout = 10)
+  List<User> findAll();
+
+  // Further query method declarations
+}
+----
+====
+
+前面的内容导致 `findAll()` 方法以 `10` 秒的超时时间运行，并且没有 `readOnly` 标志。
+
+另一种改变事务行为的方式是通过使用一个通常涵盖一个以上 repository 的 facade 或 service 实现。它的目的是为非 CRUD 操作定义事务性的边界。下面的例子展示了如何创建这样一个 facade。
+
+.Using a facade to define transactions for multiple repository calls
+====
+[source,java]
+----
+@Service
+public class UserManagementImpl implements UserManagement {
+
+  private final UserRepository userRepository;
+  private final RoleRepository roleRepository;
+
+  UserManagementImpl(UserRepository userRepository,
+    RoleRepository roleRepository) {
+    this.userRepository = userRepository;
+    this.roleRepository = roleRepository;
+  }
+
+  @Transactional
+  public void addRoleToAllUsers(String roleName) {
+
+    Role role = roleRepository.findByName(roleName);
+
+    for (User user : userRepository.findAll()) {
+      user.addRole(role);
+      userRepository.save(user);
+    }
+}
+----
+====
+
+前面的例子导致对 `addRoleToAllUsers(…)` 的调用在一个事务中运行（参与现有的事务或在没有事务的情况下创建一个新的事务）。
+repository 的事务配置被忽略了，因为外部事务配置决定了实际使用的 repository。请注意，你必须明确地激活 `<tx:annotation-driven />` 或使用 `@EnableTransactionManagement` 来使基于注解的配置的 facade 工作。
+注意，前面的例子假设你使用组件扫描。
+
+[[jdbc.transaction.query-methods]]
+=== 事务性查询方法
+
+要让你的查询方法是事务性的，在你定义的 repository 接口处使用 `@Transactional`，如下例所示。
+
+.在查询方法中使用 @Transactional
+====
+[source,java]
+----
+@Transactional(readOnly = true)
+interface UserRepository extends CrudRepository<User, Long> {
+
+  List<User> findByLastname(String lastname);
+
+  @Modifying
+  @Transactional
+  @Query("delete from User u where u.active = false")
+  void deleteInactiveUsers();
+}
+----
+====
+
+通常情况下，你希望 `readOnly` 标志被设置为 `true`，因为大多数的查询方法只读取数据。与此相反， `deleteInactiveUsers()` 使用了 `@Modifying` 注解并覆盖了事务配置。
+因此，该方法的 `readOnly` 标志被设置为 `false`。
+
+NOTE: 强烈建议使查询方法成为事务性的。这些方法可能会执行一个以上的查询，以填充一个实体。如果没有一个共同的事务，Spring Data JDBC 就会在不同的连接中执行这些查询。这可能会给连接池带来过大的压力，甚至可能导致死锁，当多个方法请求一个新的连接，而同时又坚持使用一个连接时。
+
+NOTE: 通过设置 `readOnly` 标志将只读查询标记为只读是绝对合理的。然而，这并不是作为一种检查，以确保你不触发操纵性查询（尽管一些数据库拒绝在只读事务中的 `INSERT` 和 `UPDATE` 语句）。相反，`readOnly` 标志是作为一种提示传播给底层的 JDBC 驱动程序，以便进行性能优化。
+
+include::{spring-data-commons-location}/auditing.adoc[leveloffset=+1]
+
+[[jdbc.auditing]]
+== JDBC 审计
+
+为了激活审计，在配置中添加 `@EnableJdbcAuditing`，如下例所示。
+
+.用 Java 配置激活审计
+====
+[source,java]
+----
+@Configuration
+@EnableJdbcAuditing
+class Config {
+
+  @Bean
+  AuditorAware<AuditableUser> auditorProvider() {
+    return new AuditorAwareImpl();
+  }
+}
+----
+====
+
+如果你将 `AuditorAware` 类型的 bean 暴露给 `ApplicationContext`，审计基础设施会自动拾取它，并使用它来确定要在 domain 类型上设置的当前用户。
+如果你在 `ApplicationContext` 中注册了多个实现，你可以通过明确设置 `@EnableJdbcAuditing` 的 `auditorAwareRef` 属性来选择要使用的一个。
+
+[[jdbc.locking]]
+== JDBC 锁
+
+Spring Data JDBC 支持对派生查询方法进行加锁。为了在 repository 中启用给定的派生查询方法的锁，你可以用 `@Lock` 来注解它。`LockMode` 类型的要求值提供两个值。
+`PESSIMISTIC_READ`，保证你正在读取的数据不会被修改；`PESSIMISTIC_WRITE`，获得一个锁来修改数据。有些数据库不做这种区分。在这种情况下，两种模式都等同于 `PESSIMISTIC_WRITE`。
+
+.在派生查询方法上使用 @Lock
+====
+[source,java]
+----
+interface UserRepository extends CrudRepository<User, Long> {
+
+  @Lock(LockMode.PESSIMISTIC_READ)
+  List<User> findByLastname(String lastname);
+}
+----
+====
+
+正如你在上面看到的，`findByLastname(String lastname)` 方法将以悲观锁的方式执行。如果你使用的是 MySQL 方言的数据库，这将导致例如以下的查询。
+
+.MySQL 方言的 Sql 查询结果
+====
+[source,sql]
+----
+Select * from user u where u.lastname = lastname LOCK IN SHARE MODE
+----
+====
+
+除了 `LockMode.PESSIMISTIC_READ`，你可以使用 `LockMode.PESSIMISTIC_WRITE`。

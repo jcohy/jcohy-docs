@@ -15,6 +15,7 @@
 
 在 Spring Boot 应用程序中,要指定要使用的授权服务器,只需执行以下操作:
 
+====
 [source,yml]
 ----
 spring:
@@ -24,15 +25,16 @@ spring:
         jwt:
           issuer-uri: https://idp.example.com/issuer
 ----
+====
 
 其中 `https://idp.example.com/issuer` 是授权服务器将颁发的JWT令牌的 `iss` 声明中包含的值.  资源服务器将使用此属性进行进一步的自我配置,发现授权服务器的公钥,然后验证传入的JWT.
 
 
 [NOTE]
+====
 要使用 `issuer-uri` 属性,还必须确保 `https://idp.example.com/issuer/.well-known/openid-configuration`, `https://idp.example.com/.well-known/openid-configuration/issuer`, 或  `https://idp.example.com/.well-known/oauth-authorization-server/issuer` 是授权服务器支持的端点.
 此端点称为 https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig[Provider Configuration]  端点或授权服务器 https://tools.ietf.org/html/rfc8414#section-3[Authorization Server Metadata] 端点.
-
-就是这样！
+====
 
 === 启动预期
 
@@ -47,42 +49,48 @@ spring:
 此过程的结果是,授权服务器必须启动并接收请求,才能成功启动资源服务器.
 
 [NOTE]
+====
 如果在资源服务器查询授权服务器时授权服务器已关闭 (给出适当的超时) ,则启动将失败.
+====
 
 === 运行时预期
 
 应用程序启动后,资源服务器将尝试处理任何包含 `Authorization: Bearer`  头的请求:
 
+====
 [source,html]
 ----
 GET / HTTP/1.1
 Authorization: Bearer some-token-value # Resource Server will process this
 ----
+====
 
 只要指示了此方案,资源服务器就会尝试根据 Bearer Token 规范处理请求.
 
 给定格式正确的JWT,资源服务器将:
 
-1. 在启动期间根据从 `jwks_url` 端点获取并与 JWTs 请求头匹配的公钥验证其签名
-2. 验证 JWT 的 `exp` 和 `nbf` 时间戳以及 JWT 的 `iss` 声明,以及
-3. 将每个范围映射到具有前缀 `SCOPE_` 的权限.
+. 在启动期间根据从 `jwks_url` 端点获取并与 JWTs 请求头匹配的公钥验证其签名
+. 验证 JWT 的 `exp` 和 `nbf` 时间戳以及 JWT 的 `iss` 声明,以及
+. 将每个范围映射到具有前缀 `SCOPE_` 的权限.
 
 [NOTE]
+====
 当授权服务器提供新的密钥时,Spring Security 将自动旋转用于验证 JWT 令牌的密钥.
+====
 
 默认情况下,生成的  `Authentication#getPrincipal` 是 Spring Security `Jwt` 对象,并且  `Authentication#getName` 映射到 JWT 的 `sub` 属性 (如果存在) .
 
 从这里,考虑跳到:
 
-<<webflux-oauth2resourceserver-jwt-jwkseturi,如何在不使资源服务器启动受限于授权服务器的可用性的情况下进行配置>>
-
-<<webflux-oauth2resourceserver-jwt-sansboot,如何在没有 Spring Boot 的情况下进行配置>>
+* <<webflux-oauth2resourceserver-jwt-jwkseturi,如何在不使资源服务器启动受限于授权服务器的可用性的情况下进行配置>>
+* <<webflux-oauth2resourceserver-jwt-sansboot,如何在没有 Spring Boot 的情况下进行配置>>
 
 [[webflux-oauth2resourceserver-jwt-jwkseturi]]
 === 直接指定授权服务器JWK设置Uri
 
 如果授权服务器不支持任何配置端点,或者如果资源服务器必须能够独立于授权服务器启动,那么还可以提供 `jwk-set-uri`:
 
+====
 [source,yaml]
 ----
 spring:
@@ -93,21 +101,26 @@ spring:
           issuer-uri: https://idp.example.com
           jwk-set-uri: https://idp.example.com/.well-known/jwks.json
 ----
+====
 
 [NOTE]
+====
 JWK Set uri 尚未标准化,但通常可以在授权服务器的文档中找到
+====
 
 因此,资源服务器在启动时不会对授权服务器执行 ping 操作.  我们仍然指定 `issuer-uri`,以便 Resource Server 仍然验证传入 JWT 上的 `iss` 声明.
 
 [NOTE]
+====
 此属性也可以直接在<<webflux-oauth2resourceserver-jwt-jwkseturi-dsl,DSL>>上提供.
+====
 
 [[webflux-oauth2resourceserver-jwt-sansboot]]
 === 覆盖或替换引导自动配置
 
-Spring Boot 代表 Resource Server 生成了两个 `@Bean`.
+Spring Boot 代表 Resource Server 生成了两个 `@Bean` 对象.
 
-第一个是 `SecurityWebFilterChain`,它将应用程序配置为资源服务器. 当包含 `spring-security-oauth2-jose` 时,此 `SecurityWebFilterChain` 看起来像:
+第一个 bean 是 `SecurityWebFilterChain`,它将应用程序配置为资源服务器. 当包含 `spring-security-oauth2-jose` 时,此 `SecurityWebFilterChain` 看起来像:
 
 .Resource Server SecurityWebFilterChain
 ====
@@ -144,7 +157,7 @@ fun springSecurityFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain 
 
 如果应用程序未暴露 `SecurityWebFilterChain` Bean,则 Spring Boot 将暴露以上默认的 bean.
 
-替换它就像在应用程序中暴露 Bean 一样简单:
+替换它就像在应用程序中暴露 `@Bean` 一样简单:
 
 .Replacing SecurityWebFilterChain
 ====
@@ -212,7 +225,9 @@ fun jwtDecoder(): ReactiveJwtDecoder {
 ====
 
 [NOTE]
+====
 调用 `{security-api-url}org/springframework/security/oauth2/jwt/ReactiveJwtDecoders.html#fromIssuerLocation-java.lang.String-[ReactiveJwtDecoders#fromIssuerLocation]` 会调用提供者配置或授权服务器元数据端点,以 扩展 JWK 设置 Uri.  如果该应用程序未暴露 `ReactiveJwtDecoder` Bean,则 Spring Boot 将暴露上述默认值.
+====
 
 可以使用 `jwkSetUri()` 覆盖其配置,也可以使用 `decoder()` 替换其配置.
 
@@ -341,10 +356,11 @@ fun jwtDecoder(): ReactiveJwtDecoder {
 您可以通过<<webflux-oauth2resourceserver-jwt-boot-algorithm,Spring Boot>> 或  <<webflux-oauth2resourceserver-jwt-decoder-builder,`NimbusJwtDecoder` 构建器>>对此进行自定义.
 
 [[webflux-oauth2resourceserver-jwt-boot-algorithm]]
-=== 通过 Spring Boot
+=== 使用 Spring Boot 自定义可信算法
 
 设置算法的最简单方法是作为属性:
 
+====
 [source,yaml]
 ----
 spring:
@@ -355,9 +371,10 @@ spring:
           jws-algorithm: RS512
           jwk-set-uri: https://idp.example.org/.well-known/jwks.json
 ----
+====
 
 [[webflux-oauth2resourceserver-jwt-decoder-builder]]
-=== 使用 Builder
+=== 使用 Builder 自定义可信算法
 
 但是,为了获得更大的功能,我们可以使用 `NimbusReactiveJwtDecoder` 附带的构建器:
 
@@ -446,9 +463,9 @@ fun jwtDecoder(): ReactiveJwtDecoder {
 [[webflux-oauth2resourceserver-jwt-decoder-public-key-boot]]
 ==== 通过 Spring Boot
 
-通过 Spring Boot 指定密钥非常简单.
-密钥的位置可以这样指定:
+您可以使用 Spring Boot 指定密钥：
 
+====
 [source,yaml]
 ----
 spring:
@@ -458,6 +475,7 @@ spring:
         jwt:
           public-key-location: classpath:my-key.pub
 ----
+====
 
 或者,为了进行更复杂的查找,可以对 `RsaKeyConversionServicePostProcessor` 进行后置处理:
 
@@ -489,10 +507,12 @@ fun conversionServiceCustomizer(): BeanFactoryPostProcessor {
 
 指定密钥的位置:
 
+====
 [source,yaml]
 ----
 key.location: hfds://my-key.pub
 ----
+====
 
 然后自动装配值:
 
@@ -567,7 +587,12 @@ fun jwtDecoder(): ReactiveJwtDecoder {
 
 从 OAuth 2.0 授权服务器发出的JWT通常具有 `scope` 或 `scp` 属性,指示其被授予的作用域 (或权限) ,例如:
 
-`{ ..., "scope" : "messages contacts"}`
+====
+[source,json]
+----
+{ ..., "scope" : "messages contacts"}
+----
+====
 
 在这种情况下,资源服务器将尝试将这些作用域强制为已授予权限的列表,并为每个作用域添加字符串 "SCOPE_" 作为前缀.
 
@@ -802,7 +827,9 @@ fun jwtDecoder(): ReactiveJwtDecoder {
 ====
 
 [NOTE]
+====
 默认情况下,资源服务器将时钟偏差配置为 60 秒.
+====
 
 [[webflux-oauth2resourceserver-validation-custom]]
 ==== 配置自定义验证器
