@@ -1,0 +1,133 @@
+= SORT
+
+**语法**
+
+[source,text]
+----
+SORT key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern
+  ...]] [ASC | DESC] [ALPHA] [STORE destination]
+----
+
+**可用版本**：1.0.0
+
+**时间复杂度**：O(N+M*log(M))， N 为要排序的列表或集合内的元素数量， M 为要返回的元素数量。
+如果只是使用 SORT 命令的 GET 选项获取数据而没有进行排序，时间复杂度 O(N)。
+
+**ACL 类别**：**@write, @set, @sortedset, @list, @slow, @dangerous**
+
+返回或保存给定列表、集合或有序集合中包含的元素。
+
+该命令还有 `SORT_RO` 只读变体。
+
+默认情况下，排序以数字作为对象，值被解释为双精度浮点数。 这是最简单形式的 `SORT`：
+
+[source,text]
+----
+SORT mylist
+----
+
+假设 `mylist` 是一个数字列表，该命令将返回相同的列表，其中元素从小到大排序。 为了将数字从大到小排序，请使用 `DESC` 修饰符：
+
+[source,text]
+----
+SORT mylist DESC
+----
+
+当 `mylist` 包含字符串值并且您想要按字典顺序对它们进行排序时，请使用 `ALPHA` 修饰符：
+
+[source,text]
+----
+SORT mylist ALPHA
+----
+
+Redis 可以识别 UTF-8，前提是您正确设置了 `LC_COLLATE` 环境变量。
+
+排序之后返回元素的数量可以通过 LIMIT 修饰符进行限制。 修饰符接受 `offset` 参数和 `count` 参数:
+
+* offset -- 指定要跳过的元素数量。
+* count -- 指定跳过 offset 个指定的元素之后，要返回多少个对象。
+
+以下示例将返回 `mylist` 的排序版本的 `10` 个元素，从元素 `0` 开始（偏移量从 0 开始）：
+
+[source,text]
+----
+SORT mylist LIMIT 0 10
+----
+
+几乎所有修饰符都可以一起使用。 以下示例将返回前 `5` 个元素，按字典顺序降序排序：
+
+[source,text]
+----
+SORT mylist LIMIT 0 5 ALPHA DESC
+----
+
+== 使用外部 key 进行排序
+
+有时您希望使用外部 key 作为权重来对元素进行比较，而不是比较列表、集合或有序集合中的实际元素。 假设列表 `mylist` 包含元素 `1`、`2` 和 `3`，分别表示存储在 `object_1`、`object_2` 和 `object_3` 中的对象的唯一 ID。
+当这些对象具有存储在 `weight_1`、`weight_2` 和 `weight_3` 中的关联权重时，可以通过以下语句指示 `SORT` 使用这些权重对 `mylist` 进行排序：
+
+[source,text]
+----
+SORT mylist BY weight_*
+----
+
+`BY` 选项采用一个模式（在本例中等于 `weight_*`），用于生成用于排序的 key。 这些 key 名称是通过将第一次出现的 `*` 替换为列表中元素的实际值（本例中为 `1`、`2` 和 `3`）来获得的。
+
+
+== 跳过对元素进行排序
+
+`BY` 选项还可以采用不存在的 key，这会导致 `SORT` 跳过排序操作。 如果您想获取外部 key（请参阅下面的 `GET` 选项）而不需要排序开销，这非常有用。
+
+== 获取外部 key
+
+我们前面的示例仅返回排序后的 ID。 在某些情况下，获取实际对象而不是其 ID（`object_1`、`object_2` 和 `object_3`）更有用。
+可以使用以下命令根据列表、集合或有序集合中的元素获取外部键：
+
+[source,text]
+----
+SORT mylist BY weight_* GET object_*
+----
+
+`GET` 选项可以多次使用，以便为原始列表、集合或有序集合的每个元素获取更多 key。
+
+也可以使用特殊模式 `#` 获取元素本身：
+
+[source,text]
+----
+SORT mylist BY weight_* GET object_* GET #
+----
+
+== 使用外部 key 的限制
+
+启用 Redis 集群模式时，无法保证处理命令的节点上存在外部 key。 在这种情况下，任何引用外部 key 模式的 `GET` 或 `BY` 的使用都会导致命令失败并出现错误。
+
+从 Redis 7.0 开始，只有在运行命令的当前用户具有完整 key 读取权限的情况下，才允许使用引用外部 key 模式的 `GET` 或 `BY`。
+可以为用户设置全 key 读取权限，例如通过相关命令访问规则指定 `%R~*` 或 `~*`。 有关设置 ACL 访问规则的更多信息，请参阅 https://redis.io/commands/acl-setuser/[ACL SETUSER] 命令手册。 如果未设置 key 读取权限，该命令将失败并出现错误。
+
+== 保存排序结果
+
+默认情况下， `SORT` 操作只是简单地返回排序结果，并不进行任何保存操作。 通过给 `STORE` 选项指定一个 `key` 参数，可以将排序结果保存到给定的 key 上。
+
+[source,text]
+----
+SORT mylist BY weight_* STORE resultkey
+----
+
+使用 `SORT ... STORE` 的一个有趣模式在于将 `EXPIRE` 超时与结果 key 相关联，以便在可以将 `SORT` 操作的结果缓存一段时间的应用程序中。 其他客户端将使用缓存的列表，而不是为每个请求调用 `SORT`。 当 key 超时时，可以通过再次调用 `SORT ... STORE` 创建缓存的更新版本。
+
+请注意，为了正确实现此模式，避免多个客户端同时重建缓存非常重要。 这里需要某种类型的锁定（例如使用 `SETNX`）。
+
+== 在 BY 和 GET 中使用哈希
+
+除了可以将字符串键之外， 哈希表也可以作为 GET 或 BY 选项的参数来使用：
+
+[source,text]
+----
+SORT mylist BY weight_*->fieldname GET object_*->fieldname
+----
+
+`->` 用于分隔 key 名和哈希字段名。 如上所述，key 被替换，并且存储在结果 key 处的 hash 被访问以检索指定的 hash 字段。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]: 没有使用 STORE 参数，返回列表形式的排序结果。 使用 STORE 参数，返回排序结果的元素 https://redis.io/docs/reference/protocol-spec/#resp-integers[数量]。

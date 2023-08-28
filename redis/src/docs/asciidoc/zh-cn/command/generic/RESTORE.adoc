@@ -1,0 +1,58 @@
+= RESTORE
+
+**语法**
+
+[source,text]
+----
+RESTORE key ttl serialized-value [REPLACE] [ABSTTL]
+  [IDLETIME seconds] [FREQ frequency]
+----
+
+**可用版本**：2.6.0
+
+**时间复杂度**：查找给定 key 的复杂度为 O(1) ，对 key进行反序列化的复杂度为 O(N*M) ，其中 N 是构成 key 的 Redis 对象的数量，而 M 则是这些对象的平均大小。
+有序集合(sorted set)的反序列化复杂度为 O(N*M*log(N)) ，因为有序集合每次插入的复杂度为 O(log(N)) 。
+如果反序列化的对象是比较小的字符串，那么复杂度为 O(1) 。
+
+**ACL 类别**：**@keyspace, @write, @slow, @dangerous**
+
+创建与通过反序列化提供的序列化值（通过 `DUMP` 获取），并将它和给定的 key 关联。
+
+参数 `ttl` 以毫秒为单位为 key 设置生存时间；如果 ttl 为 0 ，那么不设置生存时间。
+
+如果使用 `ABSTTL` 修饰符，则 `ttl` 应表示 key 将过期的绝对 Unix 时间戳（以毫秒为单位）。
+
+出于驱逐目的，您可以使用 `IDLETIME` 或 `FREQ` 修饰符。 有关详细信息，请 OBJECT。
+
+当 key 已存在时，`RESTORE` 将返回  "Target key name is busy"  错误，除非您使用 `REPLACE` 修饰符。
+
+`RESTORE` 检查 RDB 版本和数据校验和。 如果它们不匹配，则返回错误。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[简答字符串]: 该命令在成功时返回 OK.
+
+
+== 示例
+
+[source,text]
+----
+redis> DEL mykey
+0
+redis> RESTORE mykey 0 "\n\x17\x17\x00\x00\x00\x12\x00\x00\x00\x03\x00\
+                        x00\xc0\x01\x00\x04\xc0\x02\x00\x04\xc0\x03\x00\
+                        xff\x04\x00u#<\xc0;.\xe9\xdd"
+OK
+redis> TYPE mykey
+list
+redis> LRANGE mykey 0 -1
+1) "1"
+2) "2"
+3) "3"
+----
+
+== 历史
+
+* 从 Redis 版本 3.0.0 开始：添加了 `REPLACE` 修饰符。
+* 从 Redis 版本 5.0.0 开始：添加了 `ABSTTL` 修饰符。
+* 从 Redis 版本 5.0.0 开始：添加了 `IDLETIME` 和 `FREQ` 选项。
