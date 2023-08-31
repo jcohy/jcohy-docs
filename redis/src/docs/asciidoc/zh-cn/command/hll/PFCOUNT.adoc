@@ -1,0 +1,75 @@
+= PFCOUNT
+
+**语法**
+
+[source,text]
+----
+PFCOUNT key [key ...]
+----
+
+**可用版本**：2.8.9
+
+**时间复杂度**：当用单个键调用时，O(1)具有非常小的平均恒定时间。O(N)，其中N是键的数量，当用多个键调用时，常数要大得多。
+
+**ACL 类别**：****
+
+Redis PFCOUNT 命令返回给定 HyperLogLog 的基数估算值。 当 PFCOUNT 命令作用于单个键时， 返回储存在给定键的 HyperLogLog 的近似基数， 如果键不存在， 那么返回 0 。
+
+当 PFCOUNT 命令作用于多个键时， 返回所有给定 HyperLogLog 的并集的近似基数， 这个近似基数是通过将所有给定 HyperLogLog 合并至一个临时 HyperLogLog 来计算得出的。
+
+通过 HyperLogLog 数据结构， 用户可以使用少量固定大小的内存， 来储存集合中的唯一元素 （每个 HyperLogLog 只需使用 12k 字节内存，以及几个字节的内存来储存键本身）。
+
+命令返回的可见集合（observed set）基数并不是精确值， 而是一个带有 0.81% 标准错误（standard error）的近似值。
+
+举个例子， 为了记录一天会执行多少次各不相同的搜索查询， 一个程序可以在每次执行搜索查询时调用一次 PFADD， 并通过调用 PFCOUNT命令来获取这个记录的近似结果。
+
+注意：作为调用此函数的副作用，HyperLogLog 可能会被修改，因为最后 8 个字节对最新计算的基数进行编码以用于缓存目的。 所以 PFCOUNT 从技术上来说是一个写命令。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]:
+
+* 给定 HyperLogLog 包含的唯一元素的近似数量。
+
+== 示例
+
+[source,text]
+----
+redis> PFADD hll foo bar zap
+(integer) 1
+redis> PFADD hll zap zap zap
+(integer) 0
+redis> PFADD hll foo bar
+(integer) 0
+redis> PFCOUNT hll
+(integer) 3
+redis> PFADD some-other-hll 1 2 3
+(integer) 1
+redis> PFCOUNT hll some-other-hll
+(integer) 6
+redis>
+----
+
+== 性能
+
+演出
+
+当使用单个键调用 PFCOUNT 时，即使理论上处理密集 HyperLogLog 的常数时间很长，性能也非常出色。因为 PFCOUNT 使用缓存来记住先前计算的基数，而基数很少发生变化，因为大多数 PFADD 操作不会更新任何寄存器。 每秒可以进行数百次操作。
+
+当使用多个键调用 PFCOUNT 时，会执行 HyperLogLogs 的即时合并，这很慢，而且联合的基数无法缓存，因此当使用多个键时 PFCOUNT 可能会花费一些时间 毫秒的数量级，不应滥用。
+
+用户应该记住，该命令的单键和多键执行在语义上是不同的，并且具有不同的性能。
+
+== HyperLogLog 表示
+
+Redis HyperLogLogs 使用双重表示法来表示：稀疏表示法适用于计算少量元素的 HLL（导致少量寄存器设置为非零值），而密集表示法适用于较高基数。 当需要时，Redis 会自动从稀疏表示切换到稠密表示。
+
+稀疏表示使用经过优化的  run-length 编码，可以有效地存储大量设置为零的寄存器。 密集表示是 12288 字节的 Redis 字符串，以便存储 16384 个 6 位计数器。 对双精度表示的需求来自于这样一个事实：使用 12k（这是密集表示内存要求）来编码较小基数的几个寄存器是极其次优的。
+
+两种表示形式都以 16 字节头为前缀，其中包括一个 magic、一个 encoding / version 字段以及计算出的缓存基数估计，以小端格式存储（如果自 HyperLogLog 更新后估计无效，则最高有效位为 1） 因为计算了基数）。
+
+HyperLogLog 是一个 Redis 字符串，可以使用 GET 检索并使用 SET 恢复。 使用损坏的 HyperLogLog 调用 PFADD、PFCOUNT 或 PFMERGE 命令从来都不是问题，它可能会返回随机值，但不会影响服务器的稳定性。 大多数情况下，当损坏稀疏表示时，服务器会识别损坏并返回错误。
+
+从处理器字大小和字节顺序的角度来看，该表示形式是中性的，因此 32 位和 64 位处理器、大端字节序或小端字节序使用相同的表示形式。
+
+有关 Redis HyperLogLog 实现的更多详细信息可以在此 http://antirez.com/news/75[博客文章] 中找到。 hyperloglog.c 文件中实现的源代码也易于阅读和理解，并且包含用于稀疏和稠密表示的精确编码的完整规范。
