@@ -1,0 +1,74 @@
+= LMOVE
+
+**语法**
+
+[source,text]
+----
+LMOVE source destination <LEFT | RIGHT> <LEFT | RIGHT>
+----
+
+**可用版本**：6.2.0
+
+**时间复杂度**：O(1)
+
+**ACL 类别**：**@write, @list, @slow**
+
+LMOVE 用于原子地从列表 source 中移除并返回第一个或最后一个元素（头或尾取决于 `wherefrom` 参数)，然后把这个元素插入到列表 `destination` 的第一个或最后一个元素（头或尾取决于 `whereto` 参数)。
+
+例如: 假设 source 列表成员为 a,b,c，列表 destination 成员为 x,y,z。
+
+执行 LMOVE source destination RIGHT LEFT 的结果是列表 source 成员为 a,b ，列表 destination 成员为 c,x,y,z。
+
+如果列表 source 不存在，返回 `nil` ，什么也不执行。
+如果列表 source 和destination 相同，相当于从列表的一端删除元素，在放入列表的另一端，所以可以当做一个列表循环命令。（如果 `wherefrom` 和 `whereto` 相同，相当于什么也没做。）
+
+LMOVE 用来替换废弃的指令 `RPOPLPUSH`，相当于执行 `LMOVE RIGHT LEFT`。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[批量字符串]:被移除并再次插入的元素。
+
+== 示例
+
+[source,text]
+----
+redis> RPUSH mylist "one"
+(integer) 1
+redis> RPUSH mylist "two"
+(integer) 2
+redis> RPUSH mylist "three"
+(integer) 3
+redis> LMOVE mylist myotherlist RIGHT LEFT
+"three"
+redis> LMOVE mylist myotherlist LEFT RIGHT
+"one"
+redis> LRANGE mylist 0 -1
+1) "two"
+redis> LRANGE myotherlist 0 -1
+1) "three"
+2) "one"
+redis>
+----
+
+== 模式: 可靠队列
+
+Redis 通常用作消息服务器来实现后台作业或其他类型消息任务的处理。 队列的一种简单形式通常是在生产者将值推送到列表中，并在消费者端使用 RPOP（使用轮询）或 BRPOP 等待该值（如果客户端可以通过阻塞操作更好地服务）。
+
+然而，在这种情况下，获得的队列并不可靠，因为消息可能会丢失，例如在存在网络问题的情况下，或者消费者在收到消息但仍在处理消息后立即崩溃。
+
+LMOVE（或阻塞形式的 BLMOVE）提供了一种避免此问题的方法：消费者获取消息，同时将其推送到处理列表中。 一旦消息被处理，它将使用 LREM 命令从处理列表中删除该消息。
+
+另一个客户端可以监视处理列表中保留时间过长的项目，并在需要时将这些超时的项目再次推入队列。
+
+== 模式: 环形队列
+
+使用具有相同 source 和 destination 的 LMOVE，客户端可以在 O(N) 内一个接一个地访问 N 元素列表的所有元素，而无需使用单个 LRANGE 操作将完整列表从服务器传输到客户端 。
+
+即使在以下条件下，上述模式也有效：
+
+* 个客户端同时遍历列表：每个客户端会查到不同的元素，知道队尾，然后好重新开始遍历。
+* 其它客户端向队尾增加元素。
+
+上述使得实现一个系统变得非常简单，其中一组项目必须由 N 个 worker 尽可能快地连续处理。一个示例是监控系统，它必须使用多个并行工作线程以尽可能小的延迟来检查一组网站是否可访问。
+
+请注意，worker 进程的这种实现具有良好的可扩展性和可靠性，因为即使消息丢失，该项目仍在队列中，并将在下一次迭代时进行处理。
