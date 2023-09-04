@@ -1,0 +1,60 @@
+= SCAN
+
+**语法**
+
+[source,text]
+----
+SCAN cursor [MATCH pattern] [COUNT count] [TYPE type]
+----
+
+**可用版本**：2.8.0
+
+**时间复杂度**：每次调用都是 O(1)， 对数据集进行一次完整迭代的复杂度为 O(N) ， 包括足够的命令调用以使游标返回到 0,其中 N 为数据集中的元素数量。
+
+**ACL 类别**：**@keyspace, @read, @slow**
+
+与 `SCAN` 命令密切相关的命令 `SSCAN`、`HSCAN` 和 `ZSCAN` 用于增量迭代元素集合。
+
+* `SCAN` 迭代当前选定的 Redis 数据库中的 key 集。
+* `SSCAN` 迭代 Sets 类型的元素。
+* `HSCAN` 迭代 Hash 类型的字段及其关联值。
+* `ZSCAN` 迭代有序集类型的元素及其相关 score。
+
+由于这些命令允许增量迭代，它们每次执行都只会返回少量元素，因此它们可以在生产中使用，而不会出现 `KEYS` 或 `SMEMBERS` 等命令带来的问题，当这些命令被用于处理一个大的集合 key 时 在调用时可能会花一些时间（甚至几秒钟）阻塞服务器。
+
+然而，虽然像 `SMEMBERS` 这样的阻塞命令能够在给定时刻提供属于 `Set` 的所有元素，但 `SCAN` 命令系列仅对返回的元素提供有限的保证，因为我们增量迭代的集合在迭代过程中可能会发生变化 。
+
+请注意，`SCAN`、`SSCAN`、`HSCAN` 和 `ZSCAN` 的工作方式都非常相似，因此本文档涵盖了所有四个命令。 然而，一个明显的区别是，对于 `SSCAN`、`HSCAN` 和 `ZSCAN`，第一个参数是保存 `Set`、`Hash` 或 `Sorted Set` 值的键的名称。
+`SCAN` 命令不需要任何 key 名参数，因为它迭代当前数据库中的 key，因此迭代的对象是数据库本身。
+
+有关 SCAN 的更多信息，请参阅 https://redis.io/docs/manual/keyspace/[Redis Keyspace] 教程。
+
+== 返回值
+
+`SCAN` 命令、 `SSCAN` 命令、 `HSCAN` 命令和 `ZSCAN` 命令都返回一个包含两个元素的 multi-bulk 回复： 回复的第一个元素是字符串表示的无符号 64 位整数（游标）， 回复的第二个元素是另一个 multi-bulk 回复， 这个 multi-bulk 回复包含了本次被迭代的元素。
+
+* `SCAN` 命令返回的每个元素都是一个数据库键。
+* `SSCAN` 命令返回的每个元素都是一个集合成员。
+* `HSCAN` 命令返回的每个元素都是一个键值对，一个键值对由一个键和一个值组成。
+* `ZSCAN` 命令返回的每个元素都是一个有序集合元素，一个有序集合元素由一个成员（member）和一个分值（score）组成。
+
+
+== 示例
+
+迭代 hash 值
+
+[source,text]
+----
+redis 127.0.0.1:6379> hmset hash name Jack age 33
+OK
+redis 127.0.0.1:6379> hscan hash 0
+1) "0"
+2) 1) "name"
+   2) "Jack"
+   3) "age"
+   4) "33"
+----
+
+== 历史
+
+从 Redis 版本 6.0.0 开始：添加了 `TYPE` 子命令。

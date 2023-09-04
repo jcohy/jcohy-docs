@@ -1,0 +1,66 @@
+= HRANDFIELD
+
+**语法**
+
+[source,text]
+----
+HRANDFIELD key [count [WITHVALUES]]
+----
+
+**可用版本**：6.2.0
+
+**时间复杂度**：O(N)，其中 N 是返回的字段数
+
+**ACL 类别**：**@read, @hash, @slow**
+
+当仅使用 key 参数调用时，从存储在 key 处的哈希值返回一个随机字段。
+
+如果提供的计数参数为正，则返回不同字段的数组。 数组的长度是 count 或哈希的字段数 (HLEN)，以较小者为准。
+
+如果使用负计数调用，则行为会发生变化，并且允许该命令多次返回同一字段。 在这种情况下，返回的字段数是指定计数的绝对值。
+
+可选的 WITHVALUES 修饰符更改回复，使其包含随机选择的哈希字段的相应值。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[批量字符串]：如果没有额外的计数参数，该命令将返回带有随机选择字段的批量回复，或者当键不存在时返回 nil。
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]：当传递额外的 count 参数时，该命令返回一个字段数组，或者当 key 不存在时返回一个空数组。 如果使用 WITHVALUES 修饰符，则回复是列表字段及其来自哈希值的值。
+
+== 示例
+
+[source,text]
+----
+redis> HMSET coin heads obverse tails reverse edge null
+"OK"
+redis> HRANDFIELD coin
+"tails"
+redis> HRANDFIELD coin
+"edge"
+redis> HRANDFIELD coin -5 WITHVALUES
+1) "heads"
+2) "obverse"
+3) "heads"
+4) "obverse"
+5) "edge"
+6) "null"
+7) "tails"
+8) "reverse"
+9) "edge"
+10) "null"
+redis>
+----
+
+== count 通过的行为规范
+
+当 count 参数为正值时，该命令的行为如下：
+
+* 不返回重复字段。
+* 如果 count 大于哈希中的字段数，则该命令将仅返回整个哈希，而不返回其他字段。
+* 返回中字段的顺序并不是真正随机的，因此客户端可以根据需要对它们进行打乱顺序。
+
+当计数为负值时，行为将发生如下变化：
+
+* 重复字段是可能的。
+* 始终返回精确计数字段，或者如果散列为空（不存在的键）则返回空数组。
+* 返回中字段的顺序确实是随机的。
