@@ -1,0 +1,95 @@
+= LCS
+
+**语法**
+
+[source,text]
+----
+LCS key1 key2 [LEN] [IDX] [MINMATCHLEN min-match-len] [WITHMATCHLEN]
+----
+
+**可用版本**：7.0.0
+
+**时间复杂度**：O(N*M) 其中 N 和 M 分别是 s1 和 s2 的长度
+
+**ACL 类别**：**@read, @string, @slow**
+
+LCS 命令实现最长公共子序列算法。 请注意，这与最长公共字符串算法不同，因为字符串中的匹配字符不需要是连续的。
+
+例如 "foo" 和 "fao" 之间的 LCS 是 "fo" ，因为从左到右扫描两个字符串，最长的公共字符集由第一个 "f" 和后面的 "o" 组成。
+
+LCS 对于评估两个字符串的相似程度非常有用。 字符串可以代表很多东西。 例如，如果两个字符串是 DNA 序列，LCS 将提供两个 DNA 序列之间相似性的度量。 如果字符串表示由某个用户编辑的某些文本，则 LCS 可以表示新文本与旧文本相比有多么不同，等等。
+
+请注意，该算法的运行时间为 O(N*M)，其中 N 是第一个字符串的长度，M 是第二个字符串的长度。 因此，要么旋转一个不同的 Redis 实例来运行该算法，要么确保针对非常小的字符串运行它。
+
+[source,text]
+----
+> MSET key1 ohmytext key2 mynewtext
+OK
+> LCS key1 key2
+"mytext"
+----
+
+有时我们只需要匹配长度：
+
+[source,text]
+----
+> LCS key1 key2 LEN
+(integer) 6
+----
+
+然而，通常有用的是了解每个字符串中的匹配位置：
+
+[source,text]
+----
+> LCS key1 key2 IDX
+1) "matches"
+2) 1) 1) 1) (integer) 4
+         2) (integer) 7
+      2) 1) (integer) 5
+         2) (integer) 8
+   2) 1) 1) (integer) 2
+         2) (integer) 3
+      2) 1) (integer) 0
+         2) (integer) 1
+3) "len"
+4) (integer) 6
+----
+
+匹配是从最后一个到第一个的，因为这就是算法的工作原理，并且以相同的顺序发出事物会更有效。 上面的数组意味着第一个匹配项（数组的第二个元素）位于第一个字符串的位置 2-3 和第二个字符串的位置 0-1 之间。 接下来还有 4-7 和 5-8 的匹配。
+
+要将匹配列表限制为给定最小长度的匹配列表：
+
+[source,text]
+----
+> LCS key1 key2 IDX MINMATCHLEN 4
+1) "matches"
+2) 1) 1) 1) (integer) 4
+         2) (integer) 7
+      2) 1) (integer) 5
+         2) (integer) 8
+3) "len"
+4) (integer) 6
+----
+
+最后还有匹配长度：
+
+[source,text]
+----
+> LCS key1 key2 IDX MINMATCHLEN 4 WITHMATCHLEN
+1) "matches"
+2) 1) 1) 1) (integer) 4
+         2) (integer) 7
+      2) 1) (integer) 5
+         2) (integer) 8
+      3) (integer) 4
+3) "len"
+4) (integer) 6
+----
+
+== 返回值
+
+* 如果没有修饰符，则返回表示最长公共子字符串的字符串。
+* 当给出 LEN 时，该命令返回最长公共子字符串的长度。
+* 当给出 IDX 时，该命令返回一个数组，其中包含 LCS 长度和两个字符串中的所有范围、每个字符串的开始和结束偏移量（其中存在匹配项）。 当给定 `WITHMATCHLEN` 时，表示匹配的每个数组也将具有匹配的长度（请参阅示例）。
+
+
