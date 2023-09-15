@@ -1,0 +1,148 @@
+= INCR
+
+**语法**
+
+[source,text]
+----
+INCR key
+----
+
+**可用版本**：1.0.0
+
+**时间复杂度**：O(1)
+
+**ACL 类别**：**@write, @string, @fast**
+
+将 key 中储存的数字值增一。 如果 key 不存在，那么 key 的值会先被初始化为 0 ，然后再执行 INCR 操作。 如果值包含错误的类型，或字符串类型的值不能表示为数字，那么返回一个错误。 本操作的值限制在 64 位(bit)有符号数字表示之内。
+
+NOTE: 这是一个字符串操作，因为 Redis 没有专用的整数类型。 存储在 key 处的字符串被解释为以 10 为基数的 64 位有符号整数来执行操作。
+
+Redis 以整数表示形式存储整数，因此对于实际保存整数的字符串值，存储整数的字符串表示形式不会产生任何开销。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]: 执行 INCR 命令之后 key 的值.
+
+== 示例
+
+[source,text]
+----
+redis> SET mykey "10"
+"OK"
+redis> INCR mykey
+(integer) 11
+redis> GET mykey
+"11"
+redis>
+----
+
+== 模式：计数器
+
+计数器是 Redis 的原子性自增操作可实现的最直观的模式了，它的想法相当简单：每当某个操作发生时，向 Redis 发送一个 `INCR` 命令。 比如在一个 web 应用程序中，如果想知道用户在一年中每天的点击量，那么只要将用户 ID 以及相关的日期信息作为 key，并在每次用户点击页面时，执行一次自增操作即可。
+
+比如用户名是 `peter` ，点击时间是 2012 年 3 月 22 日，那么执行命令 `INCR peter::2012.3.22` 。
+
+这个简单的模式可以通过多种方式进行扩展：
+
+* 可以通过组合使用 `INCR` 和 `EXPIRE` ，来达到只在规定的生存时间内进行计数(counting)的目的。
+* 客户端可以通过使用 `GETSET` 命令原子性地获取计数器的当前值并将计数器清零，更多信息请参考 GETSET 命令。
+* 使用其他自增/自减操作，比如 `DECR` 和 `INCRBY` ，用户可以通过执行不同的操作增加或减少计数器的值，比如在游戏中的记分器就可能用到这些命令。
+
+== 模式：限速器
+
+限速器是一种特殊的计数器，用于限制可以执行操作的速率。 此限速器的典型用法是限制公开 API 的请求次数。
+
+我们使用 `INCR` 提供了此模式的两种实现，其中我们假设要解决的问题是将 API 调用数量限制为每个 IP 地址每秒最多 10 个请求。
+
+=== 模式: 限速器 1
+
+该模式更简单直接的实现如下：
+
+[source,text]
+----
+FUNCTION LIMIT_API_CALL(ip)
+ts = CURRENT_UNIX_TIME()
+keyname = ip+":"+ts
+MULTI
+    INCR(keyname)
+    EXPIRE(keyname,10)
+EXEC
+current = RESPONSE_OF_INCR_WITHIN_MULTI
+IF current > 10 THEN
+    ERROR "too many requests per second"
+ELSE
+    PERFORM_API_CALL()
+END
+----
+
+这个实现每秒钟为每个 IP 地址使用一个不同的计数器。 但此计数器始终会递增，设置 10 秒的过期时间，以便当当前秒不同时，Redis 会自动删除它们。
+
+请注意 `MULTI` 和 `EXEC` 的使用，以确保我们在每次 API 调用时都会增加并设置过期时间。
+
+=== 模式: 限速器 2
+
+另一种实现使用单个计数器，但要在没有竞争条件的情况下正确实现它要复杂一些。 我们将研究不同的形式。
+
+[source,text]
+----
+FUNCTION LIMIT_API_CALL(ip):
+current = GET(ip)
+IF current != NULL AND current > 10 THEN
+    ERROR "too many requests per second"
+ELSE
+    value = INCR(ip)
+    IF value == 1 THEN
+        EXPIRE(ip,1)
+    END
+    PERFORM_API_CALL()
+END
+----
+
+这个限速器只使用单个计数器，从当前秒执行的第一个请求开始，它只能存活一秒。 如果同一秒内有超过 10 个请求，计数器将达到大于 10 的值，否则它将过期并从 0 重新开始。
+
+在上面的代码中有一个竞争条件。如果由于某种原因客户端执行 `INCR` 命令但不执行 `EXPIRE`，则 key 将被泄露，直到我们再次看到相同的 IP 地址。那么这个计数器就会一直存在下去，造成每个用户只能访问 10 次
+
+通过将带有可选 `EXPIRE` 的 `INCR` 转换为使用 `EVAL` 命令发送的 Lua 脚本（仅在 Redis 版本 2.6 后可用），可以轻松修复此问题。
+
+[source,text]
+----
+local current
+current = redis.call("incr",KEYS[1])
+if current == 1 then
+    redis.call("expire",KEYS[1],1)
+end
+----
+
+有一种不同的方法可以在不使用脚本的情况下解决此问题，即使用 Redis 列表而不是计数器。 该实现更加复杂并使用更高级的功能，但具有记住当前执行 API 调用的客户端的 IP 地址的优点，这可能有用也可能没用，具体取决于应用程序。
+
+[source,text]
+----
+FUNCTION LIMIT_API_CALL(ip)
+current = LLEN(ip)
+IF current > 10 THEN
+    ERROR "too many requests per second"
+ELSE
+    IF EXISTS(ip) == FALSE
+        MULTI
+            RPUSH(ip,ip)
+            EXPIRE(ip,1)
+        EXEC
+    ELSE
+        RPUSHX(ip,ip)
+    END
+    PERFORM_API_CALL()
+END
+----
+
+RPUSHX 命令仅在 key 已存在时推送元素。
+
+请注意，我们在这里有一个竞争，但这不是问题：`EXISTS` 可能返回 `false`，但 key 可能是在我们在 MULTI/EXEC 块内创建它之前由另一个客户端创建的。
+然而，在极少数情况下，这种竞争只会错过 API 调用，因此速率限制仍然可以正常工作。
+
+
+
+
+
+
+
+

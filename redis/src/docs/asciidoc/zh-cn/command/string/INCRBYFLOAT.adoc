@@ -1,0 +1,50 @@
+= INCRBYFLOAT
+
+**语法**
+
+[source,text]
+----
+INCRBYFLOAT key increment
+----
+
+**可用版本**：2.6.0
+
+**时间复杂度**：O(1)
+
+**ACL 类别**：**@write, @string, @fast**
+
+为 key 中所储存的值加上浮点数增量 increment ，可以使用负值表示递减。 如果 key 不存在，那么 INCRBYFLOAT 会先将 key 的值设为 0 ，再执行加法操作。 如果发生以下情况之一，则返回错误：
+
+* key 包含错误类型的值（不是字符串）。
+* key 当前的值或者给定的增量 increment 不能解释(parse)为双精度浮点数(double precision floating point number）
+
+如果命令执行成功，那么 key 的值会被更新为（执行加法之后的）新值，并且新值会以字符串的形式返回给调用者。
+
+无论是 key 的值，还是增量 increment ，都可以使用像 2.0e7 、 3e5 、 90e-2 那样的指数符号(exponential notation)来表示，但是，执行 INCRBYFLOAT 命令之后的值总是以同样的形式储存，也即是，它们总是由一个数字，一个（可选的）小数点和一个任意位的小数部分组成（比如 3.14 、 69.768 ，诸如此类)，小数部分尾随的 0 会被移除，如果有需要的话，还会将浮点数改为整数（比如 3.0 会被保存成 3 ）。
+
+除此之外，无论加法计算所得的浮点数的实际精度有多长， INCRBYFLOAT 的计算结果也最多只能表示小数点的后十七位。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[批量字符串回复]: key增加后的值。
+
+== 示例
+
+[source,text]
+----
+redis> SET mykey 10.50
+"OK"
+redis> INCRBYFLOAT mykey 0.1
+"10.6"
+redis> INCRBYFLOAT mykey -5
+"5.6"
+redis> SET mykey 5.0e3
+"OK"
+redis> INCRBYFLOAT mykey 2.0e2
+"5200"
+redis>
+----
+
+== 实现细节
+
+该命令始终作为 SET 操作在复制链接和仅附加文件中传播，因此底层浮点数学实现中的差异不会成为不一致的根源。

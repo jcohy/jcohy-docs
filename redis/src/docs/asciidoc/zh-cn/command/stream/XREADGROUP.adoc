@@ -1,0 +1,127 @@
+= XREADGROUP
+
+**语法**
+
+[source,text]
+----
+XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds]
+  [NOACK] STREAMS key [key ...] id [id ...]
+----
+
+**可用版本**：5.0.0
+
+**时间复杂度**：对于提到的每个流：O(M)，其中 M 是返回的元素数。 如果 M 是常数（例如，总是要求使用 COUNT 的前 10 个元素），则可以将其视为 O(1)。 另一方面，当 XREADGROUP 阻塞时，XADD 将付出 O(N) 时间，以便为在流上阻塞的 N 个客户端提供服务以获取新数据。
+
+**ACL 类别**：**@write, @stream, @slow, @blocking**
+
+XREADGROUP 命令是 XREAD 命令的特殊版本，支持消费者组。 在阅读本页之前，您可能必须先了解 XREAD 命令。
+
+此外，如果您不熟悉流，我们建议您阅读我们对 Redis Streams 的介绍。 确保理解简介中消费者组的概念，以便了解该命令的工作原理会更简单。
+
+== 30 秒消费群体
+
+此命令与普通 XREAD 之间的区别在于它支持消费者组。
+
+没有消费者组，仅使用 XREAD，所有客户端都将获得流中到达的所有条目。 可以创建客户端组来使用到达给定流的消息的不同部分，而不是使用 XREADGROUP 的消费者组。 例如，如果流获取新条目 A、B 和 C，并且有两个消费者通过消费者组进行读取，则一个客户端将获取消息 A 和 C，另一个客户端将获取消息 B，并且 等等。
+
+在消费者组中，给定的消费者（即，只是从流中消费消息的客户端）必须使用唯一的消费者名称进行标识。 这只是一个字符串。
+
+消费者组的保证之一是给定的消费者只能看到传递给它的消息的历史记录，因此消息只有一个所有者。 然而，有一个称为消息声明的特殊功能，它允许其他消费者在某些消费者出现不可恢复的故障时声明消息。 为了实现这种语义，消费者组需要通过 XACK 命令对消费者成功处理的消息进行显式确认。 这是必需的，因为流将为每个消费者组跟踪谁正在处理什么消息。
+
+这是如何了解是否要使用消费者组的方法：
+
+. 如果您有一个流和多个客户端，并且希望所有客户端都能获取所有消息，则不需要消费者组。
+. 如果您有一个流和多个客户端，并且希望该流在客户端之间进行分区或分片，以便每个客户端都能获得到达流中的消息的子集，那么您需要一个消费者组。
+
+== XREAD 和 XREADGROUP 之间的差异
+
+从语法的角度来看，命令几乎相同，但是 XREADGROUP 需要一个特殊的强制选项：
+
+[source,text]
+----
+GROUP <group-name> <consumer-name>
+----
+
+组名称只是与流关联的消费者组的名称。 该组是使用 XGROUP 命令创建的。 消费者名称是客户端用来在组内标识自己的字符串。 消费者是在第一次看到时在消费者组内自动创建的。 不同的客户应选择不同的消费者名称。
+
+当您使用 XREADGROUP 读取时，服务器会记住给定的消息已传递给您：该消息将存储在消费者组内的所谓待处理条目列表 (PEL) 中，即已传递但未传递的消息 ID 列表 却承认。
+
+客户端必须使用 XACK 确认消息处理，以便从 PEL 中删除挂起的条目。 可以使用 XPENDING 命令检查 PEL。
+
+在不要求可靠性并且偶尔的消息丢失是可以接受的情况下，NOACK 子命令可用于避免将消息添加到 PEL。 这相当于在阅读消息时确认该消息。
+
+使用 XREADGROUP 时在 STREAMS 选项中指定的 ID 可以是以下两者之一：
+
+* 特殊的 > ID，这意味着消费者只想接收从未传递给任何其他消费者的消息。 这只是意味着，给我新消息。
+* 任何其他 ID，即 0 或任何其他有效 ID 或不完整 ID（仅毫秒时间部分），都将具有返回待处理的条目的效果，以便消费者发送 ID 大于所提供的命令。 因此，基本上，如果 ID 不是 >，那么该命令只会让客户端访问其待处理条目：消息已传递给它，但尚未确认。 请注意，在这种情况下，BLOCK 和 NOACK 都被忽略。
+
+与 XREAD 类似，XREADGROUP 命令可以以阻塞方式使用。 在这方面没有差异。
+
+== 当消息传递给消费者时会发生什么？
+
+两件事情：
+
+* 如果消息从未发送给任何人，也就是说，如果我们正在谈论一条新消息，则会创建一个 PEL（待处理条目列表）。
+* 相反，如果消息已经传递给该消费者，并且它只是再次重新获取相同的消息，则最后的传递计数器将更新为当前时间，并且传递的数量会增加 1。 您可以使用 XPENDING 命令访问这些消息属性。
+
+== 删除待处理消息后会发生什么？
+
+由于随时修剪或显式调用 XDEL，条目可能会从流中删除。 根据设计，Redis 不会阻止删除流的 PEL 中存在的条目。 发生这种情况时，PEL 保留已删除条目的 ID，但实际条目有效负载不再可用。 因此，当读取此类 PEL 条目时，Redis 将返回一个空值来代替它们各自的数据。
+
+例子：
+
+[source,text]
+----
+> XADD mystream 1 myfield mydata
+"1-0"
+> XGROUP CREATE mystream mygroup 0
+OK
+> XREADGROUP GROUP mygroup myconsumer STREAMS mystream >
+1) 1) "mystream"
+   2) 1) 1) "1-0"
+         2) 1) "myfield"
+            2) "mydata"
+> XDEL mystream 1-0
+(integer) 1
+> XREADGROUP GROUP mygroup myconsumer STREAMS mystream 0
+1) 1) "mystream"
+   2) 1) 1) "1-0"
+         2) (nil)
+----
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]: 该命令返回结果数组：返回数组的每个元素都是由两个元素组成的数组，其中包含键名称和为该键报告的条目。 报告的条目是完整的流条目，具有 ID 以及所有字段和值的列表。 字段和值保证按照 XADD 添加的顺序进行报告。
+
+当使用 BLOCK 时，超时时返回空回复。
+
+强烈建议阅读 Redis Streams 介绍，以便更多地了解流的整体行为和语义。.
+
+
+== 示例
+
+通常，您使用这样的命令来获取新消息并处理它们。 在伪代码中：
+
+[source,text]
+----
+WHILE true
+    entries = XREADGROUP GROUP $GroupName $ConsumerName BLOCK 2000 COUNT 10 STREAMS mystream >
+    if entries == nil
+        puts "Timeout... try again"
+        CONTINUE
+    end
+
+    FOREACH entries AS stream_entries
+        FOREACH stream_entries as message
+            process_message(message.id,message.fields)
+
+            # ACK the message as processed
+            XACK mystream $GroupName message.id
+        END
+    END
+END
+----
+
+通过这种方式，示例消费者代码将仅获取新消息、处理它们并通过 XACK 确认它们。 然而上面的示例代码并不完整，因为它不处理崩溃后的恢复。 如果我们在处理消息的过程中崩溃，会发生什么，我们的消息将保留在挂起的条目列表中，因此我们可以通过给 XREADGROUP 初始 ID 0 并执行相同的循环来访问我们的历史记录。 一旦提供 ID 0，回复就是一组空消息，我们知道我们处理并确认了所有待处理的消息：我们可以开始使用 > 作为 ID，以便获取新消息并重新加入正在处理的消费者 新事物。
+
+要查看该命令如何实际响应，请检查 XREAD 命令页面。

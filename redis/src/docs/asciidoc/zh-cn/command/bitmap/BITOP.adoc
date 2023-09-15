@@ -1,0 +1,64 @@
+= BITOP
+
+**语法**
+
+[source,text]
+----
+BITOP <AND | OR | XOR | NOT> destkey key [key ...]
+----
+
+**可用版本**：2.6.0
+
+**时间复杂度**：O(N)
+
+**ACL 类别**：**@write, @bitmap, @slow**
+
+对一个或多个保存二进制位的字符串 key 进行位元操作，并将结果保存到 destkey 上。
+
+BITOP 命令支持四种按位运算：AND、OR、XOR 和 NOT 因此调用该命令的有效形式为：
+
+* BITOP AND destkey srckey1 srckey2 srckey3 ... srckeyN：对一个或多个 key 求逻辑并，并将结果保存到 destkey 。
+* BITOP OR destkey srckey1 srckey2 srckey3 ... srckeyN：对一个或多个 key 求逻辑或，并将结果保存到 destkey 。
+* BITOP XOR destkey srckey1 srckey2 srckey3 ... srckeyN：对一个或多个 key 求逻辑异或，并将结果保存到 destkey 。
+* BITOP NOT destkey srckey：对给定 key 求逻辑非，并将结果保存到 destkey 。
+
+正如您所看到的，NOT 很特殊，因为它只需要一个输入键，因为它执行位反转，所以它只作为一元运算符才有意义。
+
+操作的结果始终存储在 destkey 中。
+
+== 处理不同长度的字符串
+
+当 BITOP 处理不同长度的字符串时，较短的那个字符串所缺少的部分会被看作 0 。
+
+空的 key 也被看作是包含 0 的字符串序列。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]: 保存到 destkey 的字符串的长度，和输入 key 中最长的字符串长度相等。
+
+== 示例
+
+[source,text]
+----
+redis> SET key1 "foobar"
+"OK"
+redis> SET key2 "abcdef"
+"OK"
+redis> BITOP AND dest key1 key2
+(integer) 6
+redis> GET dest
+"`bc`ab"
+redis>
+----
+
+== 模式：使用 Bitmap 的实时指标
+
+`BITOP` 是对 `BITCOUNT` 命令文档中记录的模式的良好补充。 可以组合不同的 Bitmap 以获得执行人口统计操作的目标 bitmap。
+
+有关有趣的用例，请参阅 https://blog.getspool.com/2011/11/29/fast-easy-realtime-metrics-using-redis-bitmaps/[使用 Redis 位图快速简单地实时度量] 的文章。
+
+== 性能考虑
+
+BITOP 是一个可能很慢的命令，因为它运行时间为 O(N)。 针对长输入字符串运行时应小心。
+
+对于涉及大量输入的实时指标和统计数据，一个好的方法是使用副本（启用副本只读选项），其中执行按位操作以避免阻塞主实例。

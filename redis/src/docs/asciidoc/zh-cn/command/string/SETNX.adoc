@@ -1,0 +1,91 @@
+= SETNX
+
+NOTE: 从 Redis 版本 2.6.12 开始，此命令被视为已弃用。 当迁移或编写新代码时，可以用带有 NX 参数的 SET 来替换它。
+
+**语法**
+
+[source,text]
+----
+SETNX key value
+----
+
+**可用版本**：1.0.0
+
+**时间复杂度**：O(1)
+
+**ACL 类别**：**@write, @string, @fast**
+
+如果 key 不存在，则将 key 设置为字符串值。 在这种情况下，它等于 `SET`。 当 key 已经有值时，不执行任何操作。 `SETNX` 是 "SET if Not exists" 的缩写。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]:
+
+* 1 -- 如果已设置 key
+* 0 -- 如果未设置 key 则为 0
+
+== 示例
+
+[source,text]
+----
+redis> SETNX mykey "Hello"
+(integer) 1
+redis> SETNX mykey "World"
+(integer) 0
+redis> GET mykey
+"Hello"
+redis>
+----
+
+== 设计模式：使用 SETNX 加锁
+
+请注意:
+
+* 不鼓励以下模式来实现 https://redis.io/docs/manual/patterns/distributed-locks/[Redlock algorithm] ,该算法实现起来有一些复杂，但是提供了更好的保证并且具有容错性。
+* 无论如何，我们保留旧的模式，因为肯定存在一些已实现的方法链接到该页面作为引用。而且，这是一个有趣的例子说明 Redis 命令能够被用来作为编程原语的。
+* 无论如何，即使假设一个单例的加锁原语，但是从 2.6.12 开始，可以创建一个更加简单的加锁原语，相当于使用 SET 命令来获取锁，并且用一个简单的 Lua 脚本来释放锁。该模式被记录在 SET 命令的页面中。
+
+也就是说，SETNX 能够被使用并且以前也在被使用去作为一个加锁原语。例如，获取键为 foo 的锁，客户端可以尝试一下操作：
+
+[source,text]
+----
+SETNX lock.foo <current Unix time + lock timeout + 1>
+----
+
+如果 `SETNX` 返回 `1`，则客户端获取了锁，将 `lock.foo` 键设置为 Unix 时间，此时锁不再被视为有效。 客户端稍后将使用 `DEL lock.foo` 来释放锁。
+
+如果 `SETNX` 返回 `0`，则 key 已被其他客户端锁定。 如果它是非阻塞锁，才能立刻返回给调用者，或者尝试重新获取该锁，直到成功或者过期超时。
+
+== 处理死锁
+
+在上面的锁定算法中存在一个问题：如果客户端失败、崩溃或者无法释放锁会发生什么？ 这是能够检测到这种情况，因为该锁包含一个Unix时间戳，如果这样一个时间戳等于当前的 Unix 时间，该锁将不再有效。
+
+当发生这种情况时，我们不能只对 key 调用 `DEL` 来删除锁，然后尝试发出 `SETNX`，因为当多个客户端检测到过期的锁并试图释放它时，这里存在竞争条件。
+
+* C1 和 C2 读取 `lock.foo` 来检查时间戳，因为在执行 SETNX 后它们都收到 0，因为锁仍然被 C3 所持有，并且 C3 已经崩溃。
+* C1 发送 `DEL lock.foo`
+* C1 发送 `SETNX lock.foo` 成功
+* C2 发送 `DEL lock.foo`
+* C2 发送 `SETNX lock.foo` 成功
+* ERROR：由于竞争条件，C1 和 C2 都获取了锁。
+
+幸运的是，可以使用以下算法来避免此问题。 让我们看看我们理智的客户端 C4 如何使用这个好的算法：
+
+* C4 发送 `SETNX lock.foo` 以获取锁
+* 崩溃的客户端 C3 仍然持有它，因此 Redis 会向 C4 回复 0。
+* C4 发送 `GET lock.foo` 来检查锁是否过期。 如果不是，它将休眠一段时间并从头开始重试。
+* 相反，如果由于 `lock.foo` 处的 Unix 时间早于当前 Unix 时间而导致锁过期，C4 会尝试执行以下的操作：
++
+[source,text]
+----
+GETSET lock.foo <current Unix timestamp + lock timeout + 1>
+----
+
+* 由于GETSET 的语意，C4 会检查已经过期的旧值是否仍然存储在 lock.foo 中。如果是的话，C4 会获得锁
+* 如果另一个客户端，假如为 C5 ，比 C4 更快的通过GETSET操作获取到锁，那么 C4 执行 GETSET 操作会被返回一个不过期的时间戳。C4 将会从第一个步骤重新开始。请注意：即使 C4 在将来几秒设置该键，这也不是问题。
+
+为了使这种加锁算法更加的健壮，持有锁的客户端应该总是要检查是否超时，保证使用 DEL 释放锁之前不会过期，因为客户端故障的情况可能是复杂的，不止是崩溃，还会阻塞一段时间，阻止一些操作的执行，并且在阻塞恢复后尝试执行 DEL（此时，该 LOCK 已经被其他客户端所持有）
+
+
+
+

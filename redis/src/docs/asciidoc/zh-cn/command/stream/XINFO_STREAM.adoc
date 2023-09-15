@@ -1,0 +1,139 @@
+= XINFO STREAM
+
+**语法**
+
+[source,text]
+----
+XINFO STREAM key [FULL [COUNT count]]
+----
+
+**可用版本**：5.0.0
+
+**时间复杂度**：O(1)。
+
+**ACL 类别**：**@read, @stream, @slow**
+
+此命令返回有关存储在 <key> 处的流的信息。
+
+该命令提供的详细信息是：
+
+* length：流中的条目数（参见 XLEN）
+* radix-tree-keys：底层基数数据结构中的键数
+* radix-tree-nodes：底层基数数据结构中的节点数
+* groups：为流定义的消费者组数量
+* last-generate-id：最近添加到流中的条目的 ID
+* max-deleted-entry-id：从流中删除的最大条目ID
+* entries-added：在其生命周期内添加到流的所有条目的计数
+* first-entry：流中第一个条目的 ID 和字段值元组
+* last-entry：流中最后一个条目的 ID 和字段值元组
+
+可选的 FULL 修饰符提供更详细的回复。 当提供时，完整回复包括一个条目数组，该数组由按升序排列的流条目（ID 和字段值元组）组成。 此外，groups也是一个数组，对于每个消费者组来说，它由XINFO GROUPS和XINFO CONSUMERS上报的信息组成。
+
+COUNT 选项可用于限制返回的流和 PEL 条目的数量（返回第一个 <count> 条目）。 默认 COUNT 为 10，COUNT 为 0 表示将返回所有条目（如果流中有很多条目，则执行时间可能会很长）。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]:  a list of informational bits.
+
+== 示例
+
+默认返回
+
+[source,text]
+----
+> XINFO STREAM mystream
+ 1) "length"
+ 2) (integer) 2
+ 3) "radix-tree-keys"
+ 4) (integer) 1
+ 5) "radix-tree-nodes"
+ 6) (integer) 2
+ 7) "last-generated-id"
+ 8) "1638125141232-0"
+ 9) "max-deleted-entry-id"
+10) "0-0"
+11) "entries-added"
+12) (integer) 2
+13) "groups"
+14) (integer) 1
+15) "first-entry"
+16) 1) "1638125133432-0"
+    2) 1) "message"
+       2) "apple"
+17) "last-entry"
+18) 1) "1638125141232-0"
+    2) 1) "message"
+       2) "banana"
+----
+
+完整返回
+
+[source,text]
+----
+> XADD mystream * foo bar
+"1638125133432-0"
+> XADD mystream * foo bar2
+"1638125141232-0"
+> XGROUP CREATE mystream mygroup 0-0
+OK
+> XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+1) 1) "mystream"
+   2) 1) 1) "1638125133432-0"
+         2) 1) "foo"
+            2) "bar"
+> XINFO STREAM mystream FULL
+ 1) "length"
+ 2) (integer) 2
+ 3) "radix-tree-keys"
+ 4) (integer) 1
+ 5) "radix-tree-nodes"
+ 6) (integer) 2
+ 7) "last-generated-id"
+ 8) "1638125141232-0"
+ 9) "max-deleted-entry-id"
+10) "0-0"
+11) "entries-added"
+12) (integer) 2
+13) "entries"
+14) 1) 1) "1638125133432-0"
+       2) 1) "foo"
+          2) "bar"
+    2) 1) "1638125141232-0"
+       2) 1) "foo"
+          2) "bar2"
+15) "groups"
+16) 1)  1) "name"
+        2) "mygroup"
+        3) "last-delivered-id"
+        4) "1638125133432-0"
+        5) "entries-read"
+        6) (integer) 1
+        7) "lag"
+        8) (integer) 1
+        9) "pel-count"
+       10) (integer) 1
+       11) "pending"
+       12) 1) 1) "1638125133432-0"
+              2) "Alice"
+              3) (integer) 1638125153423
+              4) (integer) 1
+       13) "consumers"
+       14) 1) 1) "name"
+              2) "Alice"
+              3) "seen-time"
+              4) (integer) 1638125133422
+              5) "active-time"
+              6) (integer) 1638125133432
+              7) "pel-count"
+              8) (integer) 1
+              9) "pending"
+              10) 1) 1) "1638125133432-0"
+                     2) (integer) 1638125133432
+                     3) (integer) 1
+----
+
+== 历史
+
+* 从 Redis 版本 6.0.0 开始：添加了 FULL 修饰符。
+* 从 Redis 版本 7.0.0 开始：添加了 max-deleted-entry-id、entries-added、recorded-first-entry-id、entries-read 和 lag 字段
+* 从Redis 7.2.0版本开始：添加了active-time字段，并更改了seen-time的含义。

@@ -1,0 +1,71 @@
+= GEOSEARCHSTORE
+
+**语法**
+
+[source,text]
+----
+GEOSEARCHSTORE destination source <FROMMEMBER member |
+  FROMLONLAT longitude latitude> <BYRADIUS radius <M | KM | FT | MI>
+  | BYBOX width height <M | KM | FT | MI>> [ASC | DESC] [COUNT count
+  [ANY]] [STOREDIST]
+----
+
+**可用版本**：6.2.0
+
+**时间复杂度**：O(N+log(M))，其中 N 是由中心和半径分隔的圆形区域的边界框内的元素数量，M 是索引内的项目数量
+
+**ACL 类别**：**@write, @geo, @slow**
+
+该命令类似于 GEOSEARCH，但将结果存储在目标键中。
+
+此命令取代了现已弃用的 GEORADIUS 和 GEORADIUSBYMEMBER。
+
+默认情况下，它将结果及其地理空间信息存储在目标有序集中。
+
+使用 STOREDIST 选项时，该命令将项目存储在一个有序集中，其中填充了它们与圆或框中心的距离（作为浮点数），并采用为该形状指定的相同单位。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]:结果集中的元素数量。
+
+== 示例
+
+[source,text]
+----
+redis> GEOADD Sicily 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+(integer) 2
+redis> GEOADD Sicily 12.758489 38.788135 "edge1"   17.241510 38.788135 "edge2"
+(integer) 2
+redis> GEOSEARCHSTORE key1 Sicily FROMLONLAT 15 37 BYBOX 400 400 km ASC COUNT 3
+(integer) 3
+redis> GEOSEARCH key1 FROMLONLAT 15 37 BYBOX 400 400 km ASC WITHCOORD WITHDIST WITHHASH
+1) 1) "Catania"
+   2) "56.4413"
+   3) (integer) 3479447370796909
+   4) 1) "15.08726745843887329"
+      2) "37.50266842333162032"
+2) 1) "Palermo"
+   2) "190.4424"
+   3) (integer) 3479099956230698
+   4) 1) "13.36138933897018433"
+      2) "38.11555639549629859"
+3) 1) "edge2"
+   2) "279.7403"
+   3) (integer) 3481342659049484
+   4) 1) "17.24151045083999634"
+      2) "38.78813451624225195"
+redis> GEOSEARCHSTORE key2 Sicily FROMLONLAT 15 37 BYBOX 400 400 km ASC COUNT 3 STOREDIST
+(integer) 3
+redis> ZRANGE key2 0 -1 WITHSCORES
+1) "Catania"
+2) "56.4412578701582"
+3) "Palermo"
+4) "190.44242984775784"
+5) "edge2"
+6) "279.7403417843143"
+redis>
+----
+
+== 历史
+
+* 从 Redis 版本 7.0.0 开始：添加了对大写单位名称的支持。

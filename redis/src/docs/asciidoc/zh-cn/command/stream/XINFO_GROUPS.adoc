@@ -1,0 +1,85 @@
+= XINFO GROUPS
+
+**语法**
+
+[source,text]
+----
+XINFO GROUPS key
+----
+
+**可用版本**：5.0.0
+
+**时间复杂度**：O(1)。
+
+**ACL 类别**：**@read, @stream, @slow**
+
+此命令返回存储在<key>处的流的所有消费者组的列表。
+
+默认情况下，仅为每个组提供以下信息：
+
+* name：消费者组的名称
+* consumers：群组中消费者的数量
+* pending：组待处理条目列表（PEL）的长度，这些消息已发送但尚未确认
+* last-delivered-id：最后交付给该组消费者的条目的ID
+* entries-read：交付给组消费者的最后一个条目的逻辑“读取计数器”
+* lag：流中仍在等待传递给组消费者的条目数，如果无法确定该数字，则为 NULL。
+
+== Consumer group lag
+
+给定消费者组的滞后是组的 entries_read 和流的 entries_add 之间范围内的条目数。 换句话说，它是尚未交付给该组消费者的条目数量。
+
+该指标的值和趋势有助于制定有关消费者群体的扩展决策。 您可以通过向组中添加更多消费者来解决高滞后值的问题，而低值可能表明您可以从组中删除消费者以缩小规模。
+
+Redis 通过保留两个计数器来报告消费者组的滞后：添加到流中的所有条目的数量和消费者组进行的逻辑读取的数量。 滞后就是两者之间的差异。
+
+流的计数器（XINFO STREAM 命令的entries_added 字段）在每次XADD 时都会加一，并计算在其生命周期内添加到流中的所有条目。
+
+消费者组的计数器entries_read是该组已读取的条目的逻辑计数器。 值得注意的是，该计数器只是启发式计数器而不是准确计数器，因此使用术语“逻辑”。 计数器尝试反映该组应该读取的条目数以获取其当前的last-delivered-id。 Entry_read 计数器仅在完美世界中准确，其中消费者组从流的第一个条目开始并处理其所有条目（即，在处理之前没有删除任何条目）。
+
+有两种特殊情况该机制无法报告滞后：
+
+. 使用任意最后传递的 ID 创建或设置消费者组（分别是 XGROUP CREATE 和 XGROUP SETID 命令）。 任意 ID 是不是流的第一个条目、最后一个条目或零（“0-0”）ID 的 ID 的任何 ID。
+. 组的last-delivered-id 和流的last-generate-id 之间的一个或多个条目已被删除（使用XDEL 或修剪操作）。
+
+在这两种情况下，组的读取计数器都被视为无效，并且返回值设置为 NULL 以表明滞后当前不可用。
+
+然而，滞后只是暂时不可用。 当消费者继续处理消息时，它会在常规操作期间自动恢复。 一旦消费者组将流中的最后一条消息传递给其成员，它将使用正确的逻辑读取计数器进行设置，并且可以恢复跟踪其滞后。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]: consumer group 列表。.
+
+== 示例
+
+[source,text]
+----
+> XINFO GROUPS mystream
+1)  1) "name"
+    2) "mygroup"
+    3) "consumers"
+    4) (integer) 2
+    5) "pending"
+    6) (integer) 2
+    7) "last-delivered-id"
+    8) "1638126030001-0"
+    9) "entries-read"
+   10) (integer) 2
+   11) "lag"
+   12) (integer) 0
+2)  1) "name"
+    2) "some-other-group"
+    3) "consumers"
+    4) (integer) 1
+    5) "pending"
+    6) (integer) 0
+    7) "last-delivered-id"
+    8) "1638126028070-0"
+    9) "entries-read"
+   10) (integer) 1
+   11) "lag"
+   12) (integer) 1
+----
+
+== 历史
+
+* 从Redis 7.0.0版本开始：添加了 entries-read 和 lag 字段
