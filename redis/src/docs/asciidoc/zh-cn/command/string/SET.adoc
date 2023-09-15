@@ -1,34 +1,227 @@
-= DEL
+= SET
 
 **语法**
 
 [source,text]
 ----
-DEL key [key ...]
+SET key value [NX | XX] [GET] [EX seconds | PX milliseconds |
+  EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
 ----
 
 **可用版本**：1.0.0
 
-**时间复杂度**：
+**时间复杂度**：O(1)
 
-**ACL 类别**：**@keyspace, @write, @slow**
+**ACL 类别**：**@write, @string, @slow**
 
-.
+Redis SET 命令用于将键 key 设定为指定的 "字符串" 值。 如果 key 已经保存了一个值，那么这个操作会直接覆盖原来的值，并且忽略原始类型。
+当 set 命令执行成功之后，之前设置的过期时间都将失效
+
+== 选项
+
+SET 命令支持一组修改其行为的选项：
+
+* EX 秒 -- 设置键 key 的过期时间，单位时秒
+* PX 毫秒 -- 设置键key的过期时间，单位时毫秒
+* EXAT timestamp-seconds -- 设置 key 过期的指定 Unix 时间（以秒为单位）。
+* PXAT timestamp-milliseconds -- 设置 key 过期的指定 Unix 时间（以毫秒为单位）。
+* NX -- 仅当 key 不存在时才设置 key。
+* XX -- 仅当 key 已存在时才设置 key。
+* KEEPTTL -- 获取 key 的过期时间。
+* GET -- 返回存储在 key 处的旧字符串，如果 key 不存在则返回 nil。 如果 key 存储的值不是字符串，则会返回错误并中止 SET。
+
+NOTE: 由于 SET 命令选项可以替换 `SETNX`、`SETEX`、`PSETEX`、`GETSET`，因此在 Redis 的未来版本中这些命令可能会被弃用并最终删除。
 
 == 返回值
 
-https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]: The number of keys that were removed.
 
+* https://redis.io/docs/reference/protocol-spec/#resp-simple-strings[字符串]: 如果 SET 执行正确则 OK。
+
+* https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[空]: (nil) 如果由于用户指定了 NX 或 XX 选项但条件不满足而未执行 SET 操作。
+
+如果使用 GET 选项发出命令，则上述内容不适用。 无论 SET 是否实际执行，它都会回复如下：
+
+* https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[多行字符串]：存储在 key 处的旧字符串值。
+
+* https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[空]:(nil) 如果 key 不存在。
 
 == 示例
 
 [source,text]
 ----
-redis> SET key1 "Hello"
+redis> SET mykey "Hello"
 "OK"
-redis> SET key2 "World"
+redis> GET mykey
+"Hello"
+redis> SET anotherkey "will expire in a minute" EX 60
 "OK"
-redis> DEL key1 key2 key3
-(integer) 2
 redis>
 ----
+
+== 代码示例
+
+.C#
+[source,text]
+----
+using System;
+using StackExchange.Redis;
+
+public class SetGetExample
+{
+    public void run()
+    {
+        var redis = ConnectionMultiplexer.Connect("localhost:6379");
+        var db = redis.GetDatabase();
+
+        bool status = db.StringSet("bike:1", "Process 134");
+
+        if (status)
+            Console.WriteLine("Successfully added a bike.");
+
+        var value = db.StringGet("bike:1");
+
+        if (value.HasValue)
+            Console.WriteLine("The name of the bike is: " + value + ".");
+
+    }
+}
+----
+
+.GO
+[source,go]
+----
+package example_commands_test
+
+import (
+	"context"
+	"fmt"
+	"github.com/redis/go-redis/v9"
+)
+
+func ExampleSetGet() {
+	ctx := context.Background()
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password docs
+		DB:       0,  // use default DB
+	})
+
+
+
+	err := rdb.Set(ctx, "bike:1", "Process 134", 0).Err()
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("OK")
+
+	value, err := rdb.Get(ctx, "bike:1").Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("The name of the bike is %s", value)
+
+}
+----
+
+.Java
+[source,java]
+----
+package io.redis.examples;
+
+import redis.clients.jedis.UnifiedJedis;
+
+public class SetGetExample {
+
+  public void run() {
+
+    UnifiedJedis jedis = new UnifiedJedis("redis://localhost:6379");
+
+    String status = jedis.set("bike:1", "Process 134");
+
+    if ("OK".equals(status)) System.out.println("Successfully added a bike.");
+
+    String value = jedis.get("bike:1");
+
+    if (value != null) System.out.println("The name of the bike is: " + value + ".");
+
+  }
+}
+----
+
+.NodeJs
+[source,javascript]
+----
+
+import { createClient } from 'redis';
+
+const client = createClient();
+
+client.on('error', err => console.log('Redis Client Error', err));
+
+await client.connect();
+
+await client.set('bike:1', 'Process 134');
+const value = await client.get('bike:1');
+console.log(value);
+// returns 'Process 134'
+
+await client.quit();
+----
+
+.Python
+[source,python]
+----
+import redis
+
+r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+
+res = r.set("bike:1", "Process 134")
+print(res)
+# >>> True
+
+res = r.get("bike:1")
+print(res)
+# >>> "Process 134"
+----
+
+== 模式
+
+NOTE: 下面这种设计模式并不推荐用来实现 redis 分布式锁。应该参考 https://redis.io/docs/manual/patterns/distributed-locks/[Redlock algorithm] 的实现，该算法实现起来稍微复杂一些，但是却能保证更好的使用效果并且具有容错能力。
+
+命令 `SET resource-name anystring NX EX max-lock-time` 是一种用 Redis 来实现锁机制的简单方法。
+
+如果上述命令返回 OK，那么客户端就可以获得锁（如果上述命令返回 Nil，那么客户端可以在一段时间之后重新尝试），并且可以通过 `DEL` 命令来释放锁。
+
+客户端加锁之后，如果没有主动释放，会在过期时间之后自动释放。
+
+可以通过如下优化使得上面的锁系统变得更加健壮：
+
+* 不要设置固定的字符串，而是设置为随机的大字符串，可以称为 token。
+* 通过脚步删除指定锁的 key，而不是 DEL 命令。
+
+上述优化方法会避免下述场景：a 客户端获得的锁（键key）已经由于过期时间到了被 redis 服务器删除，但是这个时候 a 客户端还去执行 DEL 命令。而 b 客户端已经在 a 设置的过期时间之后重新获取了这个同样 key 的锁，那么 a 执行 DEL 就会释放了 b 客户端加好的锁。
+
+解锁脚本的一个例子将类似于以下：
+
+[source,text]
+----
+if redis.call("get",KEYS[1]) == ARGV[1]
+then
+    return redis.call("del",KEYS[1])
+else
+    return 0
+end
+----
+
+这个脚本执行方式如下：
+
+`EVAL ...script... 1 resource-name token-value`
+
+== 历史
+
+* 从 Redis 版本 2.6.12 开始：添加了 EX、PX、NX 和 XX 选项。
+* 从 Redis 版本 6.0.0 开始：添加了 KEEPTTL 选项。
+* 从 Redis 版本 6.2.0 开始：添加了 GET、EXAT 和 PXAT 选项。
+* 从 Redis 版本 7.0.0 开始：允许 NX 和 GET 选项一起使用。

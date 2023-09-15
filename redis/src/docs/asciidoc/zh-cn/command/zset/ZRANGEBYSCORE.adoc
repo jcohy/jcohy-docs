@@ -1,0 +1,116 @@
+= ZRANGEBYSCORE
+
+NOTE: 从 Redis 版本 6.2.0 开始，此命令被视为已弃用。 迁移或编写新代码时，可以将其替换为带有 BYSCORE 参数的 ZRANGE。
+
+**语法**
+
+[source,text]
+----
+ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]
+----
+
+**可用版本**：1.0.5
+
+**时间复杂度**：O(log(N)+M)，其中N是排序集合中的元素数量，M是返回的元素数量。如果M是常数(例如，总是要求具有LIMIT的前10个元素)，则可以认为它是O(log(N))。
+
+**ACL 类别**：**@read, @sortedset, @slow**
+
+Redis ZRANGEBYSCORE 返回有序集 key 中，所有 score 值介于 min 和 max 之间(包括等于 min 或 max )的成员。有序集成员按 score 值递增(从小到大)次序排列。
+
+具有相同 score 值的成员按字典序(lexicographical order)来排列(该属性是有序集提供的，不需要额外的计算)。
+
+可选的 LIMIT 参数指定返回结果的数量及区间(就像SQL中的 SELECT LIMIT offset, count )，注意当 offset 很大时，定位 offset 的操作可能需要遍历整个有序集，此过程最坏复杂度为 O(N) 时间。
+
+可选的 WITHSCORES 参数决定结果集是单单返回有序集的成员，还是将有序集成员及其 score 值一起返回。 该选项自 Redis 2.0 版本起可用。
+
+== 互斥区间与无穷大
+
+min 和 max 可以是 -inf 和 +inf ，这样一来，你就可以在不知道有序集的最低和最高 score 值的情况下，获取所有成员。
+
+默认情况下，区间的取值使用闭区间 (小于等于或大于等于)，你也可以通过给参数前增加 ( 符号来使用可选的开区间 (小于或大于)。
+
+举个例子：
+
+[source,text]
+----
+ZRANGEBYSCORE zset (1 5
+----
+
+返回所有符合条件 1 < score <= 5 的成员：
+
+[source,text]
+----
+ZRANGEBYSCORE zset (5 (10
+----
+
+则返回所有符合条件 5 < score < 10 的成员。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]：指定区间内的有序集成员的列表（带有 score 值(可选)）。
+
+== 示例
+
+[source,text]
+----
+redis> ZADD myzset 1 "one"
+(integer) 1
+redis> ZADD myzset 2 "two"
+(integer) 1
+redis> ZADD myzset 3 "three"
+(integer) 1
+redis> ZRANGEBYSCORE myzset -inf +inf
+1) "one"
+2) "two"
+3) "three"
+redis> ZRANGEBYSCORE myzset 1 2
+1) "one"
+2) "two"
+redis> ZRANGEBYSCORE myzset (1 2
+1) "two"
+redis> ZRANGEBYSCORE myzset (1 (2
+(empty array)
+redis>
+----
+
+== 模式: 一种元素的加权随机选择
+
+通常，ZRANGEBYSCORE 是为了获取有序集的范围而使用的，且有续集的score是整数。
+
+在实现马尔可夫链和其他算法时的常见问题是从一个集合中随机选择一个元素，但是不同的元素可能有不同的权重来改变它们的可能性。
+
+这就是我们如何使用这个命令来安装这样的算法:
+
+假设元素 A、B 和 C 具有权重 1, 2 和 3。您计算权重的和，1 + 2 + 3＝6。然后，您使用此算法将所有元素添加到有序集合中：
+
+[source,text]
+----
+SUM = ELEMENTS.TOTAL_WEIGHT // 6 in this case.
+SCORE = 0
+FOREACH ELE in ELEMENTS
+    SCORE += ELE.weight / SUM
+    ZADD KEY SCORE ELE
+END
+----
+
+这意味着您设置：
+
+[source,text]
+----
+A to score 0.16
+B to score .5
+C to score 1
+----
+
+由于这涉及近似，为了避免C被设置为像，0.998，而不是1，我们只是修改上述算法，以确保最后一个分数是1（作为读者的练习……）。
+
+在这一点上，每次你想要得到一个加权随机元素，只需计算0到1之间的随机数（就像调用 `RAND()` 在大多数语言中），所以你可以这样做：
+
+[source,text]
+----
+RANDOM_ELE = ZRANGEBYSCORE key RAND() +inf LIMIT 0 1
+----
+
+== 历史
+
+* 从 Redis 版本 2.0.0 开始：添加了WITHSCORES 修饰符。

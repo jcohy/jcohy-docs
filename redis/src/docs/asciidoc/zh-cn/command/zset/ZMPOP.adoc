@@ -1,0 +1,79 @@
+= ZMPOP
+
+**语法**
+
+[source,text]
+----
+ZMPOP numkeys key [key ...] <MIN | MAX> [COUNT count]
+----
+
+**可用版本**：7.0.0
+
+**时间复杂度**：O(K) + O(M*log(N))，其中 K 是提供的 key 的数量，N 是有序集中的元素数量，M 是弹出的元素数量。
+
+**ACL 类别**：**@write, @sortedset, @slow**
+
+从提供的 key 名称列表中的第一个非空有序集中弹出一个或多个元素，即 member-score 对。
+
+ZMPOP 和 BZMPOP 类似于以下更有限的命令：
+
+* ZPOPMIN 或 ZPOPMAX 只需要一个键，并且可以返回多个元素。
+* BZPOPMIN 或 BZPOPMAX 采用多个键，但仅从一个键返回一个元素。
+
+请参阅 BZMPOP 了解此命令的阻塞变体。
+
+当使用 MIN 修饰符时，弹出的元素是第一个非空有序集中分数最低的元素。 MAX 修饰符会导致得分最高的元素被弹出。 可选的 COUNT 可用于指定要弹出的元素数量，默认设置为 1。
+
+弹出元素的数量是有序集基数和 COUNT 值中的最小值。
+
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]：
+
+* 当无法弹出任何元素时为 nil。
+* 一个双元素数组，第一个元素是从中弹出元素的键的名称，第二个元素是弹出元素的数组。 elements 数组中的每个条目也是一个包含成员及其分数的数组。
+
+== 示例
+
+[source,text]
+----
+redis> ZMPOP 1 notsuchkey MIN
+(error) object of type 'NoneType' has no len()
+redis> ZADD myzset 1 "one" 2 "two" 3 "three"
+(integer) 3
+redis> ZMPOP 1 myzset MIN
+1) "myzset"
+2) 1) 1) "one"
+      2) "1"
+redis> ZRANGE myzset 0 -1 WITHSCORES
+1) "two"
+2) "2"
+3) "three"
+4) "3"
+redis> ZMPOP 1 myzset MAX COUNT 10
+1) "myzset"
+2) 1) 1) "three"
+      2) "3"
+   2) 1) "two"
+      2) "2"
+redis> ZADD myzset2 4 "four" 5 "five" 6 "six"
+(integer) 3
+redis> ZMPOP 2 myzset myzset2 MIN COUNT 10
+1) "myzset2"
+2) 1) 1) "four"
+      2) "4"
+   2) 1) "five"
+      2) "5"
+   3) 1) "six"
+      2) "6"
+redis> ZRANGE myzset 0 -1 WITHSCORES
+(empty array)
+redis> ZMPOP 2 myzset myzset2 MAX COUNT 10
+(error) object of type 'NoneType' has no len()
+redis> ZRANGE myzset2 0 -1 WITHSCORES
+(empty array)
+redis> EXISTS myzset myzset2
+(integer) 0
+redis>
+----

@@ -1,0 +1,170 @@
+= ZRANGE
+
+**语法**
+
+[source,text]
+----
+ZRANGE key start stop [BYSCORE | BYLEX] [REV] [LIMIT offset count]
+  [WITHSCORES]
+----
+
+**可用版本**：1.2.0
+
+**时间复杂度**：O(log(N)+M)，其中N是有序集合中的元素数量，M是返回的元素数量。
+
+**ACL 类别**：**@read, @sortedset, @slow**
+
+返回存储在 <key> 的有序集中指定范围的元素。
+
+ZRANGE 可以执行不同类型的范围查询：按索引（排名）、按分数或按字典顺序。
+
+从 Redis 6.2.0 开始，此命令可以替换以下命令：`ZREVRANGE`、`ZRANGEBYSCORE`、`ZREVRANGEBYSCORE`、`ZRANGEBYLEX` 和 `ZREVRANGEBYLEX`。
+
+== 常见行为和选项
+
+元素的顺序是从最低分到最高分。 具有相同分数的元素按字典顺序排序。
+
+可选的 `REV` 参数反转排序，因此元素按从最高分到最低分的顺序排序，并且得分关系通过反向字典顺序解决。
+
+可选的 `LIMIT` 参数可用于从匹配元素中获取子范围（类似于 SQL 中的 `SELECT LIMIT` offset、count）。 负数 `<count>` 返回 `<offset>` 中的所有元素。
+请记住，如果 `<offset>` 很大，则需要先遍历有序集以查找 `<offset>` 元素，然后才能返回要返回的元素，这可能会增加 O(N) 时间复杂度。
+
+可选的 WITHSCORES ,以便将元素的分数与元素一起返回。 返回的列表包含 `value1,score1,...,valueN,scoreN` 而不是 `value1,...,valueN`。
+客户端类库可以自由地返回更合适的数据类型（建议：具有值和得分的数组或元组）。
+
+== 索引范围
+
+默认情况下，该命令执行索引范围查询。 `<start>` 和 `<stop>` 参数表示从零开始的索引，其中 0 是第一个元素，1 是下一个元素，依此类推。 这些参数指定包含范围，因此例如 ZRANGE myzset 0 1 将返回有序集的第一个和第二个元素。
+
+索引也可以是负数，表示距有序集末尾的偏移量，-1 是有序集的最后一个元素，-2 是倒数第二个元素，依此类推。
+
+超出范围的索引不会产生错误。
+
+如果 `<start>` 大于有序集的结束索引或 `<stop>`，则返回空列表。
+
+如果 `<stop>` 大于有序集的结束索引，Redis 将使用有序集的最后一个元素。
+
+== 分数范围
+
+当提供 `BYSCORE` 选项时，该命令的行为类似于 `ZRANGEBYSCORE`，并返回有序集中分数等于或介于 `<start>` 和 `<stop>` 之间的元素范围。
+
+`<start>` 和 `<stop>` 可以是 `-inf` 和 `+inf`，分别表示负无穷大和正无穷大。 这意味着您不需要知道有序集中的最高或最低分数即可获取特定分数或达到特定分数的所有元素。
+
+默认情况下，`<start>` 和 `<stop>` 指定的评分区间是封闭的（包含）。 可以通过在分数前加上字符 `(`.
+
+例如：
+
+[source,text]
+----
+ZRANGE zset (1 5 BYSCORE
+----
+
+将返回 1 < Score <= 5 的所有元素，同时：
+
+[source,text]
+----
+ZRANGE zset (5 (10 BYSCORE
+----
+
+将返回 5 < 分数 < 10 的所有元素（排除 5 和 10）。
+
+== 反向范围
+
+使用 `REV` 选项反转有序集，索引 0 作为分数最高的元素。
+
+默认情况下，`<start>` 必须小于或等于 `<stop>` 才能返回任何内容。 但是，如果选择 `BYSCORE` 或 `BYLEX` 选项，则 `<start>` 是要考虑的最高分数，`<stop>` 是要考虑的最低分数，
+因此 `<start>` 必须大于或等于 `<stop>` 才能顺序 返回任何东西。
+
+例如：
+
+[source,text]
+----
+ZRANGE zset 5 10 REV
+----
+
+将返回反向索引中索引 5 到 10 之间的元素。
+
+[source,text]
+----
+ZRANGE zset 10 5 REV BYSCORE
+----
+
+将返回分数小于 10 且大于 5 的所有元素。
+
+== 字典范围
+
+使用 `BYLEX` 选项时，该命令的行为类似于 `ZRANGEBYLEX`，并返回 `<start>` 和 `<stop>` 字典闭合范围间隔之间的有序集中的元素范围。
+
+请注意，字典顺序依赖于所有具有相同分数的元素。 当元素具有不同分数时，回复未指定。
+
+有效的 `<start>` 和 `<stop>` 必须以 ( 或 `[` 开头，以便分别指定范围间隔是排除的还是包含的。
+
+`<start>` 和 `<stop>` 的特殊值 `+` 或 `-` 分别表示正无限字符串和负无限字符串，因此例如命令 `ZRANGE myzset - + BYLEX` 保证返回有序集中的所有元素，前提是所有 元素具有相同的分数。
+
+`REV` 选项反转 `<start>` 和 `<stop>` 元素的顺序，其中 `<start>` 按字典顺序必须大于 `<stop>`才能生成非空结果。
+
+== 字符串的字典顺序比较
+
+字符串作为字节的二进制数组进行比较。 由于 ASCII 字符集的指定方式，这意味着通常也具有以明显的字典方式比较普通 ASCII 字符的效果。 但是，如果使用非纯 ASCII 字符串（例如 utf8 字符串），则情况并非如此。
+
+但是，用户可以对编码字符串应用转换，以便插入有序集中的元素的第一部分将根据用户特定应用程序的需要进行比较。 例如，如果我想添加将以不区分大小写的方式进行比较的字符串，但我仍然想在查询时检索真实的大小写，我可以通过以下方式添加字符串：
+
+[source,text]
+----
+ZADD autocomplete 0 foo:Foo 0 bar:BAR 0 zap:zap
+----
+
+由于每个元素中的第一个标准化部分（冒号字符之前），我们强制进行给定的比较。 但是，在使用 ZRANGE ... BYLEX 查询范围后，应用程序可以向用户显示字符串的第二部分（冒号之后）。
+
+比较的二进制性质允许使用有序集作为通用索引，例如，元素的第一部分可以是 64 位大端数字。 由于大端数字在初始位置具有最高有效字节，因此二进制比较将与数字的数字比较相匹配。 这可用于实现 64 位值的范围查询。 如下例所示，在前 8 个字节之后，我们可以存储要索引的元素的值。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-arrays[数组]：指定范围内的元素列表（如果给出了 WITHSCORES 选项，则可以选择包含它们的分数）。
+
+== 示例
+
+[source,text]
+----
+redis> ZADD myzset 1 "one" 2 "two" 3 "three"
+(integer) 3
+redis> ZRANGE myzset 0 -1
+1) "one"
+2) "two"
+3) "three"
+redis> ZRANGE myzset 2 3
+1) "three"
+redis> ZRANGE myzset -2 -1
+1) "two"
+2) "three"
+redis>
+----
+
+以下使用 WITHSCORES 的示例显示该命令如何始终返回一个数组，但这次填充有 `element_1`、`score_1`、`element_2`、`score_2`、...、`element_N`、`score_N`。
+
+[source,text]
+----
+redis> ZADD myzset 1 "one" 2 "two" 3 "three"
+(integer) 3
+redis> ZRANGE myzset 0 1 WITHSCORES
+1) "one"
+2) "1"
+3) "two"
+4) "2"
+redis>
+----
+
+此示例展示如何查询按分数排序的集合，排除值 1 直至无穷大，仅返回结果的第二个元素：
+
+[source,text]
+----
+redis> ZADD myzset 1 "one" 2 "two" 3 "three"
+(integer) 3
+redis> ZRANGE myzset (1 +inf BYSCORE LIMIT 1 1
+1) "three"
+redis>
+----
+
+== 历史
+
+* 从 Redis 版本 6.2.0 开始：添加了 REV、BYSCORE、BYLEX 和 LIMIT 选项。
