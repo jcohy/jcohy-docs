@@ -98,11 +98,6 @@ public class JcohyAsciidoctorPlugins implements Plugin<Project> {
 		project.getTasks().withType(AsciidoctorTask.class,asciidoctorTask -> {
 			asciidoctorTask.languages("zh-cn");
 			asciidoctorTask.setLogDocuments(true);
-			asciidoctorTask.getPath();
-			asciidoctorTask.getBaseDir();
-			File sourceDir = asciidoctorTask.getSourceDir();
-//			File baseDir = asciidoctorTask.getBaseDir(asciidoctorTask.getl);
-			String path = asciidoctorTask.getPath();
 			configureCommonAttributes(project, asciidoctorTask);
 			project.getExtensions().getByType(AsciidoctorJExtension.class).fatalWarnings(false);
 		});
