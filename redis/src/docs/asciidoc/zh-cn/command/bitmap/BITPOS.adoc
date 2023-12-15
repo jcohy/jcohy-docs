@@ -1,0 +1,67 @@
+= BITPOS
+
+**语法**
+
+[source,text]
+----
+BITPOS key bit [start [end [BYTE | BIT]]]
+----
+
+**可用版本**：2.8.7
+
+**时间复杂度**：O(N)
+
+**ACL 类别**：**@read, @bitmap, @slow**
+
+返回字符串中第一个设置为 1 或 0 的位的位置。
+
+返回位置，将字符串视为从左到右的位数组，其中第一个字节的最高有效位位于位置 0，第二个字节的最高有效位位于位置 8，依此类推。
+
+GETBIT 和 SETBIT 遵循相同的位位置约定。
+
+默认情况下，将检查字符串中包含的所有字节。 可以仅在传递附加参数 `start` 和 `end` 的指定间隔中查找位（可以仅传递 `start`，该操作将假定 `end` 是字符串的最后一个字节。但是，存在语义差异，如之后的解释的。 默认情况下，范围被解释为字节范围而不是位范围，因此 `start=0` 和 `end=2` 表示查看前三个字节。
+
+您可以使用可选的 `BIT` 修饰符来指定应将范围解释为位范围。 所以 `start=0` 和 `end=2` 的意思是看前三位。
+
+NOTE: 即使使用 `start` 和 `end` 来指定范围，位位置也始终以从位 0 开始的绝对值形式返回。
+
+与 `GETRANGE` 命令一样，`start` 和 `end` 可以包含负值，以便从字符串末尾开始索引字节，其中 -1 是最后一个字节，-2 是倒数第二个字节，依此类推。 当指定 BIT 时，-1 是最后一位，-2 是倒数第二位，依此类推。
+
+不存在的 key 被视为空字符串。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]:
+
+命令返回字符串里面第一个被设置为 1 或者 0 的 bit 位。
+
+如果我们在空字符串或者 0 字节的字符串里面查找 bit 为 1 的内容，那么结果将返回 -1。
+
+如果我们在字符串里面查找 bit 为 0 而且字符串只包含 1 的值时，将返回字符串最右边的第一个空位。如果有一个字符串是三个字节的值为 0xff 的字符串，那么命令 BITPOS key 0 将会返回 24，因为 0-23 位都是 1。
+
+基本上，我们可以把字符串看成右边有无数个0。
+
+然而，如果你用指定 start 和 end 范围进行查找指定值时，如果该范围内没有对应值，结果将返回 -1。
+
+== 示例
+
+[source,text]
+----
+redis> SET mykey "\xff\xf0\x00"
+"OK"
+redis> BITPOS mykey 0
+(integer) 0
+redis> SET mykey "\x00\xff\xf0"
+"OK"
+redis> BITPOS mykey 1 0
+(integer) 1
+redis> BITPOS mykey 1 2
+(integer) 18
+redis> BITPOS mykey 1 2 -1 BYTE
+(integer) 18
+redis> BITPOS mykey 1 7 15 BIT
+----
+
+== 历史
+
+* 从 Redis 版本 7.0.0 开始：添加了 BYTE|BIT 选项。

@@ -1,0 +1,149 @@
+= SETBIT
+
+**语法**
+
+[source,text]
+----
+SETBIT key offset value
+----
+
+**可用版本**：2.2.0
+
+**时间复杂度**：O(1)
+
+**ACL 类别**：**@write, @bitmap, @slow**
+
+Redis Setbit 命令用于对 key 所储存的字符串值，设置或清除指定偏移量上的位(bit)。
+
+根据值 value 是 1 或 0 来决定设置或清除位 bit。
+
+当 key 不存在时会创建一个新的字符串。当字符串不够长时，字符串的长度将增大，以确保它可以在offset位置存储值。 offset 参数必须大于或等于 0，且小于 2^32（这将位图限制为 512MB）。 当 key 处的字符串增长时，添加的位将设置为 0。
+
+WARNING: 当设置的是最后一位 bit (offset 等于 232 -1)，并且存储在 key 处的字符串值还没有存储一个字符串值，或者保存一个小的字符串值时，Redis 需要分配所有的中间内存，这会阻塞 Redis 服务器一段时间。
+在 2010 MacBook Pro 上，设置 2^32 -1（512MB 分配）需要约 300ms，设置 2^30 -1（128MB 分配）需要约 80ms，设置 2^28 -1（32MB 分配） 需要约 30 毫秒，设置 2^26 -1（8MB 分配）需要约 8 毫秒。
+请注意，一旦完成第一次分配，后续对同一键调用 SETBIT 将不会产生分配开销。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]: 存储在 offset 偏移位的原始值。
+
+
+== 示例
+
+[source,text]
+----
+redis> SETBIT mykey 7 1
+(integer) 0
+redis> SETBIT mykey 7 0
+(integer) 1
+redis> GET mykey
+""
+redis>
+----
+
+== 模式：访问整个 bitmap
+
+在某些情况下，您需要一次设置单个 bitmap 的所有位，例如将其初始化为默认的非零值时。 可以通过多次调用 `SETBIT` 命令来完成此操作，每个调用对应需要设置的一位。 但是，作为优化，您可以使用单个 SET 命令来设置整个位图。
+
+bitmap 不是实际的数据类型，而是在 String 类型上定义的一组面向位的操作（有关详细信息，请参阅 https://redis.io/docs/data-types/[数据类型简介页面的位图部分]）。 这意味着位图可以与字符串命令一起使用，最重要的是与 SET 和 GET 一起使用。
+
+由于 Redis 的字符串是二进制安全的，因此位图可以简单地编码为字节流。 字符串的第一个字节对应于位图的偏移量 0..7，第二个字节对应于 8..15 范围，依此类推。
+
+例如，设置一些位后，获取位图的字符串值将如下所示：
+
+[source,text]
+----
+> SETBIT bitmapsarestrings 2 1
+> SETBIT bitmapsarestrings 3 1
+> SETBIT bitmapsarestrings 5 1
+> SETBIT bitmapsarestrings 10 1
+> SETBIT bitmapsarestrings 11 1
+> SETBIT bitmapsarestrings 14 1
+> GET bitmapsarestrings
+"42"
+----
+
+通过获取位图的字符串表示形式，客户端可以通过使用其本机编程语言中的本机位操作提取位值来解析响应的字节。 对称地，还可以通过在客户端中执行位到字节编码并使用结果字符串调用 SET 来设置整个位图。
+
+== 模式：设置多个位
+
+`SETBIT` 擅长设置单个位，并且当需要设置多个位时可以多次调用。 要优化此操作，您可以将多个 `SETBIT` 调用替换为对可变参数 `BITFIELD` 命令的单个调用以及使用 `u1` 类型的字段。
+
+例如，上面的示例可以替换为：
+
+[source,text]
+----
+> BITFIELD bitsinabitmap SET u1 2 1 SET u1 3 1 SET u1 5 1 SET u1 10 1 SET u1 11 1 SET u1 14 1
+----
+
+== 高级模式：访问位图范围
+
+还可以使用 `GETRANGE` 和 `SETRANGE` 字符串命令来有效访问位图中的一系列位偏移量。 下面是一个惯用的 Redis Lua 脚本实现示例，可以使用 EVAL 命令运行：
+
+[source,text]
+----
+--[[
+Sets a bitmap range
+
+Bitmaps are stored as Strings in Redis. A range spans one or more bytes,
+so we can call [`SETRANGE`](/commands/setrange) when entire bytes need to be set instead of flipping
+individual bits. Also, to avoid multiple internal memory allocations in
+Redis, we traverse in reverse.
+Expected input:
+  KEYS[1] - bitfield key
+  ARGV[1] - start offset (0-based, inclusive)
+  ARGV[2] - end offset (same, should be bigger than start, no error checking)
+  ARGV[3] - value (should be 0 or 1, no error checking)
+]]--
+
+-- A helper function to stringify a binary string to semi-binary format
+local function tobits(str)
+  local r = ''
+  for i = 1, string.len(str) do
+    local c = string.byte(str, i)
+    local b = ' '
+    for j = 0, 7 do
+      b = tostring(bit.band(c, 1)) .. b
+      c = bit.rshift(c, 1)
+    end
+    r = r .. b
+  end
+  return r
+end
+
+-- Main
+local k = KEYS[1]
+local s, e, v = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+
+-- First treat the dangling bits in the last byte
+local ms, me = s % 8, (e + 1) % 8
+if me > 0 then
+  local t = math.max(e - me + 1, s)
+  for i = e, t, -1 do
+    redis.call('SETBIT', k, i, v)
+  end
+  e = t
+end
+
+-- Then the danglings in the first byte
+if ms > 0 then
+  local t = math.min(s - ms + 7, e)
+  for i = s, t, 1 do
+    redis.call('SETBIT', k, i, v)
+  end
+  s = t + 1
+end
+
+-- Set a range accordingly, if at all
+local rs, re = s / 8, (e + 1) / 8
+local rl = re - rs
+if rl > 0 then
+  local b = '\255'
+  if 0 == v then
+    b = '\0'
+  end
+  redis.call('SETRANGE', k, rs, string.rep(b, rl))
+end
+----
+
+NOTE: 从位图中获取一系列位偏移量的实现留给读者作为练习。

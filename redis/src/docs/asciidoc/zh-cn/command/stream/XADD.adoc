@@ -1,0 +1,82 @@
+= XADD
+
+**语法**
+
+[source,text]
+----
+XADD key [NOMKSTREAM] [<MAXLEN | MINID> [= | ~] threshold
+  [LIMIT count]] <* | id> field value [field value ...]
+----
+
+**可用版本**：5.0.0
+
+**时间复杂度**：添加新条目时为 O(1)，trim 时为 O(N)，其中 N 是发射的条目数。
+
+**ACL 类别**：**@write, @stream, @fast**
+
+将指定的 stream entry 附加到流的指定 key 处。 如果该 key 不存在，将使用流值创建该 key。 可以使用 NOMKSTREAM 选项禁用 key 的创建。
+
+entry 由字段值对列表组成。 字段值对按照用户指定的顺序存储。 读取流的命令（例如 XRANGE 或 XREAD）保证返回与 XADD 添加的字段和值完全相同的顺序。
+
+XADD 是唯一可以向流添加数据的 Redis 命令，但还有其他命令（例如 XDEL 和 XTRIM）可以从流中删除数据。
+
+== 指定流 ID 作为参数
+
+stream entry ID 标识流内的给定 entry。
+
+如果指定的 ID 参数是 `*` 字符（星号 ASCII 字符），`XADD` 命令将为您自动生成一个唯一的 ID。 然而，虽然仅在极少数情况下有用，但可以指定格式正确的 ID，以便新 entry 将准确地添加到指定的 ID。
+
+ID 由用 `-` 字符分隔的两个数字指定：
+
+[source,text]
+----
+1526919030474-55
+----
+
+这两个数量都是 64 位数字。 自动生成 ID 时，第一部分是生成 ID 的 Redis 实例的 Unix 时间（以毫秒为单位）。 第二部分只是一个序列号，用于区分同一毫秒内生成的 ID。
+
+您还可以指定一个不完整的 ID，它仅包含毫秒部分，该部分被解释为序列部分的零值。 要仅自动生成序列部分，请指定毫秒部分，后跟 - 分隔符和 * 字符：
+
+[source,text]
+----
+> XADD mystream 1526919030474-55 message "Hello,"
+"1526919030474-55"
+> XADD mystream 1526919030474-* message " World!"
+"1526919030474-56"
+----
+
+ID 保证始终是递增的：如果比较刚插入的条目的 ID，它将大于其他任何过去的 ID， 因此条目在流中是完全排序的。为了保证这个特性，如果流中当前最大的 ID 的时间 大于实例的当前本地时间，将会使用前者，并将 ID 的序列部分递增。例如， 本地始终回调了，或者在故障转移之后新主机具有不同的绝对时间，则可能发生这种情况。
+
+当用户为 XADD 命令指定显式 ID 时，最小有效的 ID 是 0-1， 并且用户必须指定一个比当前流中的任何 ID 都要大的 ID，否则命令将失败。 通常使用特定 ID 仅在您有另一个系统生成唯一 ID（例如 SQL 表）， 并且您确实希望 Redis 流 ID 与该另一个系统的 ID 匹配时才有用。
+
+== 限制流
+
+`XADD` 包含与 `XTRIM` 命令相同的语义 - 请参阅其文档页面以获取更多信息。 这允许添加新条目并通过对 XADD 的单次调用来检查流的大小，从而使用任意阈值有效地限制流。 尽管精确修剪是可能的并且是默认设置，但由于流的内部表示，使用几乎精确修剪（〜参数）通过 XADD 添加条目和修剪流会更有效。
+
+例如，按以下形式调用XADD：
+
+[source,text]
+----
+XADD mystream MAXLEN ~ 1000 * ... entry fields here ...
+----
+
+将添加一个新条目，但也会移除旧条目，以便流将仅包含 1000 个条目，或最多几十个条目。
+
+== 有关流的附加信息
+
+有关 Redis 流的更多信息，请查看我们的 https://redis.io/topics/streams-intro[Redis 流] 简介文档。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[批量字符串]:
+该命令返回添加条目的 ID。 如果 `*` 作为 ID 参数传递，则该 ID 是自动生成的，否则该命令仅返回用户在插入期间指定的相同 ID。
+
+当与 `NOMKSTREAM` 选项一起使用并且 key 不存在时，该命令返回 https://redis.io/docs/reference/protocol-spec/#resp-bulk-strings[Null] 回复。
+
+
+== 示例
+
+[source,text]
+----
+
+----

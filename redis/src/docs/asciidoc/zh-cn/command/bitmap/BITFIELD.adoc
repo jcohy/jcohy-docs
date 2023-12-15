@@ -1,0 +1,129 @@
+= BITFIELD
+
+**语法**
+
+[source,text]
+----
+BITFIELD key [GET encoding offset | [OVERFLOW <WRAP | SAT | FAIL>]
+  <SET encoding offset value | INCRBY encoding offset increment>
+  [GET encoding offset | [OVERFLOW <WRAP | SAT | FAIL>]
+  <SET encoding offset value | INCRBY encoding offset increment>
+  ...]]
+----
+
+**可用版本**：3.2.0
+
+**时间复杂度**：对于指定的每个子命令，O(1)
+
+**ACL 类别**：**@write, @bitmap, @slow**
+
+BITFIELD 命令可以将一个 Redis 字符串看作是一个由二进制位组成的数组， 并对这个数组中任意偏移进行访问 。 可以使用该命令对一个有符号的 5 位整型数的第 1234 位设置指定值，也可以对一个 31 位无符号整型数的第 4567 位进行取值。类似地，本命令可以对指定的整数进行自增和自减操作，可配置的上溢和下溢处理操作。
+
+BITFIELD命令可以在一次调用中同时对多个位范围进行操作：它接受一系列待执行的操作作为参数，并返回一个数组，数组中的每个元素就是对应操作的执行结果。
+
+例如，对位于 5 位有符号整数的偏移量 100 执行自增操作，并获取位于偏移量 0 上的 4 位长无符号整数：
+
+[source,text]
+----
+> BITFIELD mykey INCRBY i5 100 1 GET u4 0
+1) (integer) 1
+2) (integer) 0
+----
+
+[[NOTE]]
+====
+* 使用 `GET` 子命令对超出字符串当前范围的二进制位进行访问（包括键不存在的情况），超出部分的二进制位的值将被当做是 0。
+* 使用 `SET` 或 `INCRBY` 子命令对超出字符串当前范围的二进制位进行访问将导致字符串被扩大，被扩大的部分会使用值为 0 的二进制位进行填充。在对字符串进行扩展时，命令会根据字符串目前已有的最远端二进制位，计算出执行操作所需的最小长度。
+====
+
+== 支持的子命令和整数编码
+
+以下是支持的命令列表。
+
+* GET <encoding> <offset> -- 返回指定的二进制位范围。
+* SET <encoding> <offset> <value> -- 对指定的二进制位范围进行设置，并返回它的旧值。
+* INCRBY <encoding> <offset> <increment> -- 对指定的二进制位范围执行加法操作，并返回它的旧值。可以通过向 increment 参数传入负值来实现相应的减法操作。
+
+除了以上三个子命令之外，还有一个子命令，它可以改变之后执行的 `INCRBY` 子命令在发生溢出情况时的行为:
+
+* OVERFLOW [WRAP|SAT|FAIL]
+
+当被设置的二进制位范围值为整数时，用户可以在类型参数的前面添加 i 来表示有符号整数， u 来表示无符号整数。 比如说，我们可以使用 u8 来表示 8 位长的无符号整数，也可以使用 i16 来表示 16 位长的有符号整数。
+
+命令最大支持 64 位长的有符号整数以及 63 位长的无符号整数，其中无符号整数的 63 位长度限制是由于 Redis 协议目前还无法返回 64 位长的无符号整数而导致的。
+
+== Bits 和位置偏移
+
+在二进制位范围命令中，用户有两种方法来设置偏移量：如果用户给定的是一个没有任何前缀的数字，那么这个数字指示的就是字符串以零为开始（zero-base）的偏移量。
+
+如果用户给定的是一个带有 `#` 前缀的偏移量，那么命令将使用这个偏移量与被设置的数字类型的位长度相乘，从而计算出真正的偏移量。例如：There are two ways in order to specify offsets in the bitfield command.
+
+[source,text]
+----
+BITFIELD mystring SET i8 #0 100 SET i8 #1 200
+----
+
+将在偏移量 0 处设置第一个 i8 整数，在偏移量 8 处设置第二个 i8 整数。这样，如果您想要的是给定大小的普通整数数组，则不必在客户端内部自己进行数学计算。
+
+== Overflow 控制
+
+用户可以通过 OVERFLOW 以下三个参数来控制BITFIELD 命令在执行自增或者自减操作时上溢出和下溢出：
+
+* WRAP：使用回绕（wrap around）方法处理有符号整数和无符号整数的溢出情况。对于无符号整数来说，回绕就像使用数值本身与能够被储存的最大无符号整数执行取模计算，这也是 C 语言的标准行为。对于有符号整数来说，上溢将导致数字重新从最小的负数开始计算，而下溢将导致数字重新从最大的正数开始计算。比如说，如果我们对一个值为 127 的 i8 整数执行加一操作，那么将得到结果 -128。
+* SAT：使用饱和计算（saturation arithmetic）方法处理溢出，也即是说，下溢计算的结果为最小的整数值，而上溢计算的结果为最大的整数值。举个例子，如果我们对一个值为 120 的 i8 整数执行加 10 计算，那么命令的结果将为 i8 类型所能储存的最大整数值 127 。与此相反，如果一个针对 i8 值的计算造成了下溢，那么这个 i8 值将被设置为 -127 。
+* FAIL：在这一模式下，命令将拒绝执行那些会导致上溢或者下溢情况出现的计算，并向用户返回空值表示计算未被执行。
+
+请注意，每个 OVERFLOW 语句仅影响子命令列表中紧随其后的 INCRBY 和 SET 命令，直到下一个 OVERFLOW 语句。
+
+如果没有另外指定，默认情况下使用 WRAP。
+
+[source,text]
+----
+> BITFIELD mykey incrby u2 100 1 OVERFLOW SAT incrby u2 102 1
+1) (integer) 1
+2) (integer) 1
+> BITFIELD mykey incrby u2 100 1 OVERFLOW SAT incrby u2 102 1
+1) (integer) 2
+2) (integer) 2
+> BITFIELD mykey incrby u2 100 1 OVERFLOW SAT incrby u2 102 1
+1) (integer) 3
+2) (integer) 3
+> BITFIELD mykey incrby u2 100 1 OVERFLOW SAT incrby u2 102 1
+1) (integer) 0
+2) (integer) 3
+----
+
+== 返回值
+
+该命令返回一个数组，数组中的每个元素对应一个被执行的子命令。需要注意的是，OVERFLOW 子命令本身并不产生任何回复。
+
+以下是 OVERFLOW FAIL 返回 NULL 的示例。
+
+[source,text]
+----
+> BITFIELD mykey OVERFLOW FAIL incrby u2 102 1
+1) (nil)
+----
+
+== 动机
+
+BITFIELD 命令的作用在于它能够将很多小的整数储存到一个长度较大的位图中，又或者将一个非常庞大的键分割为多个较小的键来进行储存，从而非常高效地使用内存，使得 Redis 能够得到更多不同的应用 ——特别是在实时分析领域：BITFIELD 能够以指定的方式对计算溢出进行控制的能力，使得它可以被应用于这一领域。
+
+有趣的事实：Reddit 的 2017 年愚人节项目 https://www.reddit.com/r/place/[r/place] 是使用 https://www.redditinc.com/blog/how-we-built-rplace/[Redis BITFIELD 命令构建的]，以便在内存中表示协作画布。
+
+== 性能考虑
+
+通常 BITFIELD 是一个快速命令，但请注意，访问一个长度较短的字符串的远端不存在的二进制位将引发一次内存分配操作，这一操作花费的时间可能会比命令访问已有的字符串花费的时间要长。
+
+== 位顺序
+
+BITFIELD 把位图第一个字节偏移量 0 上的二进制位看作是 most significant 位，以此类推。举个例子，如果我们对一个已经预先被全部设置为 0 的位图进行设置，将它在偏移量 7 的值设置为 5 位无符号整数值 23 （二进制位为 10111 ），那么命令将生产出以下这个位图表示：
+
+[source,text]
+----
++--------+--------+
+|00000001|01110000|
++--------+--------+
+----
+
+当偏移量和整数长度与字节边界进行对齐时，BITFIELD 表示二进制位的方式跟大端表示法（big endian）一致，但是在没有对齐的情况下，理解这些二进制位是如何进行排列也是非常重要的。

@@ -1,0 +1,72 @@
+= BITCOUNT
+
+**语法**
+
+[source,text]
+----
+BITCOUNT key [start end [BYTE | BIT]]
+----
+
+**可用版本**：2.6.0
+
+**时间复杂度**：O(N)
+
+**ACL 类别**：**@read, @bitmap, @slow**
+
+用于计算二进制字符串中设置为 1 的比特位的数量。一般情况下，给定的整个字符串都会被进行计数
+
+默认情况下，将检查字符串中包含的所有字节。 可以使用附加参数 `start` 和 `end` 用于指定要计算的比特位范围。
+
+与 `GETRANGE` 命令一样，`start` 和 `end` 可以包含负值，以便从字符串末尾开始索引字节，其中 -1 是最后一个字节，-2 是倒数第二个字节，依此类推。
+
+不存在的 key 被视为空字符串，因此该命令将返回 0。
+
+默认情况下，附加参数 `start` 和 `end` 指定字节索引。 我们可以使用附加参数 `BIT` 来指定位索引。 所以 `0` 是第一位，`1` 是第二位，依此类推。 对于负值，`-1` 是最后一位，`-2` 是倒数第二位，依此类推。
+
+== 返回值
+
+https://redis.io/docs/reference/protocol-spec/#resp-integers[整数]: 该命令将返回指定范围内设置为 1 的比特位的数量。
+
+== 示例
+
+[source,text]
+----
+redis> SET mykey "foobar"
+"OK"
+redis> BITCOUNT mykey
+(integer) 26
+redis> BITCOUNT mykey 0 0
+(integer) 4
+redis> BITCOUNT mykey 1 1
+(integer) 6
+redis> BITCOUNT mykey 1 1 BYTE
+(integer) 6
+redis> BITCOUNT mykey 5 30 BIT
+(integer) 17
+redis>
+----
+
+== 模式：使用 bitmaps 的实时指标
+
+Bitmap 是某些类型信息的一种非常节省空间的表示形式。 例如一个 Web 应用程序需要用户访问历史记录，以便可以确定哪些用户是 Beta 功能的良好目标。
+
+使用 `SETBIT` 命令，这很容易完成，用一个小的渐进整数来标识每一天。 例如，第 0 天是应用程序上线的第一天，第 1 天是第二天，依此类推。
+
+每次用户执行页面查看时，应用程序都可以使用设置与当前日期相对应的位的 `SETBIT` 命令来注册用户在当天访问了网站。
+
+稍后，只需针对 Bitmap 调用 `BITCOUNT` 命令即可轻松了解用户访问网站的单天数。
+
+更详细的实现可以参考博文(墙外) https://blog.getspool.com/2011/11/29/fast-easy-realtime-metrics-using-redis-bitmaps[Fast, easy, realtime metrics using Redis bitmaps]。
+
+== 性能
+
+在上面计算天数的示例中，即使应用程序在线 10 年后，占用的空间也只是每个用户 10*365 比特位(bit)，也即是每个用户 456 字节。对于这种大小的数据来说，`BITCOUNT` 仍然与任何其他 O(1) Redis 命令（如 `GET` 或 `INCR`）一样快。
+
+当 bitmap 很大时，有两种选择：
+
+* 将一个大的 bitmap 分散到不同的 key 中，作为小的 bitmap 来处理。使用 Lua 脚本可以很方便地完成这一工作。
+* 使用 `BITCOUNT`  start 和 end 参数，每次只对所需的部分位进行计算，将位的累积工作(accumulating)放到客户端进行，并且对结果进行缓存 (caching)。
+
+== 历史
+
+* 从 Redis 版本 7.0.0 开始：添加了 BYTE|BIT 选项。
