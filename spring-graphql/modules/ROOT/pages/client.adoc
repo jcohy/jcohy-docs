@@ -1,0 +1,458 @@
+[[client]]
+= Client
+
+Spring for GraphQL includes client support for executing GraphQL requests over HTTP,
+WebSocket, and RSocket.
+
+
+
+[[client.graphqlclient]]
+== `GraphQlClient`
+
+`GraphQlClient` is a contract that declares a common workflow for GraphQL requests that is
+independent of the underlying transport. That means requests are executed with the same API
+no matter what the underlying transport, and anything transport specific is configured at
+build time.
+
+To create a `GraphQlClient` you need one of the following extensions:
+
+- xref:client.adoc#client.httpgraphqlclient[HttpGraphQlClient]
+- xref:client.adoc#client.websocketgraphqlclient[WebSocketGraphQlClient]
+- xref:client.adoc#client.rsocketgraphqlclient[RSocketGraphQlClient]
+
+Each defines a `Builder` with options relevant to the transport. All builders extend
+from a common, base GraphQlClient xref:client.adoc#client.graphqlclient.builder[`Builder`] with options
+relevant to all extensions.
+
+Once you have a `GraphQlClient` you can begin to make xref:client.adoc#client.requests[requests].
+
+
+[[client.httpgraphqlclient]]
+=== HTTP
+
+`HttpGraphQlClient` uses
+{spring-framework-ref-docs}/web/webflux-webclient.html[WebClient] to execute
+GraphQL requests over HTTP.
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+WebClient webClient = ... ;
+HttpGraphQlClient graphQlClient = HttpGraphQlClient.create(webClient);
+----
+
+Once `HttpGraphQlClient` is created, you can begin to
+xref:client.adoc#client.requests[execute requests] using the same API, independent of the underlying
+transport. If you need to change any transport specific details, use `mutate()` on an
+existing `HttpGraphQlClient` to create a new instance with customized settings:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+    WebClient webClient = ... ;
+
+	HttpGraphQlClient graphQlClient = HttpGraphQlClient.builder(webClient)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Perform requests with graphQlClient...
+
+	HttpGraphQlClient anotherGraphQlClient = graphQlClient.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Perform requests with anotherGraphQlClient...
+
+----
+
+
+
+[[client.websocketgraphqlclient]]
+=== WebSocket
+
+`WebSocketGraphQlClient` executes GraphQL requests over a shared WebSocket connection.
+It is built using the
+{spring-framework-ref-docs}/web/webflux-websocket.html#webflux-websocket-client[WebSocketClient]
+from Spring WebFlux and you can create it as follows:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String url = "wss://localhost:8080/graphql";
+	WebSocketClient client = new ReactorNettyWebSocketClient();
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client).build();
+----
+
+In contrast to `HttpGraphQlClient`, the `WebSocketGraphQlClient` is connection oriented,
+which means it needs to establish a connection before making any requests. As you begin
+to make requests, the connection is established transparently. Alternatively, use the
+client's `start()` method to establish the connection explicitly before any requests.
+
+In addition to being connection-oriented, `WebSocketGraphQlClient` is also multiplexed.
+It maintains a single, shared connection for all requests. If the connection is lost,
+it is re-established on the next request or if `start()` is called again. You can also
+use the client's `stop()` method which cancels in-progress requests, closes the
+connection, and rejects new requests.
+
+TIP: Use a single `WebSocketGraphQlClient` instance for each server in order to have a
+single, shared connection for all requests to that server. Each client instance
+establishes its own connection and that is typically not the intent for a single server.
+
+Once `WebSocketGraphQlClient` is created, you can begin to
+xref:client.adoc#client.requests[execute requests] using the same API, independent of the underlying
+transport. If you need to change any transport specific details, use `mutate()` on an
+existing `WebSocketGraphQlClient` to create a new instance with customized settings:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI url = ... ;
+	WebSocketClient client = ... ;
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client)
+			.headers(headers -> headers.setBasicAuth("joe", "..."))
+			.build();
+
+	// Use graphQlClient...
+
+	WebSocketGraphQlClient anotherGraphQlClient = graphQlClient.mutate()
+			.headers(headers -> headers.setBasicAuth("peter", "..."))
+			.build();
+
+	// Use anotherGraphQlClient...
+
+----
+
+
+[[client.websocketgraphqlclient.interceptor]]
+==== Interceptor
+
+The https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md[GraphQL over WebSocket]
+protocol defines a number of connection oriented messages in addition to executing
+requests. For example, a client sends `"connection_init"` and the server responds with
+`"connection_ack"` at the start of a connection.
+
+For WebSocket transport specific interception, you can create a
+`WebSocketGraphQlClientInterceptor`:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	static class MyInterceptor implements WebSocketGraphQlClientInterceptor {
+
+		@Override
+		public Mono<Object> connectionInitPayload() {
+			// ... the "connection_init" payload to send
+		}
+
+		@Override
+		public Mono<Void> handleConnectionAck(Map<String, Object> ackPayload) {
+			// ... the "connection_ack" payload received
+		}
+
+	}
+----
+
+xref:client.adoc#client.interception[Register] the above interceptor as any other
+`GraphQlClientInterceptor` and use it also to intercept GraphQL requests, but note there
+can be at most one interceptor of type `WebSocketGraphQlClientInterceptor`.
+
+
+
+[[client.rsocketgraphqlclient]]
+=== RSocket
+
+`RSocketGraphQlClient` uses
+{spring-framework-ref-docs}/rsocket.html#rsocket-requester[RSocketRequester]
+to execute GraphQL requests over RSocket requests.
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI uri = URI.create("wss://localhost:8080/rsocket");
+	WebsocketClientTransport transport = WebsocketClientTransport.create(url);
+
+	RSocketGraphQlClient client = RSocketGraphQlClient.builder()
+			.clientTransport(transport)
+			.build();
+----
+
+In contrast to `HttpGraphQlClient`, the `RSocketGraphQlClient` is connection oriented,
+which means it needs to establish a session before making any requests. As you begin
+to make requests, the session is established transparently. Alternatively, use the
+client's `start()` method to establish the session explicitly before any requests.
+
+`RSocketGraphQlClient` is also multiplexed. It maintains a single, shared session for
+all requests.  If the session is lost, it is re-established on the next request or if
+`start()` is called again. You can also use the client's `stop()` method which cancels
+in-progress requests, closes the session, and rejects new requests.
+
+TIP: Use a single `RSocketGraphQlClient` instance for each server in order to have a
+single, shared session for all requests to that server. Each client instance
+establishes its own connection and that is typically not the intent for a single server.
+
+Once `RSocketGraphQlClient` is created, you can begin to
+xref:client.adoc#client.requests[execute requests] using the same API, independent of the underlying
+transport.
+
+
+
+[[client.graphqlclient.builder]]
+=== Builder
+
+`GraphQlClient` defines a parent `Builder` with common configuration options for the
+builders of all extensions. Currently, it has lets you configure:
+
+- `DocumentSource` strategy to load the document for a request from a file
+- xref:client.adoc#client.interception[Interception] of executed requests
+
+
+
+
+[[client.requests]]
+== Requests
+
+Once you have a xref:client.adoc#client.graphqlclient[`GraphQlClient`], you can begin to perform requests via
+xref:client.adoc#client.requests.retrieve[retrieve()] or xref:client.adoc#client.requests.execute[execute()]
+where the former is only a shortcut for the latter.
+
+
+
+[[client.requests.retrieve]]
+=== Retrieve
+
+The below retrieves and decodes the data for a query:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	String document = "{" +
+			"  project(slug:\"spring-framework\") {" +
+			"	name" +
+			"	releases {" +
+			"	  version" +
+			"	}"+
+			"  }" +
+			"}";
+
+	Mono<Project> projectMono = graphQlClient.document(document) <1>
+			.retrieve("project") <2>
+			.toEntity(Project.class); <3>
+----
+<1> The operation to perform.
+<2> The path under the "data" key in the response map to decode from.
+<3> Decode the data at the path to the target type.
+
+The input document is a `String` that could be a literal or produced through a code
+generated request object. You can also define documents in files and use a
+xref:client.adoc#client.requests.document-source[Document Source] to resole them by file name.
+
+The path is relative to the "data" key and uses a simple dot (".") separated notation
+for nested fields with optional array indices for list elements, e.g. `"project.name"`
+or `"project.releases[0].version"`.
+
+Decoding can result in `FieldAccessException` if the given path is not present, or the
+field value is `null` and has an error. `FieldAccessException` provides access to the
+response and the field:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Mono<Project> projectMono = graphQlClient.document(document)
+			.retrieve("project")
+			.toEntity(Project.class)
+			.onErrorResume(FieldAccessException.class, ex -> {
+				ClientGraphQlResponse response = ex.getResponse();
+				// ...
+				ClientResponseField field = ex.getField();
+				// ...
+			});
+----
+
+
+
+[[client.requests.execute]]
+=== Execute
+
+xref:client.adoc#client.requests.retrieve[Retrieve] is only a shortcut to decode from a single path in the
+response map. For more control, use the `execute` method and handle the response:
+
+For example:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+
+	Mono<Project> projectMono = graphQlClient.document(document)
+			.execute()
+			.map(response -> {
+				if (!response.isValid()) {
+					// Request failure... <1>
+				}
+
+				ClientResponseField field = response.field("project");
+				if (!field.hasValue()) {
+					if (field.getError() != null) {
+						// Field failure... <2>
+					}
+					else {
+						// Optional field set to null... <3>
+					}
+				}
+
+				return field.toEntity(Project.class); <4>
+			});
+----
+<1> The response does not have data, only errors
+<2> Field that is `null` and has an associated error
+<3> Field that was set to `null` by its `DataFetcher`
+<4> Decode the data at the given path
+
+
+
+[[client.requests.document-source]]
+=== Document Source
+
+The document for a request is a `String` that may be defined in a local variable or
+constant, or it may be produced through a code generated request object.
+
+You can also create document files with extensions `.graphql` or `.gql` under
+`"graphql-documents/"` on the classpath and refer to them by file name.
+
+For example, given a file called `projectReleases.graphql` in
+`src/main/resources/graphql-documents`, with content:
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+.src/main/resources/graphql-documents/projectReleases.graphql
+----
+	query projectReleases($slug: ID!) {
+		project(slug: $slug) {
+			name
+			releases {
+				version
+			}
+		}
+	}
+----
+
+You can then:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Mono<Project> projectMono = graphQlClient.documentName("projectReleases") <1>
+			.variable("slug", "spring-framework") <2>
+			.retrieve()
+			.toEntity(Project.class);
+----
+<1> Load the document from "projectReleases.graphql"
+<2> Provide variable values.
+
+The "JS GraphQL" plugin for IntelliJ supports GraphQL query files with code completion.
+
+You can use the `GraphQlClient` xref:client.adoc#client.graphqlclient.builder[Builder] to customize the
+`DocumentSource` for loading documents by names.
+
+
+
+
+[[client.subscriptions]]
+== Subscription Requests
+
+`GraphQlClient` can execute subscriptions over transports that support it. Only
+the WebSocket and RSocket transports support GraphQL subscriptions, so you'll need to
+create a xref:client.adoc#client.websocketgraphqlclient[WebSocketGraphQlClient] or
+xref:client.adoc#client.rsocketgraphqlclient[RSocketGraphQlClient].
+
+
+
+[[client.subscriptions.retrieve]]
+=== Retrieve
+
+To start a subscription stream, use `retrieveSubscription` which is similar to
+xref:client.adoc#client.requests.retrieve[retrieve] for a single response but returning a stream of
+responses, each decoded to some data:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Flux<String> greetingFlux = client.document("subscription { greetings }")
+			.retrieveSubscription("greeting")
+			.toEntity(String.class);
+----
+
+The `Flux` may terminate with `SubscriptionErrorException` if the subscription  ends from
+the server side with an "error" message. The exception provides access to GraphQL errors
+decoded from the "error" message.
+
+The `Flux` may termiate with `GraphQlTransportException` such as
+`WebSocketDisconnectedException` if the underlying connection is closed or lost. In that
+case you can use the `retry` operator to restart the subscription.
+
+To end the subscription from the client side, the `Flux` must be cancelled, and in turn
+the WebSocket transport sends a "complete" message to the server. How to cancel the
+`Flux` depends on how it is used. Some operators such as `take` or `timeout` themselves
+cancel the `Flux`. If you subscribe to the `Flux` with a `Subscriber`, you can get a
+reference to the `Subscription` and cancel through it. The `onSubscribe` operator also
+provides access to the `Subscription`.
+
+
+[[client.subscriptions.execute]]
+=== Execute
+
+xref:client.adoc#client.subscriptions.retrieve[Retrieve] is only a shortcut to decode from a single path in each
+response map. For more control, use the `executeSubscription` method and handle each
+response directly:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	Flux<String> greetingFlux = client.document("subscription { greetings }")
+			.executeSubscription()
+			.map(response -> {
+				if (!response.isValid()) {
+					// Request failure...
+				}
+
+				ClientResponseField field = response.field("project");
+				if (!field.hasValue()) {
+					if (field.getError() != null) {
+						// Field failure...
+					}
+					else {
+						// Optional field set to null... <3>
+					}
+				}
+
+				return field.toEntity(String.class)
+			});
+----
+
+
+
+
+[[client.interception]]
+== Interception
+
+You create a `GraphQlClientInterceptor` to intercept all requests through a client:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+static class MyInterceptor implements GraphQlClientInterceptor {
+
+	@Override
+	public Mono<ClientGraphQlResponse> intercept(ClientGraphQlRequest request, Chain chain) {
+		// ...
+		return chain.next(request);
+	}
+
+	@Override
+	public Flux<ClientGraphQlResponse> interceptSubscription(ClientGraphQlRequest request, SubscriptionChain chain) {
+		// ...
+		return chain.next(request);
+	}
+
+}
+----
+
+Once the interceptor is created, register it through the client builder:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	URI url = ... ;
+	WebSocketClient client = ... ;
+
+	WebSocketGraphQlClient graphQlClient = WebSocketGraphQlClient.builder(url, client)
+			.interceptor(new MyInterceptor())
+			.build();
+----
+
