@@ -1,0 +1,186 @@
+=== Spring 数据集成之旅简史
+
+Spring 的数据集成之旅始于 https://projects.spring.io/spring-integration/[Spring Integration]。 凭借其编程模型，它提供了一致的开发人员体验，可以构建可以包含
+http://www.enterpriseintegrationpatterns.com/[企业集成模式] 以与外部系统（例如数据库、消息代理等）连接的应用程序。
+
+进入到云时代，微服务在企业环境中变得越来越重要。 https://projects.spring.io/spring-boot/[Spring Boot] 改变了开发人员构建应用程序的方式。 凭借 Spring 的编程模型和 Spring Boot 处理的运行时职责，可以无缝地开发独立的、生产级的基于 Spring 的微服务。
+
+为了将其扩展到数据集成工作负载，Spring Integration 和 Spring Boot 被合并到一个新项目中。 Spring Cloud Stream 诞生了。
+
+[%hardbreaks]
+使用 Spring Cloud Stream，开发人员可以:
+
+- 独立构建，测试，迭代和部署以数据为中心的应用程序.
+- 应用现代微服务架构模式，包括通过消息传递组合.
+- 将应用程序职责与以事件为中心的思维分开。事件可以表示及时发生的事情，下游消费者应用程序可以在不知道其来源或生产者身份的情况下做出响应。
+- 将业务逻辑移植到消息代理（例如 RabbitMQ，Apache Kafka，Amazon Kinesis）。
+- 依靠框架对常见用例的自动内容类型支持。可以扩展到不同的数据转换类型。
+- 等等. . .
+
+=== 快速入门
+
+在没有了解具体的细节之前，您也可以按照此三步指南在不到 5 分钟的时间内尝试使用 Spring Cloud Stream。
+
+我们将向您展示如何创建一个 Spring Cloud Stream 应用程序，该应用程序接收来自您选择的消息中间件的消息（稍后会详细介绍）并将收到的消息记录到控制台。
+
+我们称之为 `LoggingConsumer`。
+
+虽然不太实用，但它很好地介绍了一些主要概念和抽象，使您更容易理解本指南的其余部分。
+
+这三个步骤如下：
+
+. <<spring-cloud-stream-preface-creating-sample-application>>
+. <<spring-cloud-stream-preface-importing-project>>
+. <<spring-cloud-stream-preface-adding-message-handler>>
+
+[[spring-cloud-stream-preface-creating-sample-application]]
+==== 使用 Spring Initializr 创建示例应用程序
+
+访问 https://start.spring.io[Spring Initializr]. 从那里，您可以生成我们的 `LoggingConsumer` 应用程序。为此:
+
+. 在 *Dependencies* 部分, 输入 `stream`. 选择 "`Cloud Stream`" 选项.
+. 重新输入 'kafka' 或 'rabbit'.
+. 选择 "`Kafka`" 或 "`RabbitMQ`".
++
+基本上，您选择应用程序绑定的消息传递中间件。 我们建议使用您已经安装的版本，或者您觉得安装和运行更舒服的版本。
+此外，正如您从 Initilaizer 屏幕中看到的，还有一些其他选项可供选择。
+例如，您可以选择 Gradle 作为构建工具，而不是 Maven（默认）。
+. 在 *Artifact* 字段, 输入 'logging-consumer'.
++
+*Artifact* 将成为应用程序名.
+如果您选择 RabbitMQ 作为中间件，您的 Spring Initializr 现在应该如下所示：
+
+[%hardbreaks]
+[%hardbreaks]
+[%hardbreaks]
+image::spring-initializr.png[align="center"]
+
+[%hardbreaks]
+[%hardbreaks]
+
+. 点击 *Generate Project* 按钮.
++
+会生成项目的压缩包到您的电脑上
+. 将文件解压到项目的工作文件夹中。
+
+TIP: 我们鼓励您探索 Spring Initializr 中提供的多种可能性。
+它允许您创建许多不同类型的 Spring 应用程序。
+
+[[spring-cloud-stream-preface-importing-project]]
+==== 将项目导入您的 IDE
+
+现在您可以将项目导入到 IDE 中。
+请记住，根据 IDE，您可能需要遵循特定的导入过程。
+例如，根据项目的生成方式（Maven 或 Gradle），您可能需要遵循特定的导入过程（例如，在 Eclipse 或 STS 中，您需要使用 File -> Import -> Maven -> Existing Maven Project） 。
+
+导入之后, 该项目必须没有任何类型的错误。 `src/main/java` 应该包含 `com.example.loggingconsumer.LoggingConsumerApplication`.
+
+从技术上讲，此时，您可以运行应用程序。 它已经是一个有效的 Spring Boot 应用程序。 然而，它没有做任何事情，所以我们想添加一些代码。
+
+[[spring-cloud-stream-preface-adding-message-handler]]
+==== 添加消息处理器、构建并运行
+
+修改 `com.example.loggingconsumer.LoggingConsumerApplication` 类:
+
+[source, java]
+----
+@SpringBootApplication
+public class LoggingConsumerApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(LoggingConsumerApplication.class, args);
+	}
+
+	@Bean
+	public Consumer<Person> log() {
+	    return person -> {
+	        System.out.println("Received: " + person);
+	    };
+	}
+
+	public static class Person {
+		private String name;
+		public String getName() {
+			return name;
+		}
+		public void setName(String name) {
+			this.name = name;
+		}
+		public String toString() {
+			return this.name;
+		}
+	}
+}
+----
+
+从上面可以看出:
+
+* 使用函数编程模型 (查看 <<Spring Cloud Function support>>) 将一个消息处理器定义为 `Consumer`.
+* 由框架将此处理器绑定到公开的目标 binder
+
+这样做还可以让您看到该框架的核心功能之一：它尝试自动将传入消息有效负载转换为 `Person` 类型。
+
+您现在拥有一个功能齐全的 Spring Cloud Stream 应用程序，它可以监听消息。
+
+从这里开始，为了简单起见，我们假设您在 <<spring-cloud-stream-preface-creating-sample-application,step one>> 中选择了 RabbitMQ。
+
+假设您已安装并运行 RabbitMQ，您可以通过在 IDE 中运行其 `main` 方法来启动应用程序。
+
+您应该看到以下输出:
+
+[source]
+----
+	--- [ main] c.s.b.r.p.RabbitExchangeQueueProvisioner : declaring queue for inbound: input.anonymous.CbMIwdkJSBO1ZoPDOtHtCg, bound to: input
+	--- [ main] o.s.a.r.c.CachingConnectionFactory       : Attempting to connect to: [localhost:5672]
+	--- [ main] o.s.a.r.c.CachingConnectionFactory       : Created new connection: rabbitConnectionFactory#2a3a299:0/SimpleConnection@66c83fc8. . .
+	. . .
+	--- [ main] o.s.i.a.i.AmqpInboundChannelAdapter      : started inbound.input.anonymous.CbMIwdkJSBO1ZoPDOtHtCg
+	. . .
+	--- [ main] c.e.l.LoggingConsumerApplication         : Started LoggingConsumerApplication in 2.531 seconds (JVM running for 2.897)
+----
+
+转到 RabbitMQ 管理控制台或任何其他 RabbitMQ 客户端并向 `input.anonymous.CbMIwdkJSBO1ZoPDOtHtCg` 发送消息。
+
+`anonymous.CbMIwdkJSBO1ZoPDOtHtCg` 代表组名，是自动生成的，因此在您的环境中必然会有所不同。
+
+为了更可预测，您可以通过设置 `spring.cloud.stream.bindings.input.group=hello` （或您喜欢的任何名称）来显式使用组名称。
+
+消息的内容应该是 `Person` 类的 JSON 表示形式，如下所示：
+
+
+	{"name":"Sam Spade"}
+
+然后，在你的控制台中，你应该看到:
+
+`Received: Sam Spade`
+
+您还可以构建应用程序并将其打包到启动 jar 中（通过使用 `./mvnw clean install`），并使用 `java -jar` 命令运行构建的 JAR。
+
+现在您已经有了一个可以运行的（尽管非常基本）Spring Cloud Stream 应用程序。
+
+[[spring-cloud-stream-preface-notable-deprecations]]
+== 值得注意的弃用
+
+- 基于注解的编程模型。 基本上，`@EnableBinding`、`@StreamListener` 和所有相关注解现在已被弃用，取而代之的是函数式编程模型。 更多详情请参见 <<Spring Cloud Function support>> 。
+- _Reactive module_ (`spring-cloud-stream-reactive`) 已经停止并且不在分发， 为了 spring-cloud-function 的本地支持。
+
+为了向后兼容，您仍然可以从以前的版本中引入 `spring-cloud-stream-reactive`。
+- _Test support binder_ `spring-cloud-stream-test-support` 与 `MessageCollector` 有利于新的测试 binder。 详细信息请参阅 <<Testing>>。
+- _@StreamMessageConverter_ - 已弃用，因为不再需要它。
+
+[[spel-and-streaming-data]]
+
+== 流数据上下文中的 Spring 表达式语言 (SpEL)
+
+在本参考手册中，您将遇到许多可以利用 Spring 表达式语言 (SpEL) 的功能和示例。 在使用它时了解某些限制非常重要。
+
+SpEL 使您可以访问当前消息以及正在运行的应用程序上下文。 然而，了解 SpEL 可以看到什么类型的数据非常重要，尤其是在传入消息的上下文中。
+消息以 `byte[]` 的形式从代理处到达。 然后它被绑定器转换为 `Message<byte[]>`，您可以看到消息的有效负载保持其原始形式。 消息头是 `<String, Object>`，其中值通常是另一个原始类型或原始类型的集合/数组， 因此是 Object。
+这是因为 binder 不知道所需的输入类型，因为它无法访问用户代码（函数）。 因此，Binder 有效地传递了一个带有有效负载和一些以消息头形式存在的可读元数据的信封，就像通过邮件传递的信件一样。
+这意味着虽然可以访问消息的有效负载，但您只能将其作为原始数据（即 byte[]）进行访问。 虽然开发人员要求 SpEL 能够以具体类型（例如 Foo、Bar 等）访问有效负载对象的字段的情况可能很常见， 但您可以看到实现它是多么困难甚至不可能。
+这是一个演示该问题的示例； 想象一下，您有一个路由表达式，可以根据负载类型路由到不同的函数。 此要求意味着有效负载从 byte[] 转换为特定类型，然后应用 SpEL。 然而，为了执行这种转换，我们需要知道传递给转换器的实际类型，
+并且该类型来自我们不知道是哪一个函数的签名。 解决此要求的更好方法是将类型信息作为消息头传递（例如，`application/json;type=foo.bar.Baz`）。
+您将获得一个清晰可读的字符串值，可以在一年内访问和评估，以及易于阅读的 SpEL 表达式。
+
+此外，使用有效负载进行路由决策被认为是非常糟糕的做法，因为有效负载被认为是特殊数据 - 只能由其最终接收者读取的数据。再次，使用邮件投递类比，您不希望邮递员打开您的信封并阅读信件的内容来做出一些投递决定。
+同样的概念也适用于此，特别是当生成消息时包含此类信息相对容易时。 它强制执行与通过网络传输的数据设计相关的一定程度的纪律，以及此类数据的哪些部分可以被视为公共数据，哪些数据是特殊数据。
