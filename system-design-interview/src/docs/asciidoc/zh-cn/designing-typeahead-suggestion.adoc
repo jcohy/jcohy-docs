@@ -156,43 +156,44 @@ Each parent node will merge results from all of its children to figure out its t
 ----
 
 [[data_partition]]
-=== 6. Data Partition
+=== 6. 数据分区
 
-Although our index can easily fit on one server, we can still partition it in order to meet our requirements of higher efficiency and lower latencies.
-How can we efficiently partition our data to distribute it onto multiple servers?
+尽管我们的索引可以很简单地放在一台服务器上，但我们仍然可以对其进行分区，以满足高可用和低延迟的需求。
+我们如何有效地对数据进行分区，将其分发到多个服务器上？
 
-a. *Range Based Partitioning:* What if we store our phrases in separate partitions based on their first letter.
-So we save all the terms starting with the letter ‘A’ in one partition and those that start with the letter ‘B’ into another partition and so on.
-We can even combine certain less frequently occurring letters into one database partition.
-We should come up with this partitioning scheme statically so that we can always store and search terms in a predictable manner.
+a. *基于范围的分区：* 如果我们根据短语的第一个字母将其存储在不同的分区中，会怎么样呢。
+因此，我们将所有以字母“A”开头的短语保存在一个分区中，将那些以字母“B”开头的短语保存到另一个分区，以此类推。
+我们甚至可以将某些不太频繁出现的字母组合到一个数据库分区中。
+我们应该静态地提出这个划分方案，这样我们就可以始终以可预测的方式存储和搜索术语。 +
+这种方法的主要问题是，它可能会导致服务器负载失衡，
+例如，如果我们决定将所有以字母“E”开头的术语放在一个DB分区中，但后来发现，
+有太多以字母“E”开头的词项，以至于无法将其放入一个数据库分区中。
 +
-The main problem with this approach is that it can lead to unbalanced servers, for instance, if we decide to put all terms starting with the letter ‘E’ into a DB partition, but later we realize that we have too many terms that start with letter ‘E’ that we can’t fit into one DB partition.
-+
-We can see that the above problem will happen with every statically defined scheme.
-It is not possible to calculate if each of our partitions will fit on one server statically.
+我们可以看到，每个静态定义的方案都会出现上述问题。无法静态地计算我们的每个分区是否适合一台服务器。
 
-b. *Partition based on the maximum capacity of the server:* Let’s say we partition our trie based on the maximum memory capacity of the servers.
-We can keep storing data on a server as long as it has memory available.
-Whenever a sub-tree cannot fit into a server, we break our partition there to assign that range to this server and move on the next server to repeat this process.
-Let’s say if our first trie server can store all terms from ‘A’ to ‘AABC’, which mean our next server will store from ‘AABD’ onwards.
-If our second server could store up to ‘BXA’, the next server will start from ‘BXB’, and so on.
-We can keep a hash table to quickly access this partitioning scheme: +
-Server 1, A-AABC +
-Server 2, AABD-BXA +
-Server 3, BXB-CDA +
-For querying, if the user has typed ‘A’ we have to query both server 1 and 2 to find the top suggestions.
-When the user has typed ‘AA’, we still have to query server 1 and 2, but when the user has typed ‘AAA’ we only need to query server 1.
+b. *基于服务器的最大容量进行分区：* 假设我们根据服务器的最大内存容量对trie进行分区。
+只要服务器有可用的内存，我们就可以继续在服务器上存储数据。
+每当子树无法放入服务器时，我们就会在那里打破分区，将该范围分配给该服务器，然后转到下一台服务器上重复此过程。
+假设我们的第一个trie服务器可以存储从“A”到“AABC”的所有术语，这意味着我们的下一个服务器将从“AABD”开始存储。
+如果我们的第二台服务器最多可以存储“BXA”，那么下一台服务器将从“BXB”开始，以此类推。
+我们可以保留一个哈希表来快速访问这个分区方案： +
+服务器1，A-AABC +
+服务器2，AABD-BXA +
+服务器3，BXB-CDA +
+对于查询，如果用户键入了“A”，我们必须同时查询服务器1和2以查找最热门的建议。
+当用户键入“AA”时，我们仍然需要查询服务器1和2，但当用户键入了“AAA”时，只需要查询服务器1。
 +
-We can have a load balancer in front of our trie servers which can store this mapping and redirect traffic.
-Also, if we are querying from multiple servers, either we need to merge the results at the server side to calculate overall top results or make our clients do that.
-If we prefer to do this on the server side, we need to introduce another layer of servers between load balancers and trie severs (let’s call them aggregator).
-These servers will aggregate results from multiple trie servers and return the top results to the client.
+我们可以在trie服务器前面安装一个负载均衡器，它可以存储此映射并重定向流量。
+此外，如果我们从多个服务器进行查询，要么我们需要在服务器端合并结果以计算总体顶部结果，要么让我们的客户端这样做。
+如果我们更喜欢在服务器端这样做，我们需要在负载均衡器和trie服务器之间引入另一层服务器（我们称之为聚合器）。
+这些服务器将聚合来自多个trie服务器的结果，并将顶部结果返回给客户端。
 +
-Partitioning based on the maximum capacity can still lead us to hotspots, e.g., if there are a lot of queries for terms starting with ‘cap’, the server holding it will have a high load compared to others.
+基于最大容量的分区仍然会引起热点问题，例如，如果有很多以“cap”开头的术语的查询，那么与其他服务器相比，拥有它的服务器将具有较高的负载。
 
-c. *Partition based on the hash of the term:* Each term will be passed to a hash function, which will generate a server number and we will store the term on that server.
-This will make our term distribution random and hence minimize hotspots.
-To find typeahead suggestions for a term we have to ask all the servers and then aggregate the results.
+c. *基于术语哈希的分区：* 每个术语都将传递给一个哈希函数，该函数将生成一个服务器编号，我们将该术语存储在该服务器上。
+这将使我们的术语分布随机，从而最大限度地减少热点问题。
+为了找到一个术语的输入建议，我们必须询问所有服务器，然后汇总结果。
+
 
 [[cache]]
 === 7. Cache
